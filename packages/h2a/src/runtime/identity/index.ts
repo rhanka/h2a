@@ -10,6 +10,7 @@ export {
   CODEX_INDEX_TAIL_BYTES,
   MAX_DISPLAY_NAME_CHARS,
   createHostSessionNameRefresher,
+  defaultHostNameReaders,
   defaultProviderSessionReaders,
   readHostSessionName
 } from "./readers.js";

@@ -342,7 +342,13 @@ function currentMcp(a, server, transports, item, config = {}) {
   const direct = target === realpathSync(a.cli);
   let viaNode = false;
   if (target === realpathSync(process.execPath) && typeof command[1] === 'string') {
-    try { viaNode = realpathSync(resolve(context.cwd, command[1])) === realpathSync(a.cli); }
+    try {
+      const scriptReal = realpathSync(resolve(context.cwd, command[1]));
+      viaNode = scriptReal === realpathSync(a.cli) ||
+        (Boolean(item.pluginRoot) &&
+          scriptReal === realpathSync(join(item.pluginRoot, 'scripts/h2a-bridge-shim.mjs')) &&
+          executable(context, 'h2a') === realpathSync(a.cli));
+    }
     catch { /* An unresolved script cannot be the current installed candidate. */ }
   }
   if (!(direct || viaNode)) return false;
@@ -366,7 +372,12 @@ function pluginMcp(a, root, host, transports) {
   if (!declared) return false;
   const config = typeof declared === 'string' ? json(join(root, declared)) : { mcpServers: declared };
   const servers = entries(config);
-  return servers.length > 0 && servers.every(([, server]) => currentMcp(a, server, transports, { host }, config));
+  return servers.length > 0 && servers.every(([, server]) => {
+    const expanded = host === 'claude' && Array.isArray(server?.args)
+      ? { ...server, args: server.args.map(arg => typeof arg === 'string' ? arg.replace(/^\$\{CLAUDE_PLUGIN_ROOT\}(?=[\\/])/, root) : arg) }
+      : server;
+    return currentMcp(a, expanded, transports, { host, pluginRoot: root }, config);
+  });
 }
 
 export function observeHosts(a, inventory) {

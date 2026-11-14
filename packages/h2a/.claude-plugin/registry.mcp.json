@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "h2a": {
-      "command": "h2a",
+      "command": "node",
       "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/h2a-bridge-shim.mjs",
         "registry-bridge",
         "serve",
         "--host",

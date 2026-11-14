@@ -32,11 +32,16 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join, relative } from "node:path";
+import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 
+import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import type { H2ASession } from "../session.js";
 import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
 import { currentCliVersion } from "../runtime/upgrade/index.js";
+import { defaultPluginBridgeLockPath, findVerifiedPluginVersionDir, resolveClaudeConfigPath } from "../registry/bridge-lock.js";
+import type { RegistryEntry } from "../registry/descriptors.js";
+import { ensureLocalBinH2aFallback, readPluginDeclaration, rebootstrapMissingPluginLock, type LocalBinFallbackDiagnostics } from "../registry/host-bootstrap.js";
+import { registryPackageManifest } from "../registry/manifest.js";
 import { CLAUDE_NATIVE_MCP_ROOT_KEY } from "./installation-doctor-contract.js";
 
 export const H2A_PLUGIN_SELECTOR = "h2a@sentropic";
@@ -93,6 +98,8 @@ export interface HostInstallationDoctorOptions {
     readonly beforeRename?: (path: string, temporaryPath: string) => void;
     readonly rename?: (temporaryPath: string, path: string) => void;
   };
+  /** Optional stderr sink for PATH fallback link diagnostics during repair. */
+  readonly stderr?: { write(text: string): void };
 }
 
 export interface HostInstallationFinding {
@@ -153,6 +160,23 @@ export interface HostInstallationReport {
   readonly repairMarkerPath: string;
   /** Durable fact recorded after this host installation was repaired. */
   readonly repairMarker?: HostRepairMarker;
+  /** Plugin bridge lock status recorded when doctor --repair runs. */
+  readonly bridgeLock?: {
+    readonly lockPath: string;
+    readonly action: "provisioned" | "already-present" | "refused";
+    readonly error?: string;
+    readonly pathFallback?: {
+      readonly linked: string | null;
+      readonly warning?: string;
+      readonly rejected?: readonly string[];
+    };
+  };
+  /** PATH fallback link status (`~/.local/bin/h2a`) recorded when doctor --repair runs. */
+  readonly pathFallback?: {
+    readonly linked: string | null;
+    readonly warning?: string;
+    readonly rejected?: readonly string[];
+  };
 }
 
 export interface HostInstallationDoctorReport {
@@ -227,6 +251,21 @@ interface MutableHostReport {
   plannedActions: string[];
   repairMarkerPath: string;
   repairMarker?: HostRepairMarker;
+  bridgeLock?: {
+    readonly lockPath: string;
+    readonly action: "provisioned" | "already-present" | "refused";
+    readonly error?: string;
+    readonly pathFallback?: {
+      readonly linked: string | null;
+      readonly warning?: string;
+      readonly rejected?: readonly string[];
+    };
+  };
+  pathFallback?: {
+    readonly linked: string | null;
+    readonly warning?: string;
+    readonly rejected?: readonly string[];
+  };
 }
 
 interface TomlTable {
@@ -2370,6 +2409,96 @@ function claudeReplacementIsReady(home: string, version: string): boolean {
   );
 }
 
+function ensurePluginBridgeLockForDoctor(
+  home: string,
+  host: "claude" | "codex",
+  report: MutableHostReport,
+  dryRun: boolean,
+  stderr: { write(text: string): void } = process.stderr
+): void {
+  if (dryRun) return;
+  const fallbackDiag: LocalBinFallbackDiagnostics = {};
+  try {
+    ensureLocalBinH2aFallback(home, process.env, stderr, fallbackDiag);
+  } catch {
+    /* best-effort PATH fallback link */
+  }
+  const pathFallback =
+    fallbackDiag.linked !== undefined || fallbackDiag.warning !== undefined
+      ? {
+          linked: fallbackDiag.linked ?? null,
+          ...(fallbackDiag.warning ? { warning: fallbackDiag.warning } : {}),
+          ...(fallbackDiag.rejected && fallbackDiag.rejected.length > 0 ? { rejected: fallbackDiag.rejected } : {})
+        }
+      : undefined;
+  if (pathFallback) {
+    report.pathFallback = pathFallback;
+  }
+  const cacheDir = host === "claude"
+    ? join(claudeRoot(home), "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a")
+    : join(codexRoot(home), "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a");
+  if (!existsSync(cacheDir)) return;
+  const pluginDir = findVerifiedPluginVersionDir(cacheDir, host, (dir) => {
+    try {
+      readPluginDeclaration(host, dir, "default");
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const savedHome = process.env.HOME;
+  const savedXdgConfig = process.env.XDG_CONFIG_HOME;
+  try {
+    if (savedHome?.trim() !== home) {
+      process.env.HOME = home;
+      delete process.env.XDG_CONFIG_HOME;
+    }
+    const lockPath = defaultPluginBridgeLockPath(host, "default");
+    if (!pluginDir) {
+      report.bridgeLock = {
+        lockPath,
+        action: "refused",
+        error: `no verified ${host} plugin declaration found under ${cacheDir}`,
+        ...(pathFallback ? { pathFallback } : {})
+      };
+      return;
+    }
+    const configPath = host === "claude" ? resolveClaudeConfigPath(home) : codexConfigPath(home);
+    const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+    const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+    const result = rebootstrapMissingPluginLock({
+      host,
+      configPath,
+      profile: "default",
+      pluginDir,
+      h2aEntry,
+      trackEntry
+    });
+    report.bridgeLock = {
+      lockPath: result.lockPath,
+      action: result.lockAction,
+      ...(pathFallback ? { pathFallback } : {})
+    };
+  } catch (err) {
+    try {
+      const lockPath = defaultPluginBridgeLockPath(host, "default");
+      report.bridgeLock = {
+        lockPath,
+        action: "refused",
+        error: (err as Error).message,
+        ...(pathFallback ? { pathFallback } : {})
+      };
+    } catch {
+      /* ignore */
+    }
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedXdgConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdgConfig;
+  }
+}
+
 function repairCodex(
   home: string,
   version: string,
@@ -2377,7 +2506,8 @@ function repairCodex(
   writeMarker: (path: string, content: string) => void,
   dryRun: boolean,
   testConfigurationWrite?: TestConfigurationWrite,
-  nativeCliReachable: boolean = true
+  nativeCliReachable: boolean = true,
+  stderr: { write(text: string): void } = process.stderr
 ): MutableHostReport {
   const before = inspectCodex(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -2426,12 +2556,14 @@ function repairCodex(
         "cannot safely remove existing Codex endpoints because the canonical replacement was not verified."
       ));
     }
+    ensurePluginBridgeLockForDoctor(home, "codex", before, dryRun, stderr);
     return combineAfterRepair(before, inspectCodex(home, version));
   }
   repairCodexConfig(home, before, { dryRun, testConfigurationWrite });
   if (before.unrepaired.some((entry) => entry.code === "config-invalid")) {
     return combineAfterRepair(before, inspectCodex(home, version));
   }
+  ensurePluginBridgeLockForDoctor(home, "codex", before, dryRun, stderr);
   // v1 deliberately retains legacy orphan caches. A stale version underneath
   // the canonical, verified cache remains part of the normal version repair.
   const cache = join(codexRoot(home), "plugins", "cache");
@@ -2461,7 +2593,8 @@ function repairClaude(
   dryRun: boolean,
   testClaudePluginUninstalls: readonly string[],
   testConfigurationWrite?: TestConfigurationWrite,
-  nativeCliReachable: boolean = true
+  nativeCliReachable: boolean = true,
+  stderr: { write(text: string): void } = process.stderr
 ): MutableHostReport {
   const before = inspectClaude(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -2499,6 +2632,7 @@ function repairClaude(
         "cannot safely remove existing Claude endpoints because the canonical replacement was not verified."
       ));
     }
+    ensurePluginBridgeLockForDoctor(home, "claude", before, dryRun, stderr);
     return combineAfterRepair(before, inspectClaude(home, version));
   }
 
@@ -2508,6 +2642,7 @@ function repairClaude(
   ) {
     return combineAfterRepair(before, inspectClaude(home, version));
   }
+  ensurePluginBridgeLockForDoctor(home, "claude", before, dryRun, stderr);
   const repairedKnown = readJson(knownPath).value ?? {};
   const repairedInstalled = readJson(installedPath).value ?? {};
   for (const marketplace of Object.keys(repairedKnown).filter(isLegacySentropicName)) {
@@ -2561,7 +2696,9 @@ function combineAfterRepair(before: MutableHostReport, after: MutableHostReport)
     unrepaired,
     coherencePaths: [...new Set([...before.coherencePaths, ...after.coherencePaths])],
     plannedActions: [...new Set([...before.plannedActions, ...after.plannedActions])],
-    repairMarker: after.repairMarker ?? before.repairMarker
+    repairMarker: after.repairMarker ?? before.repairMarker,
+    bridgeLock: after.bridgeLock ?? before.bridgeLock,
+    pathFallback: after.pathFallback ?? before.pathFallback
   };
 }
 
@@ -2588,7 +2725,9 @@ function freezeReport(report: MutableHostReport): HostInstallationReport {
     coherencePaths: report.coherencePaths,
     plannedActions: report.plannedActions,
     repairMarkerPath: report.repairMarkerPath,
-    ...(report.repairMarker ? { repairMarker: report.repairMarker } : {})
+    ...(report.repairMarker ? { repairMarker: report.repairMarker } : {}),
+    ...(report.bridgeLock ? { bridgeLock: report.bridgeLock } : {}),
+    ...(report.pathFallback ? { pathFallback: report.pathFallback } : {})
   };
 }
 
@@ -2602,6 +2741,7 @@ export function doctorHostInstallations(
   const dryRun = options.dryRun === true;
   const runner = options.runHostCommand ?? defaultHostCommand;
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
+  const stderr = options.stderr ?? process.stderr;
   const inspectOrRepair = (host: Host): MutableHostReport => {
     const artifacts = hostConfigurationArtifacts(home, host);
     const cli = hostCliCanRunNativeRepair(host, options.runHostCommand !== undefined, options.testHostCliReachable);
@@ -2626,7 +2766,8 @@ export function doctorHostInstallations(
           dryRun,
           options.testClaudePluginUninstalls ?? [],
           options.testConfigurationWrite,
-          cliReachable
+          cliReachable,
+          stderr
         )
         : inspectClaude(home, version);
       // `testHostCliReachable` deliberately models only CLI presence for
@@ -2644,7 +2785,7 @@ export function doctorHostInstallations(
       }
     } else {
       report = repair
-        ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite, cliReachable)
+        ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite, cliReachable, stderr)
         : inspectCodex(home, version);
       // `testHostCliReachable` deliberately models only CLI presence for
       // hermetic fixture tests.  It must not accidentally query a developer's

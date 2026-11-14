@@ -10,8 +10,9 @@
  * serve time, no secrets, no URLs to execute. R7a supersedes this file; the
  * format string keeps them distinct so no reader confuses the two.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { canonicalJson, normalizeConfiguration, sha256Hex, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { registryPackageManifest } from "./manifest.js";
@@ -57,11 +58,11 @@ export function defaultBridgeLockPath(configPath: string): string {
  */
 export function pluginBridgeConfigBase(): string {
   const xdg = process.env.XDG_CONFIG_HOME?.trim();
-  if (xdg) return xdg;
+  if (xdg && isAbsolute(xdg)) return xdg;
   const home = process.env.HOME?.trim();
-  if (home) return join(home, ".config");
+  if (home && isAbsolute(home)) return join(home, ".config");
   throw Object.assign(
-    new Error("missing_lock: cannot resolve the plugin default lock location without XDG_CONFIG_HOME or HOME"),
+    new Error("missing_lock: cannot resolve the plugin default lock location without an absolute XDG_CONFIG_HOME or HOME"),
     { code: "missing_lock" }
   );
 }
@@ -91,24 +92,42 @@ export function defaultBridgeConfigs(): Record<string, Record<string, unknown>> 
   };
 }
 
+export interface ProvisionBridgeLockOptions {
+  lockPath: string;
+  host?: string;
+  profile?: string;
+  bridge?: { command: string; args: string[] };
+  h2aEntry?: RegistryEntry;
+  trackEntry?: RegistryEntry;
+  memory?: { entry: RegistryEntry; config: Record<string, unknown> };
+}
+
 /**
  * Provision the default full-tuple lock when absent. An existing lock is
  * never rewritten here (rotation is an explicit later operator action).
+ * Uses atomic write-temp + hardlink (`linkSync`) so parallel startups never
+ * observe a partial lock or overwrite an existing lock.
  */
-export function provisionBridgeLock(options: {
-  lockPath: string;
-  host: string;
-  profile: string;
-  bridge: { command: string; args: string[] };
-  h2aEntry: RegistryEntry;
-  trackEntry: RegistryEntry;
-  memory?: { entry: RegistryEntry; config: Record<string, unknown> };
-}): { lockPath: string; action: "provisioned" | "already-present" } {
-  if (existsSync(options.lockPath)) return { lockPath: options.lockPath, action: "already-present" };
+export function provisionBridgeLock(
+  optionsOrPath: ProvisionBridgeLockOptions | string
+): { lockPath: string; action: "provisioned" | "already-present" } {
+  const options: ProvisionBridgeLockOptions = typeof optionsOrPath === "string"
+    ? { lockPath: optionsOrPath }
+    : optionsOrPath;
+  const lockPath = options.lockPath;
+  if (existsSync(lockPath)) return { lockPath, action: "already-present" };
+  const host = options.host ?? "claude";
+  const profile = options.profile ?? "default";
+  const bridge = options.bridge ?? {
+    command: "h2a",
+    args: ["registry-bridge", "serve", "--host", host, "--profile", profile, "--wake", "auto", "--auto-open", "--auto-upgrade"]
+  };
+  const h2aEntry = options.h2aEntry ?? (registryPackageManifest.entries[0] as unknown as RegistryEntry);
+  const trackEntry = options.trackEntry ?? (trackRegistryPackageManifest.entries[0] as unknown as RegistryEntry);
   const configs = defaultBridgeConfigs();
   const entries: BridgeLock["entries"] = {};
   if (options.memory) configs[MEMORY_PROVIDER_ID] = options.memory.config;
-  const selectedEntries = [options.h2aEntry, options.trackEntry, ...(options.memory ? [options.memory.entry] : [])];
+  const selectedEntries = [h2aEntry, trackEntry, ...(options.memory ? [options.memory.entry] : [])];
   for (const entry of selectedEntries) {
     const { digest } = validateRegistryEntry(entry);
     const config = configs[entry.id] as Record<string, unknown>;
@@ -119,16 +138,31 @@ export function provisionBridgeLock(options: {
     format: BRIDGE_LOCK_FORMAT,
     lockVersion: 1,
     revision: 1,
-    host: options.host,
-    profile: options.profile,
-    bridge: options.bridge,
+    host,
+    profile,
+    bridge,
     selection: selectedEntries.map(entry => ({ kind: entry.kind, id: entry.id, entryVersion: entry.entryVersion })),
     entries,
     compatibility: { hostFeatures: [...new Set(["stdio", "streamable-http", ...(options.memory?.entry.compatibility.requiredHostFeatures ?? [])])], protocolVersions: ["2025-06-18"] }
   };
-  mkdirSync(dirname(options.lockPath), { recursive: true });
-  writeFileSync(options.lockPath, `${JSON.stringify(lock, null, 2)}\n`, { mode: 0o600 });
-  return { lockPath: options.lockPath, action: "provisioned" };
+  mkdirSync(dirname(lockPath), { recursive: true });
+  const tmpPath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
+  writeFileSync(tmpPath, `${JSON.stringify(lock, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  try {
+    linkSync(tmpPath, lockPath);
+    return { lockPath, action: "provisioned" };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "EEXIST") {
+      return { lockPath, action: "already-present" };
+    }
+    throw err;
+  } finally {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /** Read and closed-validate a bridge lock; rechecks pinned digests. */
@@ -184,4 +218,301 @@ export function validateBridgeLock(lock: BridgeLock, memoryEntry?: RegistryEntry
   }
   if (Object.keys(lock.entries).some(id => !seen.has(id))) throw new RegistryError("invalid_entry", "unselected bridge entry");
   return lock;
+}
+
+export function resolveClaudeConfigRoot(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.CLAUDE_CONFIG_DIR?.trim();
+  if (override && isAbsolute(override)) return override;
+  return join(home, ".claude");
+}
+
+export function resolveClaudeConfigPath(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.CLAUDE_CONFIG_DIR?.trim();
+  if (override && isAbsolute(override)) return join(override, ".claude.json");
+  return join(home, ".claude.json");
+}
+
+export function resolveCodexConfigRoot(home: string, env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.CODEX_HOME?.trim();
+  if (override && isAbsolute(override)) return override;
+  return join(home, ".codex");
+}
+
+export interface BridgeLockLivenessOptions {
+  home?: string;
+  configPath?: string;
+  ignoreConfigPath?: string;
+  checkPresence?: (host: string) => boolean | readonly string[];
+}
+
+export interface BridgeLockQuarantineOptions extends BridgeLockLivenessOptions {
+  reason?: string;
+  forceQuarantineCorrupt?: boolean;
+}
+
+export interface BridgeLockQuarantineResult {
+  action: "absent" | "preserved-live" | "quarantined" | "error";
+  lockPath: string;
+  quarantinePath?: string;
+  reason?: string;
+  error?: string;
+}
+
+export function compareSemverDesc(a: string, b: string): number {
+  const parse = (raw: string) => {
+    const withoutBuild = raw.replace(/^v/i, "").split("+")[0] ?? "";
+    const dashAt = withoutBuild.indexOf("-");
+    const coreStr = dashAt === -1 ? withoutBuild : withoutBuild.slice(0, dashAt);
+    const preStr = dashAt === -1 ? null : withoutBuild.slice(dashAt + 1);
+    const core = coreStr.split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : part));
+    const pre = preStr !== null ? preStr.split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : part)) : null;
+    return { core, pre };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  const maxCore = Math.max(pa.core.length, pb.core.length);
+  for (let i = 0; i < maxCore; i++) {
+    const va = pa.core[i] ?? 0;
+    const vb = pb.core[i] ?? 0;
+    if (va === vb) continue;
+    if (typeof va === "number" && typeof vb === "number") return vb - va;
+    return String(vb).localeCompare(String(va));
+  }
+  if (pa.pre === null && pb.pre === null) return b.localeCompare(a);
+  if (pa.pre === null) return -1;
+  if (pb.pre === null) return 1;
+  const maxPre = Math.max(pa.pre.length, pb.pre.length);
+  for (let i = 0; i < maxPre; i++) {
+    const va = pa.pre[i];
+    const vb = pb.pre[i];
+    if (va === undefined) return 1;
+    if (vb === undefined) return -1;
+    if (va === vb) continue;
+    if (typeof va === "number" && typeof vb === "number") return vb - va;
+    if (typeof va === "number") return 1;
+    if (typeof vb === "number") return -1;
+    return String(vb).localeCompare(String(va));
+  }
+  return b.localeCompare(a);
+}
+
+export function findVerifiedPluginVersionDir(
+  cacheDir: string,
+  host: string,
+  verifyCandidate?: (dir: string) => boolean
+): string | null {
+  const manifestSubdir = host === "claude" ? ".claude-plugin" : ".codex-plugin";
+  const check = verifyCandidate ?? ((dir: string) => existsSync(join(dir, manifestSubdir, "registry.mcp.json")));
+  try {
+    const versions = readdirSync(cacheDir).sort(compareSemverDesc);
+    for (const ver of versions) {
+      const candidate = join(cacheDir, ver);
+      if (check(candidate)) return candidate;
+    }
+  } catch {
+    /* absent */
+  }
+  return null;
+}
+
+function hasActivePluginCacheForHost(home: string, host: string): boolean {
+  if (host === "claude") {
+    const claudeRoot = resolveClaudeConfigRoot(home);
+    const installedPath = join(claudeRoot, "plugins", "installed_plugins.json");
+    try {
+      const installed = JSON.parse(readFileSync(installedPath, "utf8")) as Record<string, unknown>;
+      const plugins = isRecord(installed["plugins"]) ? installed["plugins"] : {};
+      const entries = plugins["h2a@sentropic"];
+      if (Array.isArray(entries)) {
+        for (const item of entries) {
+          if (isRecord(item) && typeof item["installPath"] === "string" && existsSync(item["installPath"])) {
+            return true;
+          }
+        }
+      }
+    } catch {
+      /* fall through to cache scan */
+    }
+    const cacheDir = join(claudeRoot, "plugins", "cache", "sentropic", "h2a");
+    if (findVerifiedPluginVersionDir(cacheDir, "claude") !== null) return true;
+  }
+  if (host === "codex") {
+    const codexRoot = resolveCodexConfigRoot(home);
+    const cacheDir = join(codexRoot, "plugins", "cache", "sentropic", "h2a");
+    if (findVerifiedPluginVersionDir(cacheDir, "codex") !== null) return true;
+  }
+  return false;
+}
+
+function hostConfigReferencesBridge(configPath: string): boolean {
+  if (existsSync(`${configPath}.h2a-registry.json`)) return true;
+  if (!existsSync(configPath)) return false;
+  try {
+    const raw = readFileSync(configPath, "utf8");
+    return raw.includes("registry-bridge");
+  } catch {
+    return false;
+  }
+}
+
+function inferHostProfileFromPluginLockPath(lockPath: string): { host: string; profile: string } | null {
+  const file = basename(lockPath);
+  if (!file.endsWith(".lock.json")) return null;
+  const profile = file.slice(0, -".lock.json".length);
+  const hostDir = dirname(lockPath);
+  const host = basename(hostDir);
+  const parent = dirname(hostDir);
+  if (basename(parent) !== "registry-bridge") return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(host) || !/^[A-Za-z0-9_-]+$/.test(profile)) return null;
+  return { host, profile };
+}
+
+/**
+ * Determine whether a bridge lock is currently live. No cleanup, repair, or
+ * uninstall path may delete a live bridge lock.
+ */
+export function isBridgeLockLive(
+  lockPath: string,
+  options: BridgeLockLivenessOptions = {}
+): { live: boolean; reason?: string } {
+  if (!existsSync(lockPath)) return { live: false };
+  let host: string | null = null;
+  let profile = "default";
+  try {
+    const parsed = JSON.parse(readFileSync(lockPath, "utf8")) as unknown;
+    if (isRecord(parsed)) {
+      if (typeof parsed["host"] === "string") host = parsed["host"];
+      if (typeof parsed["profile"] === "string") profile = parsed["profile"];
+    }
+  } catch {
+    /* unreadable lock metadata; fall back to path inspection */
+  }
+  if (!host) {
+    const inferred = inferHostProfileFromPluginLockPath(lockPath);
+    if (inferred) {
+      host = inferred.host;
+      profile = inferred.profile;
+    }
+  }
+  if (options.checkPresence) {
+    const candidateHosts = host ? [host] : ["claude", "codex"];
+    for (const h of candidateHosts) {
+      const presence = options.checkPresence(h);
+      if (presence) {
+        const sessionDetail = Array.isArray(presence) && presence.length > 0
+          ? ` (${presence.join(", ")})`
+          : "";
+        return {
+          live: true,
+          reason: `active session presence for host=${h}${sessionDetail}; close the active ${h} session(s) (inspect with: h2a sessions) and re-run the command`
+        };
+      }
+    }
+  }
+  const home = options.home ?? process.env.HOME?.trim();
+  if (host) {
+    try {
+      const defaultPluginLock = defaultPluginBridgeLockPath(host, profile);
+      if (resolve(lockPath) === resolve(defaultPluginLock)) {
+        const candidateConfigs = new Set<string>();
+        if (options.configPath) candidateConfigs.add(options.configPath);
+        if (home) {
+          if (host === "claude") {
+            candidateConfigs.add(resolveClaudeConfigPath(home));
+            candidateConfigs.add(join(home, ".claude.json"));
+            try {
+              candidateConfigs.add(join(pluginBridgeConfigBase(), "claude", "mcp.json"));
+            } catch {
+              /* ignore */
+            }
+          } else if (host === "codex") {
+            candidateConfigs.add(join(resolveCodexConfigRoot(home), "config.toml"));
+          }
+        }
+        for (const cfg of candidateConfigs) {
+          if (options.ignoreConfigPath && resolve(cfg) === resolve(options.ignoreConfigPath)) continue;
+          const receiptPath = `${cfg}.h2a-registry.json`;
+          if (!existsSync(receiptPath)) continue;
+          try {
+            const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as Record<string, unknown>;
+            if (receipt["mechanism"] !== "plugin" || (receipt["profile"] ?? "default") !== profile) continue;
+            const pluginMeta = isRecord(receipt["plugin"]) ? receipt["plugin"] : null;
+            const manifestPath = pluginMeta && typeof pluginMeta["manifest"] === "string" ? pluginMeta["manifest"] : null;
+            if (!manifestPath || existsSync(manifestPath)) {
+              return { live: true, reason: `plugin receipt active at ${receiptPath}` };
+            }
+          } catch {
+            /* ignore malformed receipt */
+          }
+        }
+        if (home && hasActivePluginCacheForHost(home, host)) {
+          return { live: true, reason: `installed ${host} plugin cache requires ${lockPath}` };
+        }
+      }
+    } catch {
+      /* ignore path resolution failure */
+    }
+  }
+  const inferredConfig = options.configPath ?? (lockPath.endsWith(".h2a-lock.json") ? lockPath.slice(0, -".h2a-lock.json".length) : undefined);
+  if (
+    inferredConfig &&
+    (!options.ignoreConfigPath || resolve(inferredConfig) !== resolve(options.ignoreConfigPath)) &&
+    hostConfigReferencesBridge(inferredConfig)
+  ) {
+    return { live: true, reason: `host config at ${inferredConfig} still references registry-bridge` };
+  }
+  return { live: false };
+}
+
+/**
+ * Quarantine a retired bridge lock instead of deleting it outright.
+ * Refuses to remove a live bridge lock (`action: "preserved-live"`).
+ * When a lock is retired, writes a byte-identical recoverable copy at
+ * `<lockPath>.quarantine-<ts>-<id>` (`0o600`, `wx`) and verifies the copy before
+ * unlinking `<lockPath>`.
+ */
+export function quarantineBridgeLock(
+  lockPath: string,
+  options: BridgeLockQuarantineOptions = {}
+): BridgeLockQuarantineResult {
+  if (!existsSync(lockPath)) {
+    return { action: "absent", lockPath };
+  }
+  try {
+    if (statSync(lockPath).isDirectory()) {
+      return { action: "preserved-live", lockPath, reason: "lockPath is a directory" };
+    }
+  } catch (err) {
+    return { action: "error", lockPath, error: (err as Error).message };
+  }
+  if (!options.forceQuarantineCorrupt) {
+    const liveness = isBridgeLockLive(lockPath, options);
+    if (liveness.live) {
+      return { action: "preserved-live", lockPath, reason: liveness.reason };
+    }
+  }
+  try {
+    const originalBytes = readFileSync(lockPath);
+    const suffix = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const quarantinePath = `${lockPath}.quarantine-${suffix}`;
+    writeFileSync(quarantinePath, originalBytes, { mode: 0o600, flag: "wx" });
+    const verifiedBytes = readFileSync(quarantinePath);
+    if (!verifiedBytes.equals(originalBytes)) {
+      throw new RegistryError("restore_failed", `quarantine copy verification failed for ${quarantinePath}`);
+    }
+    unlinkSync(lockPath);
+    return {
+      action: "quarantined",
+      lockPath,
+      quarantinePath,
+      ...(options.reason ? { reason: options.reason } : {})
+    };
+  } catch (err) {
+    return {
+      action: "error",
+      lockPath,
+      error: (err as Error).message,
+      ...(options.reason ? { reason: options.reason } : {})
+    };
+  }
 }

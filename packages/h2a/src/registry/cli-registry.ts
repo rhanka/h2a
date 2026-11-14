@@ -19,21 +19,57 @@
  * 0.98.7 lane policy; strict no-fallback enforcement for bridge launches
  * awaits the lane's R5-CA policy change (recorded NOT covered).
  */
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
-import { installBridgeEntry, previewInstall, uninstallBridgeEntry, verifyPluginInstall } from "./host-bootstrap.js";
-import { assertRegistryHost } from "./host-bootstrap.js";
-import { defaultBridgeLockPath, defaultPluginBridgeLockPath, readBridgeLock, type BridgeLock } from "./bridge-lock.js";
+import {
+  assertRegistryHost,
+  installBridgeEntry,
+  previewInstall,
+  readInstallReceipt,
+  rebootstrapMissingPluginLock,
+  resolveHostPluginContext,
+  uninstallBridgeEntry,
+  verifyPluginInstall
+} from "./host-bootstrap.js";
+import { defaultBridgeLockPath, defaultPluginBridgeLockPath, isBridgeLockLive, quarantineBridgeLock, readBridgeLock, type BridgeLock } from "./bridge-lock.js";
 import { normalizeConfiguration, RegistryError, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
-import { bridgeCentralAttachmentAdmitted } from "../runtime/mcp-central-policy.js";
+import { canonicalCentralRoot, diagnoseBridgeCentralAttachment } from "../runtime/mcp-central-policy.js";
+import { listPresence } from "../runtime/local-files/presence.js";
 import { MEMORY_PROVIDER_ID, resolveHostMemoryRegistration, type MemoryProviderRegistration } from "./memory-provider.js";
 import type { ComposeDaemonOptions } from "./sentropic-daemon.js";
 import type { McpServer } from "../runtime/mcp/server.js";
+
+function quoteShellPath(p: string): string {
+  return /[^A-Za-z0-9_./:@=-]/.test(p) ? `'${p.replace(/'/g, "'\\''")}'` : p;
+}
+
+function buildPresenceChecker(): (host: string) => boolean | readonly string[] {
+  return (targetHost: string): boolean | readonly string[] => {
+    try {
+      const root = canonicalCentralRoot(process.env);
+      const sessions = listPresence(root, { sweep: false });
+      const active = sessions
+        .filter((s) => (s.state === "live" || s.state === "opening" || s.state === "draining") && (!s.host || s.host === targetHost))
+        .map((s) => `${s.sessionId}${s.instance ? ` (${s.instance}, state=${s.state})` : ` (state=${s.state})`}`);
+      return active.length > 0 ? active : false;
+    } catch {
+      return false;
+    }
+  };
+}
+
+function configDeclaresRegistryBridge(configPath: string): boolean {
+  try {
+    return existsSync(configPath) && readFileSync(configPath, "utf8").includes("registry-bridge");
+  } catch {
+    return false;
+  }
+}
 
 export interface CliStreams {
   stdout: { write(text: string): void };
@@ -321,8 +357,8 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
     if (mechanism !== "file" && mechanism !== "plugin") {
       return usageError(streams, "h2a registry bootstrap: --mechanism must be file|plugin");
     }
-    if (mechanism === "plugin" && action !== "install") {
-      return usageError(streams, "h2a registry bootstrap: --mechanism plugin is only supported for install");
+    if (mechanism === "plugin" && action !== "install" && action !== "uninstall") {
+      return usageError(streams, "h2a registry bootstrap: --mechanism plugin is only supported for install|uninstall");
     }
     try {
       if (action === "preview") {
@@ -340,7 +376,7 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
           // never edited.
           const pluginDir = flags["plugin-dir"];
           if (!pluginDir) return usageError(streams, "h2a registry bootstrap: --plugin-dir <path> is required with --mechanism plugin");
-          const installed = verifyPluginInstall({ host, configPath: config, profile, pluginDir, h2aEntry, trackEntry });
+          const installed = verifyPluginInstall({ host, configPath: config, profile, pluginDir, h2aEntry, trackEntry, stderr: streams.stderr });
           streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: defaultPluginBridgeLockPath(host, profile), ...installed }, null, 2)}\n`);
           return 0;
         }
@@ -352,13 +388,66 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
         return 0;
       }
       if (action === "uninstall") {
-        const removed = uninstallBridgeEntry({ host, configPath: config });
+        const checkPresence = buildPresenceChecker();
+        const existingReceipt = readInstallReceipt(config);
+        const receiptLockPath = typeof existingReceipt?.["lockPath"] === "string" ? existingReceipt["lockPath"] : undefined;
+        const targetLockPath = flags["lock"]
+          ?? receiptLockPath
+          ?? (mechanism === "plugin" ? defaultPluginBridgeLockPath(host, profile) : defaultBridgeLockPath(config));
+        let isDefaultPluginLock = false;
         try {
-          if (existsSync(lockPath)) unlinkSync(lockPath);
+          if (host === "claude" || host === "codex") {
+            isDefaultPluginLock = resolve(targetLockPath) === resolve(defaultPluginBridgeLockPath(host, profile));
+          }
         } catch {
-          /* lock removal is best-effort after the config is clean */
+          isDefaultPluginLock = false;
         }
-        streams.stdout.write(`${JSON.stringify({ ok: true, host, config, lock: lockPath, ...removed }, null, 2)}\n`);
+        const effectivePresenceCheck =
+          mechanism === "plugin" || isDefaultPluginLock || configDeclaresRegistryBridge(config)
+            ? checkPresence
+            : undefined;
+        if (mechanism !== "plugin") {
+          const preCheck = isBridgeLockLive(targetLockPath, {
+            home: process.env.HOME?.trim(),
+            ignoreConfigPath: config,
+            checkPresence: effectivePresenceCheck
+          });
+          if (preCheck.live) {
+            throw new RegistryError("invalid_entry", `not uninstalling: ${preCheck.reason ?? `target lock ${targetLockPath} is live`}`);
+          }
+        }
+        const removed = uninstallBridgeEntry({ host, configPath: config, mechanism, profile, checkPresence: effectivePresenceCheck });
+        const quarantined = quarantineBridgeLock(targetLockPath, {
+          home: process.env.HOME?.trim(),
+          configPath: config,
+          ignoreConfigPath: config,
+          checkPresence: effectivePresenceCheck,
+          reason: "bootstrap-uninstall"
+        });
+        const lockAction = quarantined.action;
+        const quarantinePath = quarantined.quarantinePath;
+        if (lockAction === "error") {
+          streams.stdout.write(`${JSON.stringify({
+            ok: false,
+            host,
+            config,
+            lock: targetLockPath,
+            lockAction,
+            lockError: quarantined.error,
+            ...removed
+          }, null, 2)}\n`);
+          streams.stderr.write(`h2a registry bootstrap: restore_failed: failed to quarantine lock at ${targetLockPath}: ${quarantined.error ?? "unknown error"}\n`);
+          return 2;
+        }
+        streams.stdout.write(`${JSON.stringify({
+          ok: true,
+          host,
+          config,
+          lock: targetLockPath,
+          lockAction,
+          ...(quarantinePath ? { quarantinePath } : {}),
+          ...removed
+        }, null, 2)}\n`);
         return 0;
       }
       return usageError(streams, "h2a registry bootstrap: use preview|install|uninstall");
@@ -432,10 +521,12 @@ export interface BridgeServeDeps {
 }
 
 /**
- * Guard chain then delegate. Writes nothing: not the host config, not the
- * lock, not the receipt. A missing/invalid lock, an unqualified central
- * route or a served-surface mismatch refuses with a typed JSON-RPC
- * initialize error on stdout and a remediating diagnostic on stderr.
+ * Guard chain then delegate. Never writes a host config, a receipt, or
+ * `~/.local/bin/h2a`; when `--auto-upgrade` is set and the default plugin
+ * lock is absent, atomically provisions only that default plugin lock.
+ * A missing/invalid lock, an unqualified central route, or a served-surface
+ * mismatch refuses with a typed JSON-RPC initialize error on stdout and a
+ * remediating diagnostic on stderr.
  */
 export async function cmdRegistryBridge(
   argv: readonly string[],
@@ -487,19 +578,73 @@ export async function cmdRegistryBridge(
       return refuse("missing_lock", (error as Error).message);
     }
   }
+  let rebootstrapError: string | null = null;
+  let rebootstrapConflictConfigPath: string | null = null;
+  if (defaulted && flags["auto-upgrade"] === "true" && !existsSync(lockPath)) {
+    const context = resolveHostPluginContext(host, profile, flags);
+    if (context.error) {
+      rebootstrapError = context.error;
+    } else if (
+      context.configPath &&
+      context.pluginDir &&
+      existsSync(context.pluginDir)
+    ) {
+      try {
+        const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        rebootstrapMissingPluginLock({
+          host,
+          configPath: context.configPath,
+          profile,
+          pluginDir: context.pluginDir,
+          h2aEntry,
+          trackEntry
+        });
+        streams.stderr.write(`h2a registry-bridge serve: re-bootstrapped missing plugin lock at ${lockPath} from ${context.pluginDir}\n`);
+      } catch (error) {
+        rebootstrapError = (error as Error).message;
+        const conflictCfg = (error as { conflictConfigPath?: string }).conflictConfigPath;
+        if (typeof conflictCfg === "string" && conflictCfg.length > 0) {
+          rebootstrapConflictConfigPath = conflictCfg;
+        }
+      }
+    }
+  }
   let lock;
   try {
     lock = readBridgeLock(lockPath, deps.memory?.entry);
   } catch (error) {
-    if (defaulted) {
+    const errorCode = (error as { code?: string }).code ?? "missing_lock";
+    if (defaulted && errorCode === "missing_lock") {
+      const context = resolveHostPluginContext(host, profile, flags);
+      const effectiveConfigPath = rebootstrapConflictConfigPath ?? context.configPath;
+      const quotedConfig = effectiveConfigPath ? quoteShellPath(effectiveConfigPath) : "<host-config>";
+      const quotedPluginDir = context.pluginDir ? quoteShellPath(context.pluginDir) : "<plugin-dir>";
+      const strippedError = (error as Error).message.replace(/;\s*run h2a registry bootstrap install$/, "");
+      const detail = rebootstrapError ? `${strippedError}; auto-rebootstrap refused: ${rebootstrapError}` : strippedError;
+      const installCmd = `h2a registry bootstrap install --mechanism plugin --host ${host} --profile ${profile} --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
+      const isReceiptConflict = Boolean(rebootstrapError && /duplicate mechanism/i.test(rebootstrapError));
+      const isMismatchedReceiptConflict = Boolean(rebootstrapError && /existing receipt at .* belongs to/i.test(rebootstrapError));
+      const isLegacyConfigConflict = Boolean(rebootstrapError && /legacy direct h2a entry in host config/i.test(rebootstrapError));
+      const isForeignConfigConflict = Boolean(rebootstrapError && /foreign h2a entry in host config/i.test(rebootstrapError));
+      const serverKey = host === "codex" ? "mcp_servers.h2a" : "mcpServers.h2a";
+      const receiptOutPath = effectiveConfigPath ? `${quoteShellPath(`${effectiveConfigPath}.h2a-registry.json`)}.backup-<id>` : "<receipt>.backup-<id>";
+      const remedy = isReceiptConflict
+        ? `run h2a registry bootstrap uninstall --host ${host} --profile ${profile} --config ${quotedConfig} && ${installCmd}`
+        : isMismatchedReceiptConflict
+          ? `run ${installCmd} (backs up the existing receipt to ${receiptOutPath})`
+          : isLegacyConfigConflict
+            ? `run h2a registry bootstrap uninstall --host ${host} --profile ${profile} --config ${quotedConfig} && ${installCmd} (or run h2a doctor --repair)`
+            : isForeignConfigConflict
+              ? `remove ${serverKey} from ${quotedConfig}, then run ${installCmd}`
+              : `run ${installCmd}`;
       return refuse(
         "missing_lock",
         `no lock at the plugin default ${lockPath} for host=${host} profile=${profile} ` +
-        `(${(error as Error).message}); run h2a registry bootstrap install --mechanism plugin ` +
-        `--host ${host} --profile ${profile} --config <host-config> --plugin-dir <plugin-dir>`
+        `(${detail}); ${remedy}`
       );
     }
-    return refuse((error as { code?: string }).code ?? "missing_lock", (error as Error).message);
+    return refuse(errorCode, (error as Error).message);
   }
   if (lock.host !== host || lock.profile !== profile) {
     return refuse("invalid_entry", `lock at ${lockPath} binds host=${lock.host} profile=${lock.profile}, not host=${host} profile=${profile}`);
@@ -515,12 +660,17 @@ export async function cmdRegistryBridge(
     // never an inferred server. Instance (sidecar) requests skip this
     // refusal and stay on stdio through the plain shim; the lane policy
     // admits them per connection, if at all.
-    if (!bridgeCentralAttachmentAdmitted({ host, ...flags })) {
+    const centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
+    if (!centralDiagnosis.admitted) {
       // TODO(R5-CA): non-Claude adapters (gemini/codex/copilot/opencode/agents, ESC lanes).
       const adapter = (host as string) !== "claude" ? " (R5-CA owns non-Claude adapters)" : "";
+      const why = centralDiagnosis.reason ?? "central admission failed";
+      const remedyText = centralDiagnosis.remediation ?? "run: h2a mcp-central-serve (or h2a central status)";
       return refuse(
         "central_unavailable",
-        `shared-central has no qualified central route for host=${host}${adapter}: needs linux, a qualified Claude session, enabled central and a local protocol-2 marker; refusing instead of substituting a server`
+        `shared-central has no qualified central route for host=${host}${adapter}: ${why} ` +
+        `(needs: [1] linux + --host claude + non-sidecar, [2] CLAUDE_CODE_SESSION_ID, [3] central enabled, [4] protocol-2 marker matching H2A_ROOT); ` +
+        `${remedyText}; refusing instead of substituting a server`
       );
     }
   }
@@ -602,6 +752,8 @@ export async function cmdRegistryBridge(
   const passthrough: Record<string, string> = { ...flags, host };
   delete passthrough["lock"];
   delete passthrough["profile"];
+  delete passthrough["config"];
+  delete passthrough["plugin-dir"];
   return deps.delegateServe(passthrough, { lock, memory: deps.memory, tools: selectedTools! });
 }
 

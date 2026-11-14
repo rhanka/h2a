@@ -132,7 +132,7 @@ function connect(f, url, repo, conversation) {
   const flags = { host: "claude", "auto-open": "true" };
   const channel = rpcChannel(input, output);
   const running = bridgeCentralMcpStdio({ endpoint: url, runtimeBase: f.runtimeBase, stdin: input, stdout: output, signal: controller.signal,
-    attachment: captureCentralAttachment(f.root, repo, flags, { CLAUDE_CODE_SESSION_ID: conversation }) });
+    attachment: captureCentralAttachment(f.root, repo, flags, { ...f.env, CLAUDE_CODE_SESSION_ID: conversation }) });
   return { ...channel, async close() { controller.abort(); channel.close(); await running; output.end(); } };
 }
 async function ready(channel) {
@@ -623,6 +623,15 @@ test("a lost mutation reply is outcome_unknown and is never replayed during reco
 
 test("SIGTERM of the real central leaves host stdio open and resumes the same binding", { timeout: 30_000 }, async () => {
   const f = fixture();
+  for (const key of ["HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR", "REMOTE_CLI_CONFIG_HOME"]) {
+    assertQualifiedPath(f.env[key]);
+    assert.ok(f.env[key].startsWith(f.dir), `${key} must be isolated under fixture dir ${f.dir}: ${f.env[key]}`);
+  }
+  assert.notEqual(f.env.HOME, process.env.HOME, "fixture HOME must never equal real process.env.HOME");
+  assert.ok(!f.env.XDG_RUNTIME_DIR.startsWith("/run/user"), "fixture XDG_RUNTIME_DIR must never target /run/user");
+  const pauseTarget = centralPausePath({ runtimeBase: f.runtimeBase });
+  assertQualifiedPath(pauseTarget);
+  assert.ok(pauseTarget.startsWith(f.runtimeBase), `centralPausePath must stay inside fixture runtimeBase: ${pauseTarget}`);
   const children = [];
   let channel, restartedIdentity;
   let stderr = "";
