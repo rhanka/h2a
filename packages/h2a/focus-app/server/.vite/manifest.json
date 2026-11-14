@@ -1,0 +1,294 @@
+{
+  ".svelte-kit/generated/build/env/config.js": {
+    "file": "env.js",
+    "name": "env",
+    "src": ".svelte-kit/generated/build/env/config.js",
+    "isEntry": true,
+    "imports": [
+      "_config.js"
+    ]
+  },
+  "_AppShell.0roNuOL1.css": {
+    "file": "_app/immutable/assets/AppShell.0roNuOL1.css",
+    "src": "_AppShell.0roNuOL1.css"
+  },
+  "_AppShell.js": {
+    "file": "chunks/AppShell.js",
+    "name": "AppShell",
+    "imports": [
+      "_server2.js"
+    ],
+    "css": [
+      "_app/immutable/assets/AppShell.0roNuOL1.css"
+    ]
+  },
+  "_adapter-node-env.js": {
+    "file": "adapter-node-env.js",
+    "name": "env"
+  },
+  "_adapter-node-handler.js": {
+    "file": "adapter-node-handler.js",
+    "name": "handler",
+    "imports": [
+      "_shared.js",
+      "_functions.js",
+      "_adapter-node-env.js"
+    ]
+  },
+  "_agent-memory-dossier.js": {
+    "file": "chunks/agent-memory-dossier.js",
+    "name": "agent-memory-dossier"
+  },
+  "_config.js": {
+    "file": "chunks/config.js",
+    "name": "config"
+  },
+  "_exports.js": {
+    "file": "chunks/exports.js",
+    "name": "exports",
+    "imports": [
+      "_shared.js",
+      "_server-errors.js"
+    ]
+  },
+  "_friendly.js": {
+    "file": "chunks/friendly.js",
+    "name": "friendly"
+  },
+  "_functions.js": {
+    "file": "chunks/functions.js",
+    "name": "functions",
+    "imports": [
+      "_server-errors.js"
+    ]
+  },
+  "_h2a-bus.js": {
+    "file": "chunks/h2a-bus.js",
+    "name": "h2a-bus"
+  },
+  "_index-server.js": {
+    "file": "chunks/index-server.js",
+    "name": "index-server",
+    "imports": [
+      "_server2.js"
+    ]
+  },
+  "_internal.js": {
+    "file": "chunks/internal.js",
+    "name": "internal",
+    "imports": [
+      "_exports.js",
+      "_shared.js",
+      "_server-errors.js",
+      "_uneval.js",
+      "_functions.js"
+    ]
+  },
+  "_server-errors.js": {
+    "file": "chunks/server-errors.js",
+    "name": "server-errors"
+  },
+  "_server.js": {
+    "file": "chunks/server.js",
+    "name": "server"
+  },
+  "_server2.js": {
+    "file": "chunks/server2.js",
+    "name": "server",
+    "imports": [
+      "_uneval.js"
+    ]
+  },
+  "_shared.js": {
+    "file": "chunks/shared.js",
+    "name": "shared"
+  },
+  "_uneval.js": {
+    "file": "chunks/uneval.js",
+    "name": "uneval"
+  },
+  "node_modules/@sveltejs/adapter-node/src/env.js": {
+    "file": "adapter-env.js",
+    "name": "adapter-env",
+    "src": "node_modules/@sveltejs/adapter-node/src/env.js",
+    "isEntry": true,
+    "imports": [
+      "_adapter-node-env.js"
+    ]
+  },
+  "node_modules/@sveltejs/adapter-node/src/handler.js": {
+    "file": "handler.js",
+    "name": "handler",
+    "src": "node_modules/@sveltejs/adapter-node/src/handler.js",
+    "isEntry": true,
+    "imports": [
+      "_adapter-node-handler.js"
+    ]
+  },
+  "node_modules/@sveltejs/adapter-node/src/index.js": {
+    "file": "adapter-index.js",
+    "name": "adapter-index",
+    "src": "node_modules/@sveltejs/adapter-node/src/index.js",
+    "isEntry": true,
+    "imports": [
+      "_adapter-node-handler.js",
+      "_adapter-node-env.js"
+    ]
+  },
+  "node_modules/@sveltejs/kit/src/runtime/app/server/remote/index.js": {
+    "file": "remote-entry.js",
+    "name": "remote-entry",
+    "src": "node_modules/@sveltejs/kit/src/runtime/app/server/remote/index.js",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_internal.js",
+      "_server-errors.js",
+      "_shared.js",
+      "_functions.js",
+      "_server.js"
+    ]
+  },
+  "node_modules/@sveltejs/kit/src/runtime/components/error.svelte": {
+    "file": "entries/fallbacks/error.svelte.js",
+    "name": "entries/fallbacks/error.svelte",
+    "src": "node_modules/@sveltejs/kit/src/runtime/components/error.svelte",
+    "isEntry": true,
+    "imports": [
+      "_server2.js",
+      "_index-server.js",
+      "_server-errors.js"
+    ]
+  },
+  "node_modules/@sveltejs/kit/src/runtime/server/index.js": {
+    "file": "index.js",
+    "name": "index",
+    "src": "node_modules/@sveltejs/kit/src/runtime/server/index.js",
+    "isEntry": true,
+    "imports": [
+      "_server.js",
+      "_exports.js",
+      "_internal.js"
+    ],
+    "dynamicImports": [
+      "node_modules/@sveltejs/kit/src/runtime/server/instance.js"
+    ]
+  },
+  "node_modules/@sveltejs/kit/src/runtime/server/instance.js": {
+    "file": "chunks/instance.js",
+    "name": "instance",
+    "src": "node_modules/@sveltejs/kit/src/runtime/server/instance.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "_functions.js",
+      "_exports.js",
+      "_shared.js",
+      "_internal.js",
+      "_uneval.js",
+      "_server-errors.js",
+      "_config.js",
+      "_server2.js"
+    ]
+  },
+  "src/routes/+layout.svelte": {
+    "file": "entries/pages/_layout.svelte.js",
+    "name": "entries/pages/_layout.svelte",
+    "src": "src/routes/+layout.svelte",
+    "isEntry": true,
+    "imports": [
+      "_server2.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_layout.C8BDh0IE.css"
+    ]
+  },
+  "src/routes/+page.server.ts": {
+    "file": "entries/pages/_page.server.ts.js",
+    "name": "entries/pages/_page.server.ts",
+    "src": "src/routes/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_friendly.js"
+    ]
+  },
+  "src/routes/+page.svelte": {
+    "file": "entries/pages/_page.svelte.js",
+    "name": "entries/pages/_page.svelte",
+    "src": "src/routes/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_server2.js",
+      "_AppShell.js",
+      "_index-server.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.BgWxD2Cm.css"
+    ]
+  },
+  "src/routes/api/actions/launch/+server.ts": {
+    "file": "entries/endpoints/api/actions/launch/_server.ts.js",
+    "name": "entries/endpoints/api/actions/launch/_server.ts",
+    "src": "src/routes/api/actions/launch/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_friendly.js"
+    ]
+  },
+  "src/routes/api/decisions/inject/+server.ts": {
+    "file": "entries/endpoints/api/decisions/inject/_server.ts.js",
+    "name": "entries/endpoints/api/decisions/inject/_server.ts",
+    "src": "src/routes/api/decisions/inject/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_h2a-bus.js",
+      "_friendly.js"
+    ]
+  },
+  "src/routes/api/dossiers/agent-memory/include/+server.ts": {
+    "file": "entries/endpoints/api/dossiers/agent-memory/include/_server.ts.js",
+    "name": "entries/endpoints/api/dossiers/agent-memory/include/_server.ts",
+    "src": "src/routes/api/dossiers/agent-memory/include/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_agent-memory-dossier.js",
+      "_h2a-bus.js"
+    ]
+  },
+  "src/routes/api/h2a/targets/+server.ts": {
+    "file": "entries/endpoints/api/h2a/targets/_server.ts.js",
+    "name": "entries/endpoints/api/h2a/targets/_server.ts",
+    "src": "src/routes/api/h2a/targets/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_h2a-bus.js"
+    ]
+  },
+  "src/routes/dossier/agent-memory/+page.server.ts": {
+    "file": "entries/pages/dossier/agent-memory/_page.server.ts.js",
+    "name": "entries/pages/dossier/agent-memory/_page.server.ts",
+    "src": "src/routes/dossier/agent-memory/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_h2a-bus.js",
+      "_agent-memory-dossier.js"
+    ]
+  },
+  "src/routes/dossier/agent-memory/+page.svelte": {
+    "file": "entries/pages/dossier/agent-memory/_page.svelte.js",
+    "name": "entries/pages/dossier/agent-memory/_page.svelte",
+    "src": "src/routes/dossier/agent-memory/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_server2.js",
+      "_index-server.js",
+      "_AppShell.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.C_jty5Ez.css"
+    ]
+  }
+}

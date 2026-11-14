@@ -12,6 +12,11 @@
     "@xyflow/svelte": "1.6.5",
     "svelte": "5.56.4"
   },
+  "overrides": {
+    "@sveltejs/vite-plugin-svelte": {
+      "deepmerge": "npm:@shivammathur/deepmerge@4.3.2"
+    }
+  },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "6.2.4",
     "esbuild": "0.25.12",

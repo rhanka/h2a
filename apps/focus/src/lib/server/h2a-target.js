@@ -48,7 +48,7 @@ const RECEIVING_STATES = new Set(['live', 'opening', 'draining']);
 // THE ROOT IS PART OF THE ADDRESS.
 //
 // An instance id alone does not say WHERE its inbox is. This machine runs two live roots at once:
-// the default `~/h2a-workspace/.h2a`, and `/home/antoinefa/src/a2a-cli` used directly as a root by a
+// the default `~/h2a-workspace/.h2a`, and `/workspace/repo` used directly as a root by a
 // session launched with `--root`. Both hold a live `claude:a2a-cli:…` working in the same checkout.
 //
 // Depositing into the wrong one delivers into a store the recipient never reads: the write succeeds, the

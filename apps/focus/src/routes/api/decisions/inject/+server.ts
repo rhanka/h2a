@@ -4,7 +4,7 @@
 // agent of the concerned project (repo/workspace), so it surfaces where the work happens — the human puts
 // the decision back in the loop of the agent that raised it. This is done over the h2a bus (NOT a forged
 // attestation): we deposit a plain `focus.decision-inject` envelope into that agent's inbox via the local
-// `h2a inbox put` verb. If no live agent of the project is found, we say so honestly (nothing is faked).
+// `h2a inbox put` verb. If no live agent of the project is found, the response reports no delivery.
 //
 // Request  body : { id: string }                         — the decision (directive) id
 // Response 200  : { ok:true, delivered:boolean, target?:string, note:string }
