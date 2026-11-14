@@ -5,6 +5,48 @@ description: Use when the owner asks for a human contextual track report, status
 
 # harness/track-report
 
+## Default owner report: `track report --owner-table`
+
+When the owner asks for their status table or advancement report, serve the owner-validated table first with:
+
+```bash
+node "$track_bin" report --owner-table --format md
+```
+
+`--owner-table` is the default owner report surface. It renders:
+
+1. **Eight columns in this exact order:**
+   `# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision`
+2. **One stable request number per demand (`1..N`), one row per lot (Owner Decision 15/11 « Une ligne par lot »):** across all owner requests (`demand.owner-numbered` / `ownerNumber`), a demand never disappears without an explicit owner archive event (`demand.owner-archived` backed by a settled `'go'` decision). A single-lot demand keeps one row (`kind: 'single'`). A multi-lot demand renders a title row (`kind: 'demand-title'`: verbatim `Ta demande`, demand-targeted decisions, no status/stage) followed by one row per lot (`kind: 'lot'`, `parentDemandId`, `↳ lot N — <title>`), each carrying its own status, stage, ETA, `Fait`, `À faire (qui)`, and lot-targeted decisions.
+3. **Statuses (one coloured emoji + a word, never a glyph alone):**
+   - `🔵 sur la voie` (`on-track`): requires a conformity witness at the current stage.
+   - `🟡 en attente` (`waiting`): a planned wait with a scheduled resume / milestone.
+   - `🟠 dérive` (`unforeseen`): regression, reopening, stale acceptance, or missed ETA.
+   - `🔴 bloqué` (`blocked`): the cause goes in `À faire (qui)` (an owner action, a named third party, or other).
+   - `⚪ pas commencé` or `⚪ en pause` (`not-started`): by the owner's choice.
+   - `✅ fait` (`done`): stage `done`, with production proof and acceptance.
+   - `⚫ retiré` (`withdrawn`): requires its withdrawal reason.
+   - `— sans témoin` (`not-qualified`): started, with no witness.
+   - `decision-awaited` is no longer a status (normalized at read time from historical events).
+4. **Twelve stages (proven only by recorded links; `merged` is never `fait`; legacy `deployed` without a `prod:` environment maps to `preprod`):**
+   `brainstorm · spec · plan · dev · test · pr · review · merged · published · preprod · prod · done`
+5. **ETA (étape cible):**
+   - The target stage is always named (`spec → 15/11 (mesuré)`, `prod (MEP) → 20/11 (engagé : Jean)`), and a row may carry up to two ETAs.
+   - The source is `mesuré` (`measured`), `engagé` (`committed`, with who), or `inconnu` (`unknown`).
+   - A missed ETA turns the row `🟠 dérive` and records the slip (`glissement depuis <date>`).
+6. **Décision column & block under the table:**
+   - Non-blocking decision: `D#`.
+   - Blocking decision: `🚩 D# bloquante`, which makes the row `🔴 bloqué` with `bloqué par D#` in `À faire (qui)`.
+   - Under the table: `**Décisions qui t'attendent**` with `D1…Dn` (question, options with consequence, `Reco : **<letter>** (<rationale>)`, optional `Dossier : <link>`), followed by one reply line: `` `Réponse : D1 A · D2 B` ``.
+7. **Blocking gates (`auditOwnerTable` / `renderOwnerTable` refuses on any violation):**
+   - a missing, duplicate, or out-of-order row `#`;
+   - `🔴` without a cause in `À faire (qui)`;
+   - `✅` or `🔵` without a witness (or `✅` when `stage !== 'done'`, or `⚫` without a reason);
+   - an ETA without a target stage or a source (or `committed` without who, or more than two ETAs);
+   - a `D#` without a row, or a row pointing to an unlisted `D#`;
+   - a commit hash, ULID, or internal jargon in owner text;
+   - a banned word or private identifier.
+
 ## The served route: `--status-table`, rolling window, user language
 
 For an owner status report, serve the validated report below with
@@ -44,13 +86,13 @@ matching `D` number. A deferred dossier is not settled: it stays, with its
 current answer need stated.
 
 Stage and status are neutral codes over recorded evidence, never words to
-guess: stage is one of `spec | dev | pr | merged | deployed`, status one of
-`progressing | unforeseen | blocked | decision-awaited | not-qualified |
-withdrawn`. Gates decide before stored marks: a live gate overrides a stored
-green; nothing is
-green without a conformity witness; `unforeseen` is a recorded reopening or
+guess: stage is one of `brainstorm | spec | plan | dev | test | pr | review | merged | published | preprod | prod | done` (normalising historical `spec | dev | pr | merged | deployed` on read), status one of
+`withdrawn | blocked | unforeseen | waiting | done | on-track | not-started |
+not-qualified` (normalising historical `progressing` and retiring `decision-awaited`). Gates decide before stored marks: a live gate overrides a stored
+on-track (`🔵`); nothing is
+`🔵 sur la voie` without a conformity witness; `unforeseen` is a recorded reopening or
 regression, or stale acceptance — never silence, never absence;
-`not-qualified` and `withdrawn` carry no health colour. A withdrawal kept in
+`not-qualified` and historical `withdrawn` carry no health colour (`⚫` is used for `withdrawn` in the 8-status owner model). A withdrawal kept in
 the served tables keeps its reason, or declares it missing.
 
 Run the two structured audits before serving: `describeRowNextActions` plus

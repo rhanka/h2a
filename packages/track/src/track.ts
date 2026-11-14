@@ -1,5 +1,5 @@
 import { ulid } from 'ulid'
-import { assertItemReportStatus, type ItemReportStatus } from './model/report-status.js'
+import { assertItemReportStatus, REPORT_STAGES, type ItemReportStatus, type ReportStage } from './model/report-status.js'
 
 import { EventStore } from './events/store.js'
 import type { ActorId, Aggregate, CommandEvent, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
@@ -188,6 +188,7 @@ export interface OpenBlockerInput {
   owner?: ActorId
   scope?: BlockerScope // dependency only; absent ⇒ `intra`
   engagementRef?: string // required iff scope === 'extra'
+  scheduledUntil?: string // planned wait deadline
 }
 
 /**
@@ -402,8 +403,72 @@ export class Track {
 
   /** Replace report metadata atomically; omitted fields clear previous reporting declarations. */
   setReportStatus(itemId: ItemId, report: ItemReportStatus): void {
-    if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
+    const events = this.store.readAll()
+    const state = fold(events)
+    const item = state.items.get(itemId)
+    if (!item) throw new DomainError(`unknown item ${itemId}`)
     assertItemReportStatus(report)
+    const historicalItemNumbers = new Map<string, number>()
+    const usedNumbers = new Map<number, string>()
+    for (const ev of events) {
+      if (ev.type === 'demand.owner-numbered') {
+        const num = (ev.payload as { number?: number }).number
+        if (typeof num === 'number') usedNumbers.set(num, `demand ${ev.aggregateId}`)
+      } else if (ev.type === 'item.report-updated') {
+        const num = (ev.payload as { ownerNumber?: number }).ownerNumber
+        if (typeof num === 'number') {
+          historicalItemNumbers.set(ev.aggregateId, num)
+          usedNumbers.set(num, `item ${ev.aggregateId}`)
+        }
+      }
+    }
+    const existingItemNumber = item.report?.ownerNumber ?? historicalItemNumbers.get(itemId)
+    if (
+      existingItemNumber !== undefined &&
+      report.ownerNumber !== undefined &&
+      report.ownerNumber !== existingItemNumber
+    ) {
+      throw new DomainError(
+        `item ${itemId} already has owner request number #${existingItemNumber} and cannot be renumbered to #${report.ownerNumber}`,
+      )
+    }
+    if (report.ownerNumber !== undefined) {
+      for (const other of state.items.values()) {
+        if (other.id !== itemId && other.report?.ownerNumber === report.ownerNumber) {
+          throw new DomainError(`owner request number #${report.ownerNumber} is already assigned to item ${other.id}`)
+        }
+      }
+      for (const demand of state.demands.values()) {
+        if (demand.id !== item.demandId && demand.ownerNumber === report.ownerNumber) {
+          throw new DomainError(`owner request number #${report.ownerNumber} is already assigned to demand ${demand.id}`)
+        }
+      }
+      const priorHolder = usedNumbers.get(report.ownerNumber)
+      if (
+        priorHolder !== undefined &&
+        priorHolder !== `item ${itemId}` &&
+        priorHolder !== `demand ${item.demandId ?? ''}`
+      ) {
+        throw new DomainError(`owner request number #${report.ownerNumber} is already assigned to ${priorHolder}`)
+      }
+    }
+    if (report.archived !== undefined) {
+      const dec = state.decisions.get(report.archived.decisionId)
+      if (!dec) {
+        throw new DomainError(`item report-set: unknown archive decision ${report.archived.decisionId}`)
+      }
+      if (dec.outcome !== 'go') {
+        throw new DomainError(`item report-set: archive decision ${report.archived.decisionId} must be settled with outcome "go"`)
+      }
+    }
+    if (report.pausedByOwner === true) {
+      const dec = report.pauseDecisionId !== undefined ? state.decisions.get(report.pauseDecisionId) : undefined
+      if (!dec || (dec.outcome !== 'go' && dec.outcome !== 'deferred')) {
+        throw new DomainError(
+          `item report-set: pausedByOwner requires a decision settled with outcome "go" or "deferred"`,
+        )
+      }
+    }
     this.emit('item', itemId, 'item.report-updated', { ...report })
   }
 
@@ -959,6 +1024,98 @@ export class Track {
     })
   }
 
+  /**
+   * Assign a stable 1..N request number (`#` column in `--owner-table`) to a demand.
+   * Enforces global uniqueness across all numbered demands and items, and forbids renumbering.
+   */
+  numberDemand(demandId: DemandId, number: number): void {
+    if (!Number.isInteger(number) || number < 1) {
+      throw new DomainError('numberDemand: number must be a positive integer')
+    }
+    const assertUnique = (events: readonly TrackEvent[]): void => {
+      const state = fold(events)
+      const demand = state.demands.get(demandId)
+      if (!demand) throw new DomainError(`unknown demand ${demandId}`)
+      if (demand.ownerNumber !== undefined) {
+        throw new DomainError(`demand ${demandId} already has owner request number #${demand.ownerNumber}`)
+      }
+      for (const other of state.demands.values()) {
+        if (other.id !== demandId && other.ownerNumber === number) {
+          throw new DomainError(`owner request number #${number} is already assigned to demand ${other.id}`)
+        }
+      }
+      for (const item of state.items.values()) {
+        if (item.demandId !== demandId && item.report?.ownerNumber === number) {
+          throw new DomainError(`owner request number #${number} is already assigned to item ${item.id}`)
+        }
+      }
+      for (const ev of events) {
+        if (ev.type === 'demand.owner-numbered' && ev.aggregateId !== demandId) {
+          const prev = (ev.payload as { number?: number }).number
+          if (prev === number) {
+            throw new DomainError(`owner request number #${number} is already assigned to demand ${ev.aggregateId}`)
+          }
+        } else if (ev.type === 'item.report-updated') {
+          const prev = (ev.payload as { ownerNumber?: number }).ownerNumber
+          const ownerItem = state.items.get(ev.aggregateId)
+          if (prev === number && ownerItem?.demandId !== demandId) {
+            throw new DomainError(`owner request number #${number} is already assigned to item ${ev.aggregateId}`)
+          }
+        }
+      }
+    }
+    assertUnique(this.store.readAll())
+    const recheck: RecheckHook = (_inputs, existing) => {
+      assertUnique(existing)
+    }
+    this.withDemandRecheck(recheck, () => {
+      this.emit('demand', demandId, 'demand.owner-numbered', { number })
+    })
+  }
+
+  /**
+   * Record or update the owner-facing summary (`Ta demande`) and optional `requestedStage` for a demand.
+   */
+  updateDemandOwnerSummary(
+    demandId: DemandId,
+    input: { summary: string; requestedStage?: ReportStage },
+  ): void {
+    const demand = this.state().demands.get(demandId)
+    if (!demand) throw new DomainError(`unknown demand ${demandId}`)
+    if (typeof input.summary !== 'string' || input.summary.trim().length === 0) {
+      throw new DomainError('updateDemandOwnerSummary: summary must be a non-empty string')
+    }
+    if (input.requestedStage !== undefined && !REPORT_STAGES.includes(input.requestedStage)) {
+      throw new DomainError(`updateDemandOwnerSummary: invalid requestedStage "${String(input.requestedStage)}"`)
+    }
+    this.emit('demand', demandId, 'demand.owner-summary-updated', {
+      summary: input.summary.trim(),
+      ...(input.requestedStage !== undefined ? { requestedStage: input.requestedStage } : {}),
+    })
+  }
+
+  /**
+   * Archive a demand from the owner table (`demand.owner-archived`). Requires a settled `'go'` decision
+   * and a non-empty reason so no row ever disappears without an explicit owner archive event.
+   */
+  archiveDemand(demandId: DemandId, input: { decisionId: ItemId; reason: string }): void {
+    const state = this.state()
+    const demand = state.demands.get(demandId)
+    if (!demand) throw new DomainError(`unknown demand ${demandId}`)
+    const decision = state.decisions.get(input.decisionId)
+    if (!decision) throw new DomainError(`archiveDemand: unknown decision ${input.decisionId}`)
+    if (decision.outcome !== 'go') {
+      throw new DomainError(`archiveDemand: decision ${input.decisionId} must be settled with outcome "go"`)
+    }
+    if (typeof input.reason !== 'string' || input.reason.trim().length === 0) {
+      throw new DomainError('archiveDemand: reason must be a non-empty string')
+    }
+    this.emit('demand', demandId, 'demand.owner-archived', {
+      decisionId: input.decisionId,
+      reason: input.reason.trim(),
+    })
+  }
+
   /** Demand lifecycle (Mode A) — the shared single-event transition emitter (claim today; handover later). */
   private transitionDemand(
     demandId: DemandId,
@@ -1055,7 +1212,7 @@ export class Track {
       if (state.decisions.has(targetId)) {
         throw new DomainError(`a decision cannot target another decision (${targetId}) [A3]`)
       }
-      if (!state.items.has(targetId)) {
+      if (!state.items.has(targetId) && !state.demands.has(targetId)) {
         throw new DomainError(`unknown target item ${targetId}`)
       }
     }
@@ -1244,6 +1401,7 @@ export class Track {
       ...(input.owner !== undefined ? { owner: input.owner } : {}),
       ...(scope === 'extra' ? { scope } : {}),
       ...(input.engagementRef !== undefined ? { engagementRef: input.engagementRef } : {}),
+      ...(input.scheduledUntil !== undefined ? { scheduledUntil: input.scheduledUntil } : {}),
     })
     return (persisted?.aggregateId as BlockerId) ?? blockerId
   }

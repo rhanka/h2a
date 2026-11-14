@@ -33,7 +33,7 @@ describe("R5 track registry entry (contract §§3.2/5.4)", () => {
     const wrapper = readJson("registry/entries.v1.json") as {
       entries: Array<{ parameters: unknown }>;
     };
-    expect(wrapper.entries[0].parameters).toEqual({
+    expect(wrapper.entries[0]!.parameters).toEqual({
       schemaVersion: "1.0.0",
       schema: {
         $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -70,7 +70,7 @@ describe("R5 track registry entry (contract §§3.2/5.4)", () => {
         mcp: { manifestAsset: string; capabilityProfiles: Array<{ id: string; tools: string[]; readOnly: boolean }> };
       }>;
     };
-    const entry = wrapper.entries[0];
+    const entry = wrapper.entries[0]!;
     for (const asset of entry.assets) {
       const bytes = readFileSync(new URL(asset.path, root));
       expect(sha256(bytes)).toBe(asset.sha256);
@@ -98,7 +98,7 @@ describe("R5 track registry entry (contract §§3.2/5.4)", () => {
       });
       const packed = JSON.parse(out) as Array<{ filename: string }>;
       expect(packed).toHaveLength(1);
-      const tgz = join(dir, packed[0].filename);
+      const tgz = join(dir, packed[0]!.filename);
       const names = execFileSync("tar", ["-tzf", tgz], { encoding: "utf8" })
         .split("\n")
         .filter(Boolean);

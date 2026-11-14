@@ -9,7 +9,9 @@ import { BUCKETS } from '../report/buckets.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
+import { DomainError } from '../model/item.js'
 import { fold } from '../state/fold.js'
+import { auditOwnerTable, renderOwnerTable, type ProjectOwnerTableOptions } from '../report/owner-table.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
 
 /** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
@@ -473,4 +475,26 @@ export function queryText(
 ): string {
   const rows = reader.query(filter, options)
   return format === 'json' ? `${JSON.stringify(rows, null, 2)}\n` : formatRows(rows, format)
+}
+
+/**
+ * Render the owner-validated status table (`track report --owner-table` / default owner report).
+ * Enforces all blocking gates fail-closed before returning Markdown/text or JSON.
+ */
+export function ownerTableText(
+  reader: TrackReader,
+  options: ProjectOwnerTableOptions = {},
+  format: Format = 'md',
+): string {
+  assertReportFormat(format)
+  const view = reader.ownerTable(options)
+  if (format === 'json') {
+    const audit = auditOwnerTable(view, options)
+    if (!audit.ok) {
+      const details = audit.violations.map((v) => `- [${v.code}] ${v.message}`).join('\n')
+      throw new DomainError(`REFUSED: owner table failed blocking gates:\n${details}`)
+    }
+    return `${JSON.stringify({ ...view, audit }, null, 2)}\n`
+  }
+  return renderOwnerTable(view, format, options)
 }
