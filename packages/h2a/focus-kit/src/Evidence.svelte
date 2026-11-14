@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import SourceViewer from './SourceViewer.svelte';
-  import Citation from './Citation.svelte';
+  import Citation, { citationCallers } from './Citation.svelte';
   import { evidenceVolume, bibliography } from '../../../focus/src/render/evidence.ts';
   import { decodeEvidence } from '../../../focus/src/validation/evidence-bytes.ts';
   let { dossier } = $props();
@@ -41,15 +41,20 @@
     if (!element.matches('button, a, input')) element.tabIndex = -1;
     element.focus(); element.scrollIntoView({ block: 'start' });
   }
+  function returnToCitation(anchorId) {
+    const caller = citationCallers.get(anchorId) ?? document.querySelector(`a.citation-link[href="#${anchorId}"]`);
+    caller?.focus(); caller?.scrollIntoView({ block: 'nearest' });
+  }
 </script>
 <section aria-label="Pièces justificatives" class="evidence-index">
   <h2>Pièces justificatives</h2>
   <p>{volume.sources} sources · {volume.bytes} octets · consultation estimée : {volume.consultationMinutes} minute(s), à six octets par mot, hors budget {dossier.kind === 'report' ? 'de lecture principal' : 'de décision'}.</p>
   <section aria-label="Sources" class="bibliography">
-    <h2>Sources</h2>
+    <h3>Sources</h3>
     <ol>{#each bibliography(dossier) as entry}<li id={entry.anchorId} tabindex="-1">
-      {entry.citation.label} · {entry.source.title} · <span class="source-location">{entry.location}</span> ·
-      <a href={`#${entry.anchorId}`} onclick={event => download(event, entry.source)}>Télécharger</a>
+      {entry.citation.label} · {entry.source.title} · <button class="source-location" onclick={() => openSource(entry.source.id, entry.citation.locator)}>{entry.location}</button> ·
+      <a href={`#${entry.anchorId}`} onclick={event => download(event, entry.source)}>Télécharger</a> ·
+      <button class="citation-return" onclick={() => returnToCitation(entry.anchorId)}>Retour au texte</button>
     </li>{/each}</ol>
   </section>
   <details open><summary>Catalogue des sources</summary><ul>{#each dossier.sources as source}<li><button onclick={() => openSource(source.id)}>Consulter {source.title}</button> · {source.size} octets</li>{/each}</ul></details>

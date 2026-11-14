@@ -15,6 +15,7 @@
   let report = $derived(dossier.kind === 'report');
   let response = $derived(responseLine(questions, optionSets, selections));
   let responseText = $state(null), copyStatus = $state('');
+  $effect(() => { response; copyStatus = ''; });
   async function copyResponse() {
     try {
       await navigator.clipboard.writeText(response);
@@ -111,7 +112,7 @@
           <section class="response-summary" aria-label="Récapitulatif des décisions">
             <h2>Votre réponse</h2>
             <p>Les choix sans réponse sont indiqués par —.</p>
-            <p class="response-line" tabindex="-1" bind:this={responseText} aria-label="Ligne de réponse">{response}</p>
+            <output class="response-line" tabindex="-1" bind:this={responseText} aria-label="Ligne de réponse">{response}</output>
             <Button variant="secondary" size="sm" onclick={copyResponse}>Copier</Button>
             <p role="status">{copyStatus}</p>
           </section>

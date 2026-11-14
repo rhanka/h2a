@@ -161,9 +161,12 @@ export const renderHtml = (
   const sections = doc.sections.map((node) => renderNode(node, hooks) + calls(node.citationRefs) +
     (node.kind === 'optionSet' ? node.options.map(o => o.citationRefs?.length
       ? `<p>${escapeHtml(o.label)} ${calls(o.citationRefs)}</p>` : '').join('') : '')).join("");
-  const sources = entries.length ? `<section class="focus-sources" aria-label="Sources"><h2>Sources</h2><ol>${entries.map(e =>
-    `<li id="${e.anchorId}">${escapeHtml(e.citation.label)} · ${escapeHtml(e.source.title)} · ${escapeHtml(e.location)} · ` +
-    `<a href="data:application/octet-stream;base64,${escapeHtml(e.source.data)}" download="evidence-${escapeHtml(e.source.id.replace(/[^a-zA-Z0-9._-]/g, '_'))}">Télécharger</a></li>`).join('')}</ol></section>` : '';
+  const linked = new Set<string>();
+  const sources = entries.length ? `<section class="focus-sources" aria-label="Sources"><h2>Sources</h2><ol>${entries.map(e => {
+    const first = !linked.has(e.source.id); linked.add(e.source.id);
+    return `<li id="${e.anchorId}">${escapeHtml(e.citation.label)} · ${escapeHtml(e.source.title)} · ${escapeHtml(e.location)}` +
+      (first ? ` · <a href="data:application/octet-stream;base64,${escapeHtml(e.source.data)}" download="evidence-${escapeHtml(e.source.id.replace(/[^a-zA-Z0-9._-]/g, '_'))}">Télécharger</a>` : '') + `</li>`;
+  }).join('')}</ol></section>` : '';
   const amendment = renderAmendmentTrace(doc.amendmentTrace);
   const affordances = renderAffordances(doc.interactions);
 

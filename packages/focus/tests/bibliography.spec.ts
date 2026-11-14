@@ -39,16 +39,20 @@ describe('bibliographic citations', () => {
     ]);
     expect(evidenceIndex(doc)).toContain('Sources\n[1] Preuve distante · Source long · fixture@abc123:docs/spec.md:12–13');
   });
-  it('should link section and option calls to an escaped source list without buttons', () => {
+  it('should link section and option calls to an escaped source list without buttons and embed each source once', () => {
     const doc = evidenceFixture();
     doc.citations[0].label = '<img src=x>';
-    const [first, second] = bibliography(doc);
+    doc.citations.push({ id: 'early', sourceId: 'long', label: 'Passage initial', locator: { kind: 'lines', start: 3, end: 4 } });
+    doc.sections[0].citationRefs.push('early');
+    const [first, second, third] = bibliography(doc);
     const html = renderHtml(doc, { renderMarkdown: text => text, sanitizeHtml: html => html });
     expect(html).toContain(`href="#${first.anchorId}" aria-label="Source 1">[1]</a>`);
     expect(html).toContain(`href="#${second.anchorId}" aria-label="Source 2">[2]</a>`);
+    expect(html).toContain(`href="#${third.anchorId}" aria-label="Source 3">[3]</a>`);
     expect(html).toContain('<h2>Sources</h2><ol>');
     expect(html).toContain(`id="${first.anchorId}">&lt;img src=x&gt;`);
-    expect(html).toContain('download="evidence-long">Télécharger</a>');
+    expect(html).toContain(`id="${third.anchorId}">Passage initial · Source long · urn:fixture:long:3–4</li>`);
+    expect(html.match(/download="evidence-long">Télécharger<\/a>/g)).toHaveLength(1);
     expect(html).toContain('href="data:application/octet-stream;base64,');
     expect(html).not.toContain('<button');
   });

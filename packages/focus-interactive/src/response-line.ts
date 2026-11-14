@@ -20,13 +20,14 @@ export function decisionCodes(questions: readonly { id: string }[]): string[] {
 
 export function responseLine(
   questions: readonly { id: string }[],
-  optionSets: readonly { questionId: string; options: readonly { id: string }[] }[],
+  optionSets: readonly { questionId: string; options: readonly { id: string; label?: string }[] }[],
   selections: ReadonlyMap<string, string>,
 ): string {
   const codes = decisionCodes(questions);
   return questions.map((q, i) => {
     const options = optionSets.filter(s => s.questionId === q.id).flatMap(s => s.options);
     const index = options.findIndex(o => o.id === selections.get(q.id));
-    return `${codes[i]} ${index < 0 ? '—' : optionCode(index)}`;
+    const label = index < 0 ? '' : options[index]!.label;
+    return `${codes[i]} ${index < 0 ? '—' : optionCode(index)}${label ? ` — ${label}` : ''}`;
   }).join(' · ');
 }
