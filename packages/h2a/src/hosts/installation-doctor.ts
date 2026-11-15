@@ -212,7 +212,7 @@ export function inspectLegacyAccountArtifacts(
     found,
     message: found.length === 0
       ? "no legacy H2A account-pool artifacts found"
-      : "legacy H2A account-pool files are inert; back them up, verify `h2a llm-mesh account enroll`, then remove them manually",
+      : "legacy H2A account-pool files are inert; back them up, verify `h2a llm-mesh account enroll`, then run `h2a doctor --repair` to quarantine them (or remove them manually)",
   };
 }
 

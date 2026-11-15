@@ -53,7 +53,8 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Integrated head (LOT-3/LOT-5 registry verbs): the core help gains the
 // `registry catalog`, `registry bootstrap` and `hosted-lock` usage lines
 // (+501 bytes).
-const CORE_HELP_SHA256 = "b993a5237f5c098340ffe7531d36d7bab0109125106a0041698267ba1e8d8615";
+// `h2a doctor --repair` quarantine note (+186 bytes).
+const CORE_HELP_SHA256 = "131fc0c536c633557193417290c54184beee9af0177d274a0ea6018aeb916341";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -159,7 +160,8 @@ function assertCoreHelp(result) {
   // + 28 for the LOT-1 H4 upgrade surface (0.98.8): the `h2a upgrade` usage
   // line now documents the single H4 command instead of the legacy staged path.
   // + 501 for the LOT-3/LOT-5 registry verbs.
-  assert.equal(Buffer.byteLength(result.stdout), 15390);
+  // + 186 for the doctor --repair quarantine note.
+  assert.equal(Buffer.byteLength(result.stdout), 15576);
 }
 
 function assertMissingRuntime(result, firstToken) {

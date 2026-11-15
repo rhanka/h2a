@@ -46,6 +46,12 @@ Doctor garantit la cohérence des réparations qu'il a lui-même effectuées. Il
 changements d'installation faits par un autre outil ; après une modification manuelle de ton
 installation, redémarre tes sessions.
 
+Sous `--repair` (hors `--dry-run`), doctor répare également de manière sûre les avertissements (`warnings`) réparables du store en les **déplaçant** (jamais de suppression) vers un répertoire de quarantaine horodaté sous la racine du bus (`<root>/.quarantine/doctor-<ts>/`, permissions `0700`) accompagné d'un `manifest.json` (`paths`, `sizes`, `mtimes`, aucun contenu) :
+- `legacyAccountArtifacts` : déplacement (`stat` + `rename` uniquement, sans jamais ouvrir ni lire le contenu) de `~/.sentropic/{accounts.json,accounts-tokens.json,session-bindings.json,account-quota.json,session-log.jsonl}` vers `<root>/.quarantine/doctor-<ts>/legacy-accounts/` ;
+- `splitBrain` : déplacement d'un bus local `<repo>/.h2a` vers `<root>/.quarantine/doctor-<ts>/split-brain/.h2a` **uniquement** s'il est inactif (aucun verrou `.lock`, aucun fichier modifié depuis moins de 24 h, aucune présence vivante qui y pointe) — sinon refusé (`skipped`) avec la raison et `ok: false` ;
+- `inboxHygiene` (`hostlessDirs` / `phantomThreeSegment`) : déplacement vers `<root>/.quarantine/doctor-<ts>/inbox/` **uniquement** si le répertoire est vide ou non modifié depuis plus de 24 h et non référencé par une présence vivante — sinon refusé (`skipped`) avec la raison et `ok: false` ;
+- `rootSource` reste informatif (`info`).
+
 **Explicit limit — native command failure**: If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it.
 
 ## Le contrat de sécurité du script

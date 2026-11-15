@@ -34,9 +34,15 @@ available to the native Claude process. With `--gw`, H2A uses only the opaque
 llm-mesh gateway token and fails without starting an agent if that required
 gateway is unavailable.
 
-Existing files under `~/.sentropic/` from the removed pool are not read or
-deleted. `h2a doctor` reports their paths by existence only. Back them up,
-verify the new enrollments, then remove them manually if no rollback is needed.
+Existing files under `~/.sentropic/` from the removed pool are never opened or
+deleted. `h2a doctor` reports their paths by existence only. Under
+`h2a doctor --repair`, those legacy files (`accounts.json`,
+`accounts-tokens.json`, `session-bindings.json`, `account-quota.json`,
+`session-log.jsonl`) are moved (stat + rename only, never read or deleted) into
+`<root>/.quarantine/doctor-<ts>/legacy-accounts/` with `0700` permissions and a
+`manifest.json` recording paths, sizes, and mtimes (no content). You can also
+back them up, verify the new enrollments, and remove them manually if no
+rollback is needed.
 
 ## Migration to 0.98.1
 
