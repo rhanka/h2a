@@ -9,7 +9,10 @@
  * never silently maps them.
  */
 
-export const GEMINI_4_ARGON = "gemini-4-argon";
+export const GEMINI_4_ARGON_LOW = "gemini-4-argon-low";
+export const GEMINI_4_ARGON_MEDIUM = "gemini-4-argon-medium";
+export const GEMINI_4_ARGON_HIGH = "gemini-4-argon-high";
+export const GEMINI_4_ARGON = GEMINI_4_ARGON_HIGH;
 export const GEMINI_4_CARBON = "gemini-4-carbon";
 export const GEMINI_3_8_FLASH = "gemini-3.8-flash";
 export const CLAUDE_FABLE_5_1 = "claude-fable-5-1";
@@ -21,7 +24,9 @@ export const MUSE_EMBER_1_0 = "muse-ember-1.0";
 export const MUSE_WONDER_FULL_1_0 = "muse-wonder-full-1.0";
 
 export const GATEWAY_MODEL_IDS = [
-  GEMINI_4_ARGON,
+  GEMINI_4_ARGON_LOW,
+  GEMINI_4_ARGON_MEDIUM,
+  GEMINI_4_ARGON_HIGH,
   GEMINI_4_CARBON,
   GEMINI_3_8_FLASH,
   CLAUDE_FABLE_5_1,
@@ -41,7 +46,9 @@ export type ModelLaunchAvailability =
 
 /** Admission here does not create a gateway route in the published mesh. */
 export const MODEL_LAUNCH_AVAILABILITY: Readonly<Record<GatewayModelId, ModelLaunchAvailability>> = {
-  [GEMINI_4_ARGON]: { gatewayRoute: true },
+  [GEMINI_4_ARGON_LOW]: { gatewayRoute: true },
+  [GEMINI_4_ARGON_MEDIUM]: { gatewayRoute: true },
+  [GEMINI_4_ARGON_HIGH]: { gatewayRoute: true },
   [GEMINI_4_CARBON]: { gatewayRoute: true },
   [GEMINI_3_8_FLASH]: { gatewayRoute: true },
   [CLAUDE_FABLE_5_1]: { gatewayRoute: true },
@@ -49,22 +56,25 @@ export const MODEL_LAUNCH_AVAILABILITY: Readonly<Record<GatewayModelId, ModelLau
   [MUSE_SPARK_1_3]: { gatewayRoute: true },
   [MUSE_SPARK_1_3_CONTRIBUTOR]: { gatewayRoute: true },
   [MUSE_WONDER_1_0]: { gatewayRoute: true },
-  [MUSE_EMBER_1_0]: {
-    gatewayRoute: false,
-    directProfile: "muse",
-    reason: "Awaiting a published llm-mesh release carrying muse-ember-1.0 (sentropic #1013).",
-  },
+  [MUSE_EMBER_1_0]: { gatewayRoute: true },
   [MUSE_WONDER_FULL_1_0]: { gatewayRoute: true },
 };
 
 /** Readable aliases accepted by `h2a run --model` (spec §6.6). */
 export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
   {
-    "gemini-4-argon": GEMINI_4_ARGON,
-    "gemini-4-argon-high": GEMINI_4_ARGON,
-    "gemini-argon": GEMINI_4_ARGON,
-    argon: GEMINI_4_ARGON,
-    "argon-high": GEMINI_4_ARGON,
+    "gemini-4-argon": GEMINI_4_ARGON_HIGH,
+    "gemini-4-argon-high": GEMINI_4_ARGON_HIGH,
+    "gemini-4-argon-medium": GEMINI_4_ARGON_MEDIUM,
+    "gemini-4-argon-low": GEMINI_4_ARGON_LOW,
+    "gemini-argon": GEMINI_4_ARGON_HIGH,
+    "gemini-argon-high": GEMINI_4_ARGON_HIGH,
+    "gemini-argon-medium": GEMINI_4_ARGON_MEDIUM,
+    "gemini-argon-low": GEMINI_4_ARGON_LOW,
+    argon: GEMINI_4_ARGON_HIGH,
+    "argon-high": GEMINI_4_ARGON_HIGH,
+    "argon-medium": GEMINI_4_ARGON_MEDIUM,
+    "argon-low": GEMINI_4_ARGON_LOW,
     "gemini-4-carbon": GEMINI_4_CARBON,
     "gemini-4-carbon-high": GEMINI_4_CARBON,
     "gemini-4-carbon-medium": GEMINI_4_CARBON,

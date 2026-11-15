@@ -18,20 +18,21 @@ export class AgyEffortError extends Error {
   readonly code = "agy-effort-unsupported";
 }
 const GEMINI_4_CARBON_RE = /^(?:gemini-(?:4-)?)?carbon(?:-(.*))?$/i;
+const GEMINI_4_ARGON_RE = /^(?:gemini-(?:4-)?)?argon(?:-(.*))?$/i;
 const LAUNCH_MODEL_ALIASES: Readonly<Record<string, string>> = {
   "muse-ember": "muse-ember-1.0",
-  "gemini-4-argon": "gemini-4-argon",
-  "gemini-4-argon-high": "gemini-4-argon",
-  "gemini-4-argon-medium": "gemini-4-argon",
-  "gemini-4-argon-low": "gemini-4-argon",
-  "gemini-argon": "gemini-4-argon",
-  "gemini-argon-high": "gemini-4-argon",
-  "gemini-argon-medium": "gemini-4-argon",
-  "gemini-argon-low": "gemini-4-argon",
-  argon: "gemini-4-argon",
-  "argon-high": "gemini-4-argon",
-  "argon-medium": "gemini-4-argon",
-  "argon-low": "gemini-4-argon",
+  "gemini-4-argon": "gemini-4-argon-high",
+  "gemini-4-argon-high": "gemini-4-argon-high",
+  "gemini-4-argon-medium": "gemini-4-argon-medium",
+  "gemini-4-argon-low": "gemini-4-argon-low",
+  "gemini-argon": "gemini-4-argon-high",
+  "gemini-argon-high": "gemini-4-argon-high",
+  "gemini-argon-medium": "gemini-4-argon-medium",
+  "gemini-argon-low": "gemini-4-argon-low",
+  argon: "gemini-4-argon-high",
+  "argon-high": "gemini-4-argon-high",
+  "argon-medium": "gemini-4-argon-medium",
+  "argon-low": "gemini-4-argon-low",
   "gemini-4-carbon": GEMINI_4_CARBON_MODEL,
   "gemini-4-carbon-high": GEMINI_4_CARBON_MODEL,
   "gemini-4-carbon-medium": GEMINI_4_CARBON_MODEL,
@@ -128,6 +129,12 @@ export function resolveAgyModel(model: string | undefined, effort?: string): str
     return GEMINI_4_CARBON_MODEL;
   }
   const level = normalizeAgyEffort(effort, model);
+  const argon = model && GEMINI_4_ARGON_RE.exec(model.trim());
+  if (argon) {
+    const suffix = normalizeAgyEffort(argon[1]?.toLowerCase());
+    const resolved = level ?? suffix ?? "high";
+    return `gemini-4-argon-${resolved}`;
+  }
   const claude = model && /^(claude-(?:opus|sonnet)-5-5)(?:-(.*))?$/.exec(model);
   if (claude) {
     // Validate a supplied suffix even when a separate effort overrides it.

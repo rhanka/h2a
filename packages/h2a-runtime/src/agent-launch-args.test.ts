@@ -430,14 +430,21 @@ describe("AGY Claude 5.5 models (opus/sonnet via agy)", () => {
         prompt: "challenge the plan",
         model: "gemini-4-argon-high",
       }),
-    ).toEqual(["--model", "gemini-4-argon", "--effort", "high"]);
+    ).toEqual(["--model", "gemini-4-argon-high", "--effort", "high"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-argon-low",
+      }),
+    ).toEqual(["--model", "gemini-4-argon-low", "--effort", "low"]);
     expect(
       buildAgentLaunchArgs({
         profile: "agy",
         prompt: "challenge the plan",
         model: "argon-high",
       }),
-    ).toEqual(["--model", "gemini-4-argon", "--effort", "high"]);
+    ).toEqual(["--model", "gemini-4-argon-high", "--effort", "high"]);
     expect(
       buildAgentLaunchArgs({
         profile: "agy",
