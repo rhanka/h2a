@@ -100,7 +100,7 @@ and an optional `defaultFederation` under the `sentropic` key (never mutated by 
 
 | Rank | Source | Selection | Endpoint / client settings |
 |---|---|---|---|
-| **1 (highest)** | CLI flag | `--federation <name>` (or `--preprod` alias for `preprod` on `tools`) | Uses the `<name>` entry's declared `issuer`, `mcpUrl`, `clientId`, `redirectPort`, `label` (env overrides still apply to the built-in `preprod` entry when not declared in `config.json`) |
+| **1 (highest)** | CLI flag | `--federation <name>` (or `--preprod` alias for `preprod` on `tools`) | Uses the `<name>` entry's declared `issuer`, `mcpUrl`, `clientId`, `redirectPort`, `label` (env overrides directed at another federation never overwrite an explicitly selected federation; built-in `preprod` accepts env overrides only when env/config default also targets `preprod`) |
 | **2** | Environment variables | `H2A_SENTROPIC_FEDERATION` (or `H2A_SENTROPIC_ENV`) | `H2A_SENTROPIC_ISSUER`, `H2A_SENTROPIC_MCP_URL`, `H2A_SENTROPIC_CLIENT_ID`, `H2A_SENTROPIC_REDIRECT_PORT` override the selected config/built-in entry |
 | **3** | User config default | `sentropic.defaultFederation` in `config.json` | Uses the declared federation entry in `sentropic.federations` |
 | **4 (lowest)** | Built-in default | `preprod` | `https://preprod.auth.sent-tech.ca` and `https://preprod.sentropic.sent-tech.ca/api/v1/mcp` |
@@ -124,16 +124,17 @@ configured: the client is public (`token_endpoint_auth_method=none`).
 ## Storage
 
 - **Tokens**: the shared sentropic token store `~/.sentropic/h2a-auth.json`
-  (`packages/h2a-runtime/src/sentropic/auth-token.ts`, PR #428: per-server namespace, 0600,
-  atomic, fail-closed on a damaged file, writers serialized by an owner-checked lock with the
-  merge re-checked under it, strict RFC 3339 expiry). The record
-  keeps its shape (`server`, `issuer`, `accessToken`, `refreshToken?`, `expiresAt`, `subject`),
-  keyed by the resource server origin, so several federations can stay logged in at once and
-  `h2a sentropic status` lists them all. This client always writes `expiresAt`. Logout and
-  refresh-token rotation use `removeAuth` / `updateAuth` (same locked path as `writeAuth`;
-  compare-and-set on the refresh token):
-  a pair another process already rotated is never overwritten, and an old refresh token is never
-  kept.
+  (`packages/h2a-runtime/src/sentropic/auth-token.ts`, PR #428: per-federation / per-server
+  namespace, 0600, atomic, fail-closed on a damaged file, writers serialized by an owner-checked
+  lock with the merge re-checked under it, strict RFC 3339 expiry). The record keeps its shape
+  (`server`, `issuer`, `federation?`, `resource?`, `accessToken`, `refreshToken?`, `expiresAt`,
+  `subject`), keyed by the composite federation key `federation|issuer|resource` so two federations
+  sharing the same origin never collide and several federations can stay logged in at once
+  (`h2a sentropic status` lists them all); existing single-server records keyed by origin are
+  migrated safely on read/write. This client always writes `expiresAt`. Logout and refresh-token
+  rotation use `removeAuth` / `updateAuth` (same locked path as `writeAuth`; compare-and-set on the
+  refresh token): a pair another process already rotated is never overwritten, and an old refresh
+  token is never kept.
 - **Refresh lock**: `~/.sentropic/h2a-auth.json.refresh.lock` (O_EXCL, owner `pid:uuid`), held
   across the refresh HTTP calls so two h2a processes never present the same refresh token (the AS
   treats a second presentation as reuse and revokes the whole family). A waiter waits up to 45 s,
@@ -142,8 +143,9 @@ configured: the client is public (`token_endpoint_auth_method=none`).
   breaker at a time: the breaker holds `h2a-auth.json.refresh.lock.break` (O_EXCL) and checks the
   lock again under it before removing it, so two waiters that saw the same stale lock never both
   end up holding it. A `.break` older than 120 s was left by a breaker that died and is removed.
-- **Bindings**: `~/.sentropic/h2a-bindings/<sha256(server, ws)>.json`, one 0600 file per
-  (server, local workspace) in a 0700 directory. The local workspace is its durable git identity
+- **Bindings**: `~/.sentropic/h2a-bindings/<sha256(federation|issuer|resource, ws)>.json`, one
+  0600 file per `(federation, issuer, resource, local workspace)` in a 0700 directory (migrating
+  legacy `(server, local workspace)` slots safely). The local workspace is its durable git identity
   `ws:<sha256>` (same rule as track), and each binding records `federation` alongside `server`,
   `workspaceId`, `subject`, `tenantId`, and `boundAt`. The binding is a local routing choice; the
   resource server re-checks membership on every call.
@@ -176,9 +178,13 @@ configured: the client is public (`token_endpoint_auth_method=none`).
   one that is not the resource the grant was sealed with), and validates the refreshed access
   token's `iss`, `client_id`, `aud`, and `sub` (refusing if `sub` changed); a refused refresh
   (`invalid_grant`: revoked, expired, reuse detected) drops the dead pair and asks for a login.
-- Anti-exfiltration: `tools` accepts only a declared federation's `mcpUrl` (or a loopback test
-  server for built-in `preprod`), and `usableStoredToken` / `assertServerBound` refuse to send a
-  token whose server, issuer, or JWT `aud` does not match the selected federation entry.
+- Anti-exfiltration: all network-capable paths (`login`, `workspaces`, `bind`, `tools`,
+  `ensureFreshToken`, `usableStoredToken`, `refreshStored`, `refreshUnderLock`, `sessionFor`,
+  `logout`) route through one unified guard (`assertFederationTokenGuard`) that enforces
+  `assertDeclaredResourceServer` (accepting only the selected federation's declared `mcpUrl` and
+  `issuer`, or an isolated loopback test server for built-in `preprod`) and refuses to use or
+  revoke a stored token unless its `federation`, `issuer`, `server`, `resource`, and readable JWT
+  `aud` claim match the selected federation entry.
 - The browser is opened without a shell: `rundll32.exe url.dll,FileProtocolHandler <url>` on
   Windows (from `%SystemRoot%\System32`), `open` on macOS, `xdg-open` elsewhere, the URL as one
   argument; only an https URL (http on loopback) is handed to an opener. `cmd /c start` is never

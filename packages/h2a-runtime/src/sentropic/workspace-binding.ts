@@ -17,11 +17,18 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 import { computeDurableWorkspaceId, normalizeRootCommits } from "../conductor-launch.js";
-import { serverKey } from "./auth-token.js";
+import {
+  federationKey,
+  normalizeEndpointKey,
+  resolveFederationScope,
+  serverKey,
+  type AuthTarget,
+  type SentropicFederationScope,
+} from "./auth-token.js";
 import { assertFederationName, isFederationName } from "./publish-config.js";
 import { SentropicPublishError } from "./publish-errors.js";
 
@@ -75,10 +82,47 @@ export function bindingsDir(dir: string): string {
   return join(dir, "h2a-bindings");
 }
 
-/** The slot of one (server, local workspace) pair; the name reveals neither. */
-export function bindingFilePath(server: string, localWorkspace: string, dir: string): string {
-  const slot = createHash("sha256").update(`${serverKey(server)}\n${localWorkspace}`, "utf8").digest("hex");
+function slotPathForNamespace(namespace: string, localWorkspace: string, dir: string): string {
+  const slot = createHash("sha256").update(`${namespace}\n${localWorkspace}`, "utf8").digest("hex");
   return join(bindingsDir(dir), `${slot}.json`);
+}
+
+function legacySlotPath(server: string, localWorkspace: string, dir: string): string {
+  return slotPathForNamespace(serverKey(server), localWorkspace, dir);
+}
+
+function compositeSlotPath(scope: SentropicFederationScope, localWorkspace: string, dir: string): string {
+  return slotPathForNamespace(federationKey(scope), localWorkspace, dir);
+}
+
+/** The slot of one (federation+issuer+resource or server, local workspace) pair; the name reveals neither. */
+export function bindingFilePath(target: AuthTarget, localWorkspace: string, dir: string): string {
+  const scope = resolveFederationScope(target);
+  if (scope !== undefined) return compositeSlotPath(scope, localWorkspace, dir);
+  const legPath = legacySlotPath(target as string, localWorkspace, dir);
+  if (existsSync(legPath)) return legPath;
+  const parent = bindingsDir(dir);
+  if (!existsSync(parent)) return legPath;
+  const origin = serverKey(target as string);
+  try {
+    const matches: string[] = [];
+    for (const entry of readdirSync(parent)) {
+      if (!entry.endsWith(".json")) continue;
+      const candidate = join(parent, entry);
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(candidate, "utf8"));
+        if (isBinding(parsed) && parsed.localWorkspace === localWorkspace && serverKey(parsed.server) === origin) {
+          matches.push(candidate);
+        }
+      } catch {
+        // damaged slot is handled when read directly
+      }
+    }
+    if (matches.length === 1) return matches[0]!;
+  } catch {
+    // fallback to legPath
+  }
+  return legPath;
 }
 
 function isBinding(value: unknown): value is WorkspaceBinding {
@@ -95,13 +139,7 @@ function isBinding(value: unknown): value is WorkspaceBinding {
   );
 }
 
-/**
- * The binding of `localWorkspace` on `server`, or undefined when unbound. A file that cannot be
- * read, does not parse, or records another slot's identity is reported (typed error, file path
- * only) — never parsed into a binding, and its bytes never reach the message.
- */
-export function readBinding(server: string, localWorkspace: string, dir: string): WorkspaceBinding | undefined {
-  const path = bindingFilePath(server, localWorkspace, dir);
+function readSlotFile(path: string, expectedOrigin: string, localWorkspace: string): WorkspaceBinding | undefined {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
@@ -118,7 +156,7 @@ export function readBinding(server: string, localWorkspace: string, dir: string)
   if (
     !isBinding(parsed) ||
     parsed.localWorkspace !== localWorkspace ||
-    serverKey(parsed.server) !== serverKey(server) ||
+    serverKey(parsed.server) !== expectedOrigin ||
     !SENTROPIC_WORKSPACE.test(parsed.workspaceId)
   ) {
     throw bindingError(`the binding file does not hold this workspace's binding; run \`h2a sentropic unbind\`: ${path}`);
@@ -126,13 +164,76 @@ export function readBinding(server: string, localWorkspace: string, dir: string)
   return parsed;
 }
 
+/**
+ * The binding of `localWorkspace` on `target` (federation scope or server), or undefined when
+ * unbound. Safely migrates existing single-server binding files into the composite federation
+ * slot when they belong to the requested federation.
+ */
+export function readBinding(target: AuthTarget, localWorkspace: string, dir: string): WorkspaceBinding | undefined {
+  const scope = resolveFederationScope(target);
+  if (scope !== undefined) {
+    const origin = serverKey(scope.resource);
+    const compPath = compositeSlotPath(scope, localWorkspace, dir);
+    const exact = readSlotFile(compPath, origin, localWorkspace);
+    if (exact !== undefined) return exact;
+
+    const legPath = legacySlotPath(scope.resource, localWorkspace, dir);
+    const legacy = readSlotFile(legPath, origin, localWorkspace);
+    if (legacy === undefined) return undefined;
+    if (legacy.federation !== undefined && legacy.federation !== scope.federation) {
+      if (scope.otherResources !== undefined && scope.otherResources.size > 0) return undefined;
+      return legacy;
+    }
+    if (
+      legacy.federation === undefined &&
+      scope.otherResources !== undefined &&
+      scope.otherResources.size > 0 &&
+      (scope.expectedSubject === undefined || legacy.subject !== scope.expectedSubject)
+    ) {
+      return undefined;
+    }
+    const migrated: WorkspaceBinding = {
+      ...legacy,
+      federation: scope.federation,
+      server: origin,
+    };
+    try {
+      writeBinding(migrated, dir, scope);
+      rmSync(legPath, { force: true });
+    } catch {
+      // Best-effort migration on read
+    }
+    return migrated;
+  }
+
+  const origin = serverKey(target as string);
+  const path = bindingFilePath(target, localWorkspace, dir);
+  return readSlotFile(path, origin, localWorkspace);
+}
+
 /** Record `binding` (0600 file, 0700 directory, exclusive unique temp + rename). */
-export function writeBinding(binding: WorkspaceBinding, dir: string): void {
+export function writeBinding(binding: WorkspaceBinding, dir: string, scope?: SentropicFederationScope): void {
   assertLocalWorkspaceId(binding.localWorkspace);
   if (binding.federation !== undefined) assertFederationName(binding.federation);
   assertSentropicWorkspaceId(binding.workspaceId);
-  const record: WorkspaceBinding = { ...binding, server: serverKey(binding.server) };
-  const path = bindingFilePath(record.server, record.localWorkspace, dir);
+  const origin = serverKey(binding.server);
+  const record: WorkspaceBinding = {
+    ...binding,
+    ...(scope?.federation !== undefined && binding.federation === undefined ? { federation: scope.federation } : {}),
+    server: origin,
+  };
+  const path =
+    scope !== undefined
+      ? compositeSlotPath(
+          {
+            federation: record.federation ?? scope.federation,
+            issuer: normalizeEndpointKey(scope.issuer),
+            resource: normalizeEndpointKey(scope.resource),
+          },
+          record.localWorkspace,
+          dir,
+        )
+      : legacySlotPath(record.server, record.localWorkspace, dir);
   const parent = bindingsDir(dir);
   mkdirSync(parent, { recursive: true, mode: 0o700 });
   chmodSync(parent, 0o700);
@@ -141,14 +242,57 @@ export function writeBinding(binding: WorkspaceBinding, dir: string): void {
     writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600, flag: "wx" });
     chmodSync(tmp, 0o600);
     renameSync(tmp, path);
+    if (scope !== undefined) {
+      const legPath = legacySlotPath(record.server, record.localWorkspace, dir);
+      if (legPath !== path && existsSync(legPath)) {
+        try {
+          const leg = readSlotFile(legPath, origin, record.localWorkspace);
+          if (leg !== undefined && (leg.federation === undefined || leg.federation === record.federation)) {
+            rmSync(legPath, { force: true });
+          }
+        } catch {
+          // Leave unreadable/unrelated legacy file alone
+        }
+      }
+    }
   } finally {
     rmSync(tmp, { force: true });
   }
 }
 
-/** Remove the binding of `localWorkspace` on `server`. True when one was removed. */
-export function removeBinding(server: string, localWorkspace: string, dir: string): boolean {
-  const path = bindingFilePath(server, localWorkspace, dir);
+/** Remove the binding of `localWorkspace` on `target`. True when one was removed. */
+export function removeBinding(target: AuthTarget, localWorkspace: string, dir: string): boolean {
+  const scope = resolveFederationScope(target);
+  if (scope !== undefined) {
+    const compPath = compositeSlotPath(scope, localWorkspace, dir);
+    let removed = false;
+    try {
+      rmSync(compPath);
+      removed = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw bindingError(`the binding file could not be removed: ${compPath}`);
+      }
+    }
+    const legPath = legacySlotPath(scope.resource, localWorkspace, dir);
+    if (existsSync(legPath)) {
+      try {
+        const leg = readSlotFile(legPath, serverKey(scope.resource), localWorkspace);
+        if (
+          leg !== undefined &&
+          (leg.federation === scope.federation ||
+            (leg.federation === undefined && (scope.otherResources === undefined || scope.otherResources.size === 0)))
+        ) {
+          rmSync(legPath);
+          removed = true;
+        }
+      } catch {
+        // Leave damaged/unrelated legacy file alone
+      }
+    }
+    return removed;
+  }
+  const path = bindingFilePath(target, localWorkspace, dir);
   try {
     rmSync(path);
     return true;

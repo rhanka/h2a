@@ -27,6 +27,7 @@ import type { Command } from "commander";
 
 import { openInSystemBrowser } from "./browser-open.js";
 import {
+  assertFederationTokenGuard,
   bindWorkspace,
   listPublishTools,
   listWorkspaces,
@@ -42,7 +43,6 @@ import {
 import { PUBLISH_SCOPES } from "./oauth-pkce.js";
 import {
   SENTROPIC_ENV_VARS,
-  assertDeclaredResourceServer,
   resolveAllPublishConfigs,
   resolvePublishConfig,
   type ResolvePublishConfigOptions,
@@ -213,6 +213,14 @@ function statusForFederation(
       ),
     );
     // The publish path refuses such a binding (listPublishTools); status only says so.
+    if (binding.federation !== undefined && binding.federation !== config.federation) {
+      lines.push(
+        row(
+          "warning",
+          `the binding was made under federation ${binding.federation}, not ${config.federation}: bind again`,
+        ),
+      );
+    }
     if (session.loggedIn && binding.tenantId !== session.tenantId) {
       lines.push(
         row(
@@ -378,7 +386,7 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
           );
         }
         if (listing.foreignBinding) {
-          rt.log(`${PREFIX} warning: this workspace was bound by another account or in another tenant: bind it again`);
+          rt.log(`${PREFIX} warning: this workspace was bound by another account or in another tenant, or under another federation: bind it again`);
         }
       }),
     );
@@ -400,7 +408,7 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
           rt.log(
             `${PREFIX} warning: tools/list for workspace ${binding.workspaceId} answered JSON-RPC -32603: this account may not ` +
               `read it${binding.tenantId !== undefined ? ` in tenant ${binding.tenantId}` : ""}; every call carries its workspaceRef, ` +
-              "and `h2a sentropic tools --preprod` probes it",
+              `and \`h2a sentropic tools --federation ${rt.config.federation}\` probes it`,
           );
         }
         rt.log(
@@ -452,7 +460,7 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
           );
         }
         // Anti-exfiltration: the call goes only to a declared federation's resource server (or loopback test server for preprod).
-        assertDeclaredResourceServer(rt.config);
+        assertFederationTokenGuard(rt.config);
         const { tools, workspaceId } = await listPublishTools(rt, deps.resolveWorkspace(deps.cwd()));
         deps.out(tools.map((name) => `${name}\n`).join(""));
         rt.log(

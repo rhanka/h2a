@@ -233,4 +233,22 @@ describe("sentropic federations in user config (read-only for agents)", () => {
     expect(readRemoteConfig().sentropic).toEqual(sentropic);
     expect(readRemoteConfig().maxConcurrent).toBe(12);
   });
+
+  it("preserves a raw sentropic block in config.json across unrelated config writes even when it contains a temporary validation error (P3-1)", () => {
+    const rawSentropic = {
+      defaultFederation: "typo-federation",
+      federations: [
+        {
+          name: "alpha",
+          issuer: "http://not-https.example.test",
+          mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+          clientId: "",
+        },
+      ],
+    };
+    writeRemoteConfig({ sentropic: rawSentropic });
+    setMaxConcurrent(16);
+    expect(readRemoteConfig().sentropic).toEqual(rawSentropic);
+    expect(readRemoteConfig().maxConcurrent).toBe(16);
+  });
 });

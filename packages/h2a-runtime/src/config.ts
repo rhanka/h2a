@@ -12,10 +12,9 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 import type { SessionTarget } from "./protocol-local.js";
-import {
-  parseSentropicUserConfig,
-  type SentropicFederationDeclaration,
-  type SentropicUserConfig,
+import type {
+  SentropicFederationDeclaration,
+  SentropicUserConfig,
 } from "./sentropic/publish-config.js";
 
 export type { SentropicFederationDeclaration, SentropicUserConfig };
@@ -480,12 +479,7 @@ export function readRemoteConfig(): RemoteCliConfig {
         config.maxConcurrent = Math.trunc(parsed.maxConcurrent);
       }
       if (parsed.sentropic && typeof parsed.sentropic === "object" && !Array.isArray(parsed.sentropic)) {
-        try {
-          parseSentropicUserConfig({ sentropic: parsed.sentropic });
-          config.sentropic = parsed.sentropic as SentropicUserConfig;
-        } catch {
-          // Invalid sentropic block is rejected when `h2a sentropic` runs; ignored by unrelated commands.
-        }
+        config.sentropic = parsed.sentropic as SentropicUserConfig;
       }
       return config;
     }

@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
-import { serverKey } from "./auth-token.js";
+import { federationKey, serverKey, type SentropicFederationScope } from "./auth-token.js";
 import { SentropicPublishError } from "./publish-errors.js";
 
 export const SENTROPIC_BUILTIN_FEDERATION = "preprod";
@@ -106,12 +106,33 @@ export interface SentropicPublishConfig {
   readonly builtIn: boolean;
   /** Token-store namespace + anti-exfil key: the resource server origin (serverKey). */
   readonly server: string;
+  /** Composite federation key (`federation|issuer|resource`) isolating token-store and binding slots. */
+  readonly storeKey: string;
+  /** Resource server origins (`serverKey`) declared on other federations in the catalog. */
+  readonly otherDeclaredServers?: ReadonlySet<string> | undefined;
+  /** Authorization server origins (`serverKey`) declared on other federations in the catalog. */
+  readonly otherDeclaredIssuers?: ReadonlySet<string> | undefined;
+  /** MCP URLs of other declared federations sharing the same resource-server origin. */
+  readonly otherSameOriginMcpUrls?: ReadonlySet<string> | undefined;
   /** The public OAuth client id, when configured. */
   readonly clientId: string | undefined;
   /** Fixed loopback redirect port, or 0 for an ephemeral one (RFC 8252 §7.3). */
   readonly redirectPort: number;
   /** Where the token store and the bindings live (default ~/.sentropic). */
   readonly stateDir: string;
+}
+
+export function configAuthScope(
+  config: SentropicPublishConfig,
+  expectedSubject?: string,
+): SentropicFederationScope {
+  return {
+    federation: config.federation,
+    issuer: config.issuer,
+    resource: config.mcpUrl,
+    ...(config.otherSameOriginMcpUrls !== undefined ? { otherResources: config.otherSameOriginMcpUrls } : {}),
+    ...(expectedSubject !== undefined ? { expectedSubject } : {}),
+  };
 }
 
 export interface ResolvePublishConfigOptions {
@@ -356,6 +377,7 @@ function parseRedirectPortEnv(rawPort: string | undefined): number | undefined {
 
 function buildConfigForEntry(
   entry: SentropicFederationEntry,
+  catalog: readonly SentropicFederationEntry[],
   stateDir: string,
   env: Env,
   applyEnvOverrides: boolean,
@@ -374,17 +396,36 @@ function buildConfigForEntry(
   const envPort = applyEnvOverrides ? parseRedirectPortEnv(nonEmpty(env[SENTROPIC_ENV_VARS.redirectPort])) : undefined;
   const redirectPort = envPort ?? entry.redirectPort;
 
+  const normalizedIssuer = trimTrailingSlashes(issuerUrl.toString());
   const mcp = trimTrailingSlashes(mcpUrl.toString());
+  const server = serverKey(mcp);
+
+  const otherDeclaredServers = new Set<string>();
+  const otherDeclaredIssuers = new Set<string>();
+  const otherSameOriginMcpUrls = new Set<string>();
+  for (const other of catalog) {
+    if (other.name === entry.name) continue;
+    otherDeclaredServers.add(other.server);
+    otherDeclaredIssuers.add(serverKey(other.issuer));
+    if (other.server === server) {
+      otherSameOriginMcpUrls.add(other.mcpUrl);
+    }
+  }
+
   return {
     federation: entry.name,
     environment: entry.name,
     ...(entry.label !== undefined ? { label: entry.label } : {}),
-    issuer: trimTrailingSlashes(issuerUrl.toString()),
+    issuer: normalizedIssuer,
     mcpUrl: mcp,
     declaredIssuer: entry.issuer,
     declaredMcpUrl: entry.mcpUrl,
     builtIn: entry.builtIn,
-    server: serverKey(mcp),
+    server,
+    storeKey: federationKey({ federation: entry.name, issuer: normalizedIssuer, resource: mcp }),
+    otherDeclaredServers,
+    otherDeclaredIssuers,
+    otherSameOriginMcpUrls,
     clientId,
     redirectPort,
     stateDir,
@@ -449,12 +490,17 @@ export function resolveAllPublishConfigs(
   }
 
   // Precedence: flag > env > config default > built-in.
-  // When a non-built-in federation is explicitly chosen by `--federation <name>`, its declared
-  // endpoints/clientId take precedence over env overrides; otherwise env overrides config/built-in.
-  const applyEnvToActive = flagName === undefined || selectedEntry.builtIn;
-  const active = buildConfigForEntry(selectedEntry, stateDir, env, applyEnvToActive);
+  // When a federation is explicitly selected by `--federation <name>` (or `--preprod`), its
+  // declared endpoints/clientId take precedence over env overrides directed at another federation.
+  // Built-in `preprod` still accepts env endpoint/client overrides when env does not target a
+  // different federation (`H2A_SENTROPIC_FEDERATION` / `H2A_SENTROPIC_ENV` unset or `"preprod"`
+  // and `defaultFederation` is `"preprod"`).
+  const envTargetsSelected =
+    envName !== undefined ? envName === selectedEntry.name : catalog.defaultFederation === selectedEntry.name;
+  const applyEnvToActive = flagName === undefined || (selectedEntry.builtIn && envTargetsSelected);
+  const active = buildConfigForEntry(selectedEntry, catalog.federations, stateDir, env, applyEnvToActive);
   const federations = catalog.federations.map((entry) =>
-    entry.name === active.federation ? active : buildConfigForEntry(entry, stateDir, env, false),
+    entry.name === active.federation ? active : buildConfigForEntry(entry, catalog.federations, stateDir, env, false),
   );
 
   return {
@@ -474,19 +520,28 @@ export function resolvePublishConfig(
 }
 
 /**
- * Anti-exfiltration guard for `tools`: the MCP probe reaches only the resource server declared
- * by the selected federation entry (or a loopback test server for the built-in `preprod` entry).
- * An undeclared resource server supplied via `H2A_SENTROPIC_MCP_URL` is refused before any call.
+ * Anti-exfiltration guard for federation endpoints: calls reach only the resource server and
+ * issuer declared by the selected federation entry (or an isolated loopback test server for the
+ * built-in `preprod` entry). Undeclared endpoints supplied via `H2A_SENTROPIC_MCP_URL` or
+ * `H2A_SENTROPIC_ISSUER` are refused before any network call.
  */
 export function assertDeclaredResourceServer(config: SentropicPublishConfig): void {
   if (config.mcpUrl === config.declaredMcpUrl && config.issuer === config.declaredIssuer) return;
-  let hostname = "";
+  let mcpHost = "";
+  let issuerHost = "";
   try {
-    hostname = new URL(config.mcpUrl).hostname;
+    mcpHost = new URL(config.mcpUrl).hostname;
+    issuerHost = new URL(config.issuer).hostname;
   } catch {
     // not a URL: refused below
   }
-  if (config.builtIn && isLoopbackHostname(hostname)) return;
+  const isBuiltInLoopbackTest =
+    config.builtIn &&
+    (config.mcpUrl === config.declaredMcpUrl || isLoopbackHostname(mcpHost)) &&
+    (config.issuer === config.declaredIssuer || isLoopbackHostname(issuerHost)) &&
+    !(config.otherDeclaredServers?.has(config.server) ?? false) &&
+    !(config.otherDeclaredIssuers?.has(serverKey(config.issuer)) ?? false);
+  if (isBuiltInLoopbackTest) return;
   throw new SentropicPublishError(
     "usage",
     `the MCP probe for federation "${config.federation}" is limited to its declared resource server (${config.declaredMcpUrl})` +

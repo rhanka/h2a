@@ -41,7 +41,25 @@ export interface SentropicAuthToken {
   expiresAt?: string;
   /** the authenticated subject (sub), if known. */
   subject?: string;
+  /** the named federation this token was minted for (when federation-scoped). */
+  federation?: string;
+  /** the MCP resource URL (RFC 8707 audience) this token was minted for (when federation-scoped). */
+  resource?: string;
 }
+
+/** Composite namespace scope for a federation entry: federation name + issuer + MCP resource URL. */
+export interface SentropicFederationScope {
+  readonly federation: string;
+  readonly issuer: string;
+  /** The MCP resource URL (`mcpUrl` / RFC 8707 audience). */
+  readonly resource: string;
+  /** Other declared MCP resource URLs on the same origin, so legacy origin-only records for another federation are not claimed. */
+  readonly otherResources?: ReadonlySet<string> | undefined;
+  /** Expected subject for legacy single-server binding migration when multiple federations share an origin. */
+  readonly expectedSubject?: string | undefined;
+}
+
+export type AuthTarget = string | SentropicFederationScope;
 
 /** file shape: a per-server map so multiple servers coexist without cross-use. */
 type AuthFile = Record<string, SentropicAuthToken>;
@@ -119,7 +137,9 @@ function isStoredToken(value: unknown): value is SentropicAuthToken {
     typeof t.accessToken === "string" &&
     (t.refreshToken === undefined || typeof t.refreshToken === "string") &&
     (t.expiresAt === undefined || typeof t.expiresAt === "string") &&
-    (t.subject === undefined || typeof t.subject === "string")
+    (t.subject === undefined || typeof t.subject === "string") &&
+    (t.federation === undefined || typeof t.federation === "string") &&
+    (t.resource === undefined || typeof t.resource === "string")
   );
 }
 
@@ -297,35 +317,229 @@ export function serverKey(server: string): string {
   }
 }
 
-/**
- * The token bound to `server`, or undefined. SECURITY: only ever returns a token whose stored
- * `server` matches the REQUESTED server — the per-server namespace + this check are what stop a
- * token going to the wrong (possibly attacker) server.
- */
-export function readAuth(server: string, dir?: string): SentropicAuthToken | undefined {
-  const key = serverKey(server);
-  const tok = readFile(dir)[key];
-  if (!tok) return undefined;
-  return serverKey(tok.server) === key ? tok : undefined;
+export function normalizeEndpointKey(url: string): string {
+  return url.trim().replace(/\/+$/u, "");
 }
 
 /**
- * Persist a token under its own server namespace (0600, atomic). Rejects a self-inconsistent
- * token. STORAGE SAFETY: refuses (typed error, the file is not touched) when the existing file
- * is unreadable or not a per-server map. Concurrent writers are serialized by the writer lock and
- * the merge re-checks its source bytes under it; when the lock cannot be had or was lost, or a
- * writer ignoring it keeps changing the file, writeAuth refuses (AuthFileConcurrentWriteError):
- * a refusal loses nothing, a forced rename would lose theirs.
+ * Composite namespace key for a federation entry (`federation|issuer|resource`), preventing two
+ * federations on the same origin from colliding in the token store or bindings.
+ */
+export function federationKey(scope: { federation: string; issuer: string; resource: string }): string {
+  return `${scope.federation}|${normalizeEndpointKey(scope.issuer)}|${normalizeEndpointKey(scope.resource)}`;
+}
+
+export function parseFederationKey(key: string): SentropicFederationScope | undefined {
+  const parts = key.split("|");
+  if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return undefined;
+  return { federation: parts[0], issuer: parts[1], resource: parts[2] };
+}
+
+export function resolveFederationScope(target: AuthTarget): SentropicFederationScope | undefined {
+  if (typeof target === "string") return parseFederationKey(target);
+  return {
+    federation: target.federation,
+    issuer: normalizeEndpointKey(target.issuer),
+    resource: normalizeEndpointKey(target.resource),
+    ...(target.otherResources !== undefined ? { otherResources: target.otherResources } : {}),
+    ...(target.expectedSubject !== undefined ? { expectedSubject: target.expectedSubject } : {}),
+  };
+}
+
+function jwtAudiences(accessToken: string): string[] | undefined {
+  const parts = accessToken.split(".");
+  if (parts.length !== 3 || !parts[1]) return undefined;
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return undefined;
+    const aud = (payload as Record<string, unknown>).aud;
+    if (typeof aud === "string") return [aud];
+    if (Array.isArray(aud)) return aud.filter((item): item is string => typeof item === "string");
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function classifyLegacyTokenForScope(
+  tok: SentropicAuthToken,
+  scope: SentropicFederationScope,
+): "migrate" | "unmigrated" | "none" {
+  const origin = serverKey(scope.resource);
+  if (serverKey(tok.server) !== origin) return "none";
+  const normResource = normalizeEndpointKey(scope.resource);
+  const normIssuer = normalizeEndpointKey(scope.issuer);
+  if (tok.federation !== undefined && tok.federation !== scope.federation) return "none";
+  if (tok.resource !== undefined && normalizeEndpointKey(tok.resource) !== normResource) return "none";
+  const auds = jwtAudiences(tok.accessToken)?.map(normalizeEndpointKey);
+  const issuerMatches = normalizeEndpointKey(tok.issuer) === normIssuer;
+  const audMatches = auds !== undefined && auds.includes(normResource);
+  if (issuerMatches && (audMatches || (tok.federation === scope.federation && tok.resource !== undefined))) {
+    return "migrate";
+  }
+  if (auds !== undefined && scope.otherResources !== undefined && auds.some((a) => scope.otherResources!.has(a))) {
+    return "none";
+  }
+  if (scope.otherResources !== undefined && scope.otherResources.size > 0 && tok.federation === undefined) {
+    return "none";
+  }
+  return "unmigrated";
+}
+
+function findScopedEntry(
+  file: AuthFile,
+  scope: SentropicFederationScope,
+): { key: string; token: SentropicAuthToken; shouldMigrate: boolean } | undefined {
+  const compKey = federationKey(scope);
+  const origin = serverKey(scope.resource);
+  const normResource = normalizeEndpointKey(scope.resource);
+  const exact = file[compKey];
+  if (exact !== undefined && serverKey(exact.server) === origin) {
+    return { key: compKey, token: exact, shouldMigrate: false };
+  }
+  // Check if an entry exists for this (federation, resource) with another issuer (e.g. foreignIssuer check).
+  for (const [k, tok] of Object.entries(file)) {
+    const parsed = parseFederationKey(k);
+    if (
+      parsed !== undefined &&
+      parsed.federation === scope.federation &&
+      normalizeEndpointKey(parsed.resource) === normResource &&
+      serverKey(tok.server) === origin
+    ) {
+      return { key: k, token: tok, shouldMigrate: false };
+    }
+  }
+  const legacy = file[origin];
+  if (legacy !== undefined) {
+    const kind = classifyLegacyTokenForScope(legacy, scope);
+    if (kind === "migrate") return { key: origin, token: legacy, shouldMigrate: true };
+    if (kind === "unmigrated") return { key: origin, token: legacy, shouldMigrate: false };
+  }
+  return undefined;
+}
+
+function migrateLegacyAuthIfPossible(scope: SentropicFederationScope, legacyToken: SentropicAuthToken, dir?: string): SentropicAuthToken {
+  const normResource = normalizeEndpointKey(scope.resource);
+  const normIssuer = normalizeEndpointKey(scope.issuer);
+  const origin = serverKey(normResource);
+  const compKey = federationKey(scope);
+  const migrated: SentropicAuthToken = {
+    ...legacyToken,
+    server: origin,
+    issuer: normIssuer,
+    federation: scope.federation,
+    resource: normResource,
+  };
+  const path = authFilePath(dir);
+  try {
+    withWriterLock(path, (lock) => {
+      for (let attempt = 0; attempt < MAX_WRITE_MERGE_ATTEMPTS; attempt++) {
+        const raw = readRawAuthFile(path);
+        const file = parseAuthFile(raw, path);
+        const currentLegacy = file[origin];
+        if (currentLegacy === undefined || currentLegacy.accessToken !== legacyToken.accessToken) return;
+        if (file[compKey] === undefined) file[compKey] = migrated;
+        delete file[origin];
+        if (commitUnlessChanged(path, Buffer.from(JSON.stringify(file, null, 2) + "\n", "utf8"), raw, lock)) return;
+      }
+    });
+  } catch {
+    // Best-effort migration on read: never fail a read when the store is locked by another writer.
+  }
+  return migrated;
+}
+
+/**
+ * The token bound to `server` (or federation `scope`), or undefined. SECURITY: only ever returns
+ * a token whose stored `server` (and federation/resource when scoped) matches the requested target.
+ * Legacy single-server records matching the federation's issuer and resource are safely migrated.
+ */
+export function readAuth(target: AuthTarget, dir?: string): SentropicAuthToken | undefined {
+  const scope = resolveFederationScope(target);
+  const file = readFile(dir);
+  if (scope !== undefined) {
+    const found = findScopedEntry(file, scope);
+    if (found === undefined) return undefined;
+    if (found.shouldMigrate) return migrateLegacyAuthIfPossible(scope, found.token, dir);
+    return found.token;
+  }
+  const key = serverKey(target as string);
+  const tok = file[key];
+  if (tok !== undefined && serverKey(tok.server) === key) return tok;
+  const matches = Object.values(file).filter((entry) => serverKey(entry.server) === key);
+  if (matches.length === 1) return matches[0];
+  const normTarget = normalizeEndpointKey(target as string);
+  return matches.find((entry) => entry.resource !== undefined && normalizeEndpointKey(entry.resource) === normTarget);
+}
+
+/**
+ * Persist a token under its own federation or server namespace (0600, atomic). Rejects a
+ * self-inconsistent token. STORAGE SAFETY: refuses (typed error, the file is not touched) when
+ * the existing file is unreadable or not a per-server map. Concurrent writers are serialized by
+ * the writer lock and the merge re-checks its source bytes under it.
  */
 export function writeAuth(token: SentropicAuthToken, dir?: string): void {
   assertServerBound(token, token.server);
   const path = authFilePath(dir);
-  const key = serverKey(token.server);
+  const origin = serverKey(token.server);
+  const hasConsistentScope =
+    token.federation !== undefined &&
+    token.resource !== undefined &&
+    serverKey(token.resource) === origin;
+  const normalizedToken: SentropicAuthToken = hasConsistentScope
+    ? {
+        ...token,
+        server: origin,
+        issuer: normalizeEndpointKey(token.issuer),
+        resource: normalizeEndpointKey(token.resource!),
+      }
+    : (() => {
+        const copy: SentropicAuthToken = { ...token };
+        if (copy.resource !== undefined && serverKey(copy.resource) !== origin) {
+          delete copy.federation;
+          delete copy.resource;
+        }
+        return copy;
+      })();
+  const key = hasConsistentScope
+    ? federationKey({
+        federation: normalizedToken.federation!,
+        issuer: normalizedToken.issuer,
+        resource: normalizedToken.resource!,
+      })
+    : origin;
+
   withWriterLock(path, (lock) => {
     for (let attempt = 0; attempt < MAX_WRITE_MERGE_ATTEMPTS; attempt++) {
       const raw = readRawAuthFile(path);
       const file = parseAuthFile(raw, path);
-      file[key] = token;
+      if (hasConsistentScope) {
+        // Remove any previous composite entry for the same (federation, resource) and any migrated legacy origin entry.
+        for (const existingKey of Object.keys(file)) {
+          if (existingKey === key) continue;
+          const parsed = parseFederationKey(existingKey);
+          if (
+            parsed !== undefined &&
+            parsed.federation === normalizedToken.federation &&
+            normalizeEndpointKey(parsed.resource) === normalizedToken.resource
+          ) {
+            delete file[existingKey];
+          }
+        }
+        const leg = file[origin];
+        if (
+          leg !== undefined &&
+          (leg.federation === undefined || leg.federation === normalizedToken.federation) &&
+          (leg.resource === undefined || normalizeEndpointKey(leg.resource) === normalizedToken.resource)
+        ) {
+          delete file[origin];
+        }
+      } else {
+        // Unscoped write for `origin`: if a single composite entry on `origin` exists, clear it so the unscoped write takes effect.
+        const sameOriginKeys = Object.keys(file).filter((k) => k !== origin && serverKey(file[k]!.server) === origin);
+        if (sameOriginKeys.length === 1) delete file[sameOriginKeys[0]!];
+      }
+      file[key] = normalizedToken;
       if (commitUnlessChanged(path, Buffer.from(JSON.stringify(file, null, 2) + "\n", "utf8"), raw, lock)) return;
     }
     throw new AuthFileConcurrentWriteError(path, "kept-changing");
@@ -385,25 +599,58 @@ export function assertServerBound(token: SentropicAuthToken, requestedServer: st
  * `server`.
  */
 export function updateAuth(
-  server: string,
+  target: AuthTarget,
   mutate: (current: SentropicAuthToken | undefined) => SentropicAuthToken | undefined,
   dir?: string,
 ): SentropicAuthToken | undefined {
   const path = authFilePath(dir);
-  const key = serverKey(server);
+  const scope = resolveFederationScope(target);
+  const origin = scope !== undefined ? serverKey(scope.resource) : serverKey(target as string);
   return withWriterLock(path, (lock) => {
     for (let attempt = 0; attempt < MAX_WRITE_MERGE_ATTEMPTS; attempt++) {
       const raw = readRawAuthFile(path);
       const file = parseAuthFile(raw, path);
-      const stored = file[key];
-      const current = stored !== undefined && serverKey(stored.server) === key ? stored : undefined;
+      let activeKey = origin;
+      let current: SentropicAuthToken | undefined;
+      if (scope !== undefined) {
+        const found = findScopedEntry(file, scope);
+        activeKey = found?.key ?? federationKey(scope);
+        current = found?.token;
+      } else {
+        const stored = file[origin];
+        if (stored !== undefined && serverKey(stored.server) === origin) {
+          current = stored;
+        } else {
+          const sameOrigin = Object.entries(file).filter(([, tok]) => serverKey(tok.server) === origin);
+          if (sameOrigin.length === 1) {
+            activeKey = sameOrigin[0]![0];
+            current = sameOrigin[0]![1];
+          }
+        }
+      }
       const next = mutate(current);
       if (next === current) return current;
       if (next === undefined) {
-        delete file[key];
+        delete file[activeKey];
+        if (scope !== undefined) {
+          const compKey = federationKey(scope);
+          delete file[compKey];
+        }
       } else {
-        assertServerBound(next, server);
-        file[key] = next;
+        assertServerBound(next, origin);
+        if (scope !== undefined) {
+          const compKey = federationKey(scope);
+          if (activeKey !== compKey) delete file[activeKey];
+          file[compKey] = {
+            ...next,
+            server: origin,
+            issuer: normalizeEndpointKey(next.issuer),
+            federation: next.federation ?? scope.federation,
+            resource: normalizeEndpointKey(next.resource ?? scope.resource),
+          };
+        } else {
+          file[activeKey] = next;
+        }
       }
       if (commitUnlessChanged(path, Buffer.from(JSON.stringify(file, null, 2) + "\n", "utf8"), raw, lock)) return next;
     }
@@ -411,10 +658,10 @@ export function updateAuth(
   });
 }
 
-/** Remove the token bound to `server` (logout). True when one was removed; other servers are kept. */
-export function removeAuth(server: string, dir?: string): boolean {
+/** Remove the token bound to `target` (logout). True when one was removed; other servers/federations are kept. */
+export function removeAuth(target: AuthTarget, dir?: string): boolean {
   let removed = false;
-  updateAuth(server, (current) => {
+  updateAuth(target, (current) => {
     removed = current !== undefined;
     return undefined;
   }, dir);
