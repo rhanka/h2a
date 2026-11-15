@@ -15,7 +15,9 @@
   "packages/h2a-runtime/src/claude-bare.test.ts": [],
   "packages/h2a-runtime/src/conductor-launch.test.ts": [],
   "packages/h2a-runtime/src/config-migrate.test.ts": [],
-  "packages/h2a-runtime/src/config.test.ts": [],
+  "packages/h2a-runtime/src/config.test.ts": [
+    "sentropic federations in user config (read-only for agents) preserves a raw sentropic block in config.json across unrelated config writes even when it contains a temporary validation error (P3-1)"
+  ],
   "packages/h2a-runtime/src/conv-guard-wiring.test.ts": [],
   "packages/h2a-runtime/src/conv-guard.test.ts": [],
   "packages/h2a-runtime/src/convsync.test.ts": [],
@@ -294,7 +296,11 @@
     "configurable OAuth/MCP federations tools accepts any declared federation via --federation, keeps --preprod as an alias for preprod, and refuses undeclared servers or cross-federation tokens",
     "configurable OAuth/MCP federations validates refreshed access token claims and refuses a refresh that changes the subject (P3-1)",
     "configurable OAuth/MCP federations ignores an empty or malformed WWW-Authenticate error code so the JSON-RPC error code still surfaces (P3-3)",
-    "configurable OAuth/MCP federations closes a preconnected non-idle socket on timeout and awaits the shared close promise (P3-2)"
+    "configurable OAuth/MCP federations closes a preconnected non-idle socket on timeout and awaits the shared close promise (P3-2)",
+    "configurable OAuth/MCP federations enforces anti-exfiltration across all paths (workspaces, bind, logout, tools, usableStoredToken, assertDeclaredResourceServer) via a single guard (P1-1)",
+    "configurable OAuth/MCP federations enforces flag > env > config > built-in precedence for --federation preprod and --preprod so env overrides never replace an explicitly selected federation (P2-1)",
+    "configurable OAuth/MCP federations isolates two federations on the same origin in the token store and bindings by federation + issuer + resource, and safely migrates legacy single-server records (P2-2)",
+    "configurable OAuth/MCP federations prints --federation <name> on bind -32603 warning, warns in status on a cross-federation binding, and names another federation in boundByAnotherAccount (P3-2)"
   ],
   "packages/h2a-runtime/src/sentropic/refresh-lock.test.ts": [
     "refresh lock: breaking a stale lock checks the lock again under the break lock: a stale lock another waiter broke and took meanwhile is left to it",

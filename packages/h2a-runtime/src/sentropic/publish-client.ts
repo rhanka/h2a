@@ -26,6 +26,7 @@
 
 import {
   AuthFileConcurrentWriteError,
+  assertServerBound,
   authFilePath,
   isExpired,
   readAuth,
@@ -58,7 +59,13 @@ import {
   validateIdToken,
   type FetchLike,
 } from "./oauth-pkce.js";
-import { assertSafeEndpoint, requireClientId, type SentropicPublishConfig } from "./publish-config.js";
+import {
+  assertDeclaredResourceServer,
+  assertSafeEndpoint,
+  configAuthScope,
+  requireClientId,
+  type SentropicPublishConfig,
+} from "./publish-config.js";
 import {
   SentropicLoginRequiredError,
   SentropicPublishError,
@@ -106,7 +113,58 @@ export function needsNewToken(token: SentropicAuthToken, now: number): boolean {
 }
 
 function storedToken(rt: PublishRuntime): SentropicAuthToken | undefined {
-  return readAuth(rt.config.server, rt.config.stateDir);
+  return readAuth(configAuthScope(rt.config), rt.config.stateDir);
+}
+
+/**
+ * Single unified anti-exfiltration guard for every network-capable publish-client path (`login`,
+ * `workspaces`, `bind`, `tools`, `ensureFreshToken`, `usableStoredToken`, `refreshStored`,
+ * `refreshUnderLock`, `sessionFor`, `logout`).
+ *
+ * 1. Verifies that `config.mcpUrl` and `config.issuer` match the federation entry's declared
+ *    endpoints (`assertDeclaredResourceServer`).
+ * 2. When `token` is provided, verifies that the token is bound to `config.federation`,
+ *    `config.issuer`, `config.server`, and `config.mcpUrl`, and carries a readable JWT `aud`
+ *    claim containing `config.mcpUrl` (and `iss` matching `config.issuer` when present).
+ */
+export function assertFederationTokenGuard(config: SentropicPublishConfig, token?: SentropicAuthToken): void {
+  assertDeclaredResourceServer(config);
+  if (token === undefined) return;
+  if (token.issuer !== config.issuer) {
+    throw new SentropicLoginRequiredError(
+      "the stored sentropic token was issued by another authorization server than the configured one",
+    );
+  }
+  if (token.federation !== undefined && token.federation !== config.federation) {
+    throw new SentropicLoginRequiredError(
+      `the stored sentropic token was issued for federation "${token.federation}", not "${config.federation}"`,
+    );
+  }
+  assertServerBound(token, config.mcpUrl);
+  if (token.resource !== undefined && token.resource !== config.mcpUrl) {
+    throw new SentropicPublishError(
+      "token",
+      `the stored token audience does not match federation "${config.federation}" resource server; refusing to send it`,
+    );
+  }
+  const claims = decodeJwtPayload(token.accessToken);
+  const audiences =
+    typeof claims?.aud === "string"
+      ? [claims.aud]
+      : Array.isArray(claims?.aud)
+        ? claims.aud.filter((item): item is string => typeof item === "string")
+        : [];
+  if (!audiences.includes(config.mcpUrl)) {
+    throw new SentropicPublishError(
+      "token",
+      `the stored token audience does not match federation "${config.federation}" resource server; refusing to send it`,
+    );
+  }
+  if (claims?.iss !== undefined && claims.iss !== config.issuer) {
+    throw new SentropicLoginRequiredError(
+      "the stored sentropic token was issued by another authorization server than the configured one",
+    );
+  }
 }
 
 /** The non-secret claims of the stored access token, for display and binding. */
@@ -142,6 +200,7 @@ export interface LoginResult {
 const TENANT = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
 export async function login(rt: PublishRuntime, opts: LoginOptions): Promise<LoginResult> {
+  assertFederationTokenGuard(rt.config);
   const clientId = requireClientId(rt.config);
   if (opts.tenant !== undefined && !TENANT.test(opts.tenant)) {
     throw new SentropicPublishError("usage", "--tenant must be a plain organization id");
@@ -229,12 +288,14 @@ export async function login(rt: PublishRuntime, opts: LoginOptions): Promise<Log
     const record: SentropicAuthToken = {
       server: rt.config.server,
       issuer: meta.issuer,
+      federation: rt.config.federation,
+      resource: rt.config.mcpUrl,
       accessToken: tokens.accessToken,
       ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
       expiresAt: iso(expiresAtMs),
       subject: access.subject,
     };
-    // A new login replaces the whole pair for this server: an older refresh token is not kept.
+    // A new login replaces the whole pair for this federation: an older refresh token is not kept.
     writeAuth(record, rt.config.stateDir);
     return {
       subject: access.subject,
@@ -298,21 +359,10 @@ async function withStoreRetry<T>(write: () => T): Promise<T> {
 
 /** The stored token when it was minted by the configured AS for this federation's audience; a login prompt otherwise. */
 function usableStoredToken(rt: PublishRuntime): SentropicAuthToken {
+  assertFederationTokenGuard(rt.config);
   const token = storedToken(rt);
   if (token === undefined) throw new SentropicLoginRequiredError(`not logged in to sentropic ${rt.config.federation}`);
-  if (token.issuer !== rt.config.issuer) {
-    throw new SentropicLoginRequiredError("the stored sentropic token was issued by another authorization server than the configured one");
-  }
-  const claims = decodeJwtPayload(token.accessToken);
-  if (claims?.aud !== undefined) {
-    const audiences = typeof claims.aud === "string" ? [claims.aud] : Array.isArray(claims.aud) ? claims.aud : [];
-    if (!audiences.includes(rt.config.mcpUrl)) {
-      throw new SentropicPublishError(
-        "token",
-        `the stored token audience does not match federation "${rt.config.federation}" resource server; refusing to send it`,
-      );
-    }
-  }
+  assertFederationTokenGuard(rt.config, token);
   return token;
 }
 
@@ -324,6 +374,7 @@ function usableStoredToken(rt: PublishRuntime): SentropicAuthToken {
  * otherwise the call is refused without presenting anything.
  */
 async function refreshStored(rt: PublishRuntime, token: SentropicAuthToken): Promise<SentropicAuthToken> {
+  assertFederationTokenGuard(rt.config, token);
   if (token.refreshToken === undefined) {
     throw new SentropicLoginRequiredError(`the sentropic login expired at ${token.expiresAt ?? "an unknown time"}`);
   }
@@ -335,15 +386,20 @@ async function refreshStored(rt: PublishRuntime, token: SentropicAuthToken): Pro
   });
   if (outcome !== REFRESH_LOCK_BUSY) return outcome;
   const current = storedToken(rt);
-  if (current !== undefined && current.issuer === rt.config.issuer && !needsNewToken(current, rt.now())) return current;
+  if (current !== undefined && !needsNewToken(current, rt.now())) {
+    assertFederationTokenGuard(rt.config, current);
+    return current;
+  }
   throw new SentropicPublishError("token", "another h2a process is refreshing the sentropic session; try again in a moment");
 }
 
 /** The refresh_token grant for `token`, the caller holding the refresh lock. */
 async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, clientId: string): Promise<SentropicAuthToken> {
+  assertFederationTokenGuard(rt.config, token);
   const used = token.refreshToken;
   if (used === undefined) throw new SentropicLoginRequiredError(`the sentropic login expired at ${token.expiresAt ?? "an unknown time"}`);
-  const meta = await discoverAuthorizationServer(token.issuer, rt.fetch, clientId);
+  const scope = configAuthScope(rt.config);
+  const meta = await discoverAuthorizationServer(rt.config.issuer, rt.fetch, clientId);
   let tokens;
   try {
     tokens = await refreshTokenGrant(rt.fetch, meta, { clientId, refreshToken: used, resource: rt.config.mcpUrl });
@@ -352,9 +408,12 @@ async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, c
       // The refresh token is dead (revoked, expired, reuse detected): drop the pair unless
       // another writer already replaced it, and use theirs when it is fresh.
       const after = await withStoreRetry(() =>
-        updateAuth(rt.config.server, (current) => (current?.refreshToken === used ? undefined : current), rt.config.stateDir),
+        updateAuth(scope, (current) => (current?.refreshToken === used ? undefined : current), rt.config.stateDir),
       );
-      if (after !== undefined && !needsNewToken(after, rt.now())) return after;
+      if (after !== undefined && !needsNewToken(after, rt.now())) {
+        assertFederationTokenGuard(rt.config, after);
+        return after;
+      }
       throw new SentropicLoginRequiredError(
         `the authorization server refused the refresh (${error.oauthError}): the sentropic session is over`,
       );
@@ -362,7 +421,7 @@ async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, c
     throw error;
   }
   const access = validateAccessTokenClaims(tokens.accessToken, {
-    issuer: token.issuer,
+    issuer: rt.config.issuer,
     clientId,
     resource: rt.config.mcpUrl,
   });
@@ -373,7 +432,9 @@ async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, c
   if (expiresAtMs === undefined) throw new SentropicPublishError("token", "the refreshed token carries no expiry; it was not stored");
   const rotated: SentropicAuthToken = {
     server: token.server,
-    issuer: token.issuer,
+    issuer: rt.config.issuer,
+    federation: rt.config.federation,
+    resource: rt.config.mcpUrl,
     accessToken: tokens.accessToken,
     // Rotation: the new refresh token replaces the old one; the old one is never kept, even
     // when the server returns none (the next expiry then asks for a login).
@@ -382,11 +443,14 @@ async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, c
     subject: access.subject,
   };
   const stored = await withStoreRetry(() =>
-    updateAuth(rt.config.server, (current) => (current?.refreshToken === used ? rotated : current), rt.config.stateDir),
+    updateAuth(scope, (current) => (current?.refreshToken === used ? rotated : current), rt.config.stateDir),
   );
   if (stored === rotated) return rotated;
   // Another writer replaced the pair meanwhile (its own rotation, a new login, a logout).
-  if (stored !== undefined && !needsNewToken(stored, rt.now())) return stored;
+  if (stored !== undefined && !needsNewToken(stored, rt.now())) {
+    assertFederationTokenGuard(rt.config, stored);
+    return stored;
+  }
   throw new SentropicLoginRequiredError("the sentropic session changed while it was being refreshed");
 }
 
@@ -406,33 +470,46 @@ export interface LogoutResult {
 }
 
 export async function logout(rt: PublishRuntime, opts: { localOnly: boolean }): Promise<LogoutResult> {
+  const scope = configAuthScope(rt.config);
   const token = storedToken(rt);
   if (token === undefined) return { wasLoggedIn: false, server: "skipped" };
   let server: LogoutResult["server"] = "skipped";
   if (!opts.localOnly) {
+    let tokenMatchesFederation = false;
     try {
-      // The token goes back only to the authorization server that minted it.
-      assertSafeEndpoint(token.issuer, "the issuer of the stored token");
-      const meta = await discoverAuthorizationServer(token.issuer, rt.fetch, rt.config.clientId);
-      if (meta.revocationEndpoint === undefined) {
-        server = "no-endpoint";
-        rt.log(`${PREFIX} the authorization server offers no revocation endpoint: the token stays valid there until ${token.expiresAt ?? "it expires"}`);
-      } else {
-        if (token.refreshToken !== undefined) {
-          await revokeToken(rt.fetch, meta.revocationEndpoint, { clientId: rt.config.clientId, token: token.refreshToken, hint: "refresh_token" });
-        }
-        await revokeToken(rt.fetch, meta.revocationEndpoint, { clientId: rt.config.clientId, token: token.accessToken, hint: "access_token" });
-        server = "revoked";
-      }
-    } catch (error) {
-      server = "failed";
+      assertFederationTokenGuard(rt.config, token);
+      tokenMatchesFederation = true;
+    } catch (guardError) {
       rt.log(
-        `${PREFIX} server revocation failed (${publicErrorMessage(error)}); ` +
-          `the token is removed locally and stays valid on the server until ${token.expiresAt ?? "it expires"}`,
+        `${PREFIX} skipping server revocation (${publicErrorMessage(guardError)}); ` +
+          "the token is removed locally without contacting an untrusted or mismatched issuer",
       );
     }
+    if (tokenMatchesFederation) {
+      try {
+        // The token goes back only to the configured federation's own authorization server.
+        assertSafeEndpoint(rt.config.issuer, "the issuer of the configured federation");
+        const meta = await discoverAuthorizationServer(rt.config.issuer, rt.fetch, rt.config.clientId);
+        if (meta.revocationEndpoint === undefined) {
+          server = "no-endpoint";
+          rt.log(`${PREFIX} the authorization server offers no revocation endpoint: the token stays valid there until ${token.expiresAt ?? "it expires"}`);
+        } else {
+          if (token.refreshToken !== undefined) {
+            await revokeToken(rt.fetch, meta.revocationEndpoint, { clientId: rt.config.clientId, token: token.refreshToken, hint: "refresh_token" });
+          }
+          await revokeToken(rt.fetch, meta.revocationEndpoint, { clientId: rt.config.clientId, token: token.accessToken, hint: "access_token" });
+          server = "revoked";
+        }
+      } catch (error) {
+        server = "failed";
+        rt.log(
+          `${PREFIX} server revocation failed (${publicErrorMessage(error)}); ` +
+            `the token is removed locally and stays valid on the server until ${token.expiresAt ?? "it expires"}`,
+        );
+      }
+    }
   }
-  await withStoreRetry(() => removeAuth(rt.config.server, rt.config.stateDir));
+  await withStoreRetry(() => removeAuth(scope, rt.config.stateDir));
   return { wasLoggedIn: true, server };
 }
 
@@ -532,6 +609,7 @@ async function readDirectory(session: McpSession, workspaceRef: string | undefin
 }
 
 function sessionFor(rt: PublishRuntime, token: SentropicAuthToken): Promise<McpSession> {
+  assertFederationTokenGuard(rt.config, token);
   return openMcpSession({ fetch: rt.fetch, mcpUrl: rt.config.mcpUrl, token, clientVersion: rt.clientVersion });
 }
 
@@ -547,7 +625,7 @@ function bindingBelongsTo(binding: WorkspaceBinding, token: SentropicAuthToken, 
 function boundByAnotherAccount(): SentropicPublishError {
   return new SentropicPublishError(
     "binding",
-    "this workspace was bound by another account or in another tenant than the one logged in: bind it again " +
+    "this workspace was bound by another account or in another tenant, or under another federation than the one logged in: bind it again " +
       "(`h2a sentropic workspaces` lists the candidates, then `h2a sentropic bind <workspace-id>`)",
   );
 }
@@ -559,7 +637,7 @@ export interface WorkspacesListing {
   readonly boundWorkspaceRef: string | undefined;
   /** The resource server refused the workspace bound here (the account lost it since the bind). */
   readonly staleBinding: boolean;
-  /** A binding exists here but was made by another account or in another tenant. */
+  /** A binding exists here but was made by another account, in another tenant, or under another federation. */
   readonly foreignBinding: boolean;
   readonly subject: string | undefined;
   readonly tenantId: string | undefined;
@@ -669,7 +747,7 @@ export async function bindWorkspace(
     ...(token.subject !== undefined ? { subject: token.subject } : {}),
     boundAt: iso(rt.now()),
   };
-  writeBinding(binding, rt.config.stateDir);
+  writeBinding(binding, rt.config.stateDir, configAuthScope(rt.config));
   return { binding, checked, listFailed: directory.listFailed };
 }
 
@@ -677,11 +755,18 @@ export function unbindWorkspace(rt: PublishRuntime, localWorkspace: string | und
   if (localWorkspace === undefined) {
     throw new SentropicPublishError("binding", "this directory is not inside a git workspace");
   }
-  return removeBinding(rt.config.server, localWorkspace, rt.config.stateDir);
+  return removeBinding(configAuthScope(rt.config), localWorkspace, rt.config.stateDir);
 }
 
 export function readWorkspaceBinding(rt: PublishRuntime, localWorkspace: string | undefined): WorkspaceBinding | undefined {
-  return localWorkspace === undefined ? undefined : readBinding(rt.config.server, localWorkspace, rt.config.stateDir);
+  if (localWorkspace === undefined) return undefined;
+  let subject: string | undefined;
+  try {
+    subject = storedToken(rt)?.subject;
+  } catch {
+    subject = undefined;
+  }
+  return readBinding(configAuthScope(rt.config, subject), localWorkspace, rt.config.stateDir);
 }
 
 // ---- MCP probe --------------------------------------------------------------------------------

@@ -45,11 +45,12 @@ import { openMcpSession } from "./mcp-client.js";
 import { discoverAuthorizationServer, startLoopbackReceiver } from "./oauth-pkce.js";
 import {
   SENTROPIC_ENVIRONMENTS,
+  assertDeclaredResourceServer,
   parseSentropicUserConfig,
   resolvePublishConfig,
 } from "./publish-config.js";
 import { SentropicWorkspaceAccessError, publicErrorMessage } from "./publish-errors.js";
-import { bindingFilePath, bindingsDir, readBinding } from "./workspace-binding.js";
+import { bindingFilePath, bindingsDir, readBinding, writeBinding } from "./workspace-binding.js";
 
 const SENTINEL = "zzSENTINELzz";
 const CLIENT_ID = "h2a-cli";
@@ -134,6 +135,8 @@ interface FakeOptions {
   /** a workspace-bound tools/call is refused at authentication: 403 -32003 access_denied. */
   callDenied?: boolean;
   rsFailure?: "500";
+  /** custom MCP pathname on the RS origin (default `/api/v1/mcp`). */
+  mcpPath?: string;
 }
 
 interface CodeGrant {
@@ -173,12 +176,20 @@ class FakeSentropic {
   readonly accessTokens = new Map<string, { exp: number; active: boolean; scopes: string[]; tid: string | undefined }>();
   readonly refreshTokens = new Map<string, { active: boolean; scope: string; resource: string }>();
   private readonly codes = new Map<string, CodeGrant>();
+  private readonly mountedRs = new Map<string, FakeSentropic>();
   private as: Server | undefined;
   private rs: Server | undefined;
   asUrl = "";
   mcpUrl = "";
 
   constructor(readonly opts: FakeOptions = {}) {}
+
+  /** Share this fake's RS origin with another fake at `mcpPath` (for same-origin multi-federation tests). */
+  mountSameOriginRs(mcpPath: string, other: FakeSentropic): void {
+    other.opts.mcpPath = mcpPath;
+    other.mcpUrl = `${new URL(this.mcpUrl).origin}${mcpPath}`;
+    this.mountedRs.set(mcpPath, other);
+  }
 
   get directory(): readonly DirectoryEntry[] {
     return this.opts.directory ?? DIRECTORY;
@@ -386,6 +397,8 @@ class FakeSentropic {
 
   private async onRs(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://rs.invalid");
+    const mounted = this.mountedRs.get(url.pathname);
+    if (mounted) return mounted.onRs(req, res);
     const raw = await readBody(req);
     let body: Record<string, unknown> = {};
     try {
@@ -394,7 +407,8 @@ class FakeSentropic {
       /* recorded as empty */
     }
     this.rsRequests.push({ authorization: req.headers.authorization, body });
-    if (url.pathname !== "/api/v1/mcp" || req.method !== "POST") return json(res, 404, { error: "not_found" });
+    const expectedPath = this.opts.mcpPath ?? "/api/v1/mcp";
+    if (url.pathname !== expectedPath || req.method !== "POST") return json(res, 404, { error: "not_found" });
     if (this.opts.rsFailure === "500") return json(res, 500, { error: "server_error", detail: SENTINEL });
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? "")?.[1];
     const at = bearer ? this.accessTokens.get(bearer) : undefined;
@@ -2090,5 +2104,323 @@ describe("configurable OAuth/MCP federations", () => {
     await receiver.close();
     socket.destroy();
     await expect(fetch(receiver.redirectUri)).rejects.toThrow();
+  });
+
+  it("enforces anti-exfiltration across all paths (workspaces, bind, logout, tools, usableStoredToken, assertDeclaredResourceServer) via a single guard (P1-1)", async () => {
+    const fAlpha = await fake({
+      directory: [{ workspaceRef: "ws-alpha-1", name: "Alpha Workspace", role: "editor", publishable: true }],
+    });
+    const fForeign = await fake({ refresh: true });
+    const dir = freshDir();
+    writeUserConfig(dir, {
+      sentropic: {
+        defaultFederation: "alpha",
+        federations: [
+          {
+            name: "alpha",
+            issuer: fAlpha.asUrl,
+            mcpUrl: fAlpha.mcpUrl,
+            clientId: CLIENT_ID,
+          },
+        ],
+      },
+    });
+    const baseEnv = { H2A_SENTROPIC_HOME: dir };
+    expect(
+      (await runCli(["login", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir, openBrowser: simulatedBrowser().open })).code,
+    ).toBe(0);
+
+    // 1. `workspaces` and `bind` refuse an undeclared MCP URL (off-origin or undeclared path on same origin) before any network call.
+    const sameOriginOtherPath = `${new URL(fAlpha.mcpUrl).origin}/other/mcp`;
+    const beforeAlphaRs = fAlpha.rsRequests.length;
+    const beforeForeignRs = fForeign.rsRequests.length;
+    for (const badMcpUrl of [fForeign.mcpUrl, sameOriginOtherPath, "https://undeclared.example.test/api/v1/mcp"]) {
+      for (const cmd of [["workspaces"], ["bind", "ws-alpha-1"]]) {
+        const res = await runCli(cmd, {
+          env: { ...baseEnv, H2A_SENTROPIC_MCP_URL: badMcpUrl },
+          homeDir: () => dir,
+        });
+        expect(res.code, `${cmd.join(" ")} with ${badMcpUrl}`).toBe(1);
+        expect(res.err).toMatch(/limited to/);
+      }
+    }
+    const toolsUndeclared = await runCli(["tools", "--preprod"], {
+      env: { ...baseEnv, H2A_SENTROPIC_FEDERATION: "preprod", H2A_SENTROPIC_MCP_URL: "https://undeclared.example.test/api/v1/mcp" },
+      homeDir: () => dir,
+    });
+    expect(toolsUndeclared.code).toBe(1);
+    expect(toolsUndeclared.err).toMatch(/limited to/);
+    expect(fAlpha.rsRequests.length).toBe(beforeAlphaRs);
+    expect(fForeign.rsRequests.length).toBe(beforeForeignRs);
+
+    // 2. A stored token without a readable JWT `aud` matching `rt.config.mcpUrl` is refused on `workspaces`, `bind`, and `tools`.
+    const validToken = storedToken(fAlpha, dir)!;
+    const noAudJwt = jwt({ iss: fAlpha.asUrl, sub: SUBJECT, exp: Math.floor(Date.now() / 1000) + 3600, client_id: CLIENT_ID, tid: TENANT });
+    writeAuth({ ...validToken, accessToken: noAudJwt }, dir);
+    for (const cmd of [["workspaces", "--federation", "alpha"], ["bind", "ws-alpha-1", "--federation", "alpha"], ["tools", "--federation", "alpha"]]) {
+      const res = await runCli(cmd, { env: baseEnv, homeDir: () => dir });
+      expect(res.code, cmd.join(" ")).toBe(1);
+      expect(res.err).toMatch(/audience/i);
+    }
+    expect(fAlpha.rsRequests.length).toBe(beforeAlphaRs);
+
+    // 3. `logout` never contacts a foreign/mismatched `token.issuer` in `h2a-auth.json`: removes locally only (`server = "skipped"`).
+    writeAuth({ ...validToken, issuer: fForeign.asUrl, refreshToken: `rt-${SENTINEL}` }, dir);
+    const beforeForeignDiscovery = fForeign.discoveryRequests.length;
+    const beforeForeignRevoke = fForeign.revokeRequests.length;
+    const logoutForeign = await runCli(["logout", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(logoutForeign.code, logoutForeign.err).toBe(0);
+    expect(fForeign.discoveryRequests.length).toBe(beforeForeignDiscovery);
+    expect(fForeign.revokeRequests.length).toBe(beforeForeignRevoke);
+    expect(storedToken(fAlpha, dir)).toBeUndefined();
+
+    // 4. `assertDeclaredResourceServer` on built-in `preprod` rejects a loopback `mcpUrl` paired with a non-loopback `issuer`,
+    //    and rejects a loopback port belonging to another declared federation (`otherDeclaredServers`).
+    const loopbackPreprodWithEvilIssuer = resolvePublishConfig(
+      {
+        H2A_SENTROPIC_HOME: dir,
+        H2A_SENTROPIC_FEDERATION: "preprod",
+        H2A_SENTROPIC_MCP_URL: fForeign.mcpUrl,
+        H2A_SENTROPIC_ISSUER: "https://evil.auth.example.test",
+      },
+      dir,
+    );
+    expect(() => assertDeclaredResourceServer(loopbackPreprodWithEvilIssuer)).toThrow(/limited to/);
+
+    const preprodStealingAlphaPort = resolvePublishConfig(
+      {
+        H2A_SENTROPIC_HOME: dir,
+        H2A_SENTROPIC_FEDERATION: "preprod",
+        H2A_SENTROPIC_MCP_URL: fAlpha.mcpUrl,
+        H2A_SENTROPIC_ISSUER: fAlpha.asUrl,
+      },
+      dir,
+    );
+    expect(() => assertDeclaredResourceServer(preprodStealingAlphaPort)).toThrow(/limited to/);
+  });
+
+  it("enforces flag > env > config > built-in precedence for --federation preprod and --preprod so env overrides never replace an explicitly selected federation (P2-1)", async () => {
+    const fBeta = await fake({ refresh: true, sub: "user-beta", tid: "tenant-beta" });
+    const home = freshDir();
+    writeUserConfig(home, {
+      sentropic: {
+        defaultFederation: "alpha",
+        federations: [
+          {
+            name: "alpha",
+            issuer: "https://auth.alpha.example.test",
+            mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+            clientId: "alpha-cli",
+          },
+          {
+            name: "beta",
+            issuer: fBeta.asUrl,
+            mcpUrl: fBeta.mcpUrl,
+            clientId: CLIENT_ID,
+          },
+        ],
+      },
+    });
+
+    // Sign in to beta first.
+    expect(
+      (await runCli(["login", "--federation", "beta"], {
+        env: { H2A_SENTROPIC_HOME: home },
+        homeDir: () => home,
+        openBrowser: simulatedBrowser().open,
+      })).code,
+    ).toBe(0);
+    expect(storedToken(fBeta, home)?.subject).toBe("user-beta");
+
+    // Env targets `beta` (or config default `alpha`) with H2A_SENTROPIC_* overrides, while CLI explicitly selects `preprod`.
+    const envWithOverrides = {
+      H2A_SENTROPIC_HOME: home,
+      H2A_SENTROPIC_FEDERATION: "beta",
+      H2A_SENTROPIC_ISSUER: fBeta.asUrl,
+      H2A_SENTROPIC_MCP_URL: fBeta.mcpUrl,
+      H2A_SENTROPIC_CLIENT_ID: "override-cli",
+      H2A_SENTROPIC_REDIRECT_PORT: "18999",
+    };
+    for (const opts of [{ federation: "preprod" }, { preprod: true }] as const) {
+      const resolved = resolvePublishConfig(envWithOverrides, home, opts);
+      expect(resolved.federation).toBe("preprod");
+      expect(resolved.issuer).toBe(SENTROPIC_ENVIRONMENTS.preprod.issuer);
+      expect(resolved.mcpUrl).toBe(SENTROPIC_ENVIRONMENTS.preprod.mcpUrl);
+      expect(resolved.clientId).toBeUndefined();
+      expect(resolved.redirectPort).toBe(0);
+    }
+
+    // `logout --federation preprod` under those env vars must NOT revoke or delete `beta`'s token.
+    const logoutPreprod = await runCli(["logout", "--federation", "preprod"], {
+      env: envWithOverrides,
+      homeDir: () => home,
+    });
+    expect(logoutPreprod.code, logoutPreprod.err).toBe(0);
+    expect(fBeta.revokeRequests).toHaveLength(0);
+    expect(storedToken(fBeta, home)?.subject).toBe("user-beta");
+  });
+
+  it("isolates two federations on the same origin in the token store and bindings by federation + issuer + resource, and safely migrates legacy single-server records (P2-2)", async () => {
+    const fA = await fake({
+      sub: "user-fed-a",
+      tid: "tenant-a",
+      directory: [{ workspaceRef: "ws-a-1", name: "Workspace A", role: "editor", publishable: true }],
+    });
+    const fB = await fake({
+      sub: "user-fed-b",
+      tid: "tenant-b",
+      directory: [{ workspaceRef: "ws-b-1", name: "Workspace B", role: "admin", publishable: true }],
+    });
+    // Mount fB's MCP endpoint on fA's RS origin under `/b/mcp` so both federations share the exact same origin.
+    fA.mountSameOriginRs("/b/mcp", fB);
+    expect(serverKey(fA.mcpUrl)).toBe(serverKey(fB.mcpUrl));
+
+    const dir = freshDir();
+    writeUserConfig(dir, {
+      sentropic: {
+        defaultFederation: "fed-a",
+        federations: [
+          {
+            name: "fed-a",
+            issuer: fA.asUrl,
+            mcpUrl: fA.mcpUrl,
+            clientId: CLIENT_ID,
+            label: "Mesh A",
+          },
+          {
+            name: "fed-b",
+            issuer: fB.asUrl,
+            mcpUrl: fB.mcpUrl,
+            clientId: CLIENT_ID,
+            label: "Mesh B",
+          },
+        ],
+      },
+    });
+    const baseEnv = { H2A_SENTROPIC_HOME: dir };
+
+    // 1. Seed a legacy single-server token and a legacy single-server binding for `fed-a` (keyed by origin only, no federation/resource fields).
+    const legacyJwt = jwt({
+      iss: fA.asUrl,
+      sub: "user-legacy-a",
+      aud: fA.mcpUrl,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      iat: Math.floor(Date.now() / 1000),
+      client_id: CLIENT_ID,
+      tid: "tenant-a",
+      scope: PUBLISH_SCOPES.join(" "),
+    });
+    writeFileSync(
+      authFilePath(dir),
+      `${JSON.stringify({ [serverKey(fA.mcpUrl)]: { server: serverKey(fA.mcpUrl), issuer: fA.asUrl, accessToken: legacyJwt, expiresAt: new Date(Date.now() + HOUR).toISOString(), subject: "user-legacy-a" } }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+    writeBinding(
+      {
+        localWorkspace: LOCAL_WS,
+        server: serverKey(fA.mcpUrl),
+        workspaceId: "ws-a-1",
+        tenantId: "tenant-a",
+        subject: "user-legacy-a",
+        boundAt: "2026-11-15T00:00:00.000Z",
+      },
+      dir,
+    );
+
+    // `status` migrates `fed-a`'s legacy record safely and does NOT leak it as `fed-b`'s session or binding.
+    const statusAfterMigration = JSON.parse((await runCli(["status", "--json"], { env: baseEnv, homeDir: () => dir })).out) as {
+      federations: Array<{ federation: string; loggedIn: boolean; subject: string | null; binding: { workspaceId: string } | null }>;
+    };
+    const migA = statusAfterMigration.federations.find((f) => f.federation === "fed-a")!;
+    const migB = statusAfterMigration.federations.find((f) => f.federation === "fed-b")!;
+    expect(migA).toMatchObject({ loggedIn: true, subject: "user-legacy-a", binding: { workspaceId: "ws-a-1" } });
+    expect(migB).toMatchObject({ loggedIn: false, subject: null, binding: null });
+
+    // 2. Log in and bind on both same-origin federations simultaneously: neither overwrites the other.
+    expect(
+      (await runCli(["login", "--federation", "fed-a"], { env: baseEnv, homeDir: () => dir, openBrowser: simulatedBrowser().open })).code,
+    ).toBe(0);
+    expect(
+      (await runCli(["login", "--federation", "fed-b"], { env: baseEnv, homeDir: () => dir, openBrowser: simulatedBrowser().open })).code,
+    ).toBe(0);
+    expect((await runCli(["bind", "ws-a-1", "--federation", "fed-a"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+    expect((await runCli(["bind", "ws-b-1", "--federation", "fed-b"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+
+    const statusBoth = JSON.parse((await runCli(["status", "--json"], { env: baseEnv, homeDir: () => dir })).out) as {
+      federations: Array<{ federation: string; loggedIn: boolean; subject: string | null; binding: { workspaceId: string; federation?: string } | null }>;
+    };
+    expect(statusBoth.federations.find((f) => f.federation === "fed-a")).toMatchObject({
+      loggedIn: true,
+      subject: "user-fed-a",
+      binding: { workspaceId: "ws-a-1", federation: "fed-a" },
+    });
+    expect(statusBoth.federations.find((f) => f.federation === "fed-b")).toMatchObject({
+      loggedIn: true,
+      subject: "user-fed-b",
+      binding: { workspaceId: "ws-b-1", federation: "fed-b" },
+    });
+
+    // 3. `tools` works independently on each same-origin federation.
+    expect((await runCli(["tools", "--federation", "fed-a"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+    expect((await runCli(["tools", "--federation", "fed-b"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+
+    // 4. `unbind` and `logout` on `fed-b` leave `fed-a`'s session and binding intact.
+    expect((await runCli(["unbind", "--federation", "fed-b"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+    expect((await runCli(["logout", "--federation", "fed-b"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+
+    const statusAfterLogoutB = JSON.parse((await runCli(["status", "--json"], { env: baseEnv, homeDir: () => dir })).out) as {
+      federations: Array<{ federation: string; loggedIn: boolean; subject: string | null; binding: { workspaceId: string } | null }>;
+    };
+    expect(statusAfterLogoutB.federations.find((f) => f.federation === "fed-a")).toMatchObject({
+      loggedIn: true,
+      subject: "user-fed-a",
+      binding: { workspaceId: "ws-a-1" },
+    });
+    expect(statusAfterLogoutB.federations.find((f) => f.federation === "fed-b")).toMatchObject({
+      loggedIn: false,
+      subject: null,
+      binding: null,
+    });
+  });
+
+  it("prints --federation <name> on bind -32603 warning, warns in status on a cross-federation binding, and names another federation in boundByAnotherAccount (P3-2)", async () => {
+    const fAlpha = await fake({ workspacesTool: false });
+    const dir = freshDir();
+    writeUserConfig(dir, {
+      sentropic: {
+        defaultFederation: "alpha",
+        federations: [
+          {
+            name: "alpha",
+            issuer: fAlpha.asUrl,
+            mcpUrl: fAlpha.mcpUrl,
+            clientId: CLIENT_ID,
+          },
+        ],
+      },
+    });
+    const baseEnv = { H2A_SENTROPIC_HOME: dir };
+    expect(
+      (await runCli(["login", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir, openBrowser: simulatedBrowser().open })).code,
+    ).toBe(0);
+
+    // 1. `-32603` on `bind` under `--federation alpha` suggests `h2a sentropic tools --federation alpha`.
+    const bindWarn = await runCli(["bind", "ws-unreadable", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(bindWarn.code, bindWarn.err).toBe(0);
+    expect(bindWarn.err).toContain("h2a sentropic tools --federation alpha");
+    expect(bindWarn.err).not.toContain("tools --preprod");
+
+    // 2. A binding recorded with another `federation` triggers a warning in `status` and is refused by `tools` naming another federation.
+    const slotPath = bindingFilePath({ federation: "alpha", issuer: fAlpha.asUrl, resource: fAlpha.mcpUrl } as unknown as string, LOCAL_WS, dir);
+    const existing = JSON.parse(readFileSync(slotPath, "utf8")) as Record<string, unknown>;
+    writeFileSync(slotPath, `${JSON.stringify({ ...existing, federation: "other-mesh" }, null, 2)}\n`, { mode: 0o600 });
+
+    const statusRun = await runCli(["status", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(statusRun.code).toBe(0);
+    expect(statusRun.out).toMatch(/warning.*federation other-mesh/i);
+
+    const toolsRun = await runCli(["tools", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(toolsRun.code).toBe(1);
+    expect(toolsRun.err).toContain("by another account or in another tenant, or under another federation");
   });
 });
