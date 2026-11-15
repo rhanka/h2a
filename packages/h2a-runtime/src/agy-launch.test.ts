@@ -143,8 +143,9 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     for (const [inputModel, expectedModel, expectedEffort] of [
       ["gemini-4-carbon-high", "gemini-4-carbon", "high"],
       ["gemini-4-carbon-low", "gemini-4-carbon", "low"],
-      ["gemini-4-argon-high", "gemini-4-argon", "high"],
-      ["argon-high", "gemini-4-argon", "high"],
+      ["gemini-4-argon-high", "gemini-4-argon-high", "high"],
+      ["gemini-4-argon-low", "gemini-4-argon-low", "low"],
+      ["argon-high", "gemini-4-argon-high", "high"],
     ] as const) {
       fake.start.mockClear();
       stdout.mockClear();
