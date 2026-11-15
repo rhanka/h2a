@@ -22,19 +22,22 @@ import { basename, join, resolve } from "node:path";
 
 import { computeDurableWorkspaceId, normalizeRootCommits } from "../conductor-launch.js";
 import { serverKey } from "./auth-token.js";
+import { assertFederationName, isFederationName } from "./publish-config.js";
 import { SentropicPublishError } from "./publish-errors.js";
 
 export interface WorkspaceBinding {
   /** The local h2a workspace: its durable `ws:<sha256>` identity. */
   readonly localWorkspace: string;
+  /** The named OAuth/MCP federation this binding was recorded for. */
+  readonly federation?: string | undefined;
   /** The sentropic server (resource server origin) the binding routes to. */
   readonly server: string;
   /** The sentropic workspace id, as named by the human. */
   readonly workspaceId: string;
   /** The tenant (`tid`) of the account that bound it, when the token carried one. */
-  readonly tenantId?: string;
+  readonly tenantId?: string | undefined;
   /** The account (`sub`) that bound it. */
-  readonly subject?: string;
+  readonly subject?: string | undefined;
   /** ISO time of the bind. */
   readonly boundAt: string;
 }
@@ -83,6 +86,7 @@ function isBinding(value: unknown): value is WorkspaceBinding {
   const b = value as Record<string, unknown>;
   return (
     typeof b.localWorkspace === "string" &&
+    (b.federation === undefined || (typeof b.federation === "string" && isFederationName(b.federation))) &&
     typeof b.server === "string" &&
     typeof b.workspaceId === "string" &&
     typeof b.boundAt === "string" &&
@@ -125,6 +129,7 @@ export function readBinding(server: string, localWorkspace: string, dir: string)
 /** Record `binding` (0600 file, 0700 directory, exclusive unique temp + rename). */
 export function writeBinding(binding: WorkspaceBinding, dir: string): void {
   assertLocalWorkspaceId(binding.localWorkspace);
+  if (binding.federation !== undefined) assertFederationName(binding.federation);
   assertSentropicWorkspaceId(binding.workspaceId);
   const record: WorkspaceBinding = { ...binding, server: serverKey(binding.server) };
   const path = bindingFilePath(record.server, record.localWorkspace, dir);

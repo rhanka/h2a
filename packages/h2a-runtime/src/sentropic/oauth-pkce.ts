@@ -168,6 +168,7 @@ export async function discoverAuthorizationServer(
   fetchImpl: FetchLike,
   clientId?: string,
 ): Promise<AuthorizationServerMetadata> {
+  assertSafeEndpoint(issuer, "the authorization server issuer");
   const url = discoveryUrl(issuer, clientId);
   const res = await sendRequest(fetchImpl, url, { headers: { accept: "application/json" } }, "authorization server discovery", "discovery");
   const doc = res.ok ? await readJsonObject(res) : undefined;
@@ -302,16 +303,16 @@ export async function startLoopbackReceiver(opts: LoopbackOptions): Promise<Loop
   });
 
   let timer: NodeJS.Timeout | undefined;
-  let stopped = false;
-  const stop = async (): Promise<void> => {
-    if (stopped) return;
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-      server.closeIdleConnections();
-    });
-  };
+  let closing: Promise<void> | undefined;
+  const stop = (force = false): Promise<void> =>
+    (closing ??= (async () => {
+      if (timer) clearTimeout(timer);
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        if (force) server.closeAllConnections();
+        else server.closeIdleConnections();
+      });
+    })());
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", () =>
@@ -333,11 +334,11 @@ export async function startLoopbackReceiver(opts: LoopbackOptions): Promise<Loop
           "for this client (it must accept http://127.0.0.1:<port>/callback)",
       ),
     );
-    void stop();
+    void stop(true);
   }, opts.timeoutMs);
   timer.unref();
 
-  return { redirectUri, code, close: stop };
+  return { redirectUri, code, close: () => stop() };
 }
 
 // ---- token endpoint ---------------------------------------------------------------------------

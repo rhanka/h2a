@@ -1,13 +1,16 @@
 /**
- * `h2a sentropic …` — the CLI surface of the sentropic publish client (preprod).
+ * `h2a sentropic …` — the CLI surface of the sentropic publish client.
  *
- *   h2a sentropic login [--no-browser] [--tenant <id>] [--timeout <s>] [--no-refresh]
- *   h2a sentropic status [--json]
- *   h2a sentropic workspaces [--json]
- *   h2a sentropic bind <workspace-id>
- *   h2a sentropic unbind
- *   h2a sentropic logout [--local-only]
- *   h2a sentropic tools --preprod
+ *   h2a sentropic login [--federation <name>] [--no-browser] [--tenant <id>] [--timeout <s>] [--no-refresh]
+ *   h2a sentropic status [--federation <name>] [--json]
+ *   h2a sentropic workspaces [--federation <name>] [--json]
+ *   h2a sentropic bind <workspace-id> [--federation <name>]
+ *   h2a sentropic unbind [--federation <name>]
+ *   h2a sentropic logout [--federation <name>] [--local-only]
+ *   h2a sentropic tools --federation <name> | --preprod
+ *
+ * Room is left on the returned `Command("sentropic")` (and via {@link runSentropicSubcommand} /
+ * {@link FEDERATION_OPTION_FLAGS}) for `h2a sentropic artifact appscript push|get|status --federation <name>`.
  *
  * Named after the enrollment plan's `h2a sentropic enroll|bind|status` group
  * (docs/specs/2026-07-11-sentropic-h2a-enrollment-PLAN.md, Lot 1). `login`, not `enroll`: this
@@ -37,10 +40,22 @@ import {
   type WorkspaceEntry,
 } from "./publish-client.js";
 import { PUBLISH_SCOPES } from "./oauth-pkce.js";
-import { SENTROPIC_ENV_VARS, assertPreprodResourceServer, resolvePublishConfig } from "./publish-config.js";
+import {
+  SENTROPIC_ENV_VARS,
+  assertDeclaredResourceServer,
+  resolveAllPublishConfigs,
+  resolvePublishConfig,
+  type ResolvePublishConfigOptions,
+  type SentropicPublishConfig,
+} from "./publish-config.js";
 import { SentropicPublishError, publicErrorMessage } from "./publish-errors.js";
 import { REFRESH_LOCK_WAIT_MS } from "./refresh-lock.js";
 import { resolveLocalWorkspaceId } from "./workspace-binding.js";
+
+/** Shared `--federation <name>` option signature for every `h2a sentropic` sub-verb (including future `artifact appscript`). */
+export const FEDERATION_OPTION_FLAGS = "--federation <name>";
+export const FEDERATION_OPTION_DESCRIPTION =
+  "the declared OAuth/MCP federation to target (precedence: flag > env > config default > built-in preprod)";
 
 export interface SentropicCliDeps {
   env: Readonly<Record<string, string | undefined>>;
@@ -99,17 +114,30 @@ function defaultDeps(): SentropicCliDeps {
   };
 }
 
-async function guarded(deps: SentropicCliDeps, action: (rt: PublishRuntime) => Promise<void>): Promise<void> {
+function makeRuntime(deps: SentropicCliDeps, config: SentropicPublishConfig): PublishRuntime {
+  return {
+    config,
+    fetch: deps.fetch,
+    now: deps.now,
+    log: (line) => deps.err(`${line}\n`),
+    clientVersion: deps.clientVersion || runtimeVersion(),
+    refreshLockWaitMs: deps.refreshLockWaitMs,
+  };
+}
+
+/**
+ * Guarded execution boundary for any `h2a sentropic` subcommand (including future subtrees such
+ * as `h2a sentropic artifact appscript push|get|status`). Resolves the target federation from
+ * `options` (`--federation`), environment variables, user config default, or built-in `preprod`.
+ */
+export async function runSentropicSubcommand(
+  deps: SentropicCliDeps,
+  options: ResolvePublishConfigOptions,
+  action: (rt: PublishRuntime) => Promise<void>,
+): Promise<void> {
   try {
-    const config = resolvePublishConfig(deps.env, deps.homeDir());
-    await action({
-      config,
-      fetch: deps.fetch,
-      now: deps.now,
-      log: (line) => deps.err(`${line}\n`),
-      clientVersion: deps.clientVersion || runtimeVersion(),
-      refreshLockWaitMs: deps.refreshLockWaitMs,
-    });
+    const config = resolvePublishConfig(deps.env, deps.homeDir(), options);
+    await action(makeRuntime(deps, config));
   } catch (error) {
     deps.err(`${PREFIX} ${publicErrorMessage(error)}\n`);
     deps.setExitCode(1);
@@ -124,10 +152,12 @@ function parseTimeout(raw: string | undefined): number {
   return value;
 }
 
-function statusLines(rt: PublishRuntime, deps: SentropicCliDeps): { lines: string[]; json: Record<string, unknown> } {
+function statusForFederation(
+  rt: PublishRuntime,
+  local: string | undefined,
+): { lines: string[]; json: Record<string, unknown> } {
   const { config } = rt;
   const session = readSession(rt);
-  const local = deps.resolveWorkspace(deps.cwd());
   let binding: ReturnType<typeof readWorkspaceBinding>;
   let bindingProblem: string | undefined;
   try {
@@ -137,24 +167,27 @@ function statusLines(rt: PublishRuntime, deps: SentropicCliDeps): { lines: strin
   }
 
   const row = (label: string, value: string) => `  ${label.padEnd(22)}${value}`;
+  const header = config.label !== undefined ? `sentropic ${config.federation} (${config.label})` : `sentropic ${config.federation}`;
   const lines = [
-    `sentropic ${config.environment}`,
+    header,
     row("authorization server", config.issuer),
     row("resource server", config.mcpUrl),
     row("client id", config.clientId ?? `not configured (set ${SENTROPIC_ENV_VARS.clientId})`),
   ];
+  const loginCmd =
+    config.federation === "preprod" ? "h2a sentropic login" : `h2a sentropic login --federation ${config.federation}`;
   if (!session.loggedIn) {
-    lines.push(row("account", "not logged in — run `h2a sentropic login`"));
+    lines.push(row("account", `not logged in — run \`${loginCmd}\``));
   } else {
     lines.push(row("account", session.subject ?? "unknown subject"));
-    lines.push(row("tenant", session.tenantId ?? "none in the token — run `h2a sentropic login --tenant <id>`"));
+    lines.push(row("tenant", session.tenantId ?? `none in the token — run \`${loginCmd} --tenant <id>\``));
     if (session.expired) {
       lines.push(
         row(
           "token",
           session.refreshable
             ? `expired at ${session.expiresAt ?? "unknown"} (a refresh token is stored: the next use refreshes it)`
-            : `expired at ${session.expiresAt ?? "unknown"} — run \`h2a sentropic login\``,
+            : `expired at ${session.expiresAt ?? "unknown"} — run \`${loginCmd}\``,
         ),
       );
     } else {
@@ -194,7 +227,9 @@ function statusLines(rt: PublishRuntime, deps: SentropicCliDeps): { lines: strin
   }
 
   const json: Record<string, unknown> = {
+    federation: config.federation,
     environment: config.environment,
+    label: config.label ?? null,
     issuer: config.issuer,
     mcpUrl: config.mcpUrl,
     clientId: config.clientId ?? null,
@@ -236,12 +271,13 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
   sentropic
     .command("login")
     .description("Sign in through the browser (OAuth authorization code + PKCE, 127.0.0.1 loopback redirect)")
+    .option(FEDERATION_OPTION_FLAGS, FEDERATION_OPTION_DESCRIPTION)
     .option("--no-browser", "print the sign-in URL instead of opening a browser")
     .option("--tenant <id>", "the sentropic organization (tid) to sign in to, for an account in several")
     .option("--timeout <seconds>", "how long to wait for the browser sign-in (default 300)")
     .option("--no-refresh", "do not ask for a refresh token even when the server offers one")
-    .action((opts: { browser: boolean; tenant?: string; timeout?: string; refresh: boolean }) =>
-      guarded(deps, async (rt) => {
+    .action((opts: { federation?: string; browser: boolean; tenant?: string; timeout?: string; refresh: boolean }) =>
+      runSentropicSubcommand(deps, { federation: opts.federation }, async (rt) => {
         const timeoutSeconds = parseTimeout(opts.timeout);
         const browser = opts.browser && deps.env.H2A_NO_BROWSER !== "1" ? deps.openBrowser : undefined;
         const result = await login(rt, {
@@ -280,26 +316,47 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
   sentropic
     .command("status")
     .description("Show the sentropic account, tenant, token expiry and this workspace's binding (never the token)")
+    .option(FEDERATION_OPTION_FLAGS, FEDERATION_OPTION_DESCRIPTION)
     .option("--json", "machine-readable output")
-    .action((opts: { json?: boolean }) =>
-      guarded(deps, async (rt) => {
-        const { lines, json } = statusLines(rt, deps);
-        deps.out(opts.json ? `${JSON.stringify(json, null, 2)}\n` : `${lines.join("\n")}\n`);
-      }),
-    );
+    .action(async (opts: { federation?: string; json?: boolean }) => {
+      try {
+        const resolved = resolveAllPublishConfigs(deps.env, deps.homeDir(), { federation: opts.federation });
+        const local = deps.resolveWorkspace(deps.cwd());
+        const activeView = statusForFederation(makeRuntime(deps, resolved.active), local);
+        const allViews = resolved.federations.map((cfg) =>
+          cfg.federation === resolved.active.federation ? activeView : statusForFederation(makeRuntime(deps, cfg), local),
+        );
+        if (opts.json) {
+          const payload: Record<string, unknown> = {
+            ...activeView.json,
+            defaultFederation: resolved.defaultFederation,
+            federations: allViews.map((v) => v.json),
+          };
+          deps.out(`${JSON.stringify(payload, null, 2)}\n`);
+        } else if (opts.federation !== undefined || allViews.length === 1) {
+          deps.out(`${activeView.lines.join("\n")}\n`);
+        } else {
+          deps.out(`${allViews.map((v) => v.lines.join("\n")).join("\n\n")}\n`);
+        }
+      } catch (error) {
+        deps.err(`${PREFIX} ${publicErrorMessage(error)}\n`);
+        deps.setExitCode(1);
+      }
+    });
 
   sentropic
     .command("workspaces")
     .description("List the sentropic workspaces this account can read: id, role, publishable, name (never the token)")
+    .option(FEDERATION_OPTION_FLAGS, FEDERATION_OPTION_DESCRIPTION)
     .option("--json", "machine-readable output")
-    .action((opts: { json?: boolean }) =>
-      guarded(deps, async (rt) => {
+    .action((opts: { federation?: string; json?: boolean }) =>
+      runSentropicSubcommand(deps, { federation: opts.federation }, async (rt) => {
         const listing = await listWorkspaces(rt, deps.resolveWorkspace(deps.cwd()));
         const bound = listing.boundWorkspaceRef;
         if (opts.json) {
           const workspaces = listing.workspaces.map((entry) => ({ ...entry, boundHere: entry.workspaceRef === bound }));
           deps.out(
-            `${JSON.stringify({ workspaces, boundWorkspaceRef: bound ?? null, staleBinding: listing.staleBinding, ignored: listing.ignored }, null, 2)}\n`,
+            `${JSON.stringify({ federation: rt.config.federation, workspaces, boundWorkspaceRef: bound ?? null, staleBinding: listing.staleBinding, ignored: listing.ignored }, null, 2)}\n`,
           );
         } else {
           deps.out(workspaceTable(listing.workspaces, bound));
@@ -329,8 +386,9 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
   sentropic
     .command("bind <workspace-id>")
     .description("Bind this local workspace to one sentropic workspace you can publish to (checked against workspaces_list)")
-    .action((workspaceId: string) =>
-      guarded(deps, async (rt) => {
+    .option(FEDERATION_OPTION_FLAGS, FEDERATION_OPTION_DESCRIPTION)
+    .action((workspaceId: string, opts: { federation?: string }) =>
+      runSentropicSubcommand(deps, { federation: opts.federation }, async (rt) => {
         const { binding, checked, listFailed } = await bindWorkspace(rt, { localWorkspace: deps.resolveWorkspace(deps.cwd()), workspaceId });
         if (checked === undefined) {
           rt.log(
@@ -355,8 +413,9 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
   sentropic
     .command("unbind")
     .description("Remove this local workspace's sentropic binding")
-    .action(() =>
-      guarded(deps, async (rt) => {
+    .option(FEDERATION_OPTION_FLAGS, FEDERATION_OPTION_DESCRIPTION)
+    .action((opts: { federation?: string }) =>
+      runSentropicSubcommand(deps, { federation: opts.federation }, async (rt) => {
         const removed = unbindWorkspace(rt, deps.resolveWorkspace(deps.cwd()));
         rt.log(removed ? `${PREFIX} binding removed` : `${PREFIX} this workspace was not bound`);
       }),
@@ -365,9 +424,10 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
   sentropic
     .command("logout")
     .description("Revoke the token on the authorization server when it offers revocation, then remove it locally")
+    .option(FEDERATION_OPTION_FLAGS, FEDERATION_OPTION_DESCRIPTION)
     .option("--local-only", "only remove the local token; do not call the authorization server")
-    .action((opts: { localOnly?: boolean }) =>
-      guarded(deps, async (rt) => {
+    .action((opts: { federation?: string; localOnly?: boolean }) =>
+      runSentropicSubcommand(deps, { federation: opts.federation }, async (rt) => {
         const result = await logout(rt, { localOnly: opts.localOnly === true });
         if (!result.wasLoggedIn) {
           rt.log(`${PREFIX} not logged in`);
@@ -380,18 +440,19 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
 
   sentropic
     .command("tools")
-    .description("Probe the publish path: MCP tools/list on the preprod resource server with the stored token")
-    .option("--preprod", "confirm the call to the live sentropic preprod MCP resource server")
-    .action((opts: { preprod?: boolean }) =>
-      guarded(deps, async (rt) => {
-        if (opts.preprod !== true) {
+    .description("Probe the publish path: MCP tools/list on a declared federation's resource server with the stored token")
+    .option(FEDERATION_OPTION_FLAGS, "confirm the call to the named declared federation's MCP resource server")
+    .option("--preprod", "alias for --federation preprod")
+    .action((opts: { federation?: string; preprod?: boolean }) =>
+      runSentropicSubcommand(deps, { federation: opts.federation, preprod: opts.preprod }, async (rt) => {
+        if (opts.federation === undefined && opts.preprod !== true) {
           throw new SentropicPublishError(
             "usage",
-            "this probe calls the live sentropic preprod MCP resource server; pass --preprod to confirm",
+            "this probe calls the live MCP resource server; pass --federation <name> (or --preprod) to confirm",
           );
         }
-        // Where the call goes, not the environment label: the MCP URL can be overridden.
-        assertPreprodResourceServer(rt.config);
+        // Anti-exfiltration: the call goes only to a declared federation's resource server (or loopback test server for preprod).
+        assertDeclaredResourceServer(rt.config);
         const { tools, workspaceId } = await listPublishTools(rt, deps.resolveWorkspace(deps.cwd()));
         deps.out(tools.map((name) => `${name}\n`).join(""));
         rt.log(

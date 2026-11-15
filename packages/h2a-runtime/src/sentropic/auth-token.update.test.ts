@@ -10,10 +10,10 @@
  * here runs with that mock installed, and the mock is a pass-through until a hook is armed.
  */
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 let betweenReadAndCommit: (() => void) | undefined;
 vi.mock("node:fs", async (importOriginal) => {
@@ -41,8 +41,16 @@ import {
   type SentropicAuthToken,
 } from "./auth-token.js";
 
+const dirs: string[] = [];
+afterEach(() => {
+  betweenReadAndCommit = undefined;
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "h2a-auth-update-"));
+  const dir = mkdtempSync(join(tmpdir(), "h2a-auth-update-"));
+  dirs.push(dir);
+  return dir;
 }
 
 const tokA: SentropicAuthToken = {

@@ -29,7 +29,7 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -42,6 +42,12 @@ import { DamagedAuthFileError, authFilePath, readAuth, serverKey, writeAuth } fr
 import { registerSentropicCommand, type SentropicCliDeps } from "./cli.js";
 import { pkceChallengeS256 } from "./enroll-flow.js";
 import { openMcpSession } from "./mcp-client.js";
+import { discoverAuthorizationServer, startLoopbackReceiver } from "./oauth-pkce.js";
+import {
+  SENTROPIC_ENVIRONMENTS,
+  parseSentropicUserConfig,
+  resolvePublishConfig,
+} from "./publish-config.js";
 import { SentropicWorkspaceAccessError, publicErrorMessage } from "./publish-errors.js";
 import { bindingFilePath, bindingsDir, readBinding } from "./workspace-binding.js";
 
@@ -507,8 +513,10 @@ interface CliRun {
 
 const fakes: FakeSentropic[] = [];
 const runs: CliRun[] = [];
+const dirs: string[] = [];
 afterEach(async () => {
   await Promise.all(fakes.splice(0).map((f) => f.stop()));
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 async function fake(opts: FakeOptions = {}): Promise<FakeSentropic> {
@@ -518,7 +526,17 @@ async function fake(opts: FakeOptions = {}): Promise<FakeSentropic> {
 }
 
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "h2a-sentropic-cli-"));
+  const dir = mkdtempSync(join(tmpdir(), "h2a-sentropic-cli-"));
+  dirs.push(dir);
+  return dir;
+}
+
+function writeUserConfig(home: string, content: unknown): string {
+  const cfgDir = join(home, ".config", "sentropic", "h2a");
+  mkdirSync(cfgDir, { recursive: true });
+  const path = join(cfgDir, "config.json");
+  writeFileSync(path, typeof content === "string" ? content : `${JSON.stringify(content, null, 2)}\n`, "utf8");
+  return path;
 }
 
 async function runCli(args: string[], deps: Partial<SentropicCliDeps>): Promise<CliRun> {
@@ -530,12 +548,14 @@ async function runCli(args: string[], deps: Partial<SentropicCliDeps>): Promise<
   program.exitOverride();
   program.configureOutput({ writeOut: (s) => out.push(s), writeErr: (s) => err.push(s) });
   const userErr = deps.err;
+  const defaultHome = deps.env?.H2A_SENTROPIC_HOME ?? freshDir();
   registerSentropicCommand(program, {
     cwd: () => "/repo",
     resolveWorkspace: () => LOCAL_WS,
     openBrowser: () => false,
     now: () => Date.now(),
     fetch: globalThis.fetch,
+    homeDir: () => defaultHome,
     ...deps,
     out: (s) => out.push(s),
     err: (s) => {
@@ -946,7 +966,7 @@ describe("h2a sentropic bind / unbind", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     // A routing choice only: none of the listing (role, publishable, name) is kept.
     expect(Object.keys(JSON.parse(readFileSync(path, "utf8")) as object).sort()).toEqual(
-      ["boundAt", "localWorkspace", "server", "subject", "tenantId", "workspaceId"],
+      ["boundAt", "federation", "localWorkspace", "server", "subject", "tenantId", "workspaceId"],
     );
     const unbound = await runCli(["unbind"], { env: f.env(dir) });
     expect(unbound.code).toBe(0);
@@ -1624,5 +1644,451 @@ describe("no secret ever reaches the output or an error (sentinel)", () => {
       expect(rendered).not.toContain(SENTINEL);
       for (const verifier of verifiers) expect(rendered).not.toContain(verifier);
     }
+  });
+});
+
+describe("configurable OAuth/MCP federations", () => {
+  it("parses declarative federations and defaultFederation from user config while keeping built-in preprod", () => {
+    const empty = parseSentropicUserConfig(undefined);
+    expect(empty.defaultFederation).toBe("preprod");
+    expect(empty.federations).toEqual([
+      {
+        name: "preprod",
+        issuer: SENTROPIC_ENVIRONMENTS.preprod.issuer,
+        mcpUrl: SENTROPIC_ENVIRONMENTS.preprod.mcpUrl,
+        server: serverKey(SENTROPIC_ENVIRONMENTS.preprod.mcpUrl),
+        clientId: undefined,
+        redirectPort: 0,
+        label: undefined,
+        builtIn: true,
+      },
+    ]);
+
+    const parsed = parseSentropicUserConfig({
+      sentropic: {
+        defaultFederation: "mesh-alpha",
+        federations: [
+          {
+            name: "mesh-alpha",
+            issuer: "https://auth.alpha.example.test/",
+            mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp/",
+            clientId: "h2a-cli-alpha",
+            redirectPort: 18400,
+            label: "Alpha Mesh",
+          },
+          {
+            name: "mesh-beta",
+            issuer: "http://127.0.0.1:19400",
+            mcpUrl: "http://127.0.0.1:19401/api/v1/mcp",
+            clientId: "h2a-cli-beta",
+          },
+        ],
+      },
+    });
+    expect(parsed.defaultFederation).toBe("mesh-alpha");
+    expect(parsed.federations.map((f) => f.name)).toEqual(["preprod", "mesh-alpha", "mesh-beta"]);
+    const alpha = parsed.federations.find((f) => f.name === "mesh-alpha")!;
+    expect(alpha).toEqual({
+      name: "mesh-alpha",
+      issuer: "https://auth.alpha.example.test",
+      mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+      server: "https://mcp.alpha.example.test",
+      clientId: "h2a-cli-alpha",
+      redirectPort: 18400,
+      label: "Alpha Mesh",
+      builtIn: false,
+    });
+  });
+
+  it("validates every federation entry (assertSafeEndpoint, clientId, redirectPort, label, duplicates, defaultFederation) and never quotes malformed config bytes", () => {
+    const base = {
+      name: "mesh-a",
+      issuer: "https://auth.alpha.example.test",
+      mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+      clientId: "h2a-cli",
+    };
+    const badEntries: unknown[] = [
+      { ...base, name: "" },
+      { ...base, name: "bad name" },
+      { ...base, name: "../escape" },
+      { ...base, issuer: "http://auth.alpha.example.test" },
+      { ...base, issuer: "https://user:pass@auth.alpha.example.test" },
+      { ...base, issuer: "https://auth.alpha.example.test?x=1" },
+      { ...base, issuer: "https://auth.alpha.example.test#frag" },
+      { ...base, mcpUrl: "http://mcp.alpha.example.test/api/v1/mcp" },
+      { ...base, mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp?x=1" },
+      { ...base, mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp#frag" },
+      { ...base, clientId: "" },
+      { ...base, clientId: "bad client id" },
+      { ...base, redirectPort: 80 },
+      { ...base, redirectPort: 70000 },
+      { ...base, redirectPort: 8400.5 },
+      { ...base, label: "Evil\u001b[2J" },
+      { ...base, label: "" },
+    ];
+    for (const entry of badEntries) {
+      expect(() => parseSentropicUserConfig({ sentropic: { federations: [entry] } }), JSON.stringify(entry)).toThrow();
+    }
+    expect(() =>
+      parseSentropicUserConfig({
+        sentropic: { federations: [base, { ...base, mcpUrl: "https://mcp2.alpha.example.test/api/v1/mcp" }] },
+      }),
+    ).toThrow(/duplicate federation/i);
+    expect(() =>
+      parseSentropicUserConfig({
+        sentropic: { defaultFederation: "missing-mesh", federations: [base] },
+      }),
+    ).toThrow(/defaultFederation/i);
+
+    const home = freshDir();
+    writeUserConfig(home, `{"sentropic": "${SENTINEL}`);
+    let caught: unknown;
+    try {
+      resolvePublishConfig({ H2A_SENTROPIC_HOME: home }, home);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(`${(caught as Error).message}\n${inspect(caught)}`).not.toContain(SENTINEL);
+  });
+
+  it("enforces discovery checks on a declared federation: exact issuer, endpoints on issuer origin, and PKCE S256", async () => {
+    const issuer = "https://auth.mesh.example.test";
+    const goodDoc = {
+      issuer,
+      authorization_endpoint: `${issuer}/oauth/authorize`,
+      token_endpoint: `${issuer}/oauth/token`,
+      revocation_endpoint: `${issuer}/oauth/revoke`,
+      code_challenge_methods_supported: ["S256"],
+      response_types_supported: ["code"],
+    };
+    for (const [label, badDoc] of [
+      ["issuer mismatch", { ...goodDoc, issuer: "https://other.auth.example.test" }],
+      ["authorization_endpoint off-origin", { ...goodDoc, authorization_endpoint: "https://evil.example.test/authorize" }],
+      ["token_endpoint off-origin", { ...goodDoc, token_endpoint: "https://evil.example.test/token" }],
+      ["revocation_endpoint off-origin", { ...goodDoc, revocation_endpoint: "https://evil.example.test/revoke" }],
+      ["S256 not advertised", { ...goodDoc, code_challenge_methods_supported: ["plain"] }],
+    ] as const) {
+      const fetchStub: typeof fetch = async () =>
+        new Response(JSON.stringify(badDoc), { status: 200, headers: { "content-type": "application/json" } });
+      await expect(discoverAuthorizationServer(issuer, fetchStub, "h2a-cli"), label).rejects.toThrow();
+    }
+    const okFetch: typeof fetch = async () =>
+      new Response(JSON.stringify(goodDoc), { status: 200, headers: { "content-type": "application/json" } });
+    const meta = await discoverAuthorizationServer(issuer, okFetch, "h2a-cli");
+    expect(meta.issuer).toBe(issuer);
+    expect(meta.authorizationEndpoint).toBe(`${issuer}/oauth/authorize`);
+    expect(meta.tokenEndpoint).toBe(`${issuer}/oauth/token`);
+  });
+
+  it("applies selection precedence: flag (--federation) > env (H2A_SENTROPIC_FEDERATION) > config default > built-in (preprod)", () => {
+    const home = freshDir();
+    // 1. Built-in default (no user config, no env, no flag) -> preprod.
+    const builtIn = resolvePublishConfig({ H2A_SENTROPIC_HOME: home }, home);
+    expect(builtIn.federation).toBe("preprod");
+    expect(builtIn.issuer).toBe(SENTROPIC_ENVIRONMENTS.preprod.issuer);
+
+    writeUserConfig(home, {
+      sentropic: {
+        defaultFederation: "alpha",
+        federations: [
+          {
+            name: "alpha",
+            issuer: "https://auth.alpha.example.test",
+            mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+            clientId: "alpha-cli",
+            label: "Alpha",
+          },
+          {
+            name: "beta",
+            issuer: "https://auth.beta.example.test",
+            mcpUrl: "https://mcp.beta.example.test/api/v1/mcp",
+            clientId: "beta-cli",
+            label: "Beta",
+          },
+          {
+            name: "gamma",
+            issuer: "https://auth.gamma.example.test",
+            mcpUrl: "https://mcp.gamma.example.test/api/v1/mcp",
+            clientId: "gamma-cli",
+            redirectPort: 18444,
+            label: "Gamma",
+          },
+        ],
+      },
+    });
+
+    // 2. Config default beats built-in.
+    const fromConfig = resolvePublishConfig({ H2A_SENTROPIC_HOME: home }, home);
+    expect(fromConfig.federation).toBe("alpha");
+    expect(fromConfig.issuer).toBe("https://auth.alpha.example.test");
+    expect(fromConfig.clientId).toBe("alpha-cli");
+
+    // 3. Env beats config default (both federation name and endpoint/client overrides).
+    const fromEnvName = resolvePublishConfig(
+      { H2A_SENTROPIC_HOME: home, H2A_SENTROPIC_FEDERATION: "beta" },
+      home,
+    );
+    expect(fromEnvName.federation).toBe("beta");
+    expect(fromEnvName.issuer).toBe("https://auth.beta.example.test");
+    expect(fromEnvName.clientId).toBe("beta-cli");
+
+    const fromEnvOverride = resolvePublishConfig(
+      {
+        H2A_SENTROPIC_HOME: home,
+        H2A_SENTROPIC_ISSUER: "https://override.auth.example.test",
+        H2A_SENTROPIC_CLIENT_ID: "override-cli",
+      },
+      home,
+    );
+    expect(fromEnvOverride.federation).toBe("alpha");
+    expect(fromEnvOverride.issuer).toBe("https://override.auth.example.test");
+    expect(fromEnvOverride.clientId).toBe("override-cli");
+
+    // 4. Flag (--federation) beats env, config default and built-in.
+    const fromFlag = resolvePublishConfig(
+      {
+        H2A_SENTROPIC_HOME: home,
+        H2A_SENTROPIC_FEDERATION: "beta",
+        H2A_SENTROPIC_ISSUER: "https://override.auth.example.test",
+        H2A_SENTROPIC_CLIENT_ID: "override-cli",
+      },
+      home,
+      { federation: "gamma" },
+    );
+    expect(fromFlag.federation).toBe("gamma");
+    expect(fromFlag.issuer).toBe("https://auth.gamma.example.test");
+    expect(fromFlag.mcpUrl).toBe("https://mcp.gamma.example.test/api/v1/mcp");
+    expect(fromFlag.clientId).toBe("gamma-cli");
+    expect(fromFlag.redirectPort).toBe(18444);
+    expect(fromFlag.label).toBe("Gamma");
+  });
+
+  it("signs in to multiple federations at once, records federation in workspace bindings, and lists all federations in status", async () => {
+    const fAlpha = await fake({ sub: "user-alpha", tid: "tenant-alpha" });
+    const fBeta = await fake({
+      sub: "user-beta",
+      tid: "tenant-beta",
+      directory: [{ workspaceRef: "ws-beta-1", name: "Beta One", role: "admin", publishable: true }],
+    });
+    const dir = freshDir();
+    writeUserConfig(dir, {
+      sentropic: {
+        defaultFederation: "alpha",
+        federations: [
+          {
+            name: "alpha",
+            issuer: fAlpha.asUrl,
+            mcpUrl: fAlpha.mcpUrl,
+            clientId: CLIENT_ID,
+            label: "Alpha Federation",
+          },
+          {
+            name: "beta",
+            issuer: fBeta.asUrl,
+            mcpUrl: fBeta.mcpUrl,
+            clientId: CLIENT_ID,
+            label: "Beta Federation",
+          },
+        ],
+      },
+    });
+    const baseEnv = { H2A_SENTROPIC_HOME: dir };
+
+    // Sign in to both federations simultaneously.
+    const loginAlpha = await runCli(["login", "--federation", "alpha"], {
+      env: baseEnv,
+      homeDir: () => dir,
+      openBrowser: simulatedBrowser().open,
+    });
+    expect(loginAlpha.code, loginAlpha.err).toBe(0);
+
+    const loginBeta = await runCli(["login", "--federation", "beta"], {
+      env: baseEnv,
+      homeDir: () => dir,
+      openBrowser: simulatedBrowser().open,
+    });
+    expect(loginBeta.code, loginBeta.err).toBe(0);
+
+    // Bind local workspace independently on each federation; each binding records its federation name.
+    const bindAlpha = await runCli(["bind", BOUND, "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(bindAlpha.code, bindAlpha.err).toBe(0);
+    const bindBeta = await runCli(["bind", "ws-beta-1", "--federation", "beta"], { env: baseEnv, homeDir: () => dir });
+    expect(bindBeta.code, bindBeta.err).toBe(0);
+
+    const alphaBinding = readBinding(serverKey(fAlpha.mcpUrl), LOCAL_WS, dir);
+    const betaBinding = readBinding(serverKey(fBeta.mcpUrl), LOCAL_WS, dir);
+    expect(alphaBinding).toMatchObject({
+      localWorkspace: LOCAL_WS,
+      federation: "alpha",
+      workspaceId: BOUND,
+      subject: "user-alpha",
+      tenantId: "tenant-alpha",
+    });
+    expect(betaBinding).toMatchObject({
+      localWorkspace: LOCAL_WS,
+      federation: "beta",
+      workspaceId: "ws-beta-1",
+      subject: "user-beta",
+      tenantId: "tenant-beta",
+    });
+
+    // `status` without --federation lists all declared federations (and never prints a token).
+    const statusAll = await runCli(["status"], { env: baseEnv, homeDir: () => dir });
+    expect(statusAll.code, statusAll.err).toBe(0);
+    expect(statusAll.out).toContain("sentropic alpha");
+    expect(statusAll.out).toContain("Alpha Federation");
+    expect(statusAll.out).toContain("user-alpha");
+    expect(statusAll.out).toContain(BOUND);
+    expect(statusAll.out).toContain("sentropic beta");
+    expect(statusAll.out).toContain("Beta Federation");
+    expect(statusAll.out).toContain("user-beta");
+    expect(statusAll.out).toContain("ws-beta-1");
+    expect(statusAll.out).toContain("sentropic preprod");
+    expect(statusAll.out).not.toContain(SENTINEL);
+
+    const statusJsonRun = await runCli(["status", "--json"], { env: baseEnv, homeDir: () => dir });
+    expect(statusJsonRun.code).toBe(0);
+    expect(statusJsonRun.out).not.toContain(SENTINEL);
+    const parsed = JSON.parse(statusJsonRun.out) as {
+      federation: string;
+      defaultFederation: string;
+      federations: Array<{ federation: string; loggedIn: boolean; subject: string | null; binding: { workspaceId: string; federation?: string } | null }>;
+    };
+    expect(parsed.federation).toBe("alpha");
+    expect(parsed.defaultFederation).toBe("alpha");
+    expect(parsed.federations.map((f) => f.federation)).toEqual(["preprod", "alpha", "beta"]);
+    expect(parsed.federations.find((f) => f.federation === "alpha")).toMatchObject({
+      loggedIn: true,
+      subject: "user-alpha",
+      binding: { workspaceId: BOUND, federation: "alpha" },
+    });
+    expect(parsed.federations.find((f) => f.federation === "beta")).toMatchObject({
+      loggedIn: true,
+      subject: "user-beta",
+      binding: { workspaceId: "ws-beta-1", federation: "beta" },
+    });
+
+    // Unbinding and logging out on beta leaves alpha's binding and session intact.
+    expect((await runCli(["unbind", "--federation", "beta"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+    expect(readBinding(serverKey(fBeta.mcpUrl), LOCAL_WS, dir)).toBeUndefined();
+    expect(readBinding(serverKey(fAlpha.mcpUrl), LOCAL_WS, dir)?.workspaceId).toBe(BOUND);
+
+    expect((await runCli(["logout", "--federation", "beta"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+    expect(storedToken(fBeta, dir)).toBeUndefined();
+    expect(storedToken(fAlpha, dir)?.subject).toBe("user-alpha");
+  });
+
+  it("tools accepts any declared federation via --federation, keeps --preprod as an alias for preprod, and refuses undeclared servers or cross-federation tokens", async () => {
+    const fAlpha = await fake({
+      directory: [{ workspaceRef: "ws-alpha-1", name: "Alpha Workspace", role: "editor", publishable: true }],
+    });
+    const fPreprod = await fake();
+    const dir = freshDir();
+    writeUserConfig(dir, {
+      sentropic: {
+        federations: [
+          {
+            name: "alpha",
+            issuer: fAlpha.asUrl,
+            mcpUrl: fAlpha.mcpUrl,
+            clientId: CLIENT_ID,
+          },
+        ],
+      },
+    });
+    const baseEnv = { H2A_SENTROPIC_HOME: dir };
+
+    expect(
+      (await runCli(["login", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir, openBrowser: simulatedBrowser().open })).code,
+    ).toBe(0);
+    expect((await runCli(["bind", "ws-alpha-1", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir })).code).toBe(0);
+
+    // 1. `tools --federation alpha` succeeds on the declared federation.
+    const toolsAlpha = await runCli(["tools", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(toolsAlpha.code, toolsAlpha.err).toBe(0);
+    expect(toolsAlpha.out).toContain("artifacts_publish");
+    expect(
+      (fAlpha.rsRequests.filter((r) => r.body.method === "tools/list").at(-1)!.body.params as { workspaceRef?: string }).workspaceRef,
+    ).toBe("ws-alpha-1");
+
+    // 2. `--preprod` remains an alias for `--federation preprod`, and conflicts with `--federation alpha`.
+    expect((await login(fPreprod, dir)).run.code).toBe(0);
+    const viaPreprodAlias = await runCli(["tools", "--preprod"], { env: fPreprod.env(dir), homeDir: () => dir });
+    expect(viaPreprodAlias.code, viaPreprodAlias.err).toBe(0);
+    const viaExplicitPreprod = await runCli(["tools", "--federation", "preprod"], { env: fPreprod.env(dir), homeDir: () => dir });
+    expect(viaExplicitPreprod.code, viaExplicitPreprod.err).toBe(0);
+    const conflict = await runCli(["tools", "--preprod", "--federation", "alpha"], { env: baseEnv, homeDir: () => dir });
+    expect(conflict.code).toBe(1);
+    expect(conflict.err).toMatch(/--preprod/);
+
+    // 3. Undeclared federation name is refused before any network call.
+    const unknownFed = await runCli(["tools", "--federation", "undeclared"], { env: baseEnv, homeDir: () => dir });
+    expect(unknownFed.code).toBe(1);
+    expect(unknownFed.err).toMatch(/unknown federation/i);
+
+    // 4. Anti-exfiltration: a token whose audience is for another federation is refused before reaching the RS.
+    const alphaToken = storedToken(fAlpha, dir)!;
+    writeAuth({ ...alphaToken, server: serverKey(fPreprod.mcpUrl), issuer: fPreprod.asUrl }, dir);
+    const beforePreprodCalls = fPreprod.rsRequests.length;
+    const crossToken = await runCli(["tools", "--federation", "preprod"], { env: fPreprod.env(dir), homeDir: () => dir });
+    expect(crossToken.code).toBe(1);
+    expect(crossToken.err).toMatch(/audience/i);
+    expect(fPreprod.rsRequests.length).toBe(beforePreprodCalls);
+  });
+
+  it("validates refreshed access token claims and refuses a refresh that changes the subject (P3-1)", async () => {
+    const f = await fake({ refresh: true });
+    const dir = freshDir();
+    expect((await login(f, dir)).run.code).toBe(0);
+    const first = storedToken(f, dir)!;
+    f.opts.sub = "different-subject";
+    const run = await runCli(["tools", "--preprod"], { env: f.env(dir), now: () => Date.now() + 2 * HOUR });
+    expect(run.code).toBe(1);
+    expect(run.err).toMatch(/another subject/);
+    expect(storedToken(f, dir)?.accessToken).toBe(first.accessToken);
+    expect(f.rsRequests).toHaveLength(0);
+  });
+
+  it("ignores an empty or malformed WWW-Authenticate error code so the JSON-RPC error code still surfaces (P3-3)", async () => {
+    const f = await fake();
+    const dir = freshDir();
+    expect((await login(f, dir)).run.code).toBe(0);
+    const token = storedToken(f, dir)!;
+    const customFetch: typeof fetch = async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { id?: number; method?: string };
+      if (body.method === "initialize" || body.method === "notifications/initialized") return fetch(input, init);
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: body.id ?? 1, error: { code: -32003, message: "access_denied" } }),
+        {
+          status: 403,
+          headers: {
+            "content-type": "application/json",
+            "www-authenticate": 'Bearer error=""',
+          },
+        },
+      );
+    };
+    const mcp = await openMcpSession({ fetch: customFetch, mcpUrl: f.mcpUrl, token, clientVersion: "test" });
+    await expect(mcp.listTools(BOUND)).rejects.toThrow(/access_denied/);
+  });
+
+  it("closes a preconnected non-idle socket on timeout and awaits the shared close promise (P3-2)", async () => {
+    const receiver = await startLoopbackReceiver({
+      port: 0,
+      state: "expected-state-12345678901234567890",
+      issuer: "https://auth.example.test",
+      requireIss: true,
+      timeoutMs: 80,
+    });
+    const port = Number(new URL(receiver.redirectUri).port);
+    const socket = connect(port, "127.0.0.1");
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    // Send a partial HTTP request line so the socket is non-idle when the timeout fires.
+    socket.write("GET /call");
+    await expect(receiver.code).rejects.toThrow(/no sign-in response/);
+    await receiver.close();
+    socket.destroy();
+    await expect(fetch(receiver.redirectUri)).rejects.toThrow();
   });
 });

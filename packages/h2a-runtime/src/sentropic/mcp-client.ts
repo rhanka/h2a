@@ -52,6 +52,8 @@ export interface McpConnectOptions {
   readonly mcpUrl: string;
   readonly token: SentropicAuthToken;
   readonly clientVersion: string;
+  /** Optional response body byte limit (default 1 MiB; configurable for larger artifact payloads). */
+  readonly maxBodyBytes?: number | undefined;
 }
 
 export interface McpToolCall {
@@ -94,7 +96,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function challengeCode(header: string | null): string | undefined {
   if (!header) return undefined;
   const match = /error="([^"]*)"/u.exec(header);
-  return match ? safeErrorCode(match[1]) : undefined;
+  if (!match) return undefined;
+  const code = safeErrorCode(match[1]);
+  return code === "unrecognized" ? undefined : code;
 }
 
 function parseMessages(text: string, contentType: string): unknown[] {
@@ -138,7 +142,7 @@ async function rpc(opts: McpConnectOptions, body: Record<string, unknown>, sessi
     "MCP resource server",
     "mcp",
   );
-  const text = (await readBoundedText(res)) ?? "";
+  const text = (await readBoundedText(res, opts.maxBodyBytes)) ?? "";
   const messages = parseMessages(text, res.headers.get("content-type") ?? "");
   const message = messages.find((m): m is Record<string, unknown> => isRecord(m) && m.id === body.id);
   return {
