@@ -1917,7 +1917,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     checkTitleRejection({ pausedByOwner: true }, 'missing-witness')
     checkTitleRejection({ hasWitness: true }, 'missing-witness')
     checkTitleRejection({ decisionBlocking: true }, 'invalid-decision')
-    checkTitleRejection({ etas: [{ targetStage: 'prod', when: '2026-11-25', source: 'committed', by: 'Alice' }] }, 'invalid-eta')
+    checkTitleRejection({ etas: [{ targetStage: 'prod', when: '2026-11-25', source: 'committed' }] }, 'invalid-eta')
   })
 
   it('Round 7: P2-1 preserves "décision sans objet" in md/text on a demand-title row whose lots are all withdrawn and on an archived target, and enforces the sansObjet audit guard on withdrawn rows', () => {

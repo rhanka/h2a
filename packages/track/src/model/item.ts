@@ -1,6 +1,6 @@
 import type { ActorId, Ulid } from '../events/types.js'
 import type { PriorityAssessment } from './priority.js'
-import type { ItemReportStatus } from './report-status.js'
+import type { EtaJournalEntry, ItemReportStatus } from './report-status.js'
 
 export type ItemId = Ulid
 export type BlockerId = Ulid
@@ -194,6 +194,8 @@ export interface ItemState {
    * byte-identically. READ-ONLY detail: the realization axis itself is folded by the reopening event.
    */
   reopenings?: ReopenRecord[]
+  /** Append-only ETA journal per target stage (up to 2 target stages, with recorded slips). */
+  etaJournal?: EtaJournalEntry[]
 }
 
 /**

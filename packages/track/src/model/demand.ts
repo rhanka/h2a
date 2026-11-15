@@ -9,7 +9,7 @@
 // REALIZATION_TRANSITIONS — legality is checked AT APPEND in the facade; the fold stays pure.
 
 import { DomainError, type ItemId, type Link } from './item.js'
-import type { ReportStage } from './report-status.js'
+import type { EtaJournalEntry, ReportStage } from './report-status.js'
 import type { ActorId, Ulid } from '../events/types.js'
 
 export type DemandId = Ulid
@@ -57,6 +57,8 @@ export interface DemandState {
   ownerSummary?: string
   /** Optional stage explicitly requested by the owner (`Étape`, e.g. `spec` for `spec (demandée)`). */
   requestedStage?: ReportStage
+  /** Append-only ETA journal per target stage (up to 2 target stages, with recorded slips). */
+  etaJournal?: EtaJournalEntry[]
   /** Explicit owner archive record; without it a numbered request row never disappears. */
   archived?: { decisionId: ItemId; reason: string; at: string }
 }
