@@ -240,7 +240,7 @@ describe('PR 374 correction regressions', () => {
     run(e1)
     expect(derive().qualified).toBe(false)
     run(e2)
-    expect(derive()).toMatchObject({ qualified: true, status: 'progressing' })
+    expect(derive()).toMatchObject({ qualified: true, status: 'on-track' })
   })
 
   it.each(['Quiero reanudar mi sesión', 'セッションを再開したい', 'أريد استئناف جلستي'])('R9 carries immutable demand source and legacy provenance: %s', text => {

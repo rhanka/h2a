@@ -9,6 +9,7 @@
 // REALIZATION_TRANSITIONS — legality is checked AT APPEND in the facade; the fold stays pure.
 
 import { DomainError, type ItemId, type Link } from './item.js'
+import type { ReportStage } from './report-status.js'
 import type { ActorId, Ulid } from '../events/types.js'
 
 export type DemandId = Ulid
@@ -50,6 +51,14 @@ export interface DemandState {
   concerns?: { kind: 'item'; id: ItemId } // a defect links the delivered item it regresses
   sourceKey?: string // optional stable dedup key (e.g. issue id)
   links?: Link[]
+  /** Stable 1..N request number assigned for the owner table. */
+  ownerNumber?: number
+  /** Short owner-readable summary (`Ta demande`). */
+  ownerSummary?: string
+  /** Optional stage explicitly requested by the owner (`Étape`, e.g. `spec` for `spec (demandée)`). */
+  requestedStage?: ReportStage
+  /** Explicit owner archive record; without it a numbered request row never disappears. */
+  archived?: { decisionId: ItemId; reason: string; at: string }
 }
 
 // Lifecycle machine (DESIGN state machine §):

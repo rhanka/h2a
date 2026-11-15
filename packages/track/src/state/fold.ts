@@ -1,5 +1,5 @@
 import type { TrackEvent } from '../events/types.js'
-import { normalizeStoredReport } from '../model/report-status.js'
+import { normalizeReportStage, normalizeStoredReport } from '../model/report-status.js'
 import type {
   CriterionState,
   EvidenceKind,
@@ -500,6 +500,7 @@ function applyEvent(state: State, event: TrackEvent): void {
         ...(payload.owner !== undefined ? { owner: payload.owner } : {}),
         ...(payload.scope !== undefined ? { scope: payload.scope } : {}),
         ...(payload.engagementRef !== undefined ? { engagementRef: payload.engagementRef } : {}),
+        ...(payload.scheduledUntil !== undefined ? { scheduledUntil: payload.scheduledUntil } : {}),
       }
       state.blockers.set(blocker.id, blocker)
       break
@@ -573,9 +574,46 @@ function applyEvent(state: State, event: TrackEvent): void {
           duplicateOf?: DemandRef
         }
         demand.status = payload.outcome
-        if (payload.outcome === 'rejected' && payload.reason !== undefined) demand.rejectReason = payload.reason
+        if ((payload.outcome === 'rejected' || payload.outcome === 'duplicate') && payload.reason !== undefined) {
+          demand.rejectReason = payload.reason
+        }
         if (payload.outcome === 'parked' && payload.reason !== undefined) demand.parkReason = payload.reason
         if (payload.outcome === 'duplicate' && payload.duplicateOf !== undefined) demand.duplicateOf = payload.duplicateOf
+      }
+      break
+    }
+
+    case 'demand.owner-numbered': {
+      const demand = state.demands.get(event.aggregateId)
+      const number = (event.payload as { number?: unknown }).number
+      if (demand && typeof number === 'number' && Number.isInteger(number) && number >= 1) {
+        demand.ownerNumber = number
+      }
+      break
+    }
+
+    case 'demand.owner-summary-updated': {
+      const demand = state.demands.get(event.aggregateId)
+      if (demand) {
+        const payload = event.payload as { summary?: unknown; requestedStage?: unknown }
+        if (typeof payload.summary === 'string' && payload.summary.trim().length > 0) {
+          demand.ownerSummary = payload.summary.trim()
+        }
+        const normalizedStage = normalizeReportStage(payload.requestedStage)
+        if (normalizedStage !== undefined) {
+          demand.requestedStage = normalizedStage
+        }
+      }
+      break
+    }
+
+    case 'demand.owner-archived': {
+      const demand = state.demands.get(event.aggregateId)
+      if (demand) {
+        const payload = event.payload as { decisionId?: unknown; reason?: unknown }
+        if (typeof payload.decisionId === 'string' && typeof payload.reason === 'string') {
+          demand.archived = { decisionId: payload.decisionId, reason: payload.reason, at: event.at }
+        }
       }
       break
     }

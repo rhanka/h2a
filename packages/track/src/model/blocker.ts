@@ -21,6 +21,7 @@ export interface BlockerState {
   owner?: ActorId
   scope?: BlockerScope // dependency only; absent ⇒ `intra`
   engagementRef?: string // required iff scope === 'extra'
+  scheduledUntil?: string // planned wait deadline (🟡 en attente until passed)
   openedAt: string
   resolvedAt?: string
   resolvedByEvent: boolean // resolved by an explicit blocker.resolved event (manual or decision)
@@ -37,6 +38,7 @@ export interface BlockerOpenedPayload {
   owner?: ActorId
   scope?: BlockerScope
   engagementRef?: string
+  scheduledUntil?: string
 }
 
 /**

@@ -4,9 +4,7 @@
 // Codes are the identity (D2) and are carried by JSON; human labels come from
 // here, keyed by an OPEN `--lang <bcp47>` parameter — never a closed language
 // enum, never a silent French fallback: an unknown language renders the codes
-// themselves. Scope limit (D10): this amendment makes the new stage/status
-// surface language-neutral; full localisation of the existing French
-// deterministic renderer (`format.ts`, `friendly.ts`) is a separate WP.
+// themselves.
 import type { ReportStage } from '../model/report-status.js'
 import type { StatusCode } from './stage-status.js'
 
@@ -16,65 +14,88 @@ export interface StageStatusLabels {
   status: Record<StatusCode, string>
 }
 
+const NEUTRAL_STAGE_LABELS: Record<ReportStage, string> = {
+  brainstorm: 'brainstorm',
+  spec: 'spec',
+  plan: 'plan',
+  dev: 'dev',
+  test: 'test',
+  pr: 'pr',
+  review: 'review',
+  merged: 'merged',
+  published: 'published',
+  preprod: 'preprod',
+  prod: 'prod',
+  done: 'done',
+}
+
 const FR: StageStatusLabels = {
-  // French keeps the neutral stage tokens (no invented French stage words);
-  // statuses are plain French words.
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
+  stage: { ...NEUTRAL_STAGE_LABELS },
   status: {
-    progressing: 'en progression',
-    unforeseen: 'imprévu',
-    blocked: 'bloqué',
-    'decision-awaited': 'décision attendue',
-    'not-qualified': 'non qualifié',
     withdrawn: 'retiré',
+    blocked: 'bloqué',
+    unforeseen: 'dérive',
+    waiting: 'en attente',
+    done: 'fait',
+    'on-track': 'sur la voie',
+    'not-started': 'pas commencé',
+    'not-qualified': 'sans témoin',
   },
 }
 
 const EN: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
+  stage: { ...NEUTRAL_STAGE_LABELS },
   status: {
-    progressing: 'progressing',
-    unforeseen: 'unforeseen',
-    blocked: 'blocked',
-    'decision-awaited': 'awaiting decision',
-    'not-qualified': 'not qualified',
     withdrawn: 'withdrawn',
+    blocked: 'blocked',
+    unforeseen: 'drift',
+    waiting: 'waiting',
+    done: 'done',
+    'on-track': 'on track',
+    'not-started': 'not started',
+    'not-qualified': 'no witness',
   },
 }
 
 const ES: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
+  stage: { ...NEUTRAL_STAGE_LABELS },
   status: {
-    progressing: 'en progreso',
-    unforeseen: 'imprevisto',
-    blocked: 'bloqueado',
-    'decision-awaited': 'decisión pendiente',
-    'not-qualified': 'no calificado',
     withdrawn: 'retirado',
+    blocked: 'bloqueado',
+    unforeseen: 'desviación',
+    waiting: 'en espera',
+    done: 'hecho',
+    'on-track': 'encaminado',
+    'not-started': 'no iniciado',
+    'not-qualified': 'sin testigo',
   },
 }
 
 const JA: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
+  stage: { ...NEUTRAL_STAGE_LABELS },
   status: {
-    progressing: '進行中',
-    unforeseen: '想定外',
-    blocked: 'ブロック中',
-    'decision-awaited': '意思決定待ち',
-    'not-qualified': '未評価',
     withdrawn: '取下げ',
+    blocked: 'ブロック中',
+    unforeseen: '遅延・逸脱',
+    waiting: '待機中',
+    done: '完了',
+    'on-track': '順調',
+    'not-started': '未着手',
+    'not-qualified': '証跡なし',
   },
 }
 
 const AR: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
+  stage: { ...NEUTRAL_STAGE_LABELS },
   status: {
-    progressing: 'قيد التقدم',
-    unforeseen: 'غير متوقع',
-    blocked: 'محظور',
-    'decision-awaited': 'بانتظار القرار',
-    'not-qualified': 'غير مؤهل',
     withdrawn: 'مسحوب',
+    blocked: 'محظور',
+    unforeseen: 'انحراف',
+    waiting: 'قيد الانتظار',
+    done: 'منجز',
+    'on-track': 'على المسار',
+    'not-started': 'لم يبدأ',
+    'not-qualified': 'بلا شاهد',
   },
 }
 
@@ -89,14 +110,16 @@ export const STAGE_STATUS_LEXICON: Record<string, StageStatusLabels> = {
 
 /** Neutral codes used when no language matches — the identity, not a fallback tongue. */
 export const CODE_LABELS: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
+  stage: { ...NEUTRAL_STAGE_LABELS },
   status: {
-    progressing: 'progressing',
-    unforeseen: 'unforeseen',
-    blocked: 'blocked',
-    'decision-awaited': 'decision-awaited',
-    'not-qualified': 'not-qualified',
     withdrawn: 'withdrawn',
+    blocked: 'blocked',
+    unforeseen: 'unforeseen',
+    waiting: 'waiting',
+    done: 'done',
+    'on-track': 'on-track',
+    'not-started': 'not-started',
+    'not-qualified': 'not-qualified',
   },
 }
 
