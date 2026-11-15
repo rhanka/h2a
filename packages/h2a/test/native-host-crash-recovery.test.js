@@ -23,12 +23,23 @@ for (const code of ['ESRCH', 'EPERM']) {
     const run = f.start([], join(f.root, 'agent.mjs'));
     const row = await eventually(() => f.recorded().find(entry => entry.pid === run.child.pid), Boolean);
     const kill = process.kill.bind(process);
+    const park = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    const gone = pid => {
+      try {
+        const state = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[0];
+        return ['Z', 'X'].includes(state);
+      } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
+    };
     let injected = false;
     const mock = t.mock.method(process, 'kill', (pid, signal) => {
       if (pid === row.pid && signal === 'SIGKILL') {
         injected = true;
         // Model exit after the generation check but before signal delivery.
-        if (code === 'ESRCH') kill(pid, signal);
+        if (code === 'ESRCH') {
+          kill(pid, signal);
+          const deadline = performance.now() + 5000;
+          while (!gone(pid) && performance.now() < deadline) park(5);
+        }
         throw Object.assign(new Error(`kill ${code}`), { code });
       }
       return kill(pid, signal);

@@ -1567,9 +1567,9 @@ async function main() {
       seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
       mcpCallCap: caps.mcpCallsPerSession,
       simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
-      // Real runs adapt to already witnessed startup jitter. Simulated
-      // polling/overlap controls retain their deliberately fixed schedule.
-      wakeSeparationTargets: simulated ? [] : wakeSeparationTargets(cells.filter(c =>
+      // Real runs and non-polling simulated runs adapt to already witnessed
+      // startup jitter. Simulated polling controls retain their fixed schedule.
+      wakeSeparationTargets: poll ? [] : wakeSeparationTargets(cells.filter(c =>
         c.sender === sender && c.receiver === receiver &&
         (c.seats?.sender ?? null) === (run.senderSeat ?? null) &&
         (c.seats?.receiver ?? null) === (run.receiverSeat ?? null) &&
