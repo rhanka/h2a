@@ -344,7 +344,22 @@ export function deriveItemStageStatus(
     freshStored?.status === 'on-track' && nonEmpty(freshStored.facts)
   const qualified = acceptanceWitness || storedWitness === true
 
-  // An unforeseen fact (D6): an unresolved recorded reopening/regression or a stale acceptance.
+  // An unforeseen fact (D6): an unresolved recorded reopening/regression, a stale acceptance,
+  // or a recorded ETA slip on an unreached target stage (when not paused by owner).
+  const activeEtas = item.etaJournal ?? freshStored?.etas ?? []
+  const provenStageRank =
+    validLinked !== undefined
+      ? STAGE_RANK[validLinked.value]
+      : validStoredStage !== undefined
+        ? STAGE_RANK[validStoredStage.value]
+        : -1
+  const etaSlipUnresolved =
+    !ownerPaused &&
+    activeEtas.some(
+      (eta) =>
+        eta.slip !== undefined &&
+        provenStageRank < STAGE_RANK[eta.targetStage],
+    )
   const reopenUnresolved = reopened && !qualified
   let staleUnresolved = acceptance === 'stale'
   if (staleUnresolved && storedWitness === true && stored !== undefined) {
@@ -356,7 +371,7 @@ export function deriveItemStageStatus(
     )
     staleUnresolved = !runAts.every((runAt) => stored.at >= runAt)
   }
-  const unforeseenFact = reopenUnresolved || staleUnresolved
+  const unforeseenFact = reopenUnresolved || staleUnresolved || etaSlipUnresolved
 
   // ---- D6 precedence (8 statuses): first matching row wins -------------------
   let status: StatusCode

@@ -1,5 +1,26 @@
+import { REPORT_STAGES, REPORT_STATUSES } from './model/report-status.js'
 import type { State } from './state/fold.js'
 import { VERSION } from './version.js'
+
+/**
+ * Engram (`graphify`) alignment contract for the 12-stage / 8-status owner report
+ * and append-only ETA journal (SPEC §3.4):
+ * - `request-lifecycle` shares the exact 12 `REPORT_STAGES` (`brainstorm..done`,
+ *   with benchmark/spike/note mapping to `brainstorm`, `preprod` vs `prod` split,
+ *   and `done` gated on production proof + acceptance receipt) and the 8 `REPORT_STATUSES`.
+ * - Stage/status witnesses, owner request numbers `1..N`, and ETA slip records are
+ *   deterministic Track/Git facts (`authority: 'track-git-only'`); Engram memory
+ *   admission never mutates or overrides stage, status, or ETA source qualification.
+ * - `archi@1` and `archi@2` remain completely untouched.
+ */
+export const ENGRAM_STAGE_STATUS_ALIGNMENT = {
+  profileId: 'request-lifecycle',
+  stages: REPORT_STAGES,
+  statuses: REPORT_STATUSES,
+  etaSources: ['measured', 'committed', 'unknown'] as const,
+  authority: 'track-git-only' as const,
+  unchangedProfiles: ['archi@1', 'archi@2'] as const,
+} as const
 
 type FileType = 'code' | 'document' | 'paper' | 'image' | 'concept' | 'rationale'
 type Confidence = 'EXTRACTED' | 'INFERRED' | 'AMBIGUOUS'
@@ -106,6 +127,10 @@ export function graphExportFromState(state: State, options: TrackGraphExportOpti
   const edgeIds = new Set<string>()
 
   for (const item of state.items.values()) {
+    const etas =
+      item.etaJournal !== undefined
+        ? item.etaJournal.filter((entry) => entry.delivered !== true)
+        : item.report?.etas
     addNode(nodes, nodeIds, {
       id: item.id,
       label: item.title,
@@ -120,6 +145,30 @@ export function graphExportFromState(state: State, options: TrackGraphExportOpti
       ...(item.role !== undefined ? { role: item.role } : {}),
       ...(item.parentId !== undefined ? { parent_id: item.parentId } : {}),
       ...(item.sourceKey !== undefined ? { source_key: item.sourceKey } : {}),
+      ...(item.report?.stage?.value !== undefined ? { report_stage: item.report.stage.value } : {}),
+      ...(item.report?.status !== undefined ? { report_status: item.report.status } : {}),
+      ...(item.report?.ownerNumber !== undefined ? { owner_number: item.report.ownerNumber } : {}),
+      ...(etas !== undefined && etas.length > 0 ? { eta_count: etas.length } : {}),
+    })
+  }
+
+  for (const demand of state.demands.values()) {
+    const activeDemandEtas = demand.etaJournal?.filter((entry) => entry.delivered !== true)
+    addNode(nodes, nodeIds, {
+      id: demand.id,
+      label: demand.ownerSummary ?? demand.raw.title ?? demand.raw.text,
+      file_type: 'concept',
+      source_file: sourceFile,
+      source_location: `demand:${demand.id}`,
+      node_type: 'Demand',
+      workspace: demand.workspace,
+      demand_type: demand.type,
+      demand_status: demand.status,
+      ...(demand.ownerNumber !== undefined ? { owner_number: demand.ownerNumber } : {}),
+      ...(demand.requestedStage !== undefined ? { requested_stage: demand.requestedStage } : {}),
+      ...(activeDemandEtas !== undefined && activeDemandEtas.length > 0
+        ? { eta_count: activeDemandEtas.length }
+        : {}),
     })
   }
 
@@ -201,6 +250,14 @@ export function graphExportFromState(state: State, options: TrackGraphExportOpti
   for (const item of state.items.values()) {
     if (item.parentId !== undefined && nodeIds.has(item.parentId)) {
       addEdge(edges, edgeIds, sourceFile, item.id, item.parentId, 'IMPLEMENTS')
+    }
+  }
+
+  for (const demand of state.demands.values()) {
+    for (const itemId of demand.itemIds ?? []) {
+      if (nodeIds.has(itemId)) {
+        addEdge(edges, edgeIds, sourceFile, demand.id, itemId, 'PROMOTES_TO')
+      }
     }
   }
 

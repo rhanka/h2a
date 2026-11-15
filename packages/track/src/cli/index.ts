@@ -715,6 +715,30 @@ function cmdItem(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
+  if (sub === 'eta') {
+    assertOnlyFlags(flags, ['target-stage', 'target-label', 'when', 'source', 'by', 'reason', 'rebaseline-decision', 'delivered'])
+    if (positional.length !== 1) throw new DomainError('item eta requires one itemId')
+    const delivered = assertBooleanFlag(flags, 'delivered')
+    track.setItemEta(positional[0]!, {
+      targetStage: req(flags, 'target-stage') as never,
+      ...(delivered
+        ? {
+            delivered: true,
+            ...(opt(flags, 'when') !== undefined ? { when: req(flags, 'when') } : {}),
+            ...(opt(flags, 'source') !== undefined ? { source: req(flags, 'source') as never } : {}),
+          }
+        : {
+            when: req(flags, 'when'),
+            source: req(flags, 'source') as never,
+          }),
+      ...(opt(flags, 'target-label') !== undefined ? { targetLabel: req(flags, 'target-label') } : {}),
+      ...(opt(flags, 'by') !== undefined ? { by: req(flags, 'by') } : {}),
+      ...(opt(flags, 'reason') !== undefined ? { reason: req(flags, 'reason') } : {}),
+      ...(opt(flags, 'rebaseline-decision') !== undefined ? { rebaselineDecisionId: req(flags, 'rebaseline-decision') } : {}),
+    })
+    io.out('ok\n')
+    return 0
+  }
   if (sub === 'new') {
     // Request-lifecycle Part 1 (Lot L2) — `--link <kind=locator>` is REPEATABLE (parseFlags keeps only
     // the LAST occurrence), so the pairs are pulled out of raw argv before the standard parse; each is
@@ -1281,7 +1305,32 @@ function cmdDemand(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
-  io.err('usage: track demand <number|summary|archive> <demandId> ...\n')
+  if (sub === 'eta') {
+    const demandId = positional[0]
+    if (demandId === undefined) throw new DomainError('demand eta requires <demandId>')
+    assertOnlyFlags(flags, ['target-stage', 'target-label', 'when', 'source', 'by', 'reason', 'rebaseline-decision', 'delivered'])
+    const delivered = assertBooleanFlag(flags, 'delivered')
+    track.setDemandEta(demandId, {
+      targetStage: req(flags, 'target-stage') as never,
+      ...(delivered
+        ? {
+            delivered: true,
+            ...(opt(flags, 'when') !== undefined ? { when: req(flags, 'when') } : {}),
+            ...(opt(flags, 'source') !== undefined ? { source: req(flags, 'source') as never } : {}),
+          }
+        : {
+            when: req(flags, 'when'),
+            source: req(flags, 'source') as never,
+          }),
+      ...(opt(flags, 'target-label') !== undefined ? { targetLabel: req(flags, 'target-label') } : {}),
+      ...(opt(flags, 'by') !== undefined ? { by: req(flags, 'by') } : {}),
+      ...(opt(flags, 'reason') !== undefined ? { reason: req(flags, 'reason') } : {}),
+      ...(opt(flags, 'rebaseline-decision') !== undefined ? { rebaselineDecisionId: req(flags, 'rebaseline-decision') } : {}),
+    })
+    io.out('ok\n')
+    return 0
+  }
+  io.err('usage: track demand <number|summary|archive|eta> <demandId> ...\n')
   return 2
 }
 
@@ -1446,7 +1495,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
       explicitPolicyPath ?? (existsSync(defaultPolicyPath) ? defaultPolicyPath : undefined)
     const ownerOpts = {
       baselineCommit: options.baselineCommit,
-      ...(nowArg !== undefined ? { now: nowArg } : {}),
+      now: periodClock,
       defaultPolicyPath,
       ...(policyPath !== undefined ? { policyPath } : {}),
     }
