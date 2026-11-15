@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,7 @@ int main(int argc, char** argv) {
     execv(argv[3], argv + 3); _exit(127);
   }
   std::map<pid_t, bool> owned{{root, false}};
+  std::set<pid_t> reaped;
   bool recovering = false, failed = false, recoveryFailed = false, observed = false;
   const char* failure = nullptr;
   int failureErrno = 0;
@@ -82,9 +84,9 @@ int main(int argc, char** argv) {
       if (recovering && std::chrono::steady_clock::now() - deadline > std::chrono::seconds(3)) { fail("recovery-deadline", true); break; }
       usleep(1000); continue;
     }
-    if (pid < 0) { if (errno == EINTR) continue; fail("waitpid", true, errno); break; }
+    if (pid < 0) { if (errno == EINTR) continue; if (errno == ECHILD) { owned.clear(); break; } fail("waitpid", true, errno); break; }
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
-      owned.erase(pid);
+      owned.erase(pid); reaped.insert(pid);
       if (pid == root) {
         result = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
         recovering = true; deadline = std::chrono::steady_clock::now();
@@ -92,21 +94,26 @@ int main(int argc, char** argv) {
       continue;
     }
     if (!WIFSTOPPED(status)) continue;
+    reaped.erase(pid);
+    owned.try_emplace(pid, false);
     const unsigned event = static_cast<unsigned>(status) >> 16;
     // Record a newly traced child before any later ptrace operation can
     // lose the stopped parent. Otherwise its disappearance could hide a
     // descendant from the recovery proof.
     if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE) {
       unsigned long child = 0;
-      if (ptrace(PTRACE_GETEVENTMSG, pid, nullptr, &child) == 0) owned[child] = owned[pid];
-      else { fail("ptrace-child-event", true, errno); recovering = true; deadline = std::chrono::steady_clock::now(); }
+      if (ptrace(PTRACE_GETEVENTMSG, pid, nullptr, &child) == 0) { if (!reaped.count(child)) owned[child] = owned[pid]; }
+      else if (errno != ESRCH) { fail("ptrace-child-event", true, errno); recovering = true; deadline = std::chrono::steady_clock::now(); }
     }
     if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
       PTRACE_O_TRACEEXEC | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL)) {
-      // A tracee can exit after its wait stop. Losing observation does not
-      // undo the subsequent waitpid exit proof for this known descendant.
-      fail("ptrace-setoptions", false, errno); recovering = true; deadline = std::chrono::steady_clock::now();
-      kill(pid, SIGKILL); continue;
+      // A tracee can exit after its wait stop. Once the worker root exec is
+      // observed, an ESRCH on a dying descendant/thread loses no live exec
+      // and must not SIGKILL a still-running thread group.
+      if (errno != ESRCH) { fail("ptrace-setoptions", true, errno); recovering = true; deadline = std::chrono::steady_clock::now(); }
+      else if (!observed) fail("ptrace-setoptions", false, errno);
+      if (recovering) kill(pid, SIGKILL);
+      continue;
     }
     if (event == PTRACE_EVENT_EXEC) {
       // A non-leader thread may exec and take the leader PID.
@@ -115,7 +122,7 @@ int main(int argc, char** argv) {
       char buffer[8192];
       std::string base = "/proc/" + std::to_string(pid);
       ssize_t size = readlink((base + "/exe").c_str(), buffer, sizeof buffer);
-      if (size <= 0) fail("exec-readlink", false, errno);
+      if (size <= 0) { if (!observed || (errno != ENOENT && errno != ESRCH)) fail("exec-readlink", false, errno); }
       else {
         observed = true;
         std::string exe(buffer, size), args = std::string("\0", 1) + read(base + "/cmdline");

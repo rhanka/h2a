@@ -27,7 +27,7 @@ test('R35: Muse starts when an ancestor repository contains the private TMPDIR',
       if (isolated) boundCellRepository(workspace, 'muse');
       // No credentials, prompt or model call: EOF after runtime startup.
       const result = spawnSync(program.path, ['--no-session-log'], {
-        cwd: workspace, env, input: '', encoding: 'utf8', timeout: 15000,
+        cwd: workspace, env, input: '', detached: true, encoding: 'utf8', timeout: 15000,
         maxBuffer: 1024 * 1024,
       });
       const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;

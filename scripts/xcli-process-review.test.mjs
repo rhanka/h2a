@@ -44,6 +44,65 @@ template <typename T> long racing_ptrace(enum __ptrace_request op, pid_t pid, vo
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('R37: a child tracee exiting before non-exec SETOPTIONS does not kill the worker or invalidate observation', async () => {
+  const { supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-thread-exit-race-'));
+  try {
+    const source = join(root, 'race-child.cc'), binary = join(root, 'supervisor');
+    const workerSource = join(root, 'worker.cc'), workerBinary = join(root, 'worker');
+    fs.writeFileSync(workerSource, `#include <pthread.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <cstdio>
+static void* spin(void*) { pause(); return nullptr; }
+int main() {
+  pid_t child = fork();
+  if (child == 0) {
+    pthread_t t;
+    pthread_create(&t, nullptr, spin, nullptr);
+    usleep(50000);
+    _exit(0);
+  }
+  int status = 0;
+  waitpid(child, &status, 0);
+  puts("worker-ok");
+  return 0;
+}
+`);
+    assert.equal(spawnSync('/usr/bin/g++', ['-std=c++17', '-pthread', workerSource, '-o', workerBinary], {
+      env: environment(join(root, 'compiler-worker')), encoding: 'utf8',
+    }).status, 0);
+    fs.writeFileSync(source, `#include <sys/ptrace.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <signal.h>
+#include <cerrno>
+template <typename T> long racing_child_ptrace(enum __ptrace_request op, pid_t pid, void* address, T data) {
+  static int options = 0;
+  if (op == PTRACE_SETOPTIONS && ++options == 6) {
+    kill(pid, SIGKILL); errno = ESRCH; return -1;
+  }
+  return syscall(SYS_ptrace, op, pid, address, data);
+}
+#define ptrace racing_child_ptrace
+` + fs.readFileSync(join(import.meta.dirname, 'xcli-process-supervisor.cc'), 'utf8'));
+    const compiled = spawnSync('/usr/bin/g++', ['-std=c++17', source, '-o', binary], {
+      env: environment(join(root, 'compiler')), encoding: 'utf8',
+    });
+    assert.equal(compiled.status, 0, compiled.stderr);
+    const command = supervisedCommand(binary, root, [workerBinary]);
+    const result = spawnSync(command[0], command.slice(1), {
+      env: environment(join(root, 'env')), encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'worker-ok');
+    const observed = supervisorResult(root);
+    assert.equal(observed.processRecovery, true);
+    assert.equal(observed.observationComplete, true);
+    assert.equal(observed.failure, null);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L6 review: native descendant execs are observed without self-reporting at 1/10/100ms', async () => {
   const { buildSupervisor, supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-process-'));
