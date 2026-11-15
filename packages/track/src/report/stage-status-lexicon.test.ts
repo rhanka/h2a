@@ -12,13 +12,28 @@ import {
 describe('stage/status lexicon — codes are the identity', () => {
   it('covers every stage and status code in every shipped language', () => {
     for (const [lang, labels] of Object.entries(STAGE_STATUS_LEXICON)) {
-      expect(Object.keys(labels.stage).sort()).toEqual(['deployed', 'dev', 'merged', 'pr', 'published', 'review', 'spec'])
+      expect(Object.keys(labels.stage).sort()).toEqual([
+        'brainstorm',
+        'dev',
+        'done',
+        'merged',
+        'plan',
+        'pr',
+        'preprod',
+        'prod',
+        'published',
+        'review',
+        'spec',
+        'test',
+      ])
       expect(Object.keys(labels.status).sort()).toEqual([
         'blocked',
-        'decision-awaited',
+        'done',
         'not-qualified',
-        'progressing',
+        'not-started',
+        'on-track',
         'unforeseen',
+        'waiting',
         'withdrawn',
       ])
       for (const label of [...Object.values(labels.stage), ...Object.values(labels.status)]) {
@@ -38,21 +53,28 @@ describe('stage/status lexicon — codes are the identity', () => {
     const resolved = resolveStageStatusLabels('xx')
     expect(resolved.matched).toBe(false)
     expect(resolved.labels.stage).toEqual({
+      brainstorm: 'brainstorm',
       spec: 'spec',
+      plan: 'plan',
       dev: 'dev',
+      test: 'test',
       pr: 'pr',
       review: 'review',
       merged: 'merged',
       published: 'published',
-      deployed: 'deployed',
+      preprod: 'preprod',
+      prod: 'prod',
+      done: 'done',
     })
     expect(resolved.labels.status).toEqual({
-      progressing: 'progressing',
+      'on-track': 'on-track',
+      waiting: 'waiting',
       unforeseen: 'unforeseen',
       blocked: 'blocked',
-      'decision-awaited': 'decision-awaited',
-      'not-qualified': 'not-qualified',
+      'not-started': 'not-started',
+      done: 'done',
       withdrawn: 'withdrawn',
+      'not-qualified': 'not-qualified',
     })
     // No silent French fallback: an unknown tag never yields French words.
     expect(JSON.stringify(resolved.labels)).not.toContain('bloqué')

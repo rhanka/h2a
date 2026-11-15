@@ -81,23 +81,23 @@ describe('D6 precedence — status codes', () => {
     expect(STATUS_HEALTH['not-qualified']).toBeUndefined()
   })
 
-  it('a qualifying recorded assertion ⇒ progressing green', () => {
+  it('a qualifying recorded assertion ⇒ on-track blue', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
-    track.setReportStatus(id, { status: 'progressing', facts: 'Correctif en cours, recette de régression ouverte.' })
+    track.setReportStatus(id, { status: 'on-track', facts: 'Correctif en cours, recette de régression ouverte.' })
     const derived = derive(id)
-    expect(derived.status).toBe('progressing')
-    expect(STATUS_HEALTH[derived.status]).toBe('🟢')
+    expect(derived.status).toBe('on-track')
+    expect(STATUS_HEALTH[derived.status]).toBe('🔵')
   })
 
-  it('a bare stored green without facts is insufficient', () => {
+  it('a bare stored on-track without facts is insufficient', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
-    track.setReportStatus(id, { status: 'progressing' })
+    track.setReportStatus(id, { status: 'on-track' })
     expect(derive(id).status).toBe('not-qualified')
   })
 
-  it('done without accepted conformity is not green; done with acceptance pass is', () => {
+  it('done without accepted conformity is not on-track; done with acceptance pass is on-track (merged/dev is never done without prod proof)', () => {
     const bare = item('bare delivery')
     track.setRealization(bare, 'in-progress')
     track.setRealization(bare, 'done')
@@ -107,14 +107,14 @@ describe('D6 precedence — status codes', () => {
     track.setRealization(verified, 'in-progress')
     acceptancePass(verified)
     track.setRealization(verified, 'done')
-    expect(derive(verified).status).toBe('progressing')
+    expect(derive(verified).status).toBe('on-track')
   })
 
-  it('a live non-decision gate overrides green while the pending dossier stays visible', () => {
+  it('a live non-decision gate overrides on-track while the pending dossier stays visible', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
-    track.setReportStatus(id, { status: 'progressing', facts: 'Avancement constaté.' })
-    expect(derive(id).status).toBe('progressing')
+    track.setReportStatus(id, { status: 'on-track', facts: 'Avancement constaté.' })
+    expect(derive(id).status).toBe('on-track')
     const decisionId = structuredDecision(id)
     const dep = item('external prerequisite')
     track.openBlocker({ targetId: id, kind: 'dependency', ref: dep, reason: 'Waiting on the other lane' })
@@ -124,31 +124,31 @@ describe('D6 precedence — status codes', () => {
     expect(derived.blueDossierIds).toContain(decisionId)
   })
 
-  it('acceptance fail overrides green', () => {
+  it('acceptance fail overrides on-track', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
-    track.setReportStatus(id, { status: 'progressing', facts: 'Avancement constaté.' })
+    track.setReportStatus(id, { status: 'on-track', facts: 'Avancement constaté.' })
     const criterion = track.addCriterion(id, 'the work holds under retry')
     const evidence = track.linkEvidence(criterion, 'e2e', 'https://example.test/run/1')
     track.recordRun(evidence, { commit: 'c1', env: 'ci', runner: 'ci', result: 'fail' })
     expect(derive(id).status).toBe('blocked')
   })
 
-  it('an effective decision gate on a pending structured dossier ⇒ decision-awaited blue', () => {
+  it('an effective decision gate on a pending structured dossier ⇒ blocked red with blueDossierIds preserved (decision-awaited is no longer a status)', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
     const decisionId = structuredDecision(id)
     track.openBlocker({ targetId: id, kind: 'decision', ref: decisionId, reason: 'Owner choice pending' })
     const derived = derive(id)
-    expect(derived.status).toBe('decision-awaited')
-    expect(STATUS_HEALTH[derived.status]).toBe('🔵')
+    expect(derived.status).toBe('blocked')
+    expect(STATUS_HEALTH[derived.status]).toBe('🔴')
     expect(derived.blueDossierIds).toEqual([decisionId])
   })
 
-  it('a gate pointing at a settled dossier is structuring work, never blue and never green', () => {
+  it('a gate pointing at a settled dossier is structuring work, never blue and never on-track', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
-    track.setReportStatus(id, { status: 'progressing', facts: 'Avancement constaté.' })
+    track.setReportStatus(id, { status: 'on-track', facts: 'Avancement constaté.' })
     const decisionId = structuredDecision(id)
     track.selectDecisionOption(decisionId, 'a', 'go')
     track.openBlocker({ targetId: id, kind: 'decision', ref: decisionId, reason: 'Stale pointer at a settled dossier' })
@@ -158,7 +158,7 @@ describe('D6 precedence — status codes', () => {
     expect(derived.blueDossierIds).toEqual([])
   })
 
-  it('withdrawn stays colourless even with a live gate', () => {
+  it('withdrawn carries ⚫ even with a live gate', () => {
     const id = item()
     track.setRealization(id, 'in-progress')
     track.setRealization(id, 'cancelled')
@@ -166,13 +166,60 @@ describe('D6 precedence — status codes', () => {
     track.openBlocker({ targetId: id, kind: 'dependency', ref: dep, reason: 'Still referenced' })
     const derived = derive(id)
     expect(derived.status).toBe('withdrawn')
-    expect(STATUS_HEALTH[derived.status]).toBeUndefined()
+    expect(STATUS_HEALTH[derived.status]).toBe('⚫')
   })
 
-  it('no event is never orange: a fresh to-do item is not-qualified', () => {
-    const derived = derive(item())
-    expect(derived.status).toBe('not-qualified')
-    expect(STATUS_HEALTH[derived.status]).toBeUndefined()
+  it('no event is never orange: a fresh to-do item is ⚪ not-started, an in-progress item without witness is not-qualified, and an owner-chosen pause backed by a decision is ⚪ not-started', () => {
+    const freshTodo = derive(item())
+    expect(freshTodo.status).toBe('not-started')
+    expect(STATUS_HEALTH[freshTodo.status]).toBe('⚪')
+
+    const startedUnqualified = item('started without witness')
+    track.setRealization(startedUnqualified, 'in-progress')
+    const startedDerived = derive(startedUnqualified)
+    expect(startedDerived.status).toBe('not-qualified')
+    expect(STATUS_HEALTH[startedDerived.status]).toBeUndefined()
+
+    const paused = item('paused by owner')
+    track.setRealization(paused, 'in-progress')
+    acceptancePass(paused)
+    expect(derive(paused).status).toBe('on-track')
+    const pauseDec = structuredDecision(paused)
+    track.selectDecisionOption(pauseDec, 'a', 'go')
+    track.setReportStatus(paused, { pausedByOwner: true, pauseDecisionId: pauseDec })
+    const pausedDerived = derive(paused)
+    expect(pausedDerived.status).toBe('not-started')
+    expect(pausedDerived.pausedByOwner).toBe(true)
+    expect(STATUS_HEALTH[pausedDerived.status]).toBe('⚪')
+
+    // Round 3 P1-1: owner pause backed by a `deferred` decision yields ⚪ not-started (pausedByOwner: true), never 🔴 blocked
+    const deferredPaused = item('paused by deferred decision')
+    track.setRealization(deferredPaused, 'in-progress')
+    const deferredDec = structuredDecision(deferredPaused)
+    track.setOutcome(deferredDec, 'deferred')
+    track.setReportStatus(deferredPaused, { pausedByOwner: true, pauseDecisionId: deferredDec })
+    const deferredDerived = derive(deferredPaused)
+    expect(deferredDerived.status).toBe('not-started')
+    expect(deferredDerived.pausedByOwner).toBe(true)
+    expect(deferredDerived.blueDossierIds).toEqual([])
+    expect(STATUS_HEALTH[deferredDerived.status]).toBe('⚪')
+
+    // Round 4 P2-1: a `deferred` decision on a NON-paused item keeps its blueDossierIds and blocks the item (🔴 blocked, never not-qualified)
+    const deferredUnpaused = item('unpaused item with deferred decision', {
+      links: [{ kind: 'dev-branch', locator: 'feat/deferred-unpaused' }],
+    })
+    track.setRealization(deferredUnpaused, 'in-progress')
+    track.setReportStatus(deferredUnpaused, {
+      status: 'on-track',
+      facts: 'Branche ouverte (feat/deferred-unpaused).',
+    })
+    const unpausedDeferredDec = structuredDecision(deferredUnpaused)
+    track.setOutcome(unpausedDeferredDec, 'deferred')
+    const unpausedDeferredDerived = derive(deferredUnpaused)
+    expect(unpausedDeferredDerived.pausedByOwner).toBeUndefined()
+    expect(unpausedDeferredDerived.blueDossierIds).toEqual([unpausedDeferredDec])
+    expect(unpausedDeferredDerived.status).toBe('blocked')
+    expect(STATUS_HEALTH[unpausedDeferredDerived.status]).toBe('🔴')
   })
 
   it('stale acceptance is an unforeseen fact, never silence', () => {
@@ -192,18 +239,18 @@ describe('reopening requalifies qualification and stage', () => {
     const id = item()
     at('2026-10-10T12:00:00.000Z', () => {
       track.setRealization(id, 'in-progress')
-      track.setReportStatus(id, { status: 'progressing', facts: 'Avancement constaté.' })
+      track.setReportStatus(id, { status: 'on-track', facts: 'Avancement constaté.' })
     })
-    expect(derive(id).status).toBe('progressing')
+    expect(derive(id).status).toBe('on-track')
     at('2026-10-11T12:00:00.000Z', () => {
       track.setRealization(id, 'done')
       track.reopenItem(id, { motive: 'regression-observed', reason: 'The fix broke again' })
     })
     expect(derive(id).status).toBe('unforeseen')
     at('2026-10-12T12:00:00.000Z', () => {
-      track.setReportStatus(id, { status: 'progressing', facts: 'Repaired and re-verified.' })
+      track.setReportStatus(id, { status: 'on-track', facts: 'Repaired and re-verified.' })
     })
-    expect(derive(id).status).toBe('progressing')
+    expect(derive(id).status).toBe('on-track')
   })
 
   it('acceptance runs must postdate the last reopening to qualify', () => {
@@ -212,7 +259,7 @@ describe('reopening requalifies qualification and stage', () => {
       track.setRealization(id, 'in-progress')
       acceptancePass(id)
     })
-    expect(derive(id).status).toBe('progressing')
+    expect(derive(id).status).toBe('on-track')
     at('2026-10-11T12:00:00.000Z', () => {
       track.setRealization(id, 'done')
       track.reopenItem(id, { motive: 'regression-observed', reason: 'The fix broke again' })
@@ -225,7 +272,7 @@ describe('D5 — stage requires recorded evidence', () => {
   it.each([
     ['pr-open', 'pr'],
     ['pr-merged', 'merged'],
-    ['deployed', 'deployed'],
+    ['deployed', 'preprod'],
   ])('derives stage %s from explicit link kind %s with its locator as evidence', (kind, stage) => {
     const id = item('linked work', { links: [{ kind, locator: 'https://example.test/evidence/42' }] })
     const derived = derive(id)
@@ -256,7 +303,7 @@ describe('D5 — stage requires recorded evidence', () => {
     expect(voided.stageVoidedByReopening).toBe(true)
     at('2026-10-12T12:00:00.000Z', () => {
       track.setReportStatus(id, {
-        status: 'progressing',
+        status: 'on-track',
         facts: 'Repaired.',
         stage: { value: 'pr', evidence: 'https://example.test/pr/fix' },
       })
@@ -276,19 +323,19 @@ describe('D5 — stage requires recorded evidence', () => {
     })
     expect(derive(id).stageVoidedByReopening).toBe(true)
     at('2026-10-12T12:00:00.000Z', () => {
-      track.setReportStatus(id, { status: 'progressing', facts: 'Repaired.' })
+      track.setReportStatus(id, { status: 'on-track', facts: 'Repaired.' })
     })
     const requalified = derive(id)
     expect(requalified.stage).toBe('dev')
     expect(requalified.stageEvidence).toBeUndefined()
     expect(requalified.stageVoidedByReopening).toBe(false)
-    expect(requalified.status).toBe('progressing')
+    expect(requalified.status).toBe('on-track')
   })
 
   it('a stored stage with evidence is honoured before any reopening', () => {
     const id = item()
     track.setReportStatus(id, {
-      status: 'progressing',
+      status: 'on-track',
       facts: 'Avancement constaté.',
       stage: { value: 'pr', evidence: 'https://example.test/pull/9' },
     })
@@ -299,9 +346,9 @@ describe('D5 — stage requires recorded evidence', () => {
 })
 
 describe('legacy French stage values are read-compatible and rejected on write', () => {
-  it('historical mergé/déployé/PR events read as neutral merged/deployed/pr codes', () => {
+  it('historical mergé/déployé/PR events read as neutral merged/preprod/pr codes', () => {
     const id = item('legacy staged work')
-    for (const [legacy, neutral] of [['mergé', 'merged'], ['déployé', 'deployed'], ['PR', 'pr']] as const) {
+    for (const [legacy, neutral] of [['mergé', 'merged'], ['déployé', 'preprod'], ['PR', 'pr']] as const) {
       store.appendCommand([{
         id: `legacy-${legacy}`,
         type: 'item.report-updated',
@@ -415,11 +462,13 @@ describe('B1 readers — review/published stages (Lot L1)', () => {
     expect(derive(released).stage).toBe('published')
   })
 
-  it('ranks pr < review < merged < published < deployed, so the highest delivery link wins', () => {
+  it('ranks pr < review < merged < published < preprod < prod < done, so the highest delivery link wins', () => {
     expect(STAGE_RANK['pr']).toBeLessThan(STAGE_RANK['review'])
     expect(STAGE_RANK['review']).toBeLessThan(STAGE_RANK['merged'])
     expect(STAGE_RANK['merged']).toBeLessThan(STAGE_RANK['published'])
-    expect(STAGE_RANK['published']).toBeLessThan(STAGE_RANK['deployed'])
+    expect(STAGE_RANK['published']).toBeLessThan(STAGE_RANK['preprod'])
+    expect(STAGE_RANK['preprod']).toBeLessThan(STAGE_RANK['prod'])
+    expect(STAGE_RANK['prod']).toBeLessThan(STAGE_RANK['done'])
     const mixed = item('mixed links', {
       links: [
         { kind: 'pr-review', locator: '#1' },
@@ -438,14 +487,17 @@ describe('B1 readers — review/published stages (Lot L1)', () => {
     }
   })
 
-  it('holds the writer gate closed on review/published until Lot L5', () => {
+  it('accepts the 10 pre-prod canonical stages on write with evidence and rejects prod/done on write (which require links)', () => {
     const id = item()
-    const before = store.readAll().length
-    for (const stage of ['review', 'published'] as const) {
-      expect(() => assertItemReportStatus({ stage: { value: stage, evidence: 'x' } })).toThrow(DomainError)
-      expect(() => track.setReportStatus(id, { stage: { value: stage, evidence: 'x' } })).toThrow()
+    for (const stage of ['brainstorm', 'spec', 'plan', 'dev', 'test', 'pr', 'review', 'merged', 'published', 'preprod'] as const) {
+      expect(() => assertItemReportStatus({ stage: { value: stage, evidence: 'x' } })).not.toThrow()
+      track.setReportStatus(id, { stage: { value: stage, evidence: 'x' } })
+      expect(fold(store.readAll()).items.get(id)?.report?.stage?.value).toBe(stage)
     }
-    expect(store.readAll()).toHaveLength(before)
+    for (const forbidden of ['prod', 'done'] as const) {
+      expect(() => assertItemReportStatus({ stage: { value: forbidden, evidence: 'prod:v1' } })).toThrow(/invalid stage/)
+      expect(() => track.setReportStatus(id, { stage: { value: forbidden, evidence: 'prod:v1' } })).toThrow(/invalid stage/)
+    }
   })
 
   it('a stored review/published assertion without evidence folds but asserts nothing (parity with merged)', () => {
@@ -478,7 +530,7 @@ describe('B1 readers — review/published stages (Lot L1)', () => {
   })
 
   it('keeps every legacy stage alias and report status normalising identically', () => {
-    for (const [legacy, neutral] of [['PR', 'pr'], ['mergé', 'merged'], ['déployé', 'deployed']] as const) {
+    for (const [legacy, neutral] of [['PR', 'pr'], ['mergé', 'merged'], ['déployé', 'preprod']] as const) {
       expect(normalizeReportStage(legacy)).toBe(neutral)
     }
     const id = item()
@@ -486,5 +538,93 @@ describe('B1 readers — review/published stages (Lot L1)', () => {
       track.setReportStatus(id, { status })
       expect(fold(store.readAll()).items.get(id)?.report?.status).toBe(status)
     }
+  })
+
+  it('invalidates pre-reopen links across all stages (including dev) and allows post-reopen links to prove pr..done again (P1-2)', () => {
+    const id = item('reopened lifecycle', {
+      links: [{ kind: 'dev-branch', locator: 'feat/initial-branch' }],
+    })
+    expect(derive(id).linkedStage).toBe('dev')
+
+    at('2026-10-11T12:00:00.000Z', () => {
+      track.setRealization(id, 'in-progress')
+      track.setRealization(id, 'done')
+      track.reopenItem(id, { motive: 'regression-observed', reason: 'Regression after initial work' })
+    })
+
+    // Pre-reopen dev-branch link is invalidated after reopening
+    const afterReopen = derive(id)
+    expect(afterReopen.linkedStage).toBeUndefined()
+    expect(afterReopen.stageVoidedByReopening).toBe(true)
+
+    // Post-reopen links prove stages pr..done again
+    at('2026-10-12T12:00:00.000Z', () => {
+      track.addItemLink(id, { kind: 'pr-open', locator: 'PR #200' })
+      track.setReportStatus(id, { status: 'on-track', facts: 'PR #200 opened after reopen' })
+    })
+    const afterPr = derive(id)
+    expect(afterPr.linkedStage).toBe('pr')
+    expect(afterPr.stage).toBe('pr')
+    expect(afterPr.status).toBe('on-track')
+
+    at('2026-10-13T12:00:00.000Z', () => {
+      track.addItemLink(id, { kind: 'pr-merged', locator: 'PR #200' })
+      track.addItemLink(id, { kind: 'deployed-prod', locator: 'prod:v2.0.0' })
+      track.addItemLink(id, { kind: 'prod-accepted', locator: 'owner:signoff-v2' })
+      acceptancePass(id)
+      track.setRealization(id, 'done')
+    })
+    const afterDone = derive(id)
+    expect(afterDone.linkedStage).toBe('done')
+    expect(afterDone.stage).toBe('done')
+    expect(afterDone.status).toBe('done')
+  })
+
+  it('requires a prod: locator on deployed-prod, requires acceptance pass for done, and lets higher linkedStage override an earlier storedStage (P1-3)', () => {
+    // 1. deployed-prod with staging / preprod / canary / rc locator is refused
+    for (const badLocator of ['staging-rc.1', 'preprod:v1.0.0', 'canary:v1', 'prod:v1.0.0-rc.1']) {
+      const badId = item(`bad-prod-${badLocator}`, {
+        links: [
+          { kind: 'deployed-prod', locator: badLocator },
+          { kind: 'prod-accepted', locator: 'owner:ok' },
+        ],
+      })
+      track.setRealization(badId, 'in-progress')
+      acceptancePass(badId)
+      track.setRealization(badId, 'done')
+      const d = derive(badId)
+      expect(d.linkedStage).toBeUndefined()
+      expect(d.status).not.toBe('done')
+    }
+
+    // 2. 0 criteria (untested) with stored facts and prod + prod-accepted links is NOT status 'done'
+    const untestedId = item('untested prod', {
+      links: [
+        { kind: 'deployed-prod', locator: 'prod:v1.0.0' },
+        { kind: 'prod-accepted', locator: 'owner:ok' },
+      ],
+    })
+    track.setRealization(untestedId, 'in-progress')
+    track.setRealization(untestedId, 'done')
+    track.setReportStatus(untestedId, { status: 'done', facts: 'Claimed done without acceptance criteria.' })
+    expect(derive(untestedId).status).toBe('not-qualified')
+
+    // 3. Earlier storedStage ('preprod') does not block higher validLinked ('prod' / 'done')
+    const progressedId = item('progressed from preprod')
+    track.setRealization(progressedId, 'in-progress')
+    track.setReportStatus(progressedId, {
+      stage: { value: 'preprod', evidence: 'preprod:v1.0.0' },
+      status: 'on-track',
+      facts: 'En préprod.',
+    })
+    expect(derive(progressedId).stage).toBe('preprod')
+
+    track.addItemLink(progressedId, { kind: 'deployed-prod', locator: 'prod:v1.0.0' })
+    track.addItemLink(progressedId, { kind: 'prod-accepted', locator: 'owner:ok' })
+    acceptancePass(progressedId)
+    track.setRealization(progressedId, 'done')
+    const progressedDerived = derive(progressedId)
+    expect(progressedDerived.stage).toBe('done')
+    expect(progressedDerived.status).toBe('done')
   })
 })

@@ -150,16 +150,12 @@ export function auditFindings(state: State): AuditFinding[] {
 }
 
 // ---- auditStatusProposals (amendment D7) --------------------------------------
-// Red carries a proposal, or the served report fails its audit. The proposal
-// itself is investigated agent work of the same nature as criterion 20,
-// carried by `prochaine action` and RECOMMANDATION; this deterministic layer
-// only FLAGS — it never fabricates proposal text, and a green mechanical
-// audit never certifies prose quality.
+// Red carries a proposal, or the served report fails its audit.
 
 /** One served row for the red/blue audit: codes and recorded text, never prose to classify. */
 export interface StatusProposalRow {
   id: string
-  status: StatusCode
+  status: StatusCode | 'decision-awaited'
   /**
    * The recorded proposal text, if any. Opaque data: compared for equality
    * only (gate-clause echo, cross-row repetition), never classified.
@@ -178,20 +174,11 @@ export interface StatusProposalRow {
 export interface StatusProposalAudit {
   /** Blocked rows lacking an investigated proposal (`missing-proposal`). */
   missingProposals: string[]
-  /** Blue rows with no matching DÉCISIONS entry. */
+  /** Decision-gated rows with no matching DÉCISIONS entry. */
   orphanBlue: string[]
   ok: boolean
 }
 
-/**
- * The mechanical half of D7. A proposal must be tagged as investigated on
- * the served report and present in both its action and recommendation. It
- * must be non-empty, not an exact echo of the row's own gate clause, and not a slogan
- * repeated verbatim across three or more rows. A generic instruction to
- * "handle red rows" fails exactly here when it parrots the gate class or the
- * other red rows. Anything subtler is prose quality — out of mechanical
- * reach by design.
- */
 export function auditStatusProposals(
   rows: readonly StatusProposalRow[],
   decisionRefs: readonly string[],
@@ -229,25 +216,12 @@ export interface StatusProposalView {
   proposals?: readonly { itemId: string; proposal: string; proposalState: 'investigated' | 'to-instruct' }[]
 }
 
-/**
- * Describe a served report (folded state + bucket rows + rendered view) as
- * red/blue audit rows. Row status comes from the derived report codes;
- * proposals and their instruction state from the served view; gate clauses
- * from the rows' machine-only `gateStep`; dossier refs from the `D#`/`Q#`
- * handle tokens the blocked cells cite. No natural language is matched, in
- * any language.
- */
 export function describeStatusProposals(
   state: State,
   report: Report,
   view: StatusProposalView,
 ): { rows: StatusProposalRow[]; decisionRefs: string[] } {
-  // Kept in the public signature for callers migrating from stored proposals.
-  // Historical assertions cannot certify a current investigation.
-  void state
   const todo = view.tables.find((table) => table.id === 'todo')
-  // Item handles are positional `[row.item]` (1-based): the row part locates
-  // the view row carrying the machine-only `gateStep` and the `bloqué` cell.
   const rowIndexById = new Map<string, number>()
   for (const handle of view.handles) {
     if (handle.kind !== 'item') continue
@@ -276,13 +250,18 @@ export function describeStatusProposals(
   const rows: StatusProposalRow[] = []
   for (const bucket of ['AWAITED', 'DROPPED', 'DONE', 'TO-DO'] as const) {
     for (const row of report.buckets[bucket] ?? []) {
-      if (row.status !== 'blocked' && row.status !== 'decision-awaited') continue
+      const rawStatus = row.status as StatusCode | 'decision-awaited' | undefined
+      if (rawStatus !== 'blocked' && rawStatus !== 'decision-awaited') continue
+      const openBlockers = [...state.blockers.values()].filter(b => b.targetId === row.id && b.open)
+      const hasNonDecisionBlocker = openBlockers.some(b => b.kind !== 'decision') || row.acceptance === 'fail'
+      const hasDecisionBlocker = openBlockers.some(b => b.kind === 'decision')
+      const isDecisionOnly = rawStatus === 'decision-awaited' || (rawStatus === 'blocked' && !hasNonDecisionBlocker && hasDecisionBlocker)
+      const effectiveStatus: StatusCode | 'decision-awaited' = isDecisionOnly ? 'decision-awaited' : 'blocked'
       const proposals = view.proposals?.filter(proposal => proposal.itemId === row.id) ?? []
-      // D7 requires exactly one proposal per red item, even on grouped WP rows.
       const served = proposals.length === 1 ? proposals[0] : undefined
       rows.push({
         id: row.id,
-        status: row.status,
+        status: effectiveStatus,
         ...(served === undefined ? {} : {
           proposal: served.proposal,
           proposalState: served.proposalState,
@@ -290,7 +269,7 @@ export function describeStatusProposals(
           inRecommendation: served.proposal.trim() !== '' && recommendationTexts.some(text => text.includes(served.proposal)),
         }),
         ...(gateSteps.get(row.id) !== undefined ? { gateClauses: [gateSteps.get(row.id)!] } : {}),
-        ...(row.status === 'decision-awaited'
+        ...(effectiveStatus === 'decision-awaited'
           ? { dossierRefs: dossierRefsOf(blockedCells.get(row.id) ?? '') }
           : {}),
       })

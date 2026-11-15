@@ -342,6 +342,7 @@
   "packages/track/src/report/friendly-parity.test.ts": [],
   "packages/track/src/report/friendly-snapshot.test.ts": [],
   "packages/track/src/report/friendly.test.ts": [],
+  "packages/track/src/report/owner-table.test.ts": [],
   "packages/track/src/report/report-modes.test.ts": [],
   "packages/track/src/report/skill-truncation-warning.test.ts": [],
   "packages/track/src/report/snapshot.test.ts": [],

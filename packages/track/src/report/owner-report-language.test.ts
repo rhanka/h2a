@@ -96,7 +96,7 @@ describe('the deterministic layer is language-neutral', () => {
     }
     const rows = Object.values(parsed.buckets).flat()
     const row = rows.find((candidate) => candidate.id === itemId)!
-    expect(row).toMatchObject({ stage: 'pr', status: 'decision-awaited' })
+    expect(row).toMatchObject({ stage: 'pr', status: 'blocked' })
     // Attachment rides on ancestry, not language: no WP ancestor here, identically.
     expect(row.wpId).toBeUndefined()
     // Dossier matching uses original ids/data, never translations.
@@ -113,8 +113,8 @@ describe('the deterministic layer is language-neutral', () => {
     expect(labels.matched).toBe(false)
     const coded = cli(['report', '--status-table', '--commit', 'c1', '--lang', 'xx', '--format', 'text'])
     expect(coded.code, coded.err).toBe(0)
-    // The blue row's code identity survives verbatim; no language is refused.
-    expect(coded.out).toContain('decision-awaited')
+    // The blocked row's code identity survives verbatim; no language is refused.
+    expect(coded.out).toContain('blocked')
   })
 
   it('changing only the output language changes no ids, order, period, percentages, handles or options', () => {
