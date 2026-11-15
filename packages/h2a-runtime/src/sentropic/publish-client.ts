@@ -296,12 +296,22 @@ async function withStoreRetry<T>(write: () => T): Promise<T> {
   }
 }
 
-/** The stored token when it was minted by the configured AS; a login prompt otherwise. */
+/** The stored token when it was minted by the configured AS for this federation's audience; a login prompt otherwise. */
 function usableStoredToken(rt: PublishRuntime): SentropicAuthToken {
   const token = storedToken(rt);
-  if (token === undefined) throw new SentropicLoginRequiredError(`not logged in to sentropic ${rt.config.environment}`);
+  if (token === undefined) throw new SentropicLoginRequiredError(`not logged in to sentropic ${rt.config.federation}`);
   if (token.issuer !== rt.config.issuer) {
     throw new SentropicLoginRequiredError("the stored sentropic token was issued by another authorization server than the configured one");
+  }
+  const claims = decodeJwtPayload(token.accessToken);
+  if (claims?.aud !== undefined) {
+    const audiences = typeof claims.aud === "string" ? [claims.aud] : Array.isArray(claims.aud) ? claims.aud : [];
+    if (!audiences.includes(rt.config.mcpUrl)) {
+      throw new SentropicPublishError(
+        "token",
+        `the stored token audience does not match federation "${rt.config.federation}" resource server; refusing to send it`,
+      );
+    }
   }
   return token;
 }
@@ -351,6 +361,14 @@ async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, c
     }
     throw error;
   }
+  const access = validateAccessTokenClaims(tokens.accessToken, {
+    issuer: token.issuer,
+    clientId,
+    resource: rt.config.mcpUrl,
+  });
+  if (token.subject !== undefined && access.subject !== token.subject) {
+    throw new SentropicPublishError("token", "the refreshed access token names another subject; it was not stored");
+  }
   const expiresAtMs = expiryOf(tokens, rt.now());
   if (expiresAtMs === undefined) throw new SentropicPublishError("token", "the refreshed token carries no expiry; it was not stored");
   const rotated: SentropicAuthToken = {
@@ -361,7 +379,7 @@ async function refreshUnderLock(rt: PublishRuntime, token: SentropicAuthToken, c
     // when the server returns none (the next expiry then asks for a login).
     ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
     expiresAt: iso(expiresAtMs),
-    ...(token.subject !== undefined ? { subject: token.subject } : {}),
+    subject: access.subject,
   };
   const stored = await withStoreRetry(() =>
     updateAuth(rt.config.server, (current) => (current?.refreshToken === used ? rotated : current), rt.config.stateDir),
@@ -517,9 +535,13 @@ function sessionFor(rt: PublishRuntime, token: SentropicAuthToken): Promise<McpS
   return openMcpSession({ fetch: rt.fetch, mcpUrl: rt.config.mcpUrl, token, clientVersion: rt.clientVersion });
 }
 
-/** The binding was made by the account AND in the tenant of `token`. */
-function bindingBelongsTo(binding: WorkspaceBinding, token: SentropicAuthToken): boolean {
-  return binding.subject === token.subject && binding.tenantId === accessClaims(token).tenantId;
+/** The binding was made by the account AND in the tenant of `token`, for this federation. */
+function bindingBelongsTo(binding: WorkspaceBinding, token: SentropicAuthToken, federation: string): boolean {
+  return (
+    (binding.federation === undefined || binding.federation === federation) &&
+    binding.subject === token.subject &&
+    binding.tenantId === accessClaims(token).tenantId
+  );
 }
 
 function boundByAnotherAccount(): SentropicPublishError {
@@ -560,7 +582,7 @@ export async function listWorkspaces(rt: PublishRuntime, localWorkspace: string 
   } catch {
     binding = undefined; // a damaged binding is reported by `status`; the listing does not need it
   }
-  const own = binding !== undefined && bindingBelongsTo(binding, token) ? binding : undefined;
+  const own = binding !== undefined && bindingBelongsTo(binding, token, rt.config.federation) ? binding : undefined;
   const session = await sessionFor(rt, token);
   let staleBinding = false;
   let directory: Directory;
@@ -640,6 +662,7 @@ export async function bindWorkspace(
   }
   const binding: WorkspaceBinding = {
     localWorkspace: p.localWorkspace,
+    federation: rt.config.federation,
     server: rt.config.server,
     workspaceId,
     ...(claims.tenantId !== undefined ? { tenantId: claims.tenantId } : {}),
@@ -675,7 +698,7 @@ export async function listPublishTools(
 ): Promise<{ tools: string[]; workspaceId: string | undefined }> {
   const token = await ensureFreshToken(rt);
   const binding = readWorkspaceBinding(rt, localWorkspace);
-  if (binding !== undefined && !bindingBelongsTo(binding, token)) throw boundByAnotherAccount();
+  if (binding !== undefined && !bindingBelongsTo(binding, token, rt.config.federation)) throw boundByAnotherAccount();
   const session = await sessionFor(rt, token);
   let tools: string[];
   try {

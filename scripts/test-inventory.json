@@ -285,7 +285,16 @@
     "refresh-token rotation (when the server issues refresh tokens) uses the pair the lock holder rotated meanwhile, and breaks a stale lock left by a dead process",
     "refresh-token rotation (when the server issues refresh tokens) a refused refresh prompts a re-login, drops the dead token, and does not crash",
     "h2a sentropic logout revokes on the server, then removes the token locally",
-    "no secret ever reaches the output or an error (sentinel) never prints the code, the code verifier, an access, refresh or id token, nor a server body"
+    "no secret ever reaches the output or an error (sentinel) never prints the code, the code verifier, an access, refresh or id token, nor a server body",
+    "configurable OAuth/MCP federations parses declarative federations and defaultFederation from user config while keeping built-in preprod",
+    "configurable OAuth/MCP federations validates every federation entry (assertSafeEndpoint, clientId, redirectPort, label, duplicates, defaultFederation) and never quotes malformed config bytes",
+    "configurable OAuth/MCP federations enforces discovery checks on a declared federation: exact issuer, endpoints on issuer origin, and PKCE S256",
+    "configurable OAuth/MCP federations applies selection precedence: flag (--federation) > env (H2A_SENTROPIC_FEDERATION) > config default > built-in (preprod)",
+    "configurable OAuth/MCP federations signs in to multiple federations at once, records federation in workspace bindings, and lists all federations in status",
+    "configurable OAuth/MCP federations tools accepts any declared federation via --federation, keeps --preprod as an alias for preprod, and refuses undeclared servers or cross-federation tokens",
+    "configurable OAuth/MCP federations validates refreshed access token claims and refuses a refresh that changes the subject (P3-1)",
+    "configurable OAuth/MCP federations ignores an empty or malformed WWW-Authenticate error code so the JSON-RPC error code still surfaces (P3-3)",
+    "configurable OAuth/MCP federations closes a preconnected non-idle socket on timeout and awaits the shared close promise (P3-2)"
   ],
   "packages/h2a-runtime/src/sentropic/refresh-lock.test.ts": [
     "refresh lock: breaking a stale lock checks the lock again under the break lock: a stale lock another waiter broke and took meanwhile is left to it",

@@ -7,11 +7,11 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspect } from "node:util";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { computeDurableWorkspaceId } from "../conductor-launch.js";
 import {
@@ -29,8 +29,15 @@ const SERVER = "https://preprod.sentropic.example";
 const WS_A = `ws:${"a".repeat(64)}`;
 const WS_B = `ws:${"b".repeat(64)}`;
 
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 function freshDir(): string {
-  return mkdtempSync(join(tmpdir(), "h2a-binding-"));
+  const dir = mkdtempSync(join(tmpdir(), "h2a-binding-"));
+  dirs.push(dir);
+  return dir;
 }
 
 function binding(localWorkspace: string, workspaceId: string): WorkspaceBinding {
