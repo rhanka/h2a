@@ -162,7 +162,7 @@ const AGY_BENCH_MODEL = 'gemini-4-argon-low';
 // R38 (owner 16/11): the cheapest muse seat model. Like the agy bench model,
 // the value rides argsFor (never PINNED_CLI_ARGS, whose tokens must all
 // appear in `--help`).
-const MUSE_BENCH_MODEL = 'muse-ember';
+const MUSE_BENCH_MODEL = 'muse-ember-1.0';
 export function argsFor(cli, prompt, { nativeCliVersion } = {}) {
   if (cli === 'agy' && nativeCliVersion === AGY_ONBOARDING_REVIEW.nativeCliVersion) {
     // Native session-only settings; reviewed exact mcp(server/tool) rules.

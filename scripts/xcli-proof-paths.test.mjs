@@ -76,7 +76,7 @@ test('R30: an unreviewed Agy version remains blocked with its exact external cau
   assert.equal(onboardingLaunchBlock(undefined), undefined);
   const seat = { family: 'agy', onboarding: { status: 'absent', gate: { eligible: false },
     captureRefusal: { code: 'onboarding-version-unreviewed', nativeCliVersion: '9.9.9',
-      reviewedNativeCliVersions: ['1.4.12', '1.5.3'] } } };
+      reviewedNativeCliVersions: ['1.4.12', '1.5.9'] } } };
   assert.equal(onboardingLaunchBlock(seat), 'onboarding-version-unreviewed:agy:9.9.9');
   assert.equal(onboardingLaunchBlock({ family: 'agy', onboarding: { gate: { eligible: false } } }), 'onboarding-required');
 });
@@ -98,7 +98,7 @@ test('R30: provisioning carries the published Agy version refusal through the ma
     assert.equal(held.sources[0].onboardingRefused, 'onboarding-shape-unverified');
     assert.equal(manifest.seats[0].onboarding.status, 'absent');
     assert.equal(onboardingLaunchBlock(manifest.seats[0]), 'onboarding-version-unreviewed:agy:9.9.9');
-    assert.deepEqual(manifest.seats[0].onboarding.captureRefusal.reviewedNativeCliVersions, ['1.4.12', '1.5.3']);
+    assert.deepEqual(manifest.seats[0].onboarding.captureRefusal.reviewedNativeCliVersions, ['1.4.12', '1.5.9']);
   } finally {
     if (held) assert.deepEqual(shredFiles([held.outDir]), []);
     fs.rmSync(root, { recursive: true, force: true });
@@ -110,8 +110,11 @@ test('R30: per-category bounds preserve the native limit and the simulation cont
   assert.equal(policy.wakeBoundForDelivery(true), 3000);
   assert.equal(policy.wakeBoundForDelivery(false), 10000);
   assert.throws(() => policy.wakeBoundForDelivery(undefined));
+  // R39: the agy acceptance bound is calibrated from measured wake-to-read
+  // latencies (7692-19546 ms, all genuine wakes); the protocol is unchanged.
+  const expectedBound = cli => cli === 'agy' ? 25000 : 10000;
   for (const cli of ['claude', 'codex', 'muse', 'agy', 'vibe']) {
-    assert.deepEqual(policy.campaignWakePolicy(cli), { cli, category: 'non-native', boundMs: 10000,
+    assert.deepEqual(policy.campaignWakePolicy(cli), { cli, category: 'non-native', boundMs: expectedBound(cli),
       transport: 'signed-terminal-prompt', nativeMessageDelivery: false,
       evidence: ['packages/h2a/src/runtime/drive/inbox-wake.ts', 'packages/h2a/src/cli.ts:nativePtyBackchannelDriver',
         'scripts/xcli-wake-host.mjs:correlateWakeInput'] });
