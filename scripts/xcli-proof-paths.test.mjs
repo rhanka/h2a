@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
+import { verifyWakeBatch } from './xcli-ci-check.mjs';
 import { wipeSecrets } from './xcli-lab.mjs';
 import { onboardingLaunchBlock } from './xcli-seat-import.mjs';
 import { blockingScreen, startupKey, cellMcpConfigText, argsFor } from './qualify-cross-cli.mjs';
@@ -112,7 +113,9 @@ test('R30: per-category bounds preserve the native limit and the simulation cont
   assert.throws(() => policy.wakeBoundForDelivery(undefined));
   // R39: the agy acceptance bound is calibrated from measured wake-to-read
   // latencies (7692-19546 ms, all genuine wakes); the protocol is unchanged.
-  const expectedBound = cli => cli === 'agy' ? 25000 : 10000;
+  // R40: tail sample 27545 ms (R40a rep 1, all proof channels held) moves the
+  // bound to 30000 (max + ~9 %; the 180 s cell budget caps the headroom).
+  const expectedBound = cli => cli === 'agy' ? 30000 : 10000;
   for (const cli of ['claude', 'codex', 'muse', 'agy', 'vibe']) {
     assert.deepEqual(policy.campaignWakePolicy(cli), { cli, category: 'non-native', boundMs: expectedBound(cli),
       transport: 'signed-terminal-prompt', nativeMessageDelivery: false,
@@ -120,6 +123,53 @@ test('R30: per-category bounds preserve the native limit and the simulation cont
         'scripts/xcli-wake-host.mjs:correlateWakeInput'] });
     assert.equal(policy.campaignWakePolicy(cli, { simulated: true }).boundMs, 3000);
   }
+});
+
+test('R40: the agy acceptance bound covers the R40a tail (27545 ms genuine wake) and the witnessed batch separates', async () => {
+  // R40a (claude->agy, local-login): reps 0 and 2 proved wake at cell level
+  // (correlated exclusive input, zero polling reads, delays 9412/7561 ms);
+  // rep 1 read 27545 ms after its correlated wake (all proof channels held)
+  // and the 25000 ms bound failed it, downgrading the whole batch. Sender
+  // timings, notify lags (453/4611/1011 ms) and read delays below are
+  // witnessed (xcli-r40-pass-1a-qualification.json); releases are re-planned
+  // through the live planner because a wider acceptance window needs a
+  // longer withheld window. dMs rides the live campaign policy, so this
+  // test is RED before the fix and GREEN after.
+  const { campaignWakePolicy } = await import('./xcli-wake-policy.mjs');
+  const { wakeSeparationTargets, planWakeRelease } = await import('./xcli-wake-schedule.mjs');
+  const dMs = campaignWakePolicy('agy').boundMs;
+  const bar = 1000000;
+  const cell = (barrierAt, delivery, release, wakeLag, readDelay, releaseOffsetMs) => ({
+    woke: true,
+    noPostSendHarnessInput: true,
+    budgetMs: 180000,
+    startedAt: new Date(barrierAt - 40000).toISOString(),
+    wakeWindows: { w0Ms: 15000, w1Ms: 15000, dMs, barrierAt,
+      deliveryAt: barrierAt + delivery, withholdAt: barrierAt,
+      releaseAt: barrierAt + release, wakeAt: barrierAt + release + wakeLag,
+      firstReadAt: barrierAt + release + wakeLag + readDelay, releaseOffsetMs,
+      notifyIntervalMs: 5000, timestampUncertaintyMs: 1,
+      preBarrierReads: 0, baselineReads: 0, withheldReads: 0,
+      inputJournal: { correlated: true, onlyWakeInput: true, writes: 2,
+        lineAt: barrierAt + release + wakeLag - 102,
+        submitAt: barrierAt + release + wakeLag } },
+  });
+  // Rep 0 (offset 0): witnessed delivery, nominal release, 9412 ms delay.
+  const rep0 = cell(bar, 41839, 56881, 453, 9412, 0);
+  const targets0 = wakeSeparationTargets([rep0]);
+  assert.equal(targets0.length, 1, 'rep 0 earns a separation target');
+  // Reps 1-2 (offsets 18000/9000): witnessed deliveries, notify lags and
+  // read delays; releases re-planned against rep 0's window.
+  const group = [rep0];
+  for (const [index, delivery, wakeLag, readDelay, offset] of
+    [[1, 32327, 4611, 27545, 18000], [2, 31278, 1011, 7561, 9000]]) {
+    const barrierAt = bar + index * 1000000;
+    const planned = planWakeRelease({ barrierAt, deliveryAt: barrierAt + delivery,
+      w1Ms: 15000, releaseOffsetMs: offset, targets: targets0 });
+    assert.ok(planned.target, `rep ${index} release is extended to contain rep 0`);
+    group.push(cell(barrierAt, delivery, planned.releaseAt - barrierAt, wakeLag, readDelay, offset));
+  }
+  assert.equal(verifyWakeBatch(group).pass, true, 'R40a batch separates once the bound covers the tail');
 });
 
 test('R30: the local parent funds the whole matrix instead of killing it after ten minutes', async () => {

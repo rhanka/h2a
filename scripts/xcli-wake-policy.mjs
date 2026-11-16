@@ -20,9 +20,16 @@ export function wakeBoundForDelivery(nativeMessageDelivery) {
 // agy wakes; 25000 ms covers the measured max + ~28 % headroom. Claude stays
 // at 10000 ms (measured 2569-4518 ms); muse stays at 10000 ms (sender
 // identity-to-send 3.8 s, receiver calibration left to R39 measurement).
+// R40 (agy login back): R40a rep 1 read 27545 ms after its correlated wake
+// (exclusive input, zero polling reads, delivered reply) and the 25000 ms
+// bound failed it, downgrading a batch the planner had correctly separated.
+// Nine agy-receiver samples span 6257-27545 ms (median ~8 s); 30000 covers
+// the max + ~9 %. Headroom stays tight: the 180 s cell budget funds
+// release + notify + d, so a larger bound would flip late cells to
+// wake-window-unfunded. Proposition until D2; protocol unchanged.
 export function campaignWakePolicy(cli, { simulated = false } = {}) {
   assert.ok(KNOWN_CLIS.includes(cli), 'known wake receiver');
-  const boundMs = simulated ? 3000 : cli === 'agy' ? 25000 : wakeBoundForDelivery(false);
+  const boundMs = simulated ? 3000 : cli === 'agy' ? 30000 : wakeBoundForDelivery(false);
   return { cli, category: 'non-native', boundMs,
     transport: 'signed-terminal-prompt', nativeMessageDelivery: false,
     evidence: ['packages/h2a/src/runtime/drive/inbox-wake.ts', 'packages/h2a/src/cli.ts:nativePtyBackchannelDriver',
