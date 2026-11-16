@@ -122,17 +122,66 @@ export function normalizeReportStatus(value: unknown): ReportStatus | undefined 
 
 export type ReportEtaSource = 'measured' | 'committed' | 'unknown'
 
+export interface MeasuredVelocityProvenance {
+  predictedAt: string
+  evidenceCutoff: string
+  p80Seconds: number
+  sampleCount: number
+  support: 'descriptive'
+  lockedDigest: string
+  currentDigest: string
+}
+
+export interface EtaSlipRecord {
+  fromWhen: string
+  toWhen: string
+  at: string
+  reason?: string
+  rebaselineDecisionId?: string
+}
+
 export interface ReportEtaEntry {
   targetStage: ReportStage
   /** Target stage label qualification (e.g. `MEP` for `prod (MEP)`). */
   targetLabel?: string
-  /** Human-readable date token (e.g. `15/11`, `2026-11-15`) or `—` when unknown. */
+  /** ISO-8601 date token (`YYYY-MM-DD`) or `—` when unknown. */
   when: string
   source: ReportEtaSource
   /** Required when `source === 'committed'`. */
   by?: string
-  /** Optional slip annotation when the initial ETA was missed. */
+  /** Optional slip annotation when the initial ETA was missed or moved. */
   slip?: { initialWhen: string; reason?: string }
+  /** Required when `source === 'measured'`: provenance from `qualifyVelocityEta` (#376). */
+  measured?: MeasuredVelocityProvenance
+}
+
+export interface EtaJournalEntry extends ReportEtaEntry {
+  /** First non-blank `when` recorded for `targetStage` (or re-anchored by a settled `go` decision). */
+  initialWhen: string
+  /** ISO-8601 timestamp of the latest `eta-set` event on this slot. */
+  updatedAt: string
+  /** Monotonic stream index of the latest `eta-set` event on this slot. */
+  updatedOrder?: number
+  /** Append-only slip history for this `targetStage` slot. */
+  slips: EtaSlipRecord[]
+  /** Optional settled `'go'` decision that re-baselined `initialWhen` on the latest event. */
+  rebaselineDecisionId?: string
+  /** All settled `'go'` decision IDs ever consumed to rebaseline this slot (each `'go'` decision rebaselines once). */
+  rebaselineDecisionIds?: string[]
+  /** True when explicitly acknowledged as delivered on time (extinguishes a demand-level ETA without cross-lot reads). */
+  delivered?: boolean
+}
+
+export interface SetEtaInput {
+  targetStage: ReportStage
+  targetLabel?: string
+  when?: string
+  source?: ReportEtaSource
+  by?: string
+  reason?: string
+  rebaselineDecisionId?: string
+  measured?: MeasuredVelocityProvenance
+  delivered?: boolean
 }
 
 /**
@@ -246,16 +295,58 @@ export function assertDecisionExpectations(value: unknown): asserts value is Dec
   if (words > 400) fail('decision summary exceeds 400 words (two minutes)')
 }
 
+const UNMEASURED_EARLY_STAGES: ReadonlySet<ReportStage> = new Set(['brainstorm', 'spec', 'plan'])
+
+export function isValidMeasuredVelocityProvenance(value: unknown): value is MeasuredVelocityProvenance {
+  if (!object(value)) return false
+  const allowed = [
+    'predictedAt',
+    'evidenceCutoff',
+    'p80Seconds',
+    'sampleCount',
+    'support',
+    'lockedDigest',
+    'currentDigest',
+  ]
+  if (Object.keys(value).some((k) => !allowed.includes(k))) return false
+  if (value['support'] !== 'descriptive') return false
+  if (typeof value['p80Seconds'] !== 'number' || !Number.isFinite(value['p80Seconds']) || value['p80Seconds'] <= 0) {
+    return false
+  }
+  if (
+    typeof value['sampleCount'] !== 'number' ||
+    !Number.isInteger(value['sampleCount']) ||
+    value['sampleCount'] <= 0
+  ) {
+    return false
+  }
+  if (!text(value['predictedAt']) || !text(value['evidenceCutoff'])) return false
+  const predictedMs = Date.parse(value['predictedAt'])
+  const cutoffMs = Date.parse(value['evidenceCutoff'])
+  if (Number.isNaN(predictedMs) || Number.isNaN(cutoffMs) || cutoffMs > predictedMs) return false
+  if (!text(value['lockedDigest']) || !text(value['currentDigest'])) return false
+  if (value['lockedDigest'].trim() !== value['currentDigest'].trim()) return false
+  return true
+}
+
 export function assertReportEtaEntry(value: unknown, grammar: 'read' | 'write' = 'write'): asserts value is ReportEtaEntry {
   if (!object(value)) fail('eta entry must be an object')
-  keys(value, ['targetStage', 'targetLabel', 'when', 'source', 'by', 'slip'])
+  keys(value, ['targetStage', 'targetLabel', 'when', 'source', 'by', 'slip', 'measured'])
   if (!REPORT_STAGES.includes(value['targetStage'] as ReportStage)) fail('eta targetStage must be a valid stage')
   if (value['targetLabel'] !== undefined && !text(value['targetLabel'])) fail('eta targetLabel must be non-empty')
   if (!text(value['when'])) fail('eta when is required')
   if (value['source'] !== 'measured' && value['source'] !== 'committed' && value['source'] !== 'unknown') {
     fail('eta source must be measured, committed or unknown')
   }
-  if (grammar === 'write' && value['source'] === 'measured') {
+  if (value['measured'] !== undefined && !isValidMeasuredVelocityProvenance(value['measured'])) {
+    fail('eta measured provenance is invalid')
+  }
+  if (
+    grammar === 'write' &&
+    value['source'] === 'measured' &&
+    (!isValidMeasuredVelocityProvenance(value['measured']) ||
+      UNMEASURED_EARLY_STAGES.has(value['targetStage'] as ReportStage))
+  ) {
     fail('measured eta requires qualified velocity estimator provenance')
   }
   if (value['source'] === 'unknown' && String(value['when']).trim() !== '—') {
@@ -273,6 +364,92 @@ export function assertReportEtaEntry(value: unknown, grammar: 'read' | 'write' =
     keys(value['slip'], ['initialWhen', 'reason'])
     if (!text(value['slip']['initialWhen'])) fail('eta slip initialWhen is required')
     if (value['slip']['reason'] !== undefined && !text(value['slip']['reason'])) fail('eta slip reason must be non-empty')
+  }
+}
+
+export function assertSetEtaInput(
+  value: unknown,
+  options: { allowMeasured?: boolean } = {},
+): SetEtaInput & { when: string; source: ReportEtaSource } {
+  if (!object(value)) throw new DomainError('eta-set: input must be an object')
+  const allowed = [
+    'targetStage',
+    'targetLabel',
+    'when',
+    'source',
+    'by',
+    'reason',
+    'rebaselineDecisionId',
+    'measured',
+    'delivered',
+  ]
+  if (Object.keys(value).some((k) => !allowed.includes(k))) {
+    throw new DomainError('eta-set: unknown field')
+  }
+  if (!REPORT_STAGES.includes(value['targetStage'] as ReportStage)) {
+    throw new DomainError('eta-set: targetStage must be a valid stage')
+  }
+  const targetStage = value['targetStage'] as ReportStage
+  if (value['targetLabel'] !== undefined && !text(value['targetLabel'])) {
+    throw new DomainError('eta-set: targetLabel must be non-empty')
+  }
+  if (value['delivered'] !== undefined && typeof value['delivered'] !== 'boolean') {
+    throw new DomainError('eta-set: delivered must be a boolean')
+  }
+  const delivered = value['delivered'] === true
+  const rawWhenVal = delivered && value['when'] === undefined ? '—' : value['when']
+  const rawSourceVal = delivered && value['source'] === undefined ? 'unknown' : value['source']
+  if (!text(rawWhenVal)) {
+    throw new DomainError('eta-set: when is required')
+  }
+  const when = (rawWhenVal as string).trim()
+  const source = rawSourceVal
+  if (source !== 'measured' && source !== 'committed' && source !== 'unknown') {
+    throw new DomainError('eta-set: source must be measured, committed or unknown')
+  }
+  if (source === 'measured') {
+    if (
+      options.allowMeasured !== true ||
+      !isValidMeasuredVelocityProvenance(value['measured']) ||
+      UNMEASURED_EARLY_STAGES.has(targetStage)
+    ) {
+      throw new DomainError(
+        'eta-set: source "measured" requires qualified velocity estimator inputs via qualifyVelocityEta',
+      )
+    }
+  }
+  if (source === 'unknown' && when !== '—') {
+    throw new DomainError('eta-set: unknown eta must have when === "—"')
+  }
+  if (source !== 'unknown' && !isValidIsoDateToken(when)) {
+    throw new DomainError('eta-set: when must be an ISO date (YYYY-MM-DD)')
+  }
+  if (source === 'committed' && !text(value['by'])) {
+    throw new DomainError('eta-set: committed eta requires by')
+  }
+  if (value['by'] !== undefined && !text(value['by'])) {
+    throw new DomainError('eta-set: by must be non-empty')
+  }
+  if (value['reason'] !== undefined && !text(value['reason'])) {
+    throw new DomainError('eta-set: reason must be non-empty')
+  }
+  if (value['rebaselineDecisionId'] !== undefined && !text(value['rebaselineDecisionId'])) {
+    throw new DomainError('eta-set: rebaselineDecisionId must be non-empty')
+  }
+  return {
+    targetStage,
+    when,
+    source,
+    ...(value['targetLabel'] !== undefined ? { targetLabel: (value['targetLabel'] as string).trim() } : {}),
+    ...(value['by'] !== undefined ? { by: (value['by'] as string).trim() } : {}),
+    ...(value['reason'] !== undefined ? { reason: (value['reason'] as string).trim() } : {}),
+    ...(value['rebaselineDecisionId'] !== undefined
+      ? { rebaselineDecisionId: (value['rebaselineDecisionId'] as string).trim() }
+      : {}),
+    ...(source === 'measured' && isValidMeasuredVelocityProvenance(value['measured'])
+      ? { measured: value['measured'] }
+      : {}),
+    ...(delivered ? { delivered: true } : {}),
   }
 }
 

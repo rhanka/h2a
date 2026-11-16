@@ -1,5 +1,14 @@
 import type { TrackEvent } from '../events/types.js'
-import { normalizeReportStage, normalizeStoredReport } from '../model/report-status.js'
+import {
+  isValidMeasuredVelocityProvenance,
+  normalizeReportStage,
+  normalizeStoredReport,
+  type EtaJournalEntry,
+  type EtaSlipRecord,
+  type ReportEtaEntry,
+  type ReportEtaSource,
+} from '../model/report-status.js'
+import { parseEtaEndOfDayMs } from '../report/velocity-eta.js'
 import type {
   CriterionState,
   EvidenceKind,
@@ -92,9 +101,9 @@ function emptyState(): State {
 
 export function fold(events: ReadonlyArray<TrackEvent>): State {
   const state = emptyState()
-  for (const event of events) {
-    applyEvent(state, event)
-  }
+  events.forEach((event, streamIndex) => {
+    applyEvent(state, event, streamIndex)
+  })
   for (const blocker of state.blockers.values()) {
     blocker.open = isOpen(blocker, state.items)
   }
@@ -126,7 +135,394 @@ function applyItemRaci(item: ItemState, payload: ItemRaciUpdate): void {
   if (payload.responsible !== undefined) item.responsible = payload.responsible
 }
 
-function applyEvent(state: State, event: TrackEvent): void {
+/**
+ * True when `decision` targets `aggregateId` directly, or targets an item/demand
+ * in the same single-lot demand or the item's own ancestor/descendant tree.
+ * Under the 15/11 per-lot rule, multi-lot demands (`(demand.itemIds?.length ?? 0) > 1`)
+ * never leak decisions across sibling lots or between `demand` and `lot`.
+ */
+export function decisionTargetsAggregate(
+  state: State,
+  decision: DecisionState,
+  aggregate: 'demand' | 'item',
+  aggregateId: string,
+): boolean {
+  if (decision.targets.includes(aggregateId)) return true
+
+  const multiLotItemIds = new Set<string>()
+  for (const d of state.demands.values()) {
+    if ((d.itemIds?.length ?? 0) > 1) {
+      for (const id of d.itemIds!) multiLotItemIds.add(id)
+    }
+  }
+
+  const itemBelongsToDemand = (itemId: string, demandId: string): boolean => {
+    const demand = state.demands.get(demandId)
+    if (demand?.itemIds?.includes(itemId)) return true
+    let cur = state.items.get(itemId)
+    const seen = new Set<string>()
+    while (cur !== undefined && !seen.has(cur.id)) {
+      seen.add(cur.id)
+      if (cur.demandId === demandId) return true
+      if (demand?.itemIds?.includes(cur.id)) return true
+      if (multiLotItemIds.has(cur.id)) break
+      cur = cur.parentId !== undefined ? state.items.get(cur.parentId) : undefined
+    }
+    return false
+  }
+
+  if (aggregate === 'demand') {
+    const demand = state.demands.get(aggregateId)
+    if ((demand?.itemIds?.length ?? 0) > 1) {
+      return false
+    }
+    for (const targetId of decision.targets) {
+      if (itemBelongsToDemand(targetId, aggregateId)) return true
+    }
+    return false
+  }
+
+  // aggregate === 'item'
+  const item = state.items.get(aggregateId)
+  if (!item) return false
+  // Only single-lot demands share scope between the demand and its sole item
+  for (const demand of state.demands.values()) {
+    if ((demand.itemIds?.length ?? 0) <= 1 && itemBelongsToDemand(aggregateId, demand.id)) {
+      if (decision.targets.includes(demand.id)) return true
+      for (const targetId of decision.targets) {
+        if (itemBelongsToDemand(targetId, demand.id)) return true
+      }
+    }
+  }
+  // Check ancestor chain within this lot (never climbing above a promoted multi-lot root)
+  let cur: ItemState | undefined = item
+  const ancestors = new Set<string>()
+  while (cur !== undefined && !ancestors.has(cur.id)) {
+    ancestors.add(cur.id)
+    if (decision.targets.includes(cur.id)) return true
+    if (multiLotItemIds.has(cur.id)) break
+    cur = cur.parentId !== undefined ? state.items.get(cur.parentId) : undefined
+  }
+  // Check descendants of this item
+  for (const targetId of decision.targets) {
+    let probe = state.items.get(targetId)
+    const visited = new Set<string>()
+    while (probe !== undefined && !visited.has(probe.id)) {
+      visited.add(probe.id)
+      if (probe.id === aggregateId) return true
+      if (multiLotItemIds.has(probe.id)) break
+      probe = probe.parentId !== undefined ? state.items.get(probe.parentId) : undefined
+    }
+  }
+  return false
+}
+
+export function isSlotRebaselineDecisionConsumed(
+  prevSlot: EtaJournalEntry | undefined,
+  decisionId: string,
+): boolean {
+  if (prevSlot === undefined) return false
+  return (
+    prevSlot.rebaselineDecisionId === decisionId ||
+    (prevSlot.rebaselineDecisionIds?.includes(decisionId) ?? false)
+  )
+}
+
+export const isRebaselineDecisionConsumed = isSlotRebaselineDecisionConsumed
+
+export function isDecisionSettledBeforeSlot(
+  decision: DecisionState,
+  prevSlot: EtaJournalEntry | undefined,
+): boolean {
+  if (prevSlot === undefined) return false
+  if (decision.settledOrder !== undefined && prevSlot.updatedOrder !== undefined) {
+    if (decision.settledOrder < prevSlot.updatedOrder) return true
+  }
+  if (decision.settledAt !== undefined && decision.settledAt < prevSlot.updatedAt) {
+    return true
+  }
+  return false
+}
+
+function foldEtaJournalEntry(
+  state: State,
+  currentJournal: readonly EtaJournalEntry[] | undefined,
+  event: TrackEvent,
+  streamIndex: number,
+): EtaJournalEntry[] | undefined {
+  const payload = event.payload as Record<string, unknown>
+  const targetStage = normalizeReportStage(payload['targetStage'])
+  if (targetStage === undefined) return currentJournal ? [...currentJournal] : undefined
+  const targetLabel =
+    typeof payload['targetLabel'] === 'string' && payload['targetLabel'].trim().length > 0
+      ? payload['targetLabel'].trim()
+      : undefined
+  const rawWhen =
+    typeof payload['when'] === 'string' && payload['when'].trim().length > 0
+      ? payload['when'].trim()
+      : '—'
+  const rawSource = payload['source']
+  const measured =
+    rawSource === 'measured' && isValidMeasuredVelocityProvenance(payload['measured'])
+      ? payload['measured']
+      : undefined
+  const source: ReportEtaSource =
+    rawSource === 'measured'
+      ? measured !== undefined
+        ? 'measured'
+        : 'unknown'
+      : rawSource === 'committed'
+        ? 'committed'
+        : 'unknown'
+  const when = source === 'unknown' ? '—' : rawWhen
+  const by =
+    typeof payload['by'] === 'string' && payload['by'].trim().length > 0
+      ? payload['by'].trim()
+      : undefined
+  const reason =
+    typeof payload['reason'] === 'string' && payload['reason'].trim().length > 0
+      ? payload['reason'].trim()
+      : undefined
+  const rebaselineDecisionId =
+    typeof payload['rebaselineDecisionId'] === 'string' && payload['rebaselineDecisionId'].trim().length > 0
+      ? payload['rebaselineDecisionId'].trim()
+      : undefined
+  const delivered = payload['delivered'] === true
+  const decision =
+    rebaselineDecisionId !== undefined ? state.decisions.get(rebaselineDecisionId) : undefined
+
+  const journal = [...(currentJournal ?? [])]
+  // Slot key is targetStage only (label updates reuse the same targetStage slot)
+  const slotIdx = journal.findIndex((entry) => entry.targetStage === targetStage)
+  const prevSlot = slotIdx >= 0 ? journal[slotIdx] : undefined
+
+  if (delivered && prevSlot !== undefined) {
+    const prevEndMs = parseEtaEndOfDayMs(prevSlot.when, event.at)
+    const eventMs = Date.parse(event.at)
+    const onTime =
+      prevSlot.slip === undefined &&
+      (prevEndMs === undefined || (!Number.isNaN(eventMs) && eventMs <= prevEndMs))
+    if (onTime) {
+      journal[slotIdx] = {
+        ...prevSlot,
+        ...(targetLabel !== undefined ? { targetLabel } : {}),
+        updatedAt: event.at,
+        updatedOrder: streamIndex,
+        delivered: true,
+      }
+      return journal
+    }
+  }
+
+  const isRebaselined =
+    decision !== undefined &&
+    decision.outcome === 'go' &&
+    decisionTargetsAggregate(
+      state,
+      decision,
+      event.aggregate === 'demand' ? 'demand' : 'item',
+      event.aggregateId,
+    ) &&
+    !isSlotRebaselineDecisionConsumed(prevSlot, decision.id) &&
+    !isDecisionSettledBeforeSlot(decision, prevSlot)
+
+  const explicitSlipObj =
+    payload['slip'] !== undefined &&
+    typeof payload['slip'] === 'object' &&
+    payload['slip'] !== null &&
+    typeof (payload['slip'] as Record<string, unknown>)['initialWhen'] === 'string'
+      ? {
+          initialWhen: ((payload['slip'] as Record<string, unknown>)['initialWhen'] as string).trim(),
+          ...(typeof (payload['slip'] as Record<string, unknown>)['reason'] === 'string'
+            ? { reason: ((payload['slip'] as Record<string, unknown>)['reason'] as string).trim() }
+            : {}),
+        }
+      : undefined
+
+  if (slotIdx < 0) {
+    const initialWhen = explicitSlipObj?.initialWhen ?? when
+    const freshEntry: EtaJournalEntry = {
+      targetStage,
+      ...(targetLabel !== undefined ? { targetLabel } : {}),
+      when,
+      source,
+      ...(by !== undefined ? { by } : {}),
+      ...(measured !== undefined ? { measured } : {}),
+      initialWhen,
+      updatedAt: event.at,
+      updatedOrder: streamIndex,
+      slips:
+        explicitSlipObj !== undefined
+          ? [
+              {
+                fromWhen: explicitSlipObj.initialWhen,
+                toWhen: when,
+                at: event.at,
+                ...(explicitSlipObj.reason !== undefined ? { reason: explicitSlipObj.reason } : {}),
+              },
+            ]
+          : [],
+      ...(explicitSlipObj !== undefined ? { slip: explicitSlipObj } : {}),
+      ...(isRebaselined && rebaselineDecisionId !== undefined
+        ? { rebaselineDecisionId, rebaselineDecisionIds: [rebaselineDecisionId] }
+        : {}),
+    }
+    if (journal.length < 2) {
+      return [...journal, freshEntry]
+    }
+    // Evict any delivered slot first; never evict a slot that carries a recorded slip
+    const deliveredIdx = journal.findIndex((entry) => entry.delivered === true)
+    const evictIdx =
+      deliveredIdx >= 0
+        ? deliveredIdx
+        : journal.findIndex((entry) => entry.slip === undefined && entry.slips.length === 0)
+    if (evictIdx < 0) {
+      return journal
+    }
+    return [...journal.filter((_, idx) => idx !== evictIdx), freshEntry]
+  }
+
+  const prev = journal[slotIdx]!
+  const resolvedLabel = targetLabel ?? prev.targetLabel
+  const priorConsumedIds =
+    prev.rebaselineDecisionIds ??
+    (prev.rebaselineDecisionId !== undefined ? [prev.rebaselineDecisionId] : [])
+  if (isRebaselined) {
+    const nextConsumedIds =
+      rebaselineDecisionId !== undefined
+        ? [...new Set([...priorConsumedIds, rebaselineDecisionId])]
+        : priorConsumedIds
+    journal[slotIdx] = {
+      targetStage,
+      ...(resolvedLabel !== undefined ? { targetLabel: resolvedLabel } : {}),
+      when,
+      source,
+      ...(by !== undefined ? { by } : {}),
+      ...(measured !== undefined ? { measured } : {}),
+      initialWhen: when,
+      updatedAt: event.at,
+      updatedOrder: streamIndex,
+      slips: [],
+      ...(rebaselineDecisionId !== undefined ? { rebaselineDecisionId } : {}),
+      ...(nextConsumedIds.length > 0 ? { rebaselineDecisionIds: nextConsumedIds } : {}),
+    }
+    return journal
+  }
+
+  if (prev.delivered === true && !delivered) {
+    const initialWhen = explicitSlipObj?.initialWhen ?? when
+    journal[slotIdx] = {
+      targetStage,
+      ...(resolvedLabel !== undefined ? { targetLabel: resolvedLabel } : {}),
+      when,
+      source,
+      ...(by !== undefined ? { by } : {}),
+      ...(measured !== undefined ? { measured } : {}),
+      initialWhen,
+      updatedAt: event.at,
+      updatedOrder: streamIndex,
+      slips:
+        explicitSlipObj !== undefined
+          ? [
+              {
+                fromWhen: explicitSlipObj.initialWhen,
+                toWhen: when,
+                at: event.at,
+                ...(explicitSlipObj.reason !== undefined ? { reason: explicitSlipObj.reason } : {}),
+              },
+            ]
+          : [],
+      ...(explicitSlipObj !== undefined ? { slip: explicitSlipObj } : {}),
+      ...(priorConsumedIds.length > 0 ? { rebaselineDecisionIds: priorConsumedIds } : {}),
+    }
+    return journal
+  }
+
+  const prevEndMs = parseEtaEndOfDayMs(prev.when, event.at)
+  const newEndMs = parseEtaEndOfDayMs(when, event.at)
+  const isLaterOrWithdrawn =
+    prev.when !== '—' &&
+    prev.when !== when &&
+    (when === '—' ||
+      (prevEndMs !== undefined && newEndMs !== undefined ? newEndMs > prevEndMs : true))
+
+  if (isLaterOrWithdrawn) {
+    const initialWhen = prev.initialWhen !== '—' ? prev.initialWhen : prev.when
+    const slipRecord: EtaSlipRecord = {
+      fromWhen: prev.when,
+      toWhen: when,
+      at: event.at,
+      ...(reason !== undefined ? { reason } : {}),
+    }
+    const slips = [...prev.slips, slipRecord]
+    const slipReason = reason ?? prev.slip?.reason
+    journal[slotIdx] = {
+      targetStage,
+      ...(resolvedLabel !== undefined ? { targetLabel: resolvedLabel } : {}),
+      when,
+      source,
+      ...(by !== undefined ? { by } : {}),
+      ...(measured !== undefined ? { measured } : {}),
+      initialWhen,
+      updatedAt: event.at,
+      updatedOrder: streamIndex,
+      slips,
+      slip: {
+        initialWhen,
+        ...(slipReason !== undefined ? { reason: slipReason } : {}),
+      },
+      ...(priorConsumedIds.length > 0 ? { rebaselineDecisionIds: priorConsumedIds } : {}),
+    }
+    return journal
+  }
+
+  const initialWhen =
+    prev.slip !== undefined
+      ? prev.initialWhen
+      : prev.initialWhen !== '—' && when === '—'
+        ? prev.initialWhen
+        : when
+  journal[slotIdx] = {
+    targetStage,
+    ...(resolvedLabel !== undefined ? { targetLabel: resolvedLabel } : {}),
+    when,
+    source,
+    ...(by !== undefined ? { by } : {}),
+    ...(measured !== undefined ? { measured } : {}),
+    initialWhen,
+    updatedAt: event.at,
+    updatedOrder: streamIndex,
+    slips: prev.slips,
+    ...(prev.slip !== undefined
+      ? { slip: prev.slip }
+      : explicitSlipObj !== undefined
+        ? { slip: explicitSlipObj }
+        : {}),
+    ...(prev.slip === undefined &&
+    explicitSlipObj === undefined &&
+    prev.rebaselineDecisionId !== undefined
+      ? { rebaselineDecisionId: prev.rebaselineDecisionId }
+      : {}),
+    ...(priorConsumedIds.length > 0 ? { rebaselineDecisionIds: priorConsumedIds } : {}),
+  }
+  return journal
+}
+
+function journalToReportEtas(journal: readonly EtaJournalEntry[]): ReportEtaEntry[] {
+  return journal
+    .filter((entry) => entry.delivered !== true)
+    .map((entry) => ({
+      targetStage: entry.targetStage,
+      ...(entry.targetLabel !== undefined ? { targetLabel: entry.targetLabel } : {}),
+      when: entry.when,
+      source: entry.source,
+      ...(entry.by !== undefined ? { by: entry.by } : {}),
+      ...(entry.slip !== undefined ? { slip: entry.slip } : {}),
+      ...(entry.measured !== undefined ? { measured: entry.measured } : {}),
+    }))
+}
+
+function applyEvent(state: State, event: TrackEvent, streamIndex: number): void {
   switch (event.type) {
     case 'item.report-updated': {
       const item = state.items.get(event.aggregateId)
@@ -134,7 +530,37 @@ function applyEvent(state: State, event: TrackEvent): void {
         // D10 — historical 2026-10-17 French stage values (`mergé`/`déployé`,
         // `PR`) read as neutral codes in folded state. The events themselves
         // are never rewritten; only this projection normalises.
-        item.report = normalizeStoredReport(event.payload)
+        const normalized = normalizeStoredReport(event.payload)
+        if (normalized.etas !== undefined && Array.isArray(normalized.etas)) {
+          let nextJournal = item.etaJournal
+          for (const etaEntry of normalized.etas) {
+            nextJournal = foldEtaJournalEntry(
+              state,
+              nextJournal,
+              {
+                ...event,
+                payload: {
+                  targetStage: etaEntry.targetStage,
+                  ...(etaEntry.targetLabel !== undefined ? { targetLabel: etaEntry.targetLabel } : {}),
+                  when: etaEntry.when,
+                  source: etaEntry.source,
+                  ...(etaEntry.by !== undefined ? { by: etaEntry.by } : {}),
+                  ...(etaEntry.slip !== undefined ? { slip: etaEntry.slip } : {}),
+                  ...(etaEntry.slip?.reason !== undefined ? { reason: etaEntry.slip.reason } : {}),
+                  ...(etaEntry.measured !== undefined ? { measured: etaEntry.measured } : {}),
+                },
+              },
+              streamIndex,
+            )
+          }
+          if (nextJournal !== undefined) {
+            item.etaJournal = nextJournal
+          }
+        }
+        item.report = {
+          ...normalized,
+          ...(item.etaJournal !== undefined ? { etas: journalToReportEtas(item.etaJournal) } : {}),
+        }
       }
       break
     }
@@ -348,6 +774,8 @@ function applyEvent(state: State, event: TrackEvent): void {
       const to = (event.payload as { to: Outcome }).to
       decision.outcome = to // legality is checked at append; fold takes the latest in stream order
       if (isSettled(to)) {
+        decision.settledAt = event.at
+        decision.settledOrder = streamIndex
         for (const targetId of decision.targets) {
           const target = state.items.get(targetId)
           if (target) target.disposition[decision.decisionKind] = 'completed'
@@ -613,6 +1041,32 @@ function applyEvent(state: State, event: TrackEvent): void {
         const payload = event.payload as { decisionId?: unknown; reason?: unknown }
         if (typeof payload.decisionId === 'string' && typeof payload.reason === 'string') {
           demand.archived = { decisionId: payload.decisionId, reason: payload.reason, at: event.at }
+        }
+      }
+      break
+    }
+
+    case 'demand.eta-set': {
+      const demand = state.demands.get(event.aggregateId)
+      if (demand) {
+        const nextJournal = foldEtaJournalEntry(state, demand.etaJournal, event, streamIndex)
+        if (nextJournal !== undefined) {
+          demand.etaJournal = nextJournal
+        }
+      }
+      break
+    }
+
+    case 'item.eta-set': {
+      const item = state.items.get(event.aggregateId)
+      if (item) {
+        const nextJournal = foldEtaJournalEntry(state, item.etaJournal, event, streamIndex)
+        if (nextJournal !== undefined) {
+          item.etaJournal = nextJournal
+          item.report = {
+            ...(item.report ?? {}),
+            etas: journalToReportEtas(nextJournal),
+          }
         }
       }
       break

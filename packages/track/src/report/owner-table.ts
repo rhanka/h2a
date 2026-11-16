@@ -5,6 +5,7 @@ import { isSettled, type DecisionState } from '../model/decision.js'
 import type { DemandState } from '../model/demand.js'
 import { DomainError, type ItemState } from '../model/item.js'
 import {
+  isValidMeasuredVelocityProvenance,
   REPORT_STAGES,
   REPORT_STATUSES,
   type ReportEtaEntry,
@@ -18,6 +19,11 @@ import {
   deriveItemStageStatus,
   STAGE_RANK,
 } from './stage-status.js'
+import {
+  evaluateEtaDeadline,
+  qualifyVelocityEta,
+  type VelocityEtaBindingInput,
+} from './velocity-eta.js'
 
 export const OWNER_TABLE_HEADERS = [
   '#',
@@ -294,8 +300,8 @@ export function formatOwnerEtaEntry(eta: ReportEtaEntry): string {
         ? `engagé : ${eta.by ?? ''}`
         : 'inconnu'
   if (eta.slip !== undefined) {
-    if (eta.when === '—') {
-      return `${target} → — (dépassé : ${eta.slip.initialWhen}, ${sourceText})`
+    if (eta.when === '—' || eta.when === eta.slip.initialWhen) {
+      return `${target} → ${eta.when} (dépassé : ${eta.slip.initialWhen}, ${sourceText})`
     }
     return `${target} → ${eta.when} (${sourceText}, glissement depuis ${eta.slip.initialWhen})`
   }
@@ -386,7 +392,8 @@ function isBlankOrDash(value: string | undefined): boolean {
 function auditRowEtaEntries(
   row: OwnerTableRow,
   violations: OwnerTableGateViolation[],
-  policy?: OwnerTablePolicy,
+  policy: OwnerTablePolicy | undefined,
+  requireMissedSlipStatus: boolean,
 ): void {
   if (row.etas.length > 2) {
     violations.push({
@@ -425,29 +432,9 @@ function auditRowEtaEntries(
       })
     }
     if (eta.source === 'measured') {
-      const measured = (
-        eta as {
-          measured?: {
-            sampleCount?: number
-            p80Seconds?: number
-            support?: string
-            lockedDigest?: string
-            currentDigest?: string
-          }
-        }
-      ).measured
       if (
-        measured === undefined ||
-        STAGE_RANK[eta.targetStage] < STAGE_RANK['dev'] ||
-        measured.support !== 'descriptive' ||
-        typeof measured.p80Seconds !== 'number' ||
-        !Number.isFinite(measured.p80Seconds) ||
-        measured.p80Seconds <= 0 ||
-        typeof measured.sampleCount !== 'number' ||
-        measured.sampleCount <= 0 ||
-        typeof measured.lockedDigest !== 'string' ||
-        measured.lockedDigest.trim() === '' ||
-        measured.lockedDigest !== measured.currentDigest
+        !isValidMeasuredVelocityProvenance(eta.measured) ||
+        STAGE_RANK[eta.targetStage] < STAGE_RANK['dev']
       ) {
         violations.push({
           code: 'invalid-eta',
@@ -461,6 +448,20 @@ function auditRowEtaEntries(
         code: 'invalid-eta',
         rowNum: row.num,
         message: `row #${row.num} has a ${eta.source} ETA without a target date`,
+      })
+    }
+    if (
+      requireMissedSlipStatus &&
+      eta.slip !== undefined &&
+      row.pausedByOwner !== true &&
+      row.status !== 'unforeseen' &&
+      row.status !== 'blocked' &&
+      row.status !== 'withdrawn'
+    ) {
+      violations.push({
+        code: 'invalid-eta',
+        rowNum: row.num,
+        message: `row #${row.num} has a missed ETA and must be 🟠 dérive (or 🔴 bloqué)`,
       })
     }
     if (eta.by !== undefined) {
@@ -669,14 +670,7 @@ export function auditOwnerTable(
           message: `demand-title row #${row.num} has inconsistent decisionBlocking / blockingDecisionRefs`,
         })
       }
-      if (row.etas.length > 0) {
-        violations.push({
-          code: 'invalid-eta',
-          rowNum: row.num,
-          message: `demand-title row #${row.num} must not carry ETAs`,
-        })
-      }
-      auditRowEtaEntries(row, violations, policy)
+      auditRowEtaEntries(row, violations, policy, false)
     } else {
       if (row.status === undefined || !(REPORT_STATUSES as readonly string[]).includes(row.status)) {
         violations.push({
@@ -792,7 +786,7 @@ export function auditOwnerTable(
           message: `row #${row.num} is missing an ETA entry (target stage + source required)`,
         })
       }
-      auditRowEtaEntries(row, violations, policy)
+      auditRowEtaEntries(row, violations, policy, true)
     }
 
     // Gate: row pointing to an unlisted D# or inconsistent sansObjet / withdrawn decision refs
@@ -1067,6 +1061,14 @@ export interface ProjectOwnerTableOptions {
   policy?: OwnerTablePolicy
   policyPath?: string
   defaultPolicyPath?: string
+  /**
+   * Optional velocity-estimator bindings (#376) keyed by demandId, itemId, or request number string.
+   * Each binding is qualified via `qualifyVelocityEta`: labelled `mesuré` (`source: 'measured'`)
+   * ONLY when all inputs are qualified, otherwise `inconnu` (`source: 'unknown'`).
+   */
+  velocityBindings?:
+    | ReadonlyMap<string, VelocityEtaBindingInput | readonly VelocityEtaBindingInput[]>
+    | Readonly<Record<string, VelocityEtaBindingInput | readonly VelocityEtaBindingInput[]>>
 }
 
 function hasValidArchiveDecision(state: State, decisionId: string | undefined): boolean {
@@ -1504,26 +1506,135 @@ export function projectOwnerTable(
       status = 'blocked'
     }
 
-    // ETAs for this single item / lot
+    const toEtaEntry = (j: ReportEtaEntry): ReportEtaEntry => ({
+      targetStage: j.targetStage,
+      ...(j.targetLabel !== undefined ? { targetLabel: j.targetLabel } : {}),
+      when: j.when,
+      source: j.source,
+      ...(j.by !== undefined ? { by: j.by } : {}),
+      ...(j.slip !== undefined ? { slip: j.slip } : {}),
+      ...(j.measured !== undefined ? { measured: j.measured } : {}),
+    })
+
+    interface SingleItemEtaSlot {
+      entry: ReportEtaEntry
+      origin: 'item' | 'demand' | 'velocity'
+    }
+
+    const baseSlots: SingleItemEtaSlot[] = []
+    const itemEtas =
+      item?.etaJournal !== undefined && item.etaJournal.length > 0
+        ? item.etaJournal.filter((j) => j.delivered !== true)
+        : (report?.etas ?? [])
+    for (const j of itemEtas) {
+      baseSlots.push({ entry: toEtaEntry(j), origin: 'item' })
+    }
+    if (rowKind === 'single' && demand?.etaJournal !== undefined) {
+      for (const j of demand.etaJournal.filter((entry) => entry.delivered !== true)) {
+        baseSlots.push({ entry: toEtaEntry(j), origin: 'demand' })
+      }
+    }
+
+    const lookupVelocityInputs = (): VelocityEtaBindingInput[] => {
+      if (options.velocityBindings === undefined) return []
+      // A lot row reads ONLY its own item id; never the parent demand or request number
+      const keysToTry =
+        rowKind === 'lot'
+          ? item !== undefined
+            ? [item.id]
+            : []
+          : [
+              rowId,
+              ...(item !== undefined && item.id !== rowId ? [item.id] : []),
+              ...(num > 0 ? [String(num)] : []),
+            ]
+      const matched: VelocityEtaBindingInput[] = []
+      const seenKeys = new Set<string>()
+      for (const k of keysToTry) {
+        if (seenKeys.has(k)) continue
+        seenKeys.add(k)
+        const found =
+          options.velocityBindings instanceof Map
+            ? options.velocityBindings.get(k)
+            : (
+                options.velocityBindings as Readonly<
+                  Record<string, VelocityEtaBindingInput | readonly VelocityEtaBindingInput[]>
+                >
+              )[k]
+        if (found !== undefined) {
+          const list = Array.isArray(found) ? found : [found as VelocityEtaBindingInput]
+          matched.push(...list)
+        }
+      }
+      return matched
+    }
+
+    const velocityInputs = lookupVelocityInputs()
+    const velocitySlots: SingleItemEtaSlot[] = velocityInputs.map((vInput) => {
+      const priorSlot =
+        baseSlots.find((s) => s.entry.targetStage === vInput.targetStage && s.entry.slip !== undefined) ??
+        baseSlots.find((s) => s.entry.targetStage === vInput.targetStage)
+      const qualified = qualifyVelocityEta({
+        ...vInput,
+        ...(vInput.slip !== undefined
+          ? { slip: vInput.slip }
+          : priorSlot?.entry.slip !== undefined
+            ? { slip: priorSlot.entry.slip }
+            : {}),
+      })
+      return {
+        entry: qualified.eta,
+        origin: 'velocity',
+      }
+    })
+
+    const rawSlots = [...velocitySlots, ...baseSlots]
+    const evaluatedSlots = rawSlots.map((slot) => ({
+      ...evaluateEtaDeadline(slot.entry, stage, {
+        ...(options.now !== undefined ? { now: options.now } : {}),
+        pausedByOwner,
+      }),
+      origin: slot.origin,
+    }))
+
+    const displaySlots = evaluatedSlots.filter(
+      (ev) => stage === undefined || STAGE_RANK[stage] < STAGE_RANK[ev.eta.targetStage],
+    )
+    const anyEtaMissed = displaySlots.some((ev) => ev.missed)
+
     let etas: ReportEtaEntry[]
     if (status === 'done' || status === 'withdrawn') {
       etas = []
-    } else {
-      const unreachedReportEtas = (report?.etas ?? [])
-        .filter((eta) => stage === undefined || STAGE_RANK[stage] < STAGE_RANK[eta.targetStage])
-        .sort((a, b) => STAGE_RANK[a.targetStage] - STAGE_RANK[b.targetStage])
-        .slice(0, 2)
-      if (unreachedReportEtas.length > 0) {
-        etas = unreachedReportEtas
-      } else {
-        etas = [
-          {
-            targetStage: defaultTargetStageFor(stage, requestedStage),
-            when: '—',
-            source: 'unknown',
-          },
-        ]
+    } else if (displaySlots.length > 0) {
+      const byStage = new Map<
+        ReportStage,
+        { eta: ReportEtaEntry; missed: boolean; origin: 'item' | 'demand' | 'velocity' }
+      >()
+      for (const ev of displaySlots) {
+        const prev = byStage.get(ev.eta.targetStage)
+        if (prev === undefined || (!prev.missed && ev.missed)) {
+          byStage.set(ev.eta.targetStage, ev)
+        }
       }
+      const unique = [...byStage.values()]
+      unique.sort(
+        (a, b) =>
+          (b.missed ? 1 : 0) - (a.missed ? 1 : 0) ||
+          STAGE_RANK[a.eta.targetStage] - STAGE_RANK[b.eta.targetStage],
+      )
+      etas = unique.slice(0, 2).map((ev) => ev.eta)
+    } else {
+      etas = [
+        {
+          targetStage: defaultTargetStageFor(stage, requestedStage),
+          when: '—',
+          source: 'unknown',
+        },
+      ]
+    }
+
+    if (anyEtaMissed && status !== 'withdrawn' && status !== 'done' && status !== 'blocked') {
+      status = 'unforeseen'
     }
 
     // Done cell (`Fait`)
@@ -1666,12 +1777,43 @@ export function projectOwnerTable(
         .map((dId) => decisionRefById.get(dId))
         .filter((r): r is string => r !== undefined)
 
+      // Demand-level ETA (demand.eta-set) shows on the title row only if set, with its own slip/rebaseline logic
+      const activeDemandEtas = (demand.etaJournal ?? []).filter((j) => j.delivered !== true)
+      const titleEtas: ReportEtaEntry[] =
+        activeDemandEtas.length > 0
+          ? activeDemandEtas
+              .map((j) =>
+                evaluateEtaDeadline(
+                  {
+                    targetStage: j.targetStage,
+                    ...(j.targetLabel !== undefined ? { targetLabel: j.targetLabel } : {}),
+                    when: j.when,
+                    source: j.source,
+                    ...(j.by !== undefined ? { by: j.by } : {}),
+                    ...(j.slip !== undefined ? { slip: j.slip } : {}),
+                    ...(j.measured !== undefined ? { measured: j.measured } : {}),
+                  },
+                  undefined,
+                  {
+                    ...(options.now !== undefined ? { now: options.now } : {}),
+                  },
+                ),
+              )
+              .sort(
+                (a, b) =>
+                  (b.missed ? 1 : 0) - (a.missed ? 1 : 0) ||
+                  STAGE_RANK[a.eta.targetStage] - STAGE_RANK[b.eta.targetStage],
+              )
+              .slice(0, 2)
+              .map((ev) => ev.eta)
+          : []
+
       rows.push({
         kind: 'demand-title',
         num: c.num,
         id: demand.id,
         ...(demand.requestedStage !== undefined ? { requestedStage: demand.requestedStage } : {}),
-        etas: [],
+        etas: titleEtas,
         request: titleRequest,
         done: '—',
         todo: '—',

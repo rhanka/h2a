@@ -117,6 +117,8 @@ export const EVENT_TYPES = [
   'demand.owner-numbered',
   'demand.owner-summary-updated',
   'demand.owner-archived',
+  'demand.eta-set',
+  'item.eta-set',
   'spec.started',
   'spec.abandoned',
 ] as const
