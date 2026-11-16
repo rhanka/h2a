@@ -46,6 +46,7 @@ export {
 // inject leases into demands()/workspaceActivity, or read the side-store directly).
 export { type Lease, type LeasePhase, type LeaseSubject } from '../lease/store.js'
 export {
+  ENGRAM_STAGE_STATUS_ALIGNMENT,
   type TrackGraphEdge,
   type TrackGraphFragment,
   type TrackGraphNode,

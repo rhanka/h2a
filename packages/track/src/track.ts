@@ -1,5 +1,18 @@
 import { ulid } from 'ulid'
-import { assertItemReportStatus, REPORT_STAGES, type ItemReportStatus, type ReportStage } from './model/report-status.js'
+import {
+  assertItemReportStatus,
+  assertSetEtaInput,
+  REPORT_STAGES,
+  type ItemReportStatus,
+  type ReportStage,
+  type SetEtaInput,
+} from './model/report-status.js'
+import {
+  parseEtaEndOfDayMs,
+  qualifyVelocityEta,
+  type VelocityEtaBindingInput,
+  type VelocityEtaQualificationResult,
+} from './report/velocity-eta.js'
 
 import { EventStore } from './events/store.js'
 import type { ActorId, Aggregate, CommandEvent, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
@@ -75,7 +88,13 @@ import {
   type DemandRef,
   type DemandStatus,
 } from './model/demand.js'
-import { fold, type State } from './state/fold.js'
+import {
+  decisionTargetsAggregate,
+  fold,
+  isDecisionSettledBeforeSlot,
+  isSlotRebaselineDecisionConsumed,
+  type State,
+} from './state/fold.js'
 import { isLeaseAbandoned, type LeaseStore, type LeaseSubject } from './lease/store.js'
 
 interface EventPart {
@@ -1114,6 +1133,196 @@ export class Track {
       decisionId: input.decisionId,
       reason: input.reason.trim(),
     })
+  }
+
+  private writeDemandEta(
+    demandId: DemandId,
+    input: SetEtaInput,
+    options: { allowMeasured?: boolean },
+  ): void {
+    const state = this.state()
+    const demand = state.demands.get(demandId)
+    if (!demand) throw new DomainError(`unknown demand ${demandId}`)
+    const validated = assertSetEtaInput(input, options)
+    const existing = demand.etaJournal ?? []
+    const prevSlot = existing.find((entry) => entry.targetStage === validated.targetStage)
+    if (validated.delivered === true) {
+      if (prevSlot === undefined) {
+        throw new DomainError('setDemandEta: cannot mark an unrecorded targetStage as delivered')
+      }
+      if (prevSlot.slip !== undefined) {
+        throw new DomainError('setDemandEta: cannot mark a slipped ETA as delivered on time')
+      }
+      const nowIso = this.clock()
+      const prevEndMs = parseEtaEndOfDayMs(prevSlot.when, nowIso)
+      const nowMs = Date.parse(nowIso)
+      if (prevEndMs !== undefined && !Number.isNaN(nowMs) && nowMs > prevEndMs) {
+        throw new DomainError('setDemandEta: cannot mark a past-due ETA as delivered on time')
+      }
+    }
+    if (validated.rebaselineDecisionId !== undefined) {
+      const decision = state.decisions.get(validated.rebaselineDecisionId)
+      if (!decision || decision.outcome !== 'go') {
+        throw new DomainError(
+          `setDemandEta: rebaselineDecisionId ${validated.rebaselineDecisionId} must be a settled "go" decision`,
+        )
+      }
+      if (!decisionTargetsAggregate(state, decision, 'demand', demandId)) {
+        throw new DomainError(
+          `setDemandEta: rebaselineDecisionId ${validated.rebaselineDecisionId} does not target demand ${demandId}`,
+        )
+      }
+      if (isSlotRebaselineDecisionConsumed(prevSlot, decision.id)) {
+        throw new DomainError(
+          `setDemandEta: rebaselineDecisionId ${validated.rebaselineDecisionId} has already been consumed by a prior rebaseline`,
+        )
+      }
+      if (isDecisionSettledBeforeSlot(decision, prevSlot)) {
+        throw new DomainError(
+          `setDemandEta: rebaselineDecisionId ${validated.rebaselineDecisionId} was settled before the current ETA baseline`,
+        )
+      }
+    }
+    const activeExisting = existing.filter((entry) => entry.delivered !== true)
+    if (
+      validated.delivered !== true &&
+      activeExisting.length >= 2 &&
+      prevSlot === undefined &&
+      activeExisting.every((entry) => entry.slip !== undefined || entry.slips.length > 0)
+    ) {
+      throw new DomainError('setDemandEta: cannot evict a slipped ETA slot (2 slipped slots already active)')
+    }
+    this.emit('demand', demandId, 'demand.eta-set', { ...validated })
+  }
+
+  private writeItemEta(
+    itemId: ItemId,
+    input: SetEtaInput,
+    options: { allowMeasured?: boolean },
+  ): void {
+    const state = this.state()
+    const item = state.items.get(itemId)
+    if (!item) throw new DomainError(`unknown item ${itemId}`)
+    const validated = assertSetEtaInput(input, options)
+    const existing = item.etaJournal ?? []
+    const prevSlot = existing.find((entry) => entry.targetStage === validated.targetStage)
+    if (validated.delivered === true) {
+      if (prevSlot === undefined) {
+        throw new DomainError('setItemEta: cannot mark an unrecorded targetStage as delivered')
+      }
+      if (prevSlot.slip !== undefined) {
+        throw new DomainError('setItemEta: cannot mark a slipped ETA as delivered on time')
+      }
+      const nowIso = this.clock()
+      const prevEndMs = parseEtaEndOfDayMs(prevSlot.when, nowIso)
+      const nowMs = Date.parse(nowIso)
+      if (prevEndMs !== undefined && !Number.isNaN(nowMs) && nowMs > prevEndMs) {
+        throw new DomainError('setItemEta: cannot mark a past-due ETA as delivered on time')
+      }
+    }
+    if (validated.rebaselineDecisionId !== undefined) {
+      const decision = state.decisions.get(validated.rebaselineDecisionId)
+      if (!decision || decision.outcome !== 'go') {
+        throw new DomainError(
+          `setItemEta: rebaselineDecisionId ${validated.rebaselineDecisionId} must be a settled "go" decision`,
+        )
+      }
+      if (!decisionTargetsAggregate(state, decision, 'item', itemId)) {
+        throw new DomainError(
+          `setItemEta: rebaselineDecisionId ${validated.rebaselineDecisionId} does not target item ${itemId}`,
+        )
+      }
+      if (isSlotRebaselineDecisionConsumed(prevSlot, decision.id)) {
+        throw new DomainError(
+          `setItemEta: rebaselineDecisionId ${validated.rebaselineDecisionId} has already been consumed by a prior rebaseline`,
+        )
+      }
+      if (isDecisionSettledBeforeSlot(decision, prevSlot)) {
+        throw new DomainError(
+          `setItemEta: rebaselineDecisionId ${validated.rebaselineDecisionId} was settled before the current ETA baseline`,
+        )
+      }
+    }
+    const activeExisting = existing.filter((entry) => entry.delivered !== true)
+    if (
+      validated.delivered !== true &&
+      activeExisting.length >= 2 &&
+      prevSlot === undefined &&
+      activeExisting.every((entry) => entry.slip !== undefined || entry.slips.length > 0)
+    ) {
+      throw new DomainError('setItemEta: cannot evict a slipped ETA slot (2 slipped slots already active)')
+    }
+    this.emit('item', itemId, 'item.eta-set', { ...validated })
+  }
+
+  /**
+   * Append an ETA entry to a demand's ETA journal (`demand.eta-set`).
+   * Preserves `initialWhen` and records a slip whenever `when` moves later unless
+   * `rebaselineDecisionId` refers to a settled `'go'` decision targeting this demand.
+   */
+  setDemandEta(demandId: DemandId, input: SetEtaInput): void {
+    this.writeDemandEta(demandId, input, { allowMeasured: false })
+  }
+
+  /**
+   * Append an ETA entry to an item's ETA journal (`item.eta-set`).
+   * Preserves `initialWhen` and records a slip whenever `when` moves later unless
+   * `rebaselineDecisionId` refers to a settled `'go'` decision targeting this item.
+   */
+  setItemEta(itemId: ItemId, input: SetEtaInput): void {
+    this.writeItemEta(itemId, input, { allowMeasured: false })
+  }
+
+  /**
+   * Qualify a velocity-estimator forecast (#376) and record it in a demand's ETA journal.
+   * Labelled `measured` (`mesuré`) ONLY when all velocity inputs are qualified, otherwise `unknown` (`inconnu`).
+   */
+  setDemandVelocityEta(
+    demandId: DemandId,
+    input: VelocityEtaBindingInput,
+    opts: { reason?: string; rebaselineDecisionId?: ItemId } = {},
+  ): VelocityEtaQualificationResult {
+    const result = qualifyVelocityEta(input)
+    this.writeDemandEta(
+      demandId,
+      {
+        targetStage: result.eta.targetStage,
+        ...(result.eta.targetLabel !== undefined ? { targetLabel: result.eta.targetLabel } : {}),
+        when: result.eta.when,
+        source: result.eta.source,
+        ...(result.eta.measured !== undefined ? { measured: result.eta.measured } : {}),
+        ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+        ...(opts.rebaselineDecisionId !== undefined ? { rebaselineDecisionId: opts.rebaselineDecisionId } : {}),
+      },
+      { allowMeasured: true },
+    )
+    return result
+  }
+
+  /**
+   * Qualify a velocity-estimator forecast (#376) and record it in an item's ETA journal.
+   * Labelled `measured` (`mesuré`) ONLY when all velocity inputs are qualified, otherwise `unknown` (`inconnu`).
+   */
+  setItemVelocityEta(
+    itemId: ItemId,
+    input: VelocityEtaBindingInput,
+    opts: { reason?: string; rebaselineDecisionId?: ItemId } = {},
+  ): VelocityEtaQualificationResult {
+    const result = qualifyVelocityEta(input)
+    this.writeItemEta(
+      itemId,
+      {
+        targetStage: result.eta.targetStage,
+        ...(result.eta.targetLabel !== undefined ? { targetLabel: result.eta.targetLabel } : {}),
+        when: result.eta.when,
+        source: result.eta.source,
+        ...(result.eta.measured !== undefined ? { measured: result.eta.measured } : {}),
+        ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+        ...(opts.rebaselineDecisionId !== undefined ? { rebaselineDecisionId: opts.rebaselineDecisionId } : {}),
+      },
+      { allowMeasured: true },
+    )
+    return result
   }
 
   /** Demand lifecycle (Mode A) — the shared single-event transition emitter (claim today; handover later). */

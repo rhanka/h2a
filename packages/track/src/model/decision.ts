@@ -112,6 +112,10 @@ export interface DecisionState {
   // separate `sponsor` field). `engagementRef` links to an h2a ENGAGEMENT (the executable contract).
   accountable?: ActorId
   engagementRef?: string
+  /** ISO-8601 timestamp when `outcome` transitioned to a settled value (`go` | `no-go`). */
+  settledAt?: string
+  /** Monotonic stream index when `outcome` transitioned to a settled value. */
+  settledOrder?: number
 }
 
 export interface DecisionCreatedPayload {

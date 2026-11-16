@@ -110,3 +110,15 @@ export {
   type OwnerTableView,
   type ProjectOwnerTableOptions,
 } from './owner-table.js'
+export {
+  evaluateEtaDeadline,
+  parseEtaEndOfDayMs,
+  qualifyVelocityEta,
+  type VelocityEtaBindingInput,
+  type VelocityEtaQualificationResult,
+  type VelocityForecastInput,
+  type VelocityForecastQuantiles,
+  type VelocityInstallQualificationInput,
+  type VelocityKnowledgeQualificationInput,
+  type VelocityPlanQualificationInput,
+} from './velocity-eta.js'
