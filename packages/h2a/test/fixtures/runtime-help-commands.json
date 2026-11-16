@@ -1,5 +1,5 @@
 {
-  "commandCount": 52,
+  "commandCount": 53,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -150,6 +150,11 @@
       "group": "Set up — connect this host, its credentials, and diagnostics:",
       "term": "workspace",
       "description": "Map the current project to a persistent remote workspace and sync files"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "sentropic",
+      "description": "Sign in to sentropic (preprod), bind this workspace, and check the publish path"
     },
     {
       "group": "Set up — connect this host, its credentials, and diagnostics:",

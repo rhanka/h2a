@@ -12,6 +12,12 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 import type { SessionTarget } from "./protocol-local.js";
+import type {
+  SentropicFederationDeclaration,
+  SentropicUserConfig,
+} from "./sentropic/publish-config.js";
+
+export type { SentropicFederationDeclaration, SentropicUserConfig };
 
 /**
  * How the CLI reaches the control-plane when the configured URL is not directly
@@ -195,6 +201,11 @@ export type RemoteCliConfig = {
   statusBar?: boolean | { enabled?: boolean };
   /** P4 — default concurrency cap for delegated jobs (local AND remote). */
   maxConcurrent?: number;
+  /**
+   * Declarative OAuth/MCP federation list for `h2a sentropic` (read-only for agents;
+   * preserved across config updates, never mutated by agent tools).
+   */
+  sentropic?: SentropicUserConfig;
 };
 
 /** Default session target when none is configured/passed. */
@@ -466,6 +477,9 @@ export function readRemoteConfig(): RemoteCliConfig {
         parsed.maxConcurrent > 0
       ) {
         config.maxConcurrent = Math.trunc(parsed.maxConcurrent);
+      }
+      if (parsed.sentropic && typeof parsed.sentropic === "object" && !Array.isArray(parsed.sentropic)) {
+        config.sentropic = parsed.sentropic as SentropicUserConfig;
       }
       return config;
     }
