@@ -1,6 +1,6 @@
 /**
  * h2a embedded gateway model catalog — H0 mirror of the published #662
- * surface (llm-mesh 0.26.0 / llm-gateway 0.20.0).
+ * surface (llm-mesh 0.38.1 / llm-gateway 0.23.2).
  *
  * Canonical routing knowledge stays in llm-mesh; this module only names the
  * model ids `h2a run --model` accepts and normalizes readable aliases to

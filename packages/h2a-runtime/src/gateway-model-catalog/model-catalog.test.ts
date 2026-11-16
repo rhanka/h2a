@@ -13,7 +13,7 @@ import {
 } from "./model-catalog.js";
 
 // H0 (#662 adoption): the h2a embedded gateway catalog mirrors the published
-// llm-mesh 0.26.0 / llm-gateway 0.20.0 model surface (Gemini 4 Argon high,
+// llm-mesh 0.38.1 / llm-gateway 0.23.2 model surface (Gemini 4 Argon high,
 // Muse Spark, Muse Wonder + Wonder Full) with readable aliases.
 describe("gateway model catalog (H0 #662)", () => {
   it("exposes the 0.38 model ids (argon-low/-medium/-high, carbon, fable-5.1, fable-5.2, spark, wonder, ember, wonder-full)", () => {
