@@ -132,6 +132,26 @@ test('R23: dry-run validates five mesh-sourced envelopes and records gh calls', 
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+// P2-1: the local-login gate is bound to the local mode — the upload
+// network (provision/dry-run) only carries mesh-gated envelopes.
+test('P2-1: local-login gate is refused outside local mode', async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-gate-'));
+  try {
+    const home = fixtureHome(root);
+    const { facade } = meshOnly();
+    await assert.rejects(provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, gate: 'local-login', mode: 'provision', meshFacade: facade }),
+      /local-login-requires-local-mode/);
+    await assert.rejects(provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, gate: 'local-login', mode: 'dry-run', meshFacade: facade }),
+      /local-login-requires-local-mode/);
+    const local = await provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, gate: 'local-login', mode: 'local', meshFacade: facade });
+    assert.equal(local.seats.length, 1);
+    assert.equal(local.sources[0].meshGate, 'local-login-present');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 // R22 (bench round 22, agy diagonal): agy carries its OAuth token file in
 // the envelope (auth-only, like the other families) while the envelope keeps
 // the adapter-validated cloud-code tuple. A missing token refuses names-only.
