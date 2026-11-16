@@ -1,0 +1,60 @@
+/**
+ * LH-00 contract fakes and flag (plan section LH-00). Behind the flag, no verb
+ * or agent code is wired yet: the existing `remote` signed-envelope verbs and
+ * the mirror cycle are byte-identical with the flag off.
+ */
+export {
+  REMOTE_CONTROL_ENV,
+  REMOTE_CONTROL_DISABLED_REASON,
+  REMOTE_CONTROL_DISABLED_MESSAGE,
+  isRemoteControlEnabled,
+  assertRemoteControlEnabled
+} from "./flag.js";
+export {
+  TRUNK_PROTOCOL_VERSION,
+  TRUNK_RECORD_MAX_BYTES,
+  TRUNK_TERMINAL_TEXT_MAX_BYTES,
+  CATALOGUE_SNAPSHOT_MAX_BYTES,
+  TERMINAL_INPUT_MAX_BYTES,
+  TERMINAL_OUTPUT_COALESCE_BYTES,
+  canonicalTrunkJson,
+  signTrunkAuthPayload,
+  verifyTrunkAuthPayload,
+  isTrunkRecord,
+  type TrunkEnvelope,
+  type TrunkChallenge,
+  type TrunkAuthPayload,
+  type TrunkLinkRecord,
+  type InventoryHostKind,
+  type CatalogueSessionRow,
+  type CatalogueSnapshot,
+  type CatalogueDelta,
+  type TrunkCatalogueRecord,
+  type TrunkTerminalRecord,
+  type TrunkRecord
+} from "./types.js";
+export { FakeTrunkEndpoint, type FakeTrunkOptions, type FakeTrunkOpenResult } from "./fake-trunk.js";
+export {
+  FakeEnrolmentVerifier,
+  type FakeEnrolmentOptions,
+  type FakeEnrolmentRequestPayload,
+  type FakeEnrolmentVerifyResult,
+  type FakeEnrolmentApproveResult
+} from "./fake-enrolment.js";
+export {
+  projectCatalogueRow,
+  buildCatalogueSnapshot,
+  serializeCatalogueSnapshot,
+  parseCatalogueSnapshot,
+  containsForbiddenLocalField
+} from "./catalogue.js";
+export {
+  resolveFleetValve,
+  classifyLaunchHost,
+  buildFleetInventory,
+  buildFleetInventoryFromRoot,
+  readPresenceFileNames,
+  type FleetValve,
+  type InventoryRow,
+  type FleetInventory
+} from "./fleet-inventory.js";
