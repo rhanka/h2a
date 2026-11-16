@@ -53,6 +53,12 @@ export const VIBE_SERVING_IDS = Object.freeze({
   targetProviderId: 'mistral', transportProviderId: 'mistral-vibe',
 });
 
+// The serving pair the mesh uses for the cloud-code OAuth grant (mesh-side
+// POLL_ENROLLMENT_SERVING_IDS: cloud-code -> [gemini, cloud-code]).
+export const AGY_SERVING_IDS = Object.freeze({
+  targetProviderId: 'gemini', transportProviderId: 'cloud-code',
+});
+
 // Mesh owner scope: the same convention the h2a llm-mesh CLI uses
 // (H2A_LLM_MESH_OWNER_SCOPE, else the local cli:<hostname> scope).
 export function meshOwnerScope(env = process.env) {
@@ -159,6 +165,57 @@ export async function acquireVibeKey({ facade, ownerScope, accountId }) {
     const key = `${acquisition?.material?.accessToken ?? ''}`.trim();
     if (!key || /[\r\n]/.test(key)) throw new Error('mesh-seat-unprojectable:vibe');
     return key;
+  } finally {
+    try { await acquisition?.release?.(); } catch { /* best-effort: the lease expires */ }
+  }
+}
+
+// R37: when the workstation agy CLI stores its OAuth credential in the OS
+// keyring (compositeTokenStorage) rather than the fallback file
+// .gemini/antigravity-cli/antigravity-oauth-token, project the StoredToken
+// JSON out of the enrolled cloud-code mesh account (now: 0 avoids a mesh
+// refresh write against a read-only confined keyring; agy's own
+// ValidateStoredToken refreshes inside the writable cell HOME from
+// token.refresh_token). Returns null when the mesh grant carries no
+// refreshToken so callers preserve the local-file refusal.
+export async function acquireAgyOauthToken({ facade, ownerScope, accountId }) {
+  if (!facade?.acquire || !accountId) return null;
+  let acquisition = null;
+  try {
+    acquisition = await facade.acquire({ accountId, ownerScopeRef: ownerScope,
+      targetProviderId: AGY_SERVING_IDS.targetProviderId,
+      transportProviderId: AGY_SERVING_IDS.transportProviderId, now: 0 });
+  } catch {
+    throw new Error('llm-mesh-acquire-failed:agy');
+  }
+  try {
+    const accessToken = `${acquisition?.material?.accessToken ?? ''}`.trim();
+    const refreshToken = `${acquisition?.material?.refreshToken ?? ''}`.trim();
+    if (!accessToken || !refreshToken) return null;
+    const expiresAt = Number(acquisition?.material?.expiresAt);
+    const expiry = Number.isFinite(expiresAt) && expiresAt > 0
+      ? new Date(expiresAt).toISOString()
+      : new Date(0).toISOString();
+    const meta = acquisition?.material?.metadata ?? {};
+    // Consumer OAuth tokens in the agy 1.5.9 OS keyring keep ProjectID unset
+    // (server_oauth.go:applyAuthResult logs quotaProject="" and loadCodeAssist
+    // routes the consumer account to AICode). Projected mesh metadata carries
+    // cloudaicompanionProject="aicode-consumers", which is the internal CCPA
+    // routing target rather than a user GCP billing project: writing it into
+    // StoredToken.project_id sets X-Goog-User-Project=aicode-consumers and
+    // triggers HTTP 403 USER_PROJECT_DENIED on fetchUserInfo/fetchAvailableModels.
+    const payload = {
+      token: {
+        access_token: accessToken,
+        token_type: 'Bearer',
+        refresh_token: refreshToken,
+        expiry,
+      },
+      auth_method: 'consumer',
+      ...(typeof meta.cloudCodeTier === 'string' && meta.cloudCodeTier
+        ? { user_tier: meta.cloudCodeTier } : {}),
+    };
+    return Buffer.from(JSON.stringify(payload), 'utf8');
   } finally {
     try { await acquisition?.release?.(); } catch { /* best-effort: the lease expires */ }
   }

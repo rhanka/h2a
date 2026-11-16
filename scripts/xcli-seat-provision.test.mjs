@@ -153,6 +153,45 @@ test('R22: the agy envelope carries the token file plus the validated tuple', as
     await assert.rejects(buildSeatEnvelope({ seatId: 'agy', slot: '00',
       homeDir: home, meshFacade: meshOnly().facade }),
     /login-source-missing:agy:\.gemini\/antigravity-cli\/antigravity-oauth-token/);
+    // R37: when the workstation stores agy OAuth in the OS keyring and the
+    // cloud-code mesh account carries a refreshToken grant, buildSeatEnvelope
+    // projects the StoredToken JSON (read-only now: 0) into the envelope.
+    let acquiredInput = null;
+    let released = 0;
+    const meshWithCloudCodeGrant = {
+      listAccounts: async () => ALL_MESH_ACCOUNTS,
+      acquire: async (input) => {
+        acquiredInput = input;
+        return {
+          material: {
+            accessToken: `access-${CANARY}`,
+            refreshToken: `refresh-${CANARY}`,
+            expiresAt: 1794000000000,
+            metadata: { cloudaicompanionProject: 'proj-synth-01', cloudCodeTier: 'g1-ultra-tier' },
+          },
+          release: async () => { released++; },
+        };
+      },
+    };
+    const projected = await buildSeatEnvelope({ seatId: 'agy', slot: '00',
+      homeDir: home, meshFacade: meshWithCloudCodeGrant });
+    assert.equal(acquiredInput?.targetProviderId, 'gemini');
+    assert.equal(acquiredInput?.transportProviderId, 'cloud-code');
+    assert.equal(acquiredInput?.now, 0, 'read-only acquire avoids keyring refresh writes under confinement');
+    assert.equal(released, 1, 'cloud-code lease is released immediately after projection');
+    assert.equal(projected.source.kind, 'llm-mesh');
+    const decoded = JSON.parse(Buffer.from(
+      projected.envelope.files['.gemini/antigravity-cli/antigravity-oauth-token'], 'base64').toString('utf8'));
+    assert.deepEqual(decoded, {
+      token: {
+        access_token: `access-${CANARY}`,
+        token_type: 'Bearer',
+        refresh_token: `refresh-${CANARY}`,
+        expiry: new Date(1794000000000).toISOString(),
+      },
+      auth_method: 'consumer',
+      user_tier: 'g1-ultra-tier',
+    });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

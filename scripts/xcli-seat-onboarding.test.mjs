@@ -73,24 +73,25 @@ test('L7: LOGIN_ALLOWLIST is the published table, not a bench copy', async () =>
 
 const SYNTH_SCOPE = 'test-scope-l7';
 
-test('L7 R32: the reviewed Agy 1.5.3 schema preserves published validators and rejects incomplete steps', async () => {
+test('L7 R37: the reviewed Agy 1.5.9 schema preserves published validators and rejects incomplete steps', async () => {
   const reviewed = await import('./xcli-seat-onboarding.mjs');
   const published = await import('./xcli-seat-vendor/seat-onboarding.js');
   assert.equal(reviewed.validateSeatEnvelope, published.validateSeatEnvelope);
   assert.equal(reviewed.validateAgyJetskiContent, published.validateAgyJetskiContent);
   const steps = vendor.AGY_REQUIRED_COMPLETED_STEPS['1.4.12'];
   const bytes = vendor.canonicalAgyJetskiBytes('1.4.12', steps);
-  assert.equal(reviewed.validateAgyJetskiContent(bytes, '1.5.3'), null);
+  assert.equal(reviewed.validateAgyJetskiContent(bytes, '1.5.9'), null);
   // Retired and never-registered versions stay refused.
   assert.equal(reviewed.validateAgyJetskiContent(bytes, '1.5.2'), 'onboarding-shape-unverified');
+  assert.equal(reviewed.validateAgyJetskiContent(bytes, '1.5.3'), 'onboarding-shape-unverified');
   assert.equal(reviewed.validateAgyJetskiContent(bytes, '9.9.9'), 'onboarding-shape-unverified');
   for (const step of steps) {
     const partial = bytes.split('\n').filter(line => !line.includes(step)).join('\n');
-    assert.equal(reviewed.validateAgyJetskiContent(partial, '1.5.3'), 'onboarding-incomplete');
+    assert.equal(reviewed.validateAgyJetskiContent(partial, '1.5.9'), 'onboarding-incomplete');
   }
   for (const extra of ['POST_ONBOARDING_STEP_TYPE_UNSPECIFIED', 'POST_ONBOARDING_STEP_TYPE_UNKNOWN', steps[0]]) {
     const invalid = bytes.replace('}', `  completed_steps: ${extra}\n}`);
-    assert.equal(reviewed.validateAgyJetskiContent(invalid, '1.5.3'), 'onboarding-shape-unverified');
+    assert.equal(reviewed.validateAgyJetskiContent(invalid, '1.5.9'), 'onboarding-shape-unverified');
   }
 });
 
@@ -102,18 +103,18 @@ test('L7 R31: capture and preflight reject a different Agy binary before credent
   let accountRead = false;
   try {
     const executable = join(root, 'agy');
-    fs.writeFileSync(executable, `#!${process.execPath}\nconsole.log('1.5.3');\n`, { mode: 0o700 });
+    fs.writeFileSync(executable, `#!${process.execPath}\nconsole.log('1.5.9');\n`, { mode: 0o700 });
     process.env.PATH = root;
     await assert.rejects(buildSeatEnvelope({ seatId: 'agy', slot: { slot: '00' },
       homeDir: join(root, 'absent-home'), ownerScope: SYNTH_SCOPE,
-      cliVersions: { agy: '1.5.3' },
+      cliVersions: { agy: '1.5.9' },
       meshFacade: { listAccounts: async () => { accountRead = true; return []; } } }),
-    /onboarding-binary-unreviewed:agy:1\.5\.3/);
+    /onboarding-binary-unreviewed:agy:1\.5\.9/);
     assert.equal(accountRead, false, 'refusal precedes mesh and credential reads');
     const result = await runSeatPreflight({ seatId: 'agy', family: 'agy', authSource: join(root, 'absent-seat') },
       { executables: { agy: executable } });
     assert.equal(result.ok, false);
-    assert.equal(result.reason, 'onboarding-binary-unreviewed:agy:1.5.3');
+    assert.equal(result.reason, 'onboarding-binary-unreviewed:agy:1.5.9');
     assert.equal(result.modelCalls, 0);
   } finally {
     process.env.PATH = previousPath;
@@ -123,11 +124,11 @@ test('L7 R31: capture and preflight reject a different Agy binary before credent
 
 test('L7 R31: native Agy colon-message syntax projects consent without transporting identifiers', async () => {
   const { captureReviewedSeatOnboarding } = await import('./xcli-agy-capture.mjs');
-  const canonical = vendor.canonicalAgyJetskiBytes('1.5.3', vendor.AGY_REQUIRED_COMPLETED_STEPS['1.5.3']);
+  const canonical = vendor.canonicalAgyJetskiBytes('1.5.9', vendor.AGY_REQUIRED_COMPLETED_STEPS['1.5.9']);
   const homeDir = agyHome(canonical.replace('post_onboarding {', 'post_onboarding: {') +
     'installation_uuid: "identifier-never-export"\nmigrations: { key: "private-native-state" value: 42 }\n');
   const input = { cli: 'agy', seatRef: 'agy', ownerScope: SYNTH_SCOPE, accountBinding: 'acct-r31-agy',
-    nativeCliVersion: '1.5.3', os: 'linux', capturedAt: '2026-11-06T00:00:00.000Z',
+    nativeCliVersion: '1.5.9', os: 'linux', capturedAt: '2026-11-06T00:00:00.000Z',
     lineage: { epoch: 1, generation: 0, operationId: 'op-r31-native-capture' },
     cellSynthesis: [], sourceHome: homeDir, selector: { sourceRelPath: vendor.CAPTURE_SOURCES.agy } };
   const file = join(homeDir, vendor.CAPTURE_SOURCES.agy);
@@ -165,11 +166,11 @@ test('L7 R31: native Agy colon-message syntax projects consent without transport
   } finally { fs.rmSync(homeDir, { recursive: true, force: true }); }
 });
 
-test('L7 R31: Agy 1.5.3 capture survives fresh-process validation and both materialization stages', async () => {
+test('L7 R31: Agy 1.5.9 capture survives fresh-process validation and both materialization stages', async () => {
   const reviewed = await import('./xcli-seat-onboarding.mjs');
   const { buildSeatEnvelope, validateEnvelopeViaFd } = await provision();
   const { materialiseSeatCell } = await import('./xcli-seat-import.mjs');
-  const bytes = reviewed.canonicalAgyJetskiBytes('1.5.3', reviewed.AGY_REQUIRED_COMPLETED_STEPS['1.5.3']);
+  const bytes = reviewed.canonicalAgyJetskiBytes('1.5.9', reviewed.AGY_REQUIRED_COMPLETED_STEPS['1.5.9']);
   const homeDir = agyHome(bytes);
   const layout = cellLayout();
   let staged;
@@ -181,13 +182,13 @@ test('L7 R31: Agy 1.5.3 capture survives fresh-process validation and both mater
       meshFacade: stubAccounts(['cloud-code', 'acct-r31-agy']), meshScope: SYNTH_SCOPE,
       cliVersions: { agy: '1.4.12' } });
     const captured = await reviewed.captureSeatOnboarding({ cli: 'agy', seatRef: 'agy',
-      ownerScope: SYNTH_SCOPE, accountBinding: 'acct-r31-agy', nativeCliVersion: '1.5.3',
+      ownerScope: SYNTH_SCOPE, accountBinding: 'acct-r31-agy', nativeCliVersion: '1.5.9',
       os: 'linux', capturedAt: '2026-11-06T00:00:00.000Z',
       lineage: built.envelope.onboarding.lineage, cellSynthesis: [], sourceHome: homeDir,
       selector: { sourceRelPath: reviewed.CAPTURE_SOURCES.agy } });
     assert.equal(captured.ok, true);
     built.envelope.onboarding = captured.block;
-    built.envelope.bundle.identity.nativeCliVersion = '1.5.3';
+    built.envelope.bundle.identity.nativeCliVersion = '1.5.9';
     const envelopeFile = join(layout.root, 'synthetic-envelope.json');
     fs.writeFileSync(envelopeFile, JSON.stringify(built.envelope), { mode: 0o600 });
     const receipt = validateEnvelopeViaFd({ seatId: 'agy', envelopeFile,
@@ -204,7 +205,7 @@ test('L7 R31: Agy 1.5.3 capture survives fresh-process validation and both mater
     fs.writeFileSync(join(homeDir, nativeCache), JSON.stringify(completed));
     const { captureAgyCliCache, AGY_CLI_CACHE_SIDECAR } = await import('./xcli-agy-cli-cache.mjs');
     const capturedCache = captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
-      nativeCliVersion: '1.5.3' });
+      nativeCliVersion: '1.5.9' });
     assert.equal(capturedCache, true);
     const sourceFile = join(homeDir, nativeCache);
     const sidecarFile = join(staged.seatDir, AGY_CLI_CACHE_SIDECAR);
@@ -214,20 +215,20 @@ test('L7 R31: Agy 1.5.3 capture survives fresh-process validation and both mater
       { ...completed, unrelatedSecret: 'must-not-transport' }]) {
       fs.writeFileSync(sourceFile, JSON.stringify(invalid));
       assert.equal(captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
-        nativeCliVersion: '1.5.3' }), false);
+        nativeCliVersion: '1.5.9' }), false);
       assert.equal(fs.readFileSync(sidecarFile, 'utf8'), capturedBytes);
       assert.equal(fs.readFileSync(sourceFile, 'utf8'), JSON.stringify(invalid), 'source is read-only');
     }
     fs.writeFileSync(sourceFile, ' '.repeat(1025));
     assert.equal(captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
-      nativeCliVersion: '1.5.3' }), false);
+      nativeCliVersion: '1.5.9' }), false);
     fs.unlinkSync(sourceFile);
     fs.symlinkSync(sidecarFile, sourceFile);
     assert.equal(captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
-      nativeCliVersion: '1.5.3' }), false, 'symlink source is refused');
+      nativeCliVersion: '1.5.9' }), false, 'symlink source is refused');
     const input = { cli: 'agy', seatDir: staged.seatDir, cellHome: layout.cellHome,
       workspaceDir: layout.workspace, configDirs: layout.configDirs,
-      expectedNativeCliVersion: '1.5.3', ownerScope: SYNTH_SCOPE,
+      expectedNativeCliVersion: '1.5.9', ownerScope: SYNTH_SCOPE,
       authFiles: ['.gemini/antigravity-cli/antigravity-oauth-token'], destKeys: ['agy-jetski'] };
     const result = await materialiseSeatCell(input);
     assert.ok(result.copied.includes('.gemini/antigravity-cli/jetski_state.pbtxt'));
@@ -251,7 +252,7 @@ test('L7 R31: Agy 1.5.3 capture survives fresh-process validation and both mater
 });
 
 test('L7 R31: Agy onboarding still receives its separate product MCP configuration', async () => {
-  const reuseRoot = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(tmpdir());
+  const reuseRoot = /^\/home\/[^/]+\/\.cache-tmp\/(?:h2a-test|h2a-xcli|h2a-test\/h2a-xcli)\/run-[A-Za-z0-9]+$/.test(tmpdir());
   const qualificationRoot = reuseRoot ? tmpdir() : compliantQualificationRoot();
   const dir = fs.mkdtempSync(join(qualificationRoot, 'xcli-agy-mcp-'));
   const canonical = vendor.canonicalAgyJetskiBytes('1.4.12', vendor.AGY_REQUIRED_COMPLETED_STEPS['1.4.12']);
@@ -344,7 +345,7 @@ function museHome() {
 }
 
 test('R35: Muse receives its repository boundary after the custodian writes workspace trust', async () => {
-  const reuseRoot = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(tmpdir());
+  const reuseRoot = /^\/home\/[^/]+\/\.cache-tmp\/(?:h2a-test|h2a-xcli|h2a-test\/h2a-xcli)\/run-[A-Za-z0-9]+$/.test(tmpdir());
   const root = reuseRoot ? tmpdir() : compliantQualificationRoot();
   const dir = fs.mkdtempSync(join(root, 'xcli-muse-stage2-'));
   const homeDir = museHome();

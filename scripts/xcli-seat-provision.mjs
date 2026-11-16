@@ -32,7 +32,7 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
   translateAgySeatToApplication } from './xcli-seat-import.mjs';
 import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
-  acquireVibeKey, meshOwnerScope, OPENCODE_SEAT_MAPPING } from './xcli-llm-mesh-seats.mjs';
+  acquireVibeKey, acquireAgyOauthToken, meshOwnerScope, OPENCODE_SEAT_MAPPING } from './xcli-llm-mesh-seats.mjs';
 import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, seatLaunchGate,
   AGY_ONBOARDING_REVIEW, agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 import { captureReviewedSeatOnboarding } from './xcli-agy-capture.mjs';
@@ -201,7 +201,26 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
   } else {
     if (!allowlisted?.length) throw new Error(`no-allowlisted-login-files:${seatId}`);
     for (const rel of allowlisted) {
-      let bytes = readAuthFile(homeDir, seatId, rel);
+      let bytes;
+      try {
+        bytes = readAuthFile(homeDir, seatId, rel);
+      } catch (error) {
+        if (identity.cli === 'agy' &&
+            rel === '.gemini/antigravity-cli/antigravity-oauth-token' &&
+            error.message === `login-source-missing:${seatId}:${rel}` &&
+            gate.accountId) {
+          const meshBytes = await acquireAgyOauthToken({ facade: meshFacade,
+            ownerScope: meshScope, accountId: gate.accountId });
+          if (meshBytes) {
+            bytes = meshBytes;
+            seatSourceKind = 'llm-mesh';
+          } else {
+            throw error;
+          }
+        } else {
+          throw error;
+        }
+      }
       if (rel === '.claude.json') bytes = minimizeClaudeJson(bytes);
       raws.push(bytes);
       files[rel] = bytes.toString('base64');

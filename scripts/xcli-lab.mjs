@@ -136,16 +136,27 @@ export function compliantQualificationRoot(requested = null) {
   // native-isolation.js does with os.userInfo().
   let ownerHome = null;
   try { ownerHome = userInfoHomedir(); } catch { ownerHome = null; }
-  const base = join(ownerHome ?? homedir(), '.cache-tmp', 'h2a-test');
-  fs.mkdirSync(base, { recursive: true });
+  const home = ownerHome ?? homedir();
+  const preferredBase = join(home, '.cache-tmp', 'h2a-xcli');
+  const fallbackBase = join(home, '.cache-tmp', 'h2a-test');
   if (requested !== null) {
-    assert.equal(dirname(requested), base, 'qualification root must use the admitted base');
+    const allowedBases = [preferredBase, fallbackBase, join(fallbackBase, 'h2a-xcli')];
+    const base = allowedBases.find(candidate => dirname(requested) === candidate);
+    assert.ok(base, 'qualification root must use the admitted base');
     assert.match(requested.slice(base.length + 1), /^run-[A-Za-z0-9]+$/);
     const info = fs.lstatSync(requested);
     assert.ok(info.isDirectory() && !info.isSymbolicLink() &&
       info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
     'qualification root must be an existing private directory');
     return requested;
+  }
+  let base = preferredBase;
+  try {
+    fs.mkdirSync(base, { recursive: true });
+  } catch (error) {
+    if (!['EROFS', 'EACCES', 'ENOENT'].includes(error.code)) throw error;
+    base = fallbackBase;
+    fs.mkdirSync(base, { recursive: true });
   }
   const root = fs.mkdtempSync(join(base, 'run-'));
   fs.chmodSync(root, 0o700);
@@ -159,7 +170,7 @@ export function compliantQualificationRoot(requested = null) {
 // deleted, and the main guard is never widened.
 export function removeCampaignRoot(reported) {
   assert.ok(typeof reported === 'string' && reported.length > 0, 'parent reports its campaign root');
-  assert.ok(/^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(reported),
+  assert.ok(/^\/home\/[^/]+\/\.cache-tmp\/(?:h2a-test|h2a-xcli|h2a-test\/h2a-xcli)\/run-[A-Za-z0-9]+$/.test(reported),
     `campaign root outside the admitted base: ${reported}`);
   fs.rmSync(reported, { recursive: true, force: true });
 }

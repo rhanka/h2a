@@ -416,6 +416,8 @@ test('campaign roots are admitted by the native-isolation qualification guard', 
   const root = compliantQualificationRoot();
   try {
     assert.equal(fs.statSync(root).mode & 0o777, 0o700, 'admitted roots are private');
+    assert.match(root, /^\/home\/[^/]+\/\.cache-tmp\/(?:h2a-test|h2a-xcli|h2a-test\/h2a-xcli)\/run-[A-Za-z0-9]+$/);
+    assert.equal(compliantQualificationRoot(root), root);
     const helper = pathToFileURL(join(repo, 'packages/h2a/test/helpers/native-isolation.js')).href;
     const probe = `const h = await import(${JSON.stringify(helper)});
       h.assertPrivateQualificationPath(${JSON.stringify(join(root, 'child'))}, ${JSON.stringify(root)});`;
