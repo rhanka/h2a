@@ -202,6 +202,11 @@ import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
 import {
+  isRemoteControlVerb,
+  remoteControlUnknownMessage,
+  runRemoteControlVerb
+} from "./runtime/remote-agent/service.js";
+import {
   buildInstanceMirror,
   isPushableHttpUrl,
   mirrorPushGloballyDisabled,
@@ -501,6 +506,14 @@ export function renderCliHelp(): string {
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
     "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>] [--interval-ms <n> [--max <n>]]   (push this instance's registration to a remote ingester; ONE-SHOT by default. --interval-ms >= 5000 opts into the live daemon: same payload, repeated on a monotonic beat (15000-30000 recommended), overlap-guarded, backing off on transient errors and STOPPING on repeated 401/403 because re-enrollment is required. Kill-switch: H2A_MIRROR_PUSH_OFF)",
+    "  h2a remote enrol [--root <path>] [--confirm enrol]   (remote control: enroll this workstation node on the remote-control site; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote up [--root <path>] [--confirm up]   (remote control: start the per-account agent; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote down [--root <path>]   (remote control: stop the per-account agent; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote status [--root <path>]   (remote control: report link, agent and kill-flag state; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote off [--root <path>] [--session <id>]   (remote control: stop sharing a session from the site; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote on [--root <path>] [--confirm on] [--session <id>]   (remote control: share a session with the site; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote kill [--root <path>]   (remote control: release remote leases, close the link, stop the agent and set the local kill flag; needs H2A_REMOTE_CONTROL=1)",
+    "  h2a remote revoke [--root <path>] [--confirm revoke]   (remote control: revoke the node key on the site then delete it locally; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
     "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
     "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
     "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
@@ -8325,17 +8338,40 @@ export function runCli(
   }
   if (command === "remote") {
     // `remote serve`/`remote send` are async and dispatched from bin.ts; if we
-    // reach here it is a misuse (e.g. via the sync runCli) or an unknown sub.
+    // reach here it is a misuse (e.g. via the sync runCli) or an old verb
+    // routed through the sync API.
     const sub = argv[1];
+    // LH-02 remote-control verbs: synchronous stub service behind the
+    // LH-00 flag. The four envelope verbs below keep byte-identical text.
+    if (sub !== undefined && isRemoteControlVerb(sub)) {
+      const result = runRemoteControlVerb(sub, {
+        root: resolveRoot(flags, streams.cwd ?? (() => process.cwd())),
+        ...(flags.confirm !== undefined ? { confirm: flags.confirm } : {})
+      });
+      if (!result.ok) {
+        streams.stderr.write(`${result.message}\n`);
+        return 1;
+      }
+      streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return 0;
+    }
     if (sub === "serve" || sub === "send") {
       streams.stderr.write(
         `h2a remote ${sub}: async verb — run via the h2a binary, not the synchronous API.\n`
       );
       return 1;
     }
-    streams.stderr.write(
-      `h2a remote: subcommand required (serve, send).\n`
-    );
+    if (
+      sub === "mirror-serve" ||
+      sub === "mirror" ||
+      sub === undefined
+    ) {
+      streams.stderr.write(
+        `h2a remote: subcommand required (serve, send).\n`
+      );
+      return 1;
+    }
+    streams.stderr.write(`${remoteControlUnknownMessage(sub)}\n`);
     return 1;
   }
   if (command === "keys") {
