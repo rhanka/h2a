@@ -643,7 +643,7 @@ test('R17: a model-reaching preflight near the session cap refuses the cell, nev
     fs.writeFileSync(join(bins, `muse-bin-${version}`), Buffer.from('7f454c46', 'hex'));
     fs.writeFileSync(join(bins, 'muse'), `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "muse 1.4.14"; exit 0; fi
-if [ "$1" = "--help" ]; then echo "Usage: muse [--no-session-log]"; exit 0; fi
+if [ "$1" = "--help" ]; then echo "Usage: muse [--no-session-log] [--model <MODEL>]"; exit 0; fi
 if [ "$1" = "config" ]; then
   if [ -f "$HOME/.config/muse/auth.json" ]; then echo "logged in"; exit 0; fi
   echo "no auth material"; exit 0

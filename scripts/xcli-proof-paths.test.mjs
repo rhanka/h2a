@@ -7,19 +7,19 @@ import { wipeSecrets } from './xcli-lab.mjs';
 import { onboardingLaunchBlock } from './xcli-seat-import.mjs';
 import { blockingScreen, startupKey, cellMcpConfigText, argsFor } from './qualify-cross-cli.mjs';
 
-test('R32: reviewed Agy receives only exact h2a tool grants in session settings', () => {
+test('R37: reviewed Agy receives only exact h2a tool grants in session settings', () => {
   const prompt = 'qualification prompt';
-  const args = argsFor('agy', prompt, { nativeCliVersion: '1.5.3' });
+  const args = argsFor('agy', prompt, { nativeCliVersion: '1.5.9' });
   assert.equal(args[0], '--settings');
   assert.deepEqual(JSON.parse(args[1]), { permissions: { allow: [
     'mcp(h2a/h2a_identity_status)', 'mcp(h2a/h2a_inbox)', 'mcp(h2a/h2a_send)',
   ] } });
-  assert.deepEqual(args.slice(2), ['--model', 'gemini-3.8-flash-low', '--prompt-interactive', prompt]);
-  for (const version of [undefined, '1.4.12', '1.5.2']) {
+  assert.deepEqual(args.slice(2), ['--model', 'gemini-4-argon-low', '--prompt-interactive', prompt]);
+  for (const version of [undefined, '1.4.12', '1.5.2', '1.5.3']) {
     assert.deepEqual(argsFor('agy', prompt, { nativeCliVersion: version }),
       ['--prompt-interactive', prompt], 'unknown, legacy or retired versions do not receive unreviewed policy');
   }
-  assert.deepEqual(argsFor('vibe', prompt, { nativeCliVersion: '1.5.3' }), [prompt]);
+  assert.deepEqual(argsFor('vibe', prompt, { nativeCliVersion: '1.5.9' }), [prompt]);
 });
 
 test('R31: Vibe approves only the three bench tools on its h2a server', async () => {

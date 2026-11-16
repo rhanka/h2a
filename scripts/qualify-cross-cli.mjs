@@ -158,7 +158,11 @@ export function museEngagedComposer(screen) {
 
 // Agy's native `models` catalogue (1.5.2) advertises this real provider
 // model. The three-tool message probe needs low-latency tool selection.
-const AGY_BENCH_MODEL = 'gemini-3.8-flash-low';
+const AGY_BENCH_MODEL = 'gemini-4-argon-low';
+// R38 (owner 16/11): the cheapest muse seat model. Like the agy bench model,
+// the value rides argsFor (never PINNED_CLI_ARGS, whose tokens must all
+// appear in `--help`).
+const MUSE_BENCH_MODEL = 'muse-ember';
 export function argsFor(cli, prompt, { nativeCliVersion } = {}) {
   if (cli === 'agy' && nativeCliVersion === AGY_ONBOARDING_REVIEW.nativeCliVersion) {
     // Native session-only settings; reviewed exact mcp(server/tool) rules.
@@ -174,7 +178,9 @@ export function argsFor(cli, prompt, { nativeCliVersion } = {}) {
   // on the launch argv, including homes composed by the published library.
   const scoped = cli === 'codex' ? ['-c', 'features.plugins=false',
     '-c', 'features.remote_plugin=false', '-c', 'features.apps=false'] : [];
-  return [...(PINNED_CLI_ARGS[cli] ?? []), ...scoped, prompt];
+  // Claude keeps its default model — the bench never pins Opus.
+  const model = cli === 'muse' ? ['--model', MUSE_BENCH_MODEL] : [];
+  return [...(PINNED_CLI_ARGS[cli] ?? []), ...model, ...scoped, prompt];
 }
 
 // R21 (bench round 21, codex diagonal) + R22 correction: the isolated codex

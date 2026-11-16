@@ -54,7 +54,7 @@ export async function runLocalCampaign({ seatSet = LOCAL_SEAT_SET, pairs = null,
   homeDir = homedir(), ownerScope = 'owner', outBase = null,
   campaignRoot = null, reportFile = null, timeoutMs = 60000, sessionCap = null,
   mcpCallCap = 100, wallClockMs = 3600000, wakeOffsets = '0',
-  simulated = false, spawnTimeoutMs = null, meshFacade = null } = {}) {
+  simulated = false, spawnTimeoutMs = null, meshFacade = null, gate = 'mesh' } = {}) {
   let outDir = null;
   try {
     // L7: probe the installed CLI versions once for onboarding capture.
@@ -65,7 +65,7 @@ export async function runLocalCampaign({ seatSet = LOCAL_SEAT_SET, pairs = null,
     }
     const provisioned = await provisionSeats({ seatSet, slotManifestFile, homeDir,
       ownerScope, ...(outBase ? { outBase } : {}), mode: 'local', ...(meshFacade ? { meshFacade } : {}),
-      cliVersions, allowUnavailableSeats: fullMatrix });
+      cliVersions, allowUnavailableSeats: fullMatrix, gate });
     outDir = provisioned.outDir;
     const manifest = JSON.parse(fs.readFileSync(provisioned.manifestFile, 'utf8'));
     const seatIds = manifest.seats.map(seat => seat.seatId);
@@ -154,6 +154,7 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
       mcpCallCap: Number(option(args, '--mcp-call-cap', '100')),
       wallClockMs: Number(option(args, '--campaign-wall-clock-ms', '3600000')),
       wakeOffsets: option(args, '--wake-release-offsets-ms', '0'),
+      gate: option(args, '--gate', 'mesh'),
       simulated: args.includes('--simulated') });
     for (const cell of report.cells) {
       console.log(`${cell.senderSeat ?? cell.sender} -> ${cell.receiverSeat ?? cell.receiver}: ${cell.status} (${cell.reason})`);
