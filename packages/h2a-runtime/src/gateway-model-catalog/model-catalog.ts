@@ -44,7 +44,13 @@ export type ModelLaunchAvailability =
   | { readonly gatewayRoute: true }
   | { readonly gatewayRoute: false; readonly directProfile: "muse"; readonly reason: string };
 
-/** Admission here does not create a gateway route in the published mesh. */
+/**
+ * Declarative launch-availability flags (no runtime consumer): the mesh
+ * decides the actual route. Admission here does not create a gateway route
+ * in the published mesh — e.g. `muse-ember-1.0` has no
+ * `DEFAULT_TARGET_MAPPINGS` entry and routes via the catalog profile
+ * fallback (`resolveRequestedTargets`) when a `muse` account is enrolled.
+ */
 export const MODEL_LAUNCH_AVAILABILITY: Readonly<Record<GatewayModelId, ModelLaunchAvailability>> = {
   [GEMINI_4_ARGON_LOW]: { gatewayRoute: true },
   [GEMINI_4_ARGON_MEDIUM]: { gatewayRoute: true },
