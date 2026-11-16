@@ -411,6 +411,9 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   gate = 'mesh' } = {}) {
   assert.ok(['provision', 'dry-run', 'local'].includes(mode), 'known provision mode');
   assert.ok(['mesh', 'local-login'].includes(gate), 'known seat gate');
+  // P2-1: the upload network (provision/dry-run) stays mesh-gated; envelopes
+  // decided by login-file presence never reach the trusted environment.
+  if (gate !== 'mesh' && mode !== 'local') throw new Error('local-login-requires-local-mode');
   const slotManifest = JSON.parse(fs.readFileSync(slotManifestFile, 'utf8'));
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
   const ids = String(seatSet).split(',').map(seat => seat.trim()).filter(Boolean);
