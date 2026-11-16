@@ -10,22 +10,30 @@
  * one-to-one copy. DB-01 records whether the package is published as the
  * shared source or kept private beside these local types.
  *
- * Q-02 (record size bound): the two size constants mirror the relay framing
- * bounds as documentation only; LH-00 fixtures do NOT enforce them, so a
- * later fold that re-derives the bound from the payload class (including
- * escape-dense vectors) stays a tightening, not a fixture rewrite.
- * Q-03 (sequence, channel, epoch): terminal output carries `firstSeq` /
- * `lastSeq` as OPTIONAL companions to `seq`, and opened records carry an
- * OPTIONAL `generation`, so the fold can require them without breaking
- * fixtures that only set the r5 fields.
+ * Q-02 (record size bound, settled in spec r6 section 7.1): trunk-owned
+ * `TRUNK_RECORD_MAX_BYTES = 32768` with base64-carried terminal bytes
+ * (`dataB64`, ≤ 16384 raw bytes for `term.out`, ≤ 4096 for `term.in`).
+ * Q-03 (sequence, channel, epoch, settled in spec r6 sections 7.1–7.3):
+ * `term.out` carries required `firstSeq`/`lastSeq` (+ `seg`/`segLast` for one
+ * oversized chunk, never `seq`); resume is `afterSeq` (+ `afterSeqBytes`) in
+ * `term.open`; `granted` carries `epoch`; `term.opened`, `resume` and
+ * `term.in` carry `generation`; `term.in.ack` carries `uncertain`; channels
+ * are allocated by `ch` in `term.open` (0 link, 1 catalogue, ≥ 2 terminal).
  * Q-06 (fingerprint encoding): the fingerprint is an opaque fixture string
  * in LH-00; no byte encoding is fixed here.
  */
 
 import { createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
+import { canonicalize } from "../../canonical.js";
 
 export const TRUNK_PROTOCOL_VERSION = 1 as const;
-export const TRUNK_RECORD_MAX_BYTES = 8192 as const;
+// Q-02 (settled, spec r6 section 7.1): the trunk carries its own record bound,
+// 32768 encoded bytes — the relay's 8192 cap is not reused. Terminal bytes are
+// carried base64 (`dataB64`): `term.out` ≤ 16384 raw bytes (21848 base64 chars,
+// envelope ≤ 512 → still under 32768), `term.in` ≤ 4096 raw bytes, every other
+// record schema-bounded to ≤ 8192 encoded bytes. The encoder splits and never
+// throws; escape-dense vectors are an RM-C gate.
+export const TRUNK_RECORD_MAX_BYTES = 32768 as const;
 export const TRUNK_TERMINAL_TEXT_MAX_BYTES = 16384 as const;
 export const CATALOGUE_SNAPSHOT_MAX_BYTES = 262144 as const;
 export const TERMINAL_INPUT_MAX_BYTES = 4096 as const;
@@ -38,8 +46,12 @@ export interface TrunkEnvelope {
   readonly s: number;
 }
 
+// WET-2 clause 17: the signature covers the full challenge (`nonce`, `meshId`,
+// `endpoint`, `tenantId`, `serverTime`) plus the auth fields, so a challenge
+// relayed to another tenant, mesh or endpoint never verifies.
 export interface TrunkChallenge {
   readonly nonce: string;
+  readonly meshId: string;
   readonly tenantId: string;
   readonly endpoint: string;
   readonly serverTime: number;
@@ -49,6 +61,10 @@ export interface TrunkChallenge {
 
 export interface TrunkAuthPayload {
   readonly nonce: string;
+  readonly meshId: string;
+  readonly tenantId: string;
+  readonly endpoint: string;
+  readonly serverTime: number;
   readonly nodeId: string;
   readonly enrolmentRef: string;
   readonly protocolVersions: readonly number[];
@@ -122,7 +138,7 @@ export type TrunkCatalogueRecord = CatalogueSnapshot | CatalogueDelta | Catalogu
 
 export type TerminalMode = "observe" | "control";
 export type TerminalStatus = "running" | "stopping" | "exited" | string;
-export type ControlState = "granted" | "refused-recent-human" | "taken-back" | "idle-released" | "lost-link";
+export type ControlState = "granted" | "refused-recent-human" | "refused-held" | "taken-back" | "idle-released" | "lost-link" | "released";
 
 export interface TermOpen {
   readonly v: typeof TRUNK_PROTOCOL_VERSION;
@@ -131,7 +147,8 @@ export interface TermOpen {
   readonly s: number;
   readonly sid: string;
   readonly mode: TerminalMode;
-  readonly fromSeq?: number | null;
+  readonly afterSeq: number | null;
+  readonly afterSeqBytes: number;
   readonly cols?: number;
   readonly rows?: number;
 }
@@ -142,13 +159,15 @@ export interface TermOpened {
   readonly ch: number;
   readonly s: number;
   readonly sid: string;
+  readonly generation: string;
   readonly incarnation: string;
-  readonly generation?: string;
   readonly status: TerminalStatus;
   readonly latestSeq: number;
   readonly gap?: { readonly fromSeq: number; readonly toSeq: number } | null;
   readonly modePrefix?: string;
   readonly controllerEpoch?: number;
+  readonly holderKind: "none" | "human" | "automation" | "remote";
+  readonly size: { readonly cols: number; readonly rows: number };
 }
 
 export interface TermOut {
@@ -158,10 +177,11 @@ export interface TermOut {
   readonly s: number;
   readonly sid: string;
   readonly incarnation: string;
-  readonly seq: number;
-  readonly firstSeq?: number;
-  readonly lastSeq?: number;
-  readonly data: string;
+  readonly firstSeq: number;
+  readonly lastSeq: number;
+  readonly seg?: number;
+  readonly segLast?: boolean;
+  readonly dataB64: string;
 }
 
 export interface TermGap {
@@ -180,10 +200,12 @@ export interface TermIn {
   readonly ch: number;
   readonly s: number;
   readonly sid: string;
+  readonly generation: string;
   readonly incarnation: string;
   readonly epoch: number;
   readonly inSeq: number;
-  readonly data: string;
+  readonly origin: "user" | "terminal-reply";
+  readonly dataB64: string;
 }
 
 export interface TermInAck {
@@ -193,7 +215,7 @@ export interface TermInAck {
   readonly s: number;
   readonly sid: string;
   readonly inSeq: number;
-  readonly result: "applied" | "refused";
+  readonly result: "applied" | "refused" | "uncertain";
   readonly reason?: string;
 }
 
@@ -253,12 +275,12 @@ export interface TermClose {
   readonly sid: string;
 }
 
+// Credit is accounted per allocated channel; the record's own `ch` names it.
 export interface CreditRecord {
   readonly v: typeof TRUNK_PROTOCOL_VERSION;
   readonly t: "credit";
   readonly ch: number;
   readonly s: number;
-  readonly channel: number;
   readonly receivedThroughSeq: number;
   readonly receivedThroughBytes: number;
   readonly sendLimitSeq: number;
@@ -298,13 +320,10 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
   return rec["v"] === TRUNK_PROTOCOL_VERSION && typeof rec["t"] === "string" && typeof rec["ch"] === "number" && typeof rec["s"] === "number";
 }
 
-/** Stable JSON for signing: object keys sorted recursively (JCS-like for plain JSON). */
+/** Stable JSON for signing: reuses the repo's `canonicalize` (sorted keys,
+ * `undefined` values omitted, non-finite numbers rejected). */
 export function canonicalTrunkJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalTrunkJson(item)).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalTrunkJson(obj[key])}`).join(",")}}`;
+  return canonicalize(value);
 }
 
 function asPrivateKey(privateKeyPem: string | KeyObject): KeyObject {

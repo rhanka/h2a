@@ -32,6 +32,24 @@ const FORBIDDEN_LOCAL_KEYS = new Set([
   "workspace"
 ]);
 
+// Strict allowlist (spec section 4.1 listing fields plus the LH-00 host bits).
+// Any key outside these sets — `path`, `env`, `endpoints`, `pid`, … and any
+// future local field — is rejected by `parseCatalogueSnapshot`, not tolerated.
+const ALLOWED_SNAPSHOT_KEYS = new Set(["v", "t", "ch", "s", "at", "rows"]);
+const ALLOWED_ROW_KEYS = new Set([
+  "sessionId",
+  "instance",
+  "host",
+  "name",
+  "startedAt",
+  "heartbeatAt",
+  "state",
+  "workStatus",
+  "hostKind",
+  "operable",
+  "excluded"
+]);
+
 function containsKey(value: unknown, path: readonly string[] = []): string[] | null {
   if (value === null || typeof value !== "object") return null;
   if (Array.isArray(value)) {
@@ -95,6 +113,9 @@ export function serializeCatalogueSnapshot(snapshot: CatalogueSnapshot): string 
 function isRow(value: unknown): value is CatalogueSessionRow {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
+  for (const key of Object.keys(row)) {
+    if (!ALLOWED_ROW_KEYS.has(key)) return false;
+  }
   if (typeof row["sessionId"] !== "string" || typeof row["instance"] !== "string") return false;
   if (typeof row["startedAt"] !== "string" || typeof row["heartbeatAt"] !== "string") return false;
   if (typeof row["state"] !== "string") return false;
@@ -111,6 +132,9 @@ export function parseCatalogueSnapshot(json: string): CatalogueSnapshot {
   const parsed: unknown = JSON.parse(json);
   if (!parsed || typeof parsed !== "object") throw new TypeError("catalogue snapshot: not an object");
   const snap = parsed as Record<string, unknown>;
+  for (const key of Object.keys(snap)) {
+    if (!ALLOWED_SNAPSHOT_KEYS.has(key)) throw new TypeError(`catalogue snapshot: unexpected field "${key}"`);
+  }
   if (snap["v"] !== TRUNK_PROTOCOL_VERSION || snap["t"] !== "cat.snapshot") throw new TypeError("catalogue snapshot: wrong version or type");
   if (typeof snap["ch"] !== "number" || typeof snap["s"] !== "number" || typeof snap["at"] !== "number") {
     throw new TypeError("catalogue snapshot: missing envelope fields");

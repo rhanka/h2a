@@ -1160,7 +1160,10 @@ export * from "./runtime/enrollment/index.js";
 
 export * from "./runtime/reporting/index.js";
 
-export * from "./runtime/remote-agent/index.js";
+// NOTE: the LH-00 remote-agent area is deliberately NOT re-exported here.
+// Its trunk/catalogue/terminal types are provisional fixtures (DB-01 replaces
+// them) and its fakes must never reach the public entry. Tests import the
+// area via dist/runtime/remote-agent/… and the fakes via test/helpers/.
 
 // model-eval: pick h2a launch targets from the Artificial Analysis index.
 // Pure selection logic + dated cache — no CLI verb, no MCP surface change.
