@@ -1160,6 +1160,8 @@ export * from "./runtime/enrollment/index.js";
 
 export * from "./runtime/reporting/index.js";
 
+export * from "./runtime/remote-agent/index.js";
+
 // model-eval: pick h2a launch targets from the Artificial Analysis index.
 // Pure selection logic + dated cache — no CLI verb, no MCP surface change.
 export * from "./model-eval/index.js";
