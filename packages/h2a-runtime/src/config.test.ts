@@ -17,6 +17,7 @@ import {
   getMaxConcurrent,
   setMaxConcurrent,
   readRemoteConfig,
+  writeRemoteConfig,
   DEFAULT_H2A_COMMAND,
   type PluginEntry,
 } from "./config.js";
@@ -209,5 +210,45 @@ describe("maxConcurrent config (P4 concurrency cap)", () => {
     expect(getMaxConcurrent()).toBe(24);
     process.env.REMOTE_MAX_CONCURRENT = "garbage";
     expect(getMaxConcurrent()).toBe(8); // bad env → fall back to config
+  });
+});
+
+describe("sentropic federations in user config (read-only for agents)", () => {
+  it("preserves a valid declarative sentropic block across config mutations", () => {
+    const sentropic = {
+      defaultFederation: "alpha",
+      federations: [
+        {
+          name: "alpha",
+          issuer: "https://auth.alpha.example.test",
+          mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+          clientId: "h2a-cli",
+          redirectPort: 18400,
+          label: "Alpha",
+        },
+      ],
+    };
+    writeRemoteConfig({ sentropic });
+    setMaxConcurrent(12);
+    expect(readRemoteConfig().sentropic).toEqual(sentropic);
+    expect(readRemoteConfig().maxConcurrent).toBe(12);
+  });
+
+  it("preserves a raw sentropic block in config.json across unrelated config writes even when it contains a temporary validation error (P3-1)", () => {
+    const rawSentropic = {
+      defaultFederation: "typo-federation",
+      federations: [
+        {
+          name: "alpha",
+          issuer: "http://not-https.example.test",
+          mcpUrl: "https://mcp.alpha.example.test/api/v1/mcp",
+          clientId: "",
+        },
+      ],
+    };
+    writeRemoteConfig({ sentropic: rawSentropic });
+    setMaxConcurrent(16);
+    expect(readRemoteConfig().sentropic).toEqual(rawSentropic);
+    expect(readRemoteConfig().maxConcurrent).toBe(16);
   });
 });

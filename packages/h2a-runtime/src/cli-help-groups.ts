@@ -173,6 +173,11 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       "workspace",
       "plugin",
       "check",
+      // Vendored excerpt 3 row "Enroll with sentropic | `h2a enroll …`": the sentropic sign-in
+      // and workspace binding. Spelled `h2a sentropic …` as planned in
+      // docs/specs/2026-07-11-sentropic-h2a-enrollment-PLAN.md (Lot 1), because the runtime's
+      // top-level `enroll` is the live-session registry (see SESSION_RECOVERY below).
+      "sentropic",
       // Not from the vendored study — `tmux` postdates it. Grouped alongside
       // `config` (which already manages "the local tmux profile") because it
       // is the same kind of work: local tmux naming and status-surface setup
