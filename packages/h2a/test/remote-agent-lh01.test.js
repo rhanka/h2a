@@ -14,7 +14,7 @@ import {
   nodeKeyFingerprint,
   signTrunkAuthPayload,
   verifyTrunkAuthPayload
-} from "../dist/index.js";
+} from "../dist/runtime/remote-agent/index.js";
 
 function makeConfigDir() {
   const base = mkdtempSync(join(process.env.TMPDIR, "lh01-"));

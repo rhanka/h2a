@@ -6,7 +6,8 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, statSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { runCli, runRemoteControlVerb, REMOTE_CONTROL_VERBS } from "../dist/index.js";
+import { runCli } from "../dist/index.js";
+import { runRemoteControlVerb, REMOTE_CONTROL_VERBS } from "../dist/runtime/remote-agent/index.js";
 
 function makeRoot() {
   const base = mkdtempSync(join(process.env.TMPDIR, "lh02-"));
