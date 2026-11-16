@@ -2,8 +2,9 @@
  * Mesh origin-port consumer tests — registry slice only, cell RC2.mesh-consumer
  * lot 1 (B6). No lane, no route, no transport: the five
  * `SessionOriginRegistryPortV1` methods are dispatched against the pinned r3
- * vectors and must refuse with a typed value while the registry-bearing
- * archive is unpublished. The lane slice stays blocked by relay-1.
+ * vectors and must refuse with a typed value since the registry-bearing
+ * archive (0.26.0) does not carry the pinned r3 revision. The lane slice
+ * stays blocked by relay-1.
  */
 
 import { createHash } from "node:crypto";
@@ -193,7 +194,7 @@ describe("mesh origin-port fail-closed dispatch", () => {
     }
   });
 
-  it("stays unavailable with a typed refusal while the factory is unpublished", async () => {
+  it("stays unavailable with a typed refusal since the published factory is not the pinned r3 revision", async () => {
     let resolveCalls = 0;
     const consumer = await createMeshOriginConsumer({
       resolveSession: () => {
@@ -205,7 +206,7 @@ describe("mesh origin-port fail-closed dispatch", () => {
     expect(consumer.port).toBe("SessionOriginRegistryPortV1");
     expect([...consumer.methods]).toEqual([...MESH_ORIGIN_METHODS]);
     expect(typeof consumer.installedVersion).toBe("string");
-    expect(consumer.exportPresent).toBe(false);
+    expect(consumer.exportPresent).toBe(true);
     expect(consumer.unavailability.status).toBe("unavailable");
     expect(consumer.unavailability.error).toEqual({
       format: "cluster-mesh.session-relay/1",

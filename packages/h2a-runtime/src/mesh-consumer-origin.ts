@@ -9,7 +9,8 @@
  * (single parameter object plus optional `{ signal }`, closed refused
  * results, never a throw for a refused call).
  *
- * The registry-bearing archive is unpublished, so every dispatch refuses
+ * The published archive (0.26.0) carries the factory but not the pinned r3
+ * revision, so every dispatch still refuses
  * with the closed r3 shape `{ status: "refused", error }` carrying the
  * contract `relay_grant_unavailable` error, while the probe detail stays on
  * the consumer `unavailability` diagnostic (`incompatible-version`). An
