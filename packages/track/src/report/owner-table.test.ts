@@ -203,7 +203,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     void decisionId
 
     const reader = new TrackReader(eventsPath)
-    const view = reader.ownerTable({ baselineCommit: 'c1' })
+    const view = reader.ownerTable({ baselineCommit: 'c1', now: '2026-11-14T12:00:00.000Z' })
     expect(view.rows).toHaveLength(2)
     expect(view.rows[0]?.num).toBe(1)
     expect(view.rows[0]?.status).toBe('on-track')
@@ -226,7 +226,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     expect(md).toContain("**Décisions qui t'attendent**")
     expect(md).toContain('`Réponse : D1 A`')
 
-    const cliRes = cli(['report', '--owner-table', '--commit', 'c1', '--format', 'md'])
+    const cliRes = cli(['report', '--owner-table', '--commit', 'c1', '--now', '2026-11-14T12:00:00.000Z', '--format', 'md'])
     expect(cliRes.code, cliRes.err).toBe(0)
     expect(cliRes.out).toBe(md)
   })
@@ -1492,7 +1492,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
 
     const events = store.readAll()
     const folded = fold(events)
-    const view = projectOwnerTable(folded, events, { baselineCommit: 'c1', workspace: 'ws-r5' })
+    const view = projectOwnerTable(folded, events, { baselineCommit: 'c1', workspace: 'ws-r5', now: '2026-11-14T12:00:00.000Z' })
     // 6 multi-lot demands x (1 title row + 2 lot rows) = 18 rows
     expect(view.rows).toHaveLength(18)
     expect(auditOwnerTable(view).ok, JSON.stringify(auditOwnerTable(view).violations)).toBe(true)
