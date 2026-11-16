@@ -67,6 +67,7 @@ import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
 import type { DiscoveryPager } from "./discovery-pagination.js";
 import type { McpTransportResult } from "./server.js";
+import { runRemoteControlVerb } from "../remote-agent/service.js";
 import {
   createObjectiveLoop,
   declareObjectiveLoopDone,
@@ -1607,4 +1608,45 @@ export function handleLoopStatus(
     ...(lastTick ? { lastTick: lastTick.payload } : {}),
     recentEvents: events.slice(-10)
   };
+}
+
+// LH-03 remote-control safe directions: status, off, kill only. Each handler
+// calls the same LH-02 service as the matching CLI verb, against the same
+// store root. The gated verbs enrol, up, on (and revoke) have no tool here
+// by construction: they stay terminal-only for the human at the terminal.
+function handleRemoteServiceAction(
+  tool: string,
+  root: string
+): McpToolResult | McpErrorResult {
+  try {
+    const result = runRemoteControlVerb(tool, {
+      root,
+      isInteractive: false
+    });
+    if (!result.ok) {
+      return { error: result.message };
+    }
+    return { ...result };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleRemoteStatus(
+  root: string
+): McpToolResult | McpErrorResult {
+  return handleRemoteServiceAction("status", root);
+}
+
+export function handleRemoteOff(
+  root: string,
+  _args: { session?: string } | undefined
+): McpToolResult | McpErrorResult {
+  return handleRemoteServiceAction("off", root);
+}
+
+export function handleRemoteKill(
+  root: string
+): McpToolResult | McpErrorResult {
+  return handleRemoteServiceAction("kill", root);
 }

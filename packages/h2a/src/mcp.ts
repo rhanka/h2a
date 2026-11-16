@@ -47,6 +47,11 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_loop_stop",
   "h2a_loop_list",
   "h2a_loop_status",
+  // LH-03 remote-control safe directions only. The gated verbs enrol, up
+  // and on stay terminal-only by construction: no tool exists for them.
+  "h2a_remote_status",
+  "h2a_remote_off",
+  "h2a_remote_kill",
   // Track's read-only tool surface is composed into the selected h2a endpoint.
   // Keep this list aligned with @sentropic/track's exported descriptors.
   "track_report",

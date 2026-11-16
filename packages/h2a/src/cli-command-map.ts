@@ -201,6 +201,12 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   // Curated Track lifts". The Track façade verbs are added separately below.
   "report-context": "WORK",
 
+  // LH-02: the `remote` first word (envelope verbs today, remote-control
+  // verbs behind H2A_REMOTE_CONTROL). Grouped here so a later freeze of the
+  // eight new verbs into the contract lands documented; until then no core
+  // entry renders from this mapping.
+  remote: "SET_UP",
+
   // Set up — study rows "Connect this host", "Diagnose".
   init: "SET_UP",
   register: "SET_UP",
