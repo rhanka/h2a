@@ -145,5 +145,20 @@ test('L3 journals successful host writes and rejects uncorrelated or additional 
       `\x1b[200~${museLine}\r\x1b[201~`,
     ]) assert.equal(correlateWakeInput(bracketed.map((r, i) => i === 0 ? { ...r, data: malformed } : r), museContext).correlated, false);
     assert.equal(correlateWakeInput(bracketed, context).correlated, false, 'framing cannot forge a different receiver');
+
+    const agy = 'agy:receiver';
+    const agyProbe = { ...probe, target: { instance: agy } };
+    const agyLine = product.formatSignedDriveInstruction({ from: agy, to: agy,
+      instruction: product.formatWakeLine([agyProbe], new Date(at).toISOString()),
+      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }), now: () => at });
+    const agyBracketed = records.map((r, i) => i === 0 ? { ...r, data: `\x1b[200~${agyLine}\x1b[201~` } : r);
+    const agyContext = { ...context, receiver: agy, probe: agyProbe };
+    assert.equal(correlateWakeInput(agyBracketed, agyContext).correlated, true,
+      'R41: exact agy paste framing preserves the signed payload and the two-write proof');
+    for (const malformed of [
+      `${agyLine}\x1b[201~`, `\x1b[200~${agyLine}`,
+    ]) assert.equal(correlateWakeInput(agyBracketed.map((r, i) => i === 0 ? { ...r, data: malformed } : r), agyContext).correlated, false);
+    assert.equal(correlateWakeInput(agyBracketed, context).correlated, false, 'agy framing cannot forge a different receiver');
+    assert.equal(correlateWakeInput(agyBracketed, museContext).correlated, false, 'agy framing cannot forge the muse receiver');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

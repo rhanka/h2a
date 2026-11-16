@@ -2014,9 +2014,13 @@ export async function runNativeTerminalOp(
           // text + CR in one read as pasted content and leave it unsent.
           // Retain this fenced lease and the one-line/control-byte validator.
           // Muse's bulk-input heuristic consumes the first Enter as paste
-          // confirmation. Explicit paste framing finishes that input state
-          // before the single submit; the validated signed text is unchanged.
-          await client.write(lease, parsed.flags.get("host") === "muse"
+          // confirmation. Agy (jetski PromptModel.absorbUnbracketedPasteNewline)
+          // absorbs an unbracketed paste newline the same way: R40 muse->agy
+          // rep 5 kept a correlated raw wake as an unsent draft (zero inbox
+          // read) and the agy tail reached 27545 ms. Explicit paste framing
+          // finishes that input state before the single submit; the validated
+          // signed text is unchanged.
+          await client.write(lease, parsed.flags.get("host") === "muse" || parsed.flags.get("host") === "agy"
             ? `\x1b[200~${text}\x1b[201~` : text);
           await delay(100);
           await client.write(lease, "\r");
