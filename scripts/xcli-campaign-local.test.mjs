@@ -10,7 +10,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { environment, removeCampaignRoot } from './xcli-lab.mjs';
-import { LOCAL_GATE, classifyLocalCellReason, runLocalCampaign } from './xcli-campaign-local.mjs';
+import { LOCAL_GATE, LOCAL_CAMPAIGN_TIMEOUT_MS, classifyLocalCellReason, runLocalCampaign } from './xcli-campaign-local.mjs';
+import { campaignWakePolicy } from './xcli-wake-policy.mjs';
 
 const CANARY = 'canary-fixture-zz9';
 
@@ -156,6 +157,16 @@ test('R19: a failed local provision refuses names-only and leaves no envelopes',
     assert.ok(!fs.existsSync(outBase) || walk(outBase).every(name => !name.endsWith('.envelope.json')),
       'no envelope survives a refused local run');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// P2-2: the default local cell budget funds the slowest wake bound
+// (qualify-cross-cli funding: w0 + w1 + release + notify + 100 + bound).
+test('P2-2: the default local campaign budget funds the agy wake bound', () => {
+  const { boundMs } = campaignWakePolicy('agy');
+  assert.equal(boundMs, 30000);
+  const fundingNeed = 15000 + 15000 + 0 + 5000 + 100 + boundMs;
+  assert.ok(fundingNeed <= LOCAL_CAMPAIGN_TIMEOUT_MS,
+    `default budget ${LOCAL_CAMPAIGN_TIMEOUT_MS} must fund ${fundingNeed}`);
 });
 
 // R23: the spawned CLI resolves seats from the llm-mesh store, which the

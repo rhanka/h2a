@@ -27,6 +27,9 @@ const self = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(self));
 
 export const LOCAL_GATE = 'local-non-merge-gating';
+// P2-2: the default cell budget funds the slowest receiver (R40 agy 30000 ms
+// bound: 15000+15000+0+5000+100+30000 = 65100 ms) like the trusted lane.
+export const LOCAL_CAMPAIGN_TIMEOUT_MS = 120000;
 export const LOCAL_SEAT_SET = JSON.parse(fs.readFileSync(new URL('../docs/cross-cli-seat-slots.json', import.meta.url), 'utf8'))
   .localBenchSeats.join(',');
 
@@ -52,7 +55,7 @@ export function classifyLocalCellReason(cell, okStatus) {
 export async function runLocalCampaign({ seatSet = LOCAL_SEAT_SET, pairs = null,
   fullMatrix = false, slotManifestFile = join(repoRoot, 'docs/cross-cli-seat-slots.json'),
   homeDir = homedir(), ownerScope = 'owner', outBase = null,
-  campaignRoot = null, reportFile = null, timeoutMs = 60000, sessionCap = null,
+  campaignRoot = null, reportFile = null, timeoutMs = LOCAL_CAMPAIGN_TIMEOUT_MS, sessionCap = null,
   mcpCallCap = 100, wallClockMs = 3600000, wakeOffsets = '0',
   simulated = false, spawnTimeoutMs = null, meshFacade = null, gate = 'mesh' } = {}) {
   let outDir = null;
@@ -149,7 +152,7 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
       ...(option(args, '--out-base', null) ? { outBase: option(args, '--out-base', null) } : {}),
       ...(option(args, '--campaign-root', null) ? { campaignRoot: option(args, '--campaign-root', null) } : {}),
       ...(option(args, '--report', null) ? { reportFile: option(args, '--report', null) } : {}),
-      timeoutMs: Number(option(args, '--timeout-ms', '60000')),
+      timeoutMs: Number(option(args, '--timeout-ms', String(LOCAL_CAMPAIGN_TIMEOUT_MS))),
       ...(option(args, '--session-cap', null) ? { sessionCap: Number(option(args, '--session-cap', null)) } : {}),
       mcpCallCap: Number(option(args, '--mcp-call-cap', '100')),
       wallClockMs: Number(option(args, '--campaign-wall-clock-ms', '3600000')),
