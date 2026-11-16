@@ -37,7 +37,7 @@ describe("runtime resolves the public cluster-mesh integration without aliases",
     await import("@sentropic/cluster-mesh/gateway");
     const topology = verifyClusterMeshTopology({ require: ["gateway", "llm-mesh"] });
     expect(topology.instances).toHaveLength(1);
-    expect(["0.38.0", "0.38.1"]).toContain(topology.llmMesh?.version);
+    expect(topology.llmMesh?.version).toBe("0.38.1");
     expect(topology.gateway?.version).toBe("0.23.2");
     expect(topology.gateway?.llmMesh?.path).toBe(topology.llmMesh?.path);
   });

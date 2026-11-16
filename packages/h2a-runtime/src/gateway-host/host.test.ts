@@ -261,7 +261,23 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
   // 2. Direct catalogue & routing layer proof with synthetic in-memory accounts
   // (no real accounts or credentials): lists gemini-4-carbon, gemini-4-argon-low,
   // and muse-ember-1.0 on /v1/models and sets X-Sentropic-Served on responses.
-  const fetchFn = vi.fn<typeof fetch>(async (url) => {
+  // Wire bodies observed by the Cloud Code client: each entry is the
+  // `model` field of a streamGenerateContent body, so the proof below can
+  // show the wire carries the suffixed id and never the bare canonical id.
+  const wireBodies: Array<{ model?: string; thinkingLevel?: string }> = [];
+  const fetchFn = vi.fn<typeof fetch>(async (url, init) => {
+    if (String(url).includes("streamGenerateContent")) {
+      const body = JSON.parse(String(init?.body)) as {
+        model?: string;
+        request?: { generationConfig?: { thinkingConfig?: { thinkingLevel?: string } } };
+      };
+      wireBodies.push({
+        ...(body.model ? { model: body.model } : {}),
+        ...(body.request?.generationConfig?.thinkingConfig?.thinkingLevel
+          ? { thinkingLevel: body.request.generationConfig.thinkingConfig.thinkingLevel }
+          : {}),
+      });
+    }
     if (String(url).includes("fetchAvailableModels")) {
       return new Response(
         JSON.stringify({
@@ -321,6 +337,10 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
             ownerScopeRef: "cli:test-owner",
             targetProviderId: "gemini",
             transportProviderId: "cloud-code",
+            // The bare canonical id stays advertised: it is the planner's
+            // match key (mirrors the upstream VERIFIED list) and the served
+            // identity. The Cloud Code wire itself never carries it — see
+            // the wire assertion below.
             supportedModelIds: ["gemini-4-carbon", "gemini-4-argon", "gemini-4-argon-low"],
             enrollmentCompletedAt: "2026-11-15T00:00:00.000Z",
             readiness: "ready" as const,
@@ -356,21 +376,19 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
               },
               descriptor: { sourceType: "account-transport" as const, accountProviderId: "cloud-code" as const },
             };
-        const effort =
-          target.effort ??
-          (target.requestedModel.endsWith("-low")
-            ? "low"
-            : target.requestedModel.endsWith("-medium")
-              ? "medium"
-              : target.requestedModel.endsWith("-high")
-                ? "high"
-                : undefined);
+        // Faithful to the real directory (routeAttempt): only target.effort
+        // is copied into reasoning.effort — no suffix derivation. The real
+        // effort path is the host routeInput override (argonEffortOverride),
+        // which the planner carries as target.effort. Any client-supplied
+        // reasoning.effort flows through unchanged.
         const withRoute = <T extends Parameters<typeof runtime.generate>[0]>(req: T): T => ({
           ...req,
           providerId: target.providerId,
           modelId: target.modelId,
           auth,
-          ...(effort ? { reasoning: { ...req.reasoning, effort: effort as never } } : {}),
+          ...(target.effort
+            ? { reasoning: { ...req.reasoning, effort: target.effort as never } }
+            : {}),
         });
         return {
           attemptRef: "attempt-synthetic",
@@ -385,6 +403,11 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
     },
   });
 
+  // Production routeInput closure shape: the same exported helper
+  // (argonEffortOverride) that host.ts wires in createGatewayHost carries a
+  // suffixed Argon's effort as target.effort. Each request here supplies no
+  // client reasoning.effort, so the override is the sole effort source.
+  const { argonEffortOverride } = await import("./host.js");
   const router = createGatewayRouter({
     config: {
       ...LEGACY_PORTS_INERT,
@@ -404,6 +427,15 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
       },
     },
     routePlanner: planner,
+    routeInput({ request, canonical }) {
+      const argonOverride = argonEffortOverride(
+        request.model,
+        canonical.request.reasoning?.effort,
+      );
+      return {
+        ...(argonOverride ? { targetCandidatesOverride: argonOverride } : {}),
+      };
+    },
     routeMetering: { async settleRoute() {} },
   });
 
@@ -436,4 +468,56 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
     expect(res.status, requestedModel).toBe(200);
     expect(res.headers.get("x-sentropic-served"), requestedModel).toBe(expectedServed);
   }
+
+  // Wire proof: the Cloud Code bodies carry suffixed ids and never the bare
+  // canonical id (which 404s since 0.38.1), with the suffix effort as the
+  // thinking level. The bare id remains only as planner match key and
+  // served identity above.
+  expect(wireBodies).toEqual([
+    { model: "gemini-4-carbon" },
+    { model: "gemini-4-argon-low", thinkingLevel: "LOW" },
+  ]);
+  expect(wireBodies.some((body) => body.model === "gemini-4-argon")).toBe(false);
+});
+
+describe("suffixed Argon effort override", () => {
+  it("carries each suffix as target.effort for suffixed Argon ids without client effort", async () => {
+    const { argonEffortOverride, argonSuffixEffort } = await import("./host.js");
+    expect(argonSuffixEffort("gemini-4-argon-low")).toBe("low");
+    expect(argonSuffixEffort("gemini-4-argon-medium")).toBe("medium");
+    expect(argonSuffixEffort("gemini-4-argon-high")).toBe("high");
+    // Non-canonical spellings stay out: the planner's exact-model gate would
+    // reject an override for them with a contract error instead of the
+    // graceful unknown-model refusal.
+    expect(argonSuffixEffort(" Gemini-4-Argon-LOW ")).toBeUndefined();
+    expect(argonSuffixEffort("Gemini-4-Argon-Low")).toBeUndefined();
+    expect(argonEffortOverride("gemini-4-argon-low", undefined)).toEqual([
+      { providerId: "gemini", transportProviderId: "cloud-code", model: "gemini-4-argon", effort: "low" },
+    ]);
+    expect(argonEffortOverride("gemini-4-argon-medium", undefined)).toEqual([
+      { providerId: "gemini", transportProviderId: "cloud-code", model: "gemini-4-argon", effort: "medium" },
+    ]);
+    expect(argonEffortOverride("gemini-4-argon-high", undefined)).toEqual([
+      { providerId: "gemini", transportProviderId: "cloud-code", model: "gemini-4-argon", effort: "high" },
+    ]);
+  });
+
+  it("stays out when the client already supplies an effort", async () => {
+    const { argonEffortOverride } = await import("./host.js");
+    expect(argonEffortOverride("gemini-4-argon-low", "high")).toBeUndefined();
+    expect(argonEffortOverride("gemini-4-argon-low", "none")).toBeUndefined();
+  });
+
+  it("stays out for non-suffixed or unsupported ids", async () => {
+    const { argonEffortOverride, argonSuffixEffort } = await import("./host.js");
+    expect(argonSuffixEffort("gemini-4-argon")).toBeUndefined();
+    expect(argonSuffixEffort("gemini-4-carbon")).toBeUndefined();
+    expect(argonSuffixEffort("muse-ember-1.0")).toBeUndefined();
+    expect(argonSuffixEffort("argon-low")).toBeUndefined();
+    expect(argonSuffixEffort("gemini-4-argon-xhigh")).toBeUndefined();
+    expect(argonEffortOverride("gemini-4-argon", undefined)).toBeUndefined();
+    expect(argonEffortOverride("gemini-4-carbon", undefined)).toBeUndefined();
+    expect(argonEffortOverride("muse-ember-1.0", undefined)).toBeUndefined();
+    expect(argonEffortOverride("argon-low", undefined)).toBeUndefined();
+  });
 });
