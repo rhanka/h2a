@@ -2,6 +2,11 @@
  * LH-00 contract fakes and flag (plan section LH-00). Behind the flag, no verb
  * or agent code is wired yet: the existing `remote` signed-envelope verbs and
  * the mirror cycle are byte-identical with the flag off.
+ *
+ * INTERNAL ONLY: this barrel is never re-exported from the package root
+ * (src/index.ts). The trunk/catalogue/terminal types are provisional fixtures
+ * (DB-01 replaces them with the published contract), so they stay on this
+ * internal path. The fakes live under test/helpers/ and are not shipped.
  */
 export {
   REMOTE_CONTROL_ENV,
@@ -33,14 +38,6 @@ export {
   type TrunkTerminalRecord,
   type TrunkRecord
 } from "./types.js";
-export { FakeTrunkEndpoint, type FakeTrunkOptions, type FakeTrunkOpenResult } from "./fake-trunk.js";
-export {
-  FakeEnrolmentVerifier,
-  type FakeEnrolmentOptions,
-  type FakeEnrolmentRequestPayload,
-  type FakeEnrolmentVerifyResult,
-  type FakeEnrolmentApproveResult
-} from "./fake-enrolment.js";
 export {
   projectCatalogueRow,
   buildCatalogueSnapshot,
@@ -53,7 +50,6 @@ export {
   classifyLaunchHost,
   buildFleetInventory,
   buildFleetInventoryFromRoot,
-  readPresenceFileNames,
   type FleetValve,
   type InventoryRow,
   type FleetInventory

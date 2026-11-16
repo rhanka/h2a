@@ -18,7 +18,7 @@
  *   creates a directory and never opens a socket.
  */
 
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { H2AActorRegistration } from "../../types.js";
 import type { H2ALaunchContext, H2ASession } from "../../session.js";
@@ -88,8 +88,12 @@ export function buildFleetInventory(input: {
       source: "presence"
     });
   }
+  const seenRegistryInstances = new Set<string>(coveredInstances);
   for (const registration of input.registrations ?? []) {
-    if (coveredInstances.has(registration.instance)) continue;
+    // instances.jsonl is an append-only journal: one row per instance, never
+    // one row per journal line, so history cannot crush the live shares.
+    if (seenRegistryInstances.has(registration.instance)) continue;
+    seenRegistryInstances.add(registration.instance);
     rows.push({
       sessionId: registration.id,
       instance: registration.instance,
@@ -152,16 +156,9 @@ export function buildFleetInventoryFromRoot(
   options: { readonly now?: number } = {}
 ): FleetInventory {
   const now = options.now ?? Date.now();
-  const sessions = listPresence(root, { now, includeExpired: true, sweep: false });
+  // Only live (fresh) presences count: expired rows are excluded from shares
+  // and from presenceCoverage, per the spec's live-session denominator.
+  const sessions = listPresence(root, { now, sweep: false });
   const registrations = readInstancesJsonl(root);
   return buildFleetInventory({ sessions, registrations, env });
-}
-
-export function readPresenceFileNames(root: string): string[] {
-  try {
-    return readdirSync(join(root, "presence"));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
 }
