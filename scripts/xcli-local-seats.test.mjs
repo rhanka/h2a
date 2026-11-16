@@ -102,12 +102,17 @@ test('R38: local-login refuses seats without a local login source', async () => 
   } finally { fs.rmSync(homeDir, { recursive: true, force: true }); }
 });
 
-test('R38: seat models — claude default (never Opus), muse-ember, gemini-4-argon-low', () => {
+test('R39: seat models — claude default (never Opus), muse-ember-1.0, gemini-4-argon-low', () => {
   const claudeArgs = argsFor('claude', 'prompt');
   assert.ok(!claudeArgs.includes('--model') && !JSON.stringify(claudeArgs).toLowerCase().includes('opus'),
     'claude keeps its default model');
   const museArgs = argsFor('muse', 'prompt');
-  assert.deepEqual(museArgs, ['--no-session-log', '--model', 'muse-ember', 'prompt']);
+  // R39: the bare `muse-ember` id names no runnable model (the account
+  // resolves versioned ids; default `muse-ember-1.0`). The R38 bare id made
+  // the seat fail with `model muse-ember does not exist or you lack access`
+  // and zero tool calls in both directions — proven by the R39 instrumented
+  // cells (senderMcp/receiverMcp true, sent false then true after the fix).
+  assert.deepEqual(museArgs, ['--no-session-log', '--model', 'muse-ember-1.0', 'prompt']);
   const agyArgs = argsFor('agy', 'prompt', { nativeCliVersion: '1.5.9' });
   assert.ok(agyArgs.includes('--model') && agyArgs[agyArgs.indexOf('--model') + 1] === 'gemini-4-argon-low',
     'agy uses gemini-4-argon-low');
