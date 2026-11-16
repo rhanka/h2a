@@ -4230,7 +4230,7 @@ function nativePtyBackchannelDriver(log: (line: string) => void, env: NodeJS.Pro
           request.to,
           "--b64",
           Buffer.from(request.instructionLine, "utf8").toString("base64"),
-          ...(request.host === "muse" ? ["--host", "muse"] : []),
+          ...(request.host === "muse" || request.host === "agy" ? ["--host", request.host] : []),
         ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env },
       );

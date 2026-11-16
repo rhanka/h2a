@@ -27,6 +27,8 @@ export function wakeBoundForDelivery(nativeMessageDelivery) {
 // the max + ~9 %. Headroom stays tight: the 180 s cell budget funds
 // release + notify + d, so a larger bound would flip late cells to
 // wake-window-unfunded. Proposition until D2; protocol unchanged.
+// R41: same bracketed paste framing as Muse on the agy wake path (jetski
+// PromptModel.absorbUnbracketedPasteNewline); bound unchanged at 30000.
 export function campaignWakePolicy(cli, { simulated = false } = {}) {
   assert.ok(KNOWN_CLIS.includes(cli), 'known wake receiver');
   const boundMs = simulated ? 3000 : cli === 'agy' ? 30000 : wakeBoundForDelivery(false);
