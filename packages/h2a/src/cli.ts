@@ -292,6 +292,7 @@ import { readState } from "./runtime/handover/state.js";
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
   createHostSessionNameRefresher,
+  defaultHostNameReaders,
   identityKeyPaths,
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
@@ -413,6 +414,8 @@ export interface H2ACliOptions {
   readonly doctorHostInstallations?: (
     options: HostInstallationDoctorOptions
   ) => HostInstallationDoctorReport;
+  readonly signal?: AbortSignal;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 const CLI_HOSTS = [
@@ -2513,7 +2516,10 @@ export async function runMcpServe(
         ? createHostSessionNameRefresher({
             host,
             cwd: cwd(),
-            sessionId: identity.providerSessionId
+            sessionId: identity.providerSessionId,
+            readers: readinessEnv.HOME
+              ? { ...defaultHostNameReaders, homedir: () => readinessEnv.HOME! }
+              : defaultHostNameReaders
           })
         : undefined;
     // The worker sends the real workspace object over IPC (typed `unknown` there
@@ -6281,8 +6287,12 @@ function cmdDoctor(
   // personal Claude/Codex setup while retaining a fail-closed repair surface.
   if (flags.repair === "true" && (!flags.host || ['claude', 'codex'].includes(flags.host))) {
     const dryRun = flags["dry-run"] === "true";
-    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true, dryRun,
-      ...(flags.host ? { hosts: [flags.host as 'claude' | 'codex'] } : {}) });
+    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({
+      repair: true,
+      dryRun,
+      stderr: streams.stderr,
+      ...(flags.host ? { hosts: [flags.host as 'claude' | 'codex'] } : {})
+    });
     checks.hostInstallations = hostInstallations;
     if (!hostInstallations.ok) {
       report.ok = false;
@@ -8226,9 +8236,17 @@ export function runCli(
     return cmdRegistryBridge(argv.slice(1), streams, REGISTRY_BRIDGE_SERVE_DELEGATES);
   }
   if (command === "hosted-lock") return cmdHostedLock(argv.slice(1), streams);
+  if (command === "mcp-central-serve") {
+    return runCentralMcpServe(flags, {
+      stderr: streams.stderr as unknown as NodeJS.WritableStream,
+      ...(streams.cwd ? { cwd: streams.cwd } : {}),
+      ...(options.env ? { env: options.env } : {}),
+      ...(options.signal ? { signal: options.signal } : {})
+    });
+  }
   if (command === "central") {
     const sub = argv[1];
-    const { flags: centralFlags } = parseFlags(argv.slice(2));
+    const { flags: centralFlags } = parseFlags(argv.slice(1));
     if (sub === "stop" && centralFlags.force !== undefined) { streams.stderr.write("h2a central stop: no force mode\n"); return 1; }
     if (sub === "residues") {
       streams.stdout.write(JSON.stringify(centralResidueReport(centralFlags.workspace ?? streams.cwd?.() ?? process.cwd(), centralFlags["agy-config"]), null, 2) + "\n");

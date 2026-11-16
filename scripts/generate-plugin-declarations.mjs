@@ -39,8 +39,26 @@ const subdir = (host) => (host === "claude" ? ".claude-plugin" : ".codex-plugin"
 for (const host of ONLY_HOST === null ? HOSTS : [ONLY_HOST]) {
   const { entry } = renderBridgeEntry(host, { profile: "default" });
   // No --lock: plugin declarations carry host/profile only; the lock resolves
-  // at serve time to the per-host/profile default (RQ-17).
-  const asset = { mcpServers: { h2a: { command: entry.h2a.command, args: entry.h2a.args } } };
+  // at serve time to the per-host/profile default (RQ-17). For Claude Code,
+  // invoke through the plugin's self-contained Node shim via ${CLAUDE_PLUGIN_ROOT}
+  // so narrowed login PATHs (missing ~/.npm-global/bin) still locate the trusted
+  // h2a executable. Codex CLI does not expand ${CLAUDE_PLUGIN_ROOT} in MCP args,
+  // so Codex keeps the direct h2a command (backed by ~/.local/bin/h2a from
+  // bootstrap install / doctor --repair).
+  const serverEntry = host === "claude"
+    ? {
+        command: "node",
+        args: ["${CLAUDE_PLUGIN_ROOT}/scripts/h2a-bridge-shim.mjs", ...entry.h2a.args]
+      }
+    : {
+        command: entry.h2a.command,
+        args: entry.h2a.args
+      };
+  const asset = {
+    mcpServers: {
+      h2a: serverEntry
+    }
+  };
   const text = `${JSON.stringify(asset, null, 2)}\n`;
   const path = join(ROOT, "packages/h2a", subdir(host), "registry.mcp.json");
   if (CHECK) {

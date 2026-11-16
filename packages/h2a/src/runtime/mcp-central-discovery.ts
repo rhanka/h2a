@@ -147,7 +147,13 @@ function installationNamespace(): any {
 }
 export function centralStateDirectory(paths: CentralMcpPathsOptions = {}): string {
   const namespace = installationNamespace();
-  return namespace?.stateDirectory ?? markerDirectory(paths);
+  if (namespace) {
+    if (!paths.runtimeBase || join(paths.runtimeBase, CENTRAL_RUNTIME_DIRECTORY, CENTRAL_MARKER_FILE) === namespace.canonicalMarkerLocation) {
+      return namespace.stateDirectory;
+    }
+    return join(paths.runtimeBase, CENTRAL_RUNTIME_DIRECTORY);
+  }
+  return markerDirectory(paths);
 }
 
 export function markerDirectory(options: CentralMcpPathsOptions): string {
