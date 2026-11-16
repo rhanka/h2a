@@ -115,8 +115,11 @@ test("LOT-4B (b): extracted tarball declares the bridge in both shipped plugins"
   assert.equal(codexManifest.mcpServers, "./.codex-plugin/registry.mcp.json");
   assert.deepEqual(Object.keys(claudeAsset.mcpServers), ["h2a"]);
   assert.deepEqual(Object.keys(codexAsset.mcpServers), ["h2a"]);
+  assert.equal(claudeAsset.mcpServers.h2a.command, "node");
+  assert.equal(claudeAsset.mcpServers.h2a.args[0], "${CLAUDE_PLUGIN_ROOT}/scripts/h2a-bridge-shim.mjs");
+  assert.equal(codexAsset.mcpServers.h2a.command, "h2a");
+  assert.equal(codexAsset.mcpServers.h2a.args[0], "registry-bridge");
   for (const asset of [claudeAsset, codexAsset]) {
-    assert.equal(asset.mcpServers.h2a.command, "h2a");
     assert.ok(asset.mcpServers.h2a.args.includes("registry-bridge"));
     assert.ok(!JSON.stringify(asset).includes("mcp-serve"));
   }
@@ -163,6 +166,7 @@ test("LOT-4B (d): generated declarations carry the legacy per-host context flags
   const claudeAsset = JSON.parse(readFileSync(join(REPO, "packages/h2a/.claude-plugin/registry.mcp.json"), "utf8"));
   const codexAsset = JSON.parse(readFileSync(join(REPO, "packages/h2a/.codex-plugin/registry.mcp.json"), "utf8"));
   assert.deepEqual(claudeAsset.mcpServers.h2a.args, [
+    "${CLAUDE_PLUGIN_ROOT}/scripts/h2a-bridge-shim.mjs",
     "registry-bridge", "serve", "--host", "claude", "--profile", "default",
     "--wake", "auto", "--auto-open", "--auto-upgrade"
   ]);
@@ -308,6 +312,7 @@ test("LOT-4B (e): the shipped claude plugin verifies through the plugin flow", a
       const config = join(dir, "mcp.json");
       const pluginDir = join(dir, "shipped");
       mkdirSync(join(pluginDir, ".claude-plugin"), { recursive: true });
+      mkdirSync(join(pluginDir, "scripts"), { recursive: true });
       writeFileSync(config, LEGACY_CLAUDE_JSON);
       for (const name of ["plugin.json", "registry.mcp.json"]) {
         writeFileSync(
@@ -315,6 +320,11 @@ test("LOT-4B (e): the shipped claude plugin verifies through the plugin flow", a
           readFileSync(join(REPO, "packages/h2a/.claude-plugin", name), "utf8")
         );
       }
+      writeFileSync(
+        join(pluginDir, "scripts", "h2a-bridge-shim.mjs"),
+        readFileSync(join(REPO, "packages/h2a/scripts/h2a-bridge-shim.mjs"), "utf8"),
+        { mode: 0o755 }
+      );
       const io = streams();
       const code = await runCli(["registry", "bootstrap", "install", "--mechanism", "plugin",
         "--host", "claude", "--profile", "default", "--config", config, "--plugin-dir", pluginDir], io, {});

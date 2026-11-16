@@ -40,7 +40,7 @@ function fixture(t, options) {
   const a = { root, packages: join(root, 'payload'), env: isolatedEnv(root), version, cli: join(root, 'candidate.cjs') };
   // The root .mcp.json no longer ships: the registry migration renamed it to
   // .codex-plugin/registry.mcp.json (package-plugin-manifest pins its absence).
-  for (const path of ['hooks', 'skills', '.claude-plugin', '.codex-plugin']) {
+  for (const path of ['hooks', 'skills', 'scripts', '.claude-plugin', '.codex-plugin']) {
     cpSync(new URL('../' + path, import.meta.url), join(a.packages, 'h2a', path), { recursive: true });
   }
   const resource = 'present-decision/assets/native-questions.md';

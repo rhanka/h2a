@@ -10,19 +10,31 @@
  * records the bridge identity so that swap stays explicit.
  *
  * Only an explicit operator invocation of `installBridgeEntry`,
- * `uninstallBridgeEntry` (or the CLI verbs wiring them) writes a host
- * config or a receipt. Rendering, preview and every launch path write
- * nothing. Migrating a legacy direct entry (including Vibe's interim direct
- * entry from PR #346) is one previewed atomic transaction: failure restores
- * the original bytes pre-acceptance, and there is never a window with two
- * `h2a` entries.
+ * `verifyPluginInstall`, or `uninstallBridgeEntry` (or the CLI verbs wiring
+ * them) writes a host config, a receipt, or a `~/.local/bin/h2a` fallback
+ * symlink. Rendering and preview write nothing; `registry-bridge serve --auto-upgrade`
+ * writes only an absent default plugin lock. Migrating a legacy direct entry
+ * (including Vibe's interim direct entry from PR #346) is one previewed atomic
+ * transaction: failure restores the original bytes pre-acceptance, and there is
+ * never a window with two `h2a` entries.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { replaceJsonEntry } from "../hosts/json-entry.js";
 import { RegistryError, type RegistryEntry } from "./descriptors.js";
-import { defaultPluginBridgeLockPath, provisionBridgeLock } from "./bridge-lock.js";
+import {
+  defaultPluginBridgeLockPath,
+  findVerifiedPluginVersionDir,
+  isBridgeLockLive,
+  pluginBridgeConfigBase,
+  provisionBridgeLock,
+  quarantineBridgeLock,
+  readBridgeLock,
+  resolveClaudeConfigPath,
+  resolveClaudeConfigRoot,
+  resolveCodexConfigRoot
+} from "./bridge-lock.js";
 import {
   isBridgeServer as isCodexBridgeServer,
   isH2aServerName as isCodexH2aServerName,
@@ -155,8 +167,14 @@ export type InstallLockAction = "provisioned" | "already-present" | "skipped-dry
 export interface InstallResult {
   action: "installed" | "migrate-direct" | "reinstall-identical";
   backupPath?: string;
+  quarantinePath?: string;
   receiptPath: string;
   lockAction: InstallLockAction;
+  pathFallback?: {
+    linked: string | null;
+    warning?: string;
+    rejected?: string[];
+  };
 }
 
 const H2A_COMMAND = /(^|[\\/])h2a(\.cmd|\.exe)?$/i;
@@ -200,7 +218,20 @@ export interface AtomicWriteOptions {
 }
 
 function writeReceiptRecord(receiptPath: string, record: Record<string, unknown>): void {
-  writeFileSync(receiptPath, `${JSON.stringify({ format: "h2a.registry-install/v1", ...record }, null, 2)}\n`, { mode: 0o600 });
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  const tmpPath = `${receiptPath}.tmp-${process.pid}-${randomUUID()}`;
+  const payload = `${JSON.stringify({ format: "h2a.registry-install/v1", ...record }, null, 2)}\n`;
+  try {
+    writeFileSync(tmpPath, payload, { mode: 0o600, flag: "wx" });
+    renameSync(tmpPath, receiptPath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* ignore cleanup error */
+    }
+    throw err;
+  }
 }
 
 /** Prior existence/bytes of a transaction artefact (receipt, lock). */
@@ -770,7 +801,7 @@ export function previewInstall(options: InstallOptions): InstallPreview {
   return classifyJsonHost((parsed["mcpServers"] as Record<string, unknown> | undefined)?.["h2a"], entry);
 }
 
-/** Explicit operator write. Anything else (render/preview/launch) writes nothing. */
+/** Explicit operator write for file-mechanism host config, receipt, and lock. */
 export function installBridgeEntry(options: InstallOptions): InstallResult {
   assertRegistryHost(options.host);
   const profile = options.profile ?? "default";
@@ -797,25 +828,94 @@ export function installBridgeEntry(options: InstallOptions): InstallResult {
   throw new RegistryError("unsupported_host", `muse file install is blocked until generic stdio bridge pickup is proven; supported install hosts: claude, codex, agy, vibe`);
 }
 
-export function uninstallBridgeEntry(options: { host: string; configPath: string }): { action: "uninstalled"; backupPath?: string } {
+export function uninstallBridgeEntry(options: {
+  host: string;
+  configPath: string;
+  mechanism?: string;
+  profile?: string;
+  checkPresence?: (host: string) => boolean | readonly string[];
+}): { action: "uninstalled"; backupPath?: string } {
   assertRegistryHost(options.host);
   if (options.host === "muse") {
     throw new RegistryError("unsupported_host", "muse file install is blocked until generic stdio bridge pickup is proven; supported install hosts: claude, codex, agy, vibe");
   }
-  if (!existsSync(options.configPath)) throw new RegistryError("invalid_entry", `host config at ${options.configPath} is absent`);
+  const profile = options.profile ?? "default";
+  const existingReceipt = readInstallReceipt(options.configPath);
+  if (options.mechanism === "plugin") {
+    if (options.host !== "claude" && options.host !== "codex") {
+      throw new RegistryError("unsupported_host", `no qualified plugin adapter for host=${options.host}`);
+    }
+    if (!existingReceipt) {
+      throw new RegistryError("invalid_entry", `no plugin install receipt at ${receiptPathFor(options.configPath)} to uninstall`);
+    }
+    if ((existingReceipt["mechanism"] ?? "file") !== "plugin") {
+      throw new RegistryError(
+        "invalid_entry",
+        `not uninstalling: receipt at ${receiptPathFor(options.configPath)} records mechanism=${JSON.stringify(existingReceipt["mechanism"] ?? "file")}, not "plugin"`
+      );
+    }
+    if (existingReceipt["host"] !== options.host || (existingReceipt["profile"] ?? "default") !== profile) {
+      throw new RegistryError(
+        "invalid_entry",
+        `not uninstalling: receipt at ${receiptPathFor(options.configPath)} belongs to host=${String(existingReceipt["host"])} profile=${String(existingReceipt["profile"] ?? "default")}, not host=${options.host} profile=${profile}`
+      );
+    }
+    const pluginLock = defaultPluginBridgeLockPath(options.host, profile);
+    const liveness = isBridgeLockLive(pluginLock, {
+      home: process.env.HOME?.trim(),
+      ignoreConfigPath: options.configPath,
+      checkPresence: options.checkPresence
+    });
+    if (liveness.live) {
+      throw new RegistryError("invalid_entry", `not uninstalling: ${liveness.reason ?? "plugin cache is still active"}`);
+    }
+    try {
+      unlinkSync(receiptPathFor(options.configPath));
+    } catch {
+      /* receipt may already be absent */
+    }
+    return { action: "uninstalled" };
+  }
+  if (existingReceipt?.["mechanism"] === "plugin") {
+    throw new RegistryError("invalid_entry", "not uninstalling: receipt records plugin mechanism; plugin locks are live while the plugin is installed");
+  }
+  const isMatchingFileReceipt = Boolean(
+    existingReceipt &&
+    (existingReceipt["mechanism"] ?? "file") === "file" &&
+    existingReceipt["host"] === options.host &&
+    (existingReceipt["profile"] ?? "default") === profile
+  );
+  if (!existsSync(options.configPath)) {
+    if (isMatchingFileReceipt) {
+      try {
+        unlinkSync(receiptPathFor(options.configPath));
+      } catch {
+        /* ignore */
+      }
+      return { action: "uninstalled" };
+    }
+    throw new RegistryError("invalid_entry", `host config at ${options.configPath} is absent`);
+  }
   if (options.host === "codex") {
     const tomlRaw = readFileSync(options.configPath, "utf8");
     const tomlServers = readCodexServers(tomlRaw);
     const tomlOwned = tomlServers.filter((server) => isCodexH2aServerName(server.name));
-    if (tomlOwned.length === 0) throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+    if (tomlOwned.length === 0) {
+      if (isMatchingFileReceipt) {
+        try {
+          unlinkSync(receiptPathFor(options.configPath));
+        } catch {
+          /* ignore */
+        }
+        return { action: "uninstalled" };
+      }
+      throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+    }
     if (tomlOwned.length > 1) {
       throw new RegistryError("invalid_entry", "not uninstalling: duplicate h2a [mcp_servers.*] tables (conflict)");
     }
     const tomlTarget = tomlOwned[0] as CodexServer;
-    if (!isCodexBridgeServer(tomlTarget)) {
-      if (isCodexLegacyDirectServer(tomlTarget)) {
-        throw new RegistryError("invalid_entry", "not uninstalling a legacy direct entry here: run the registry migrate transaction instead");
-      }
+    if (!isCodexBridgeServer(tomlTarget) && !isCodexLegacyDirectServer(tomlTarget)) {
       throw new RegistryError("invalid_entry", "not uninstalling: h2a entry is not the installer-owned bridge entry (conflict)");
     }
     const { text: tomlNext } = removeCodexH2a(tomlRaw);
@@ -831,7 +931,17 @@ export function uninstallBridgeEntry(options: { host: string; configPath: string
     const raw = readFileSync(options.configPath, "utf8");
     const servers = readVibeServers(raw);
     const owned = servers.filter((server) => isH2aServerName(server.name));
-    if (owned.length === 0) throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+    if (owned.length === 0) {
+      if (isMatchingFileReceipt) {
+        try {
+          unlinkSync(receiptPathFor(options.configPath));
+        } catch {
+          /* ignore */
+        }
+        return { action: "uninstalled" };
+      }
+      throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+    }
     if (!owned.every((server) => isBridgeServer(server))) {
       throw new RegistryError("invalid_entry", "not uninstalling: h2a entry is not the installer-owned bridge entry (conflict)");
     }
@@ -853,14 +963,21 @@ export function uninstallBridgeEntry(options: { host: string; configPath: string
     throw new RegistryError("invalid_entry", `host config at ${options.configPath} is not JSON`);
   }
   const current = (parsed["mcpServers"] as Record<string, unknown> | undefined)?.["h2a"];
-  if (current === undefined) throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+  if (current === undefined) {
+    if (isMatchingFileReceipt) {
+      try {
+        unlinkSync(receiptPathFor(options.configPath));
+      } catch {
+        /* ignore */
+      }
+      return { action: "uninstalled" };
+    }
+    throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+  }
   const receipt = readInstallReceipt(options.configPath);
   const expected = (receipt?.["bridge"] as { command: string; args: string[] } | undefined)
     ?? renderBridgeEntry(options.host, { lockPath: defaultInstallLockPath(options.configPath) }).entry.h2a;
-  if (isLegacyDirectJson(current)) {
-    throw new RegistryError("invalid_entry", "not uninstalling a legacy direct entry here: run the registry migrate transaction instead");
-  }
-  if (!deepEqualJson(current, expected)) {
+  if (!(isLegacyDirectJson(current) && legacyJsonDeviation(current as Record<string, unknown>) === null) && !deepEqualJson(current, expected)) {
     throw new RegistryError("invalid_entry", "not uninstalling: h2a entry is not the installer-owned bridge entry (conflict)");
   }
   const next = removeJsonEntry(raw, ["mcpServers", BRIDGE_SERVER_KEY]);
@@ -882,6 +999,7 @@ export interface PluginInstallOptions {
   pluginDir: string;
   h2aEntry?: RegistryEntry;
   trackEntry?: RegistryEntry;
+  stderr?: { write(text: string): void };
 }
 
 export interface PluginDeclaration {
@@ -955,17 +1073,43 @@ export function readPluginDeclaration(host: RegistryHost, pluginDir: string, pro
   }
   const endpoint = servers["h2a"] as Record<string, unknown>;
   const args = endpoint["args"];
-  if (typeof endpoint["command"] !== "string" || !H2A_COMMAND.test(endpoint["command"] as string) || !Array.isArray(args)) {
+  if (typeof endpoint["command"] !== "string" || !Array.isArray(args)) {
     throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} declares no h2a bridge endpoint`);
   }
   const stringArgs = (args as unknown[]).filter((arg): arg is string => typeof arg === "string");
   if (stringArgs.includes("mcp-serve")) {
     throw new RegistryError("invalid_entry", `legacy plugin asset at ${assetPath} still declares mcp-serve; regenerate it first`);
   }
-  if (!stringArgs.includes("registry-bridge")) {
+  const cmdStr = endpoint["command"] as string;
+  const isDirectH2a = H2A_COMMAND.test(cmdStr);
+  let isNodeShim = false;
+  if (host === "claude" && cmdStr === "node" && typeof stringArgs[0] === "string") {
+    const rawShim = stringArgs[0];
+    if (rawShim.startsWith("${CLAUDE_PLUGIN_ROOT}/")) {
+      const relShim = rawShim.slice("${CLAUDE_PLUGIN_ROOT}/".length);
+      const expectedShim = join(resolve(pluginDir), "scripts", "h2a-bridge-shim.mjs");
+      try {
+        if (
+          !isAbsolute(relShim) &&
+          resolve(pluginDir, relShim) === expectedShim &&
+          existsSync(expectedShim) &&
+          statSync(expectedShim).isFile()
+        ) {
+          isNodeShim = true;
+        }
+      } catch {
+        isNodeShim = false;
+      }
+    }
+  }
+  if (!isDirectH2a && !isNodeShim) {
+    throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} declares no h2a bridge endpoint`);
+  }
+  const subArgs = isNodeShim ? stringArgs.slice(1) : stringArgs;
+  if (subArgs[0] !== "registry-bridge" || subArgs[1] !== "serve") {
     throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} does not declare the registry bridge`);
   }
-  if (flagValue(stringArgs, "--host") !== host || flagValue(stringArgs, "--profile") !== profile) {
+  if (flagValue(subArgs, "--host") !== host || flagValue(subArgs, "--profile") !== profile) {
     throw new RegistryError(
       "invalid_entry",
       `plugin asset at ${assetPath} is not bound to host=${host} profile=${profile}; refusing to verify it`
@@ -976,8 +1120,611 @@ export function readPluginDeclaration(host: RegistryHost, pluginDir: string, pro
     assetPath,
     pluginName: manifest["name"] as string,
     pluginVersion: manifest["version"] ?? null,
-    entry: { command: endpoint["command"] as string, args: stringArgs }
+    entry: { command: cmdStr, args: stringArgs }
   };
+}
+
+function quoteShellPathForBootstrap(p: string): string {
+  return /[^A-Za-z0-9_./:@=-]/.test(p) ? `'${p.replace(/'/g, "'\\''")}'` : p;
+}
+
+function isTrustedStat(st: { uid: number; mode: number }): boolean {
+  if ((st.mode & 0o022) !== 0) return false;
+  if (typeof process.getuid === "function") {
+    const uid = process.getuid();
+    if (st.uid !== uid && st.uid !== 0) return false;
+  }
+  return true;
+}
+
+function formatUntrustedReason(targetPath: string, st: { uid: number; mode: number }): string {
+  const octalMode = (st.mode & 0o777).toString(8).padStart(4, "0");
+  const uid = typeof process.getuid === "function" ? process.getuid() : st.uid;
+  const quoted = quoteShellPathForBootstrap(targetPath);
+  const ownerMismatch = typeof process.getuid === "function" && st.uid !== uid && st.uid !== 0;
+  const modeMismatch = (st.mode & 0o022) !== 0;
+  const remedy = ownerMismatch && modeMismatch
+    ? `chown ${uid} ${quoted} && chmod go-w ${quoted}`
+    : ownerMismatch
+      ? `chown ${uid} ${quoted}`
+      : `chmod go-w ${quoted}`;
+  return `${targetPath} has mode ${octalMode} uid=${st.uid} (expected uid=${uid} without group/other write); run: ${remedy}`;
+}
+
+function checkTrustedDirectoryPath(dirPath: string, rejected?: string[] | null): boolean {
+  if (!dirPath || !isAbsolute(dirPath)) return false;
+  try {
+    const st = statSync(dirPath);
+    if (!st.isDirectory()) return false;
+    if (!isTrustedStat(st)) {
+      if (rejected) rejected.push(formatUntrustedReason(dirPath, st));
+      return false;
+    }
+    const real = realpathSync(dirPath);
+    const realSt = statSync(real);
+    if (!realSt.isDirectory()) return false;
+    if (!isTrustedStat(realSt)) {
+      if (rejected && real !== dirPath) rejected.push(formatUntrustedReason(real, realSt));
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isPathExecutableCandidate(candidate: string, excludeRealpath?: string | null): boolean {
+  if (!candidate || !isAbsolute(candidate)) return false;
+  try {
+    const st = statSync(candidate);
+    if (!st.isFile() || (st.mode & 0o111) === 0 || (st.mode & 0o002) !== 0) return false;
+    const realCandidate = realpathSync(candidate);
+    if (excludeRealpath && realCandidate === excludeRealpath) return false;
+    const realSt = statSync(realCandidate);
+    return realSt.isFile() && (realSt.mode & 0o111) !== 0 && (realSt.mode & 0o002) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedFallbackCandidate(
+  candidate: string,
+  prefixRoot?: string | null,
+  excludeRealpath?: string | null,
+  rejected?: string[] | null
+): boolean {
+  if (!candidate || !isAbsolute(candidate)) return false;
+  try {
+    lstatSync(candidate);
+  } catch {
+    return false;
+  }
+  let realCandidate: string;
+  try {
+    realCandidate = realpathSync(candidate);
+  } catch {
+    return false;
+  }
+  if (excludeRealpath && realCandidate === excludeRealpath) return false;
+
+  const candidateReasons: string[] = [];
+  try {
+    const realSt = statSync(realCandidate);
+    if (!realSt.isFile() || (realSt.mode & 0o111) === 0) return false;
+    if (!isTrustedStat(realSt)) {
+      candidateReasons.push(formatUntrustedReason(realCandidate, realSt));
+    }
+    const realBinDir = dirname(realCandidate);
+    checkTrustedDirectoryPath(realBinDir, candidateReasons);
+    const candidateDir = dirname(candidate);
+    if (candidateDir !== realBinDir) {
+      checkTrustedDirectoryPath(candidateDir, candidateReasons);
+    }
+    if (prefixRoot && isAbsolute(prefixRoot)) {
+      try {
+        const realPrefix = realpathSync(prefixRoot);
+        if (realCandidate === realPrefix || realCandidate.startsWith(`${realPrefix}${sep}`)) {
+          let cur = realBinDir;
+          while (cur.startsWith(`${realPrefix}${sep}`) && cur !== realPrefix) {
+            const parent = dirname(cur);
+            if (parent === cur) break;
+            cur = parent;
+            checkTrustedDirectoryPath(cur, candidateReasons);
+          }
+        } else {
+          checkTrustedDirectoryPath(prefixRoot, candidateReasons);
+        }
+      } catch {
+        checkTrustedDirectoryPath(prefixRoot, candidateReasons);
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  if (candidateReasons.length > 0) {
+    if (Array.isArray(rejected)) {
+      for (const reason of candidateReasons) {
+        if (!rejected.includes(reason)) rejected.push(reason);
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve the `h2a` executable across narrowed session PATHs (e.g. login shells
+ * or desktop launchers that read `~/.profile` with `~/.local/bin` while `h2a`
+ * was installed under `~/.npm-global/bin` or `~/.local/share/h2a/upgrade/current/bin`).
+ * Accepts session `PATH` directories (including `umask 002` `0775` user-group dirs)
+ * while enforcing owner and `go-w` checks on fallback prefixes outside `PATH`.
+ */
+export function resolveH2aExecutable(
+  env: NodeJS.ProcessEnv = process.env,
+  options: { excludeRealpath?: string | null; rejected?: string[]; onlyHomeFallbacks?: boolean } = {}
+): string | null {
+  const rejected = Array.isArray(options.rejected) ? options.rejected : null;
+  const onlyHomeFallbacks = Boolean(options.onlyHomeFallbacks);
+  const rawHome = env.HOME?.trim();
+  const home = rawHome && isAbsolute(rawHome) ? rawHome : null;
+  const h2aPrefix = env.H2A_PREFIX?.trim();
+  const npmPrefix = env.NPM_CONFIG_PREFIX?.trim();
+
+  const candidates: Array<{ dir: string; prefixRoot?: string | null; fromPath: boolean }> = [];
+  if (!onlyHomeFallbacks) {
+    for (const rawDir of (env.PATH ?? "").split(":")) {
+      const dir = rawDir.trim();
+      if (!dir || !isAbsolute(dir)) continue;
+      candidates.push({ dir, fromPath: true });
+    }
+    if (h2aPrefix && isAbsolute(h2aPrefix)) {
+      candidates.push({ dir: join(h2aPrefix, "bin"), prefixRoot: h2aPrefix, fromPath: false });
+    }
+    if (npmPrefix && isAbsolute(npmPrefix)) {
+      candidates.push({ dir: join(npmPrefix, "bin"), prefixRoot: npmPrefix, fromPath: false });
+    }
+  }
+  if (home) {
+    const upgradeRoot = join(home, ".local", "share", "h2a", "upgrade", "current");
+    const npmGlobalRoot = join(home, ".npm-global");
+    const localBinDir = join(home, ".local", "bin");
+    const pnpmRoot = join(home, ".local", "share", "pnpm");
+    candidates.push(
+      { dir: join(upgradeRoot, "bin"), prefixRoot: upgradeRoot, fromPath: false },
+      { dir: join(npmGlobalRoot, "bin"), prefixRoot: npmGlobalRoot, fromPath: false }
+    );
+    if (!onlyHomeFallbacks) {
+      candidates.push({ dir: localBinDir, prefixRoot: localBinDir, fromPath: false });
+    }
+    candidates.push({ dir: pnpmRoot, prefixRoot: pnpmRoot, fromPath: false });
+    if (!onlyHomeFallbacks) {
+      try {
+        const realHome = realpathSync(home);
+        const execDir = dirname(process.execPath);
+        if (realpathSync(execDir).startsWith(`${realHome}${sep}`)) {
+          candidates.push({ dir: execDir, prefixRoot: execDir, fromPath: false });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const seen = new Set<string>();
+  for (const { dir, prefixRoot, fromPath } of candidates) {
+    const key = `${fromPath ? "path" : "fallback"}:${dir}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const candidate = join(dir, "h2a");
+    if (fromPath) {
+      if (isPathExecutableCandidate(candidate, options.excludeRealpath)) {
+        return candidate;
+      }
+    } else if (isTrustedFallbackCandidate(candidate, prefixRoot, options.excludeRealpath, rejected)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function isOwnedNonWorldWritableDir(dirPath: string): boolean {
+  if (!dirPath || !isAbsolute(dirPath)) return false;
+  try {
+    const st = statSync(dirPath);
+    if (!st.isDirectory() || (st.mode & 0o002) !== 0) return false;
+    if (typeof process.getuid === "function") {
+      const uid = process.getuid();
+      if (st.uid !== uid && st.uid !== 0) return false;
+    }
+    const real = realpathSync(dirPath);
+    const realSt = statSync(real);
+    if (!realSt.isDirectory() || (realSt.mode & 0o002) !== 0) return false;
+    if (typeof process.getuid === "function") {
+      const uid = process.getuid();
+      if (realSt.uid !== uid && realSt.uid !== 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface LocalBinFallbackDiagnostics {
+  linked?: string | null;
+  rejected?: string[];
+  warning?: string;
+}
+
+/**
+ * Best-effort PATH fallback link: when an executable `h2a` exists inside `$HOME`
+ * (`~/.npm-global/bin/h2a`, `~/.local/share/h2a/upgrade/current/bin/h2a`, or
+ * `~/.local/share/pnpm/h2a`), ensure `~/.local/bin` exists (`0o700`) and link
+ * `~/.local/bin/h2a` (healing a broken symlink under `$HOME` if present).
+ * Consumes `resolveH2aExecutable` with `onlyHomeFallbacks: true` (never trusts
+ * `H2A_PREFIX`) and logs the created/healed link (or actionable `chmod go-w`
+ * rejection diagnostics when a candidate exists but is group/other-writable)
+ * to `stderr`.
+ */
+export function ensureLocalBinH2aFallback(
+  home: string,
+  _env: NodeJS.ProcessEnv = process.env,
+  stderr: { write(text: string): void } = process.stderr,
+  diagnostics?: LocalBinFallbackDiagnostics
+): string | null {
+  if (!home || !isAbsolute(home)) return null;
+  let realHome: string;
+  try {
+    realHome = realpathSync(home);
+  } catch {
+    return null;
+  }
+  const rejected: string[] = [];
+  const target = resolveH2aExecutable(
+    { HOME: home, PATH: "" },
+    { onlyHomeFallbacks: true, rejected }
+  );
+  if (!target) {
+    if (rejected.length > 0) {
+      const warning = `PATH fallback not linked: ${rejected.join("; ")}`;
+      if (diagnostics) {
+        diagnostics.linked = null;
+        diagnostics.rejected = rejected;
+        diagnostics.warning = warning;
+      }
+      try {
+        stderr.write(`h2a registry bootstrap: ${warning}\n`);
+      } catch {
+        /* ignore stderr write failure */
+      }
+    }
+    return null;
+  }
+  try {
+    const realTarget = realpathSync(target);
+    if (!realTarget.startsWith(`${realHome}${sep}`)) return null;
+  } catch {
+    return null;
+  }
+
+  const localDir = join(home, ".local");
+  const localBin = join(localDir, "bin");
+  try {
+    if (!existsSync(localBin)) {
+      mkdirSync(localBin, { recursive: true, mode: 0o700 });
+    }
+    if (!isOwnedNonWorldWritableDir(localBin)) return null;
+  } catch {
+    return null;
+  }
+
+  const linkPath = join(localBin, "h2a");
+  try {
+    const lst = lstatSync(linkPath);
+    if (lst.isSymbolicLink() && !existsSync(linkPath)) {
+      const rawTarget = readlinkSync(linkPath);
+      const resolvedBroken = resolve(localBin, rawTarget);
+      const relFromHome = resolvedBroken.startsWith(`${realHome}${sep}`)
+        ? resolvedBroken.slice(realHome.length + 1)
+        : resolvedBroken.startsWith(`${resolve(home)}${sep}`)
+          ? resolvedBroken.slice(resolve(home).length + 1)
+          : null;
+      if (relFromHome !== null && /(^|[\\/])h2a([-_.][^\\/]*)?([\\/]|$)/i.test(relFromHome)) {
+        unlinkSync(linkPath);
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  } catch {
+    /* linkPath is absent: proceed */
+  }
+  try {
+    symlinkSync(target, linkPath);
+    if (diagnostics) diagnostics.linked = linkPath;
+    try {
+      stderr.write(`h2a registry bootstrap: linked PATH fallback ${linkPath} -> ${target}\n`);
+    } catch {
+      /* ignore stderr write failure */
+    }
+    return linkPath;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the host config path and installed plugin directory for a plugin-hosted
+ * `registry-bridge serve` invocation so `--auto-upgrade` can idempotently
+ * re-bootstrap an absent default lock or report the exact owner command.
+ */
+export function resolveHostPluginContext(
+  host: RegistryHost,
+  profile: string,
+  flags: Record<string, string> = {},
+  env: NodeJS.ProcessEnv = process.env
+): { configPath: string | null; pluginDir: string | null; error?: string } {
+  const rawHome = env.HOME?.trim() || null;
+  const home = rawHome && isAbsolute(rawHome) ? rawHome : null;
+  let configPath: string | null = flags["config"]?.trim() || null;
+  if (configPath && !isAbsolute(configPath)) configPath = null;
+  if (!configPath && home) {
+    if (host === "claude") {
+      configPath = resolveClaudeConfigPath(home, env);
+    } else if (host === "codex") {
+      const codexHome = resolveCodexConfigRoot(home, env);
+      configPath = join(codexHome, "config.toml");
+    }
+  }
+
+  let pluginDir: string | null = null;
+  let error: string | undefined;
+  const explicitPluginDir = flags["plugin-dir"]?.trim();
+  if (explicitPluginDir && isAbsolute(explicitPluginDir)) {
+    if (home && (host === "claude" || host === "codex")) {
+      const hostRoot = host === "claude" ? resolveClaudeConfigRoot(home, env) : resolveCodexConfigRoot(home, env);
+      const pluginsBase = join(hostRoot, "plugins");
+      try {
+        const realCandidate = realpathSync(explicitPluginDir);
+        const realPluginsBase = realpathSync(pluginsBase);
+        if (realCandidate.startsWith(`${realPluginsBase}${sep}`)) {
+          readPluginDeclaration(host, explicitPluginDir, profile);
+          pluginDir = explicitPluginDir;
+        } else {
+          error = `--plugin-dir (${explicitPluginDir}) is outside ${pluginsBase}`;
+        }
+      } catch (err) {
+        error = (err as Error).message;
+      }
+    } else {
+      error = "--plugin-dir is not inside a trusted host plugins directory";
+    }
+  } else if (host === "claude" && env.CLAUDE_PLUGIN_ROOT?.trim()) {
+    const candidateRoot = env.CLAUDE_PLUGIN_ROOT.trim();
+    if (isAbsolute(candidateRoot) && home) {
+      const claudeRoot = resolveClaudeConfigRoot(home, env);
+      const pluginsBase = join(claudeRoot, "plugins");
+      try {
+        const realCandidate = realpathSync(candidateRoot);
+        const realPluginsBase = realpathSync(pluginsBase);
+        if (realCandidate.startsWith(`${realPluginsBase}${sep}`)) {
+          readPluginDeclaration("claude", candidateRoot, profile);
+          pluginDir = candidateRoot;
+        } else {
+          error = `CLAUDE_PLUGIN_ROOT (${candidateRoot}) is outside ${pluginsBase}`;
+        }
+      } catch (err) {
+        error = (err as Error).message;
+      }
+    } else {
+      error = "CLAUDE_PLUGIN_ROOT is not a valid Claude plugins directory";
+    }
+  }
+
+  if (!pluginDir && !error && home) {
+    const verifyCandidateDir = (dir: string): boolean => {
+      try {
+        if (!statSync(dir).isDirectory()) return false;
+        readPluginDeclaration(host, dir, profile);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (host === "claude") {
+      const claudeRoot = resolveClaudeConfigRoot(home, env);
+      const installedPath = join(claudeRoot, "plugins", "installed_plugins.json");
+      let hadInstalledEntries = false;
+      try {
+        const installed = JSON.parse(readFileSync(installedPath, "utf8")) as Record<string, unknown>;
+        const plugins = isPlainObject(installed["plugins"]) ? installed["plugins"] : {};
+        const entries = plugins["h2a@sentropic"];
+        if (Array.isArray(entries)) {
+          const validPaths: string[] = [];
+          for (const item of entries) {
+            if (
+              isPlainObject(item) &&
+              typeof item["installPath"] === "string" &&
+              isAbsolute(item["installPath"]) &&
+              existsSync(item["installPath"])
+            ) {
+              validPaths.push(resolve(item["installPath"]));
+            }
+          }
+          const uniquePaths = [...new Set(validPaths)];
+          if (uniquePaths.length > 1) {
+            return {
+              configPath,
+              pluginDir: null,
+              error: `ambiguous plugin cache: multiple active installPath entries in ${installedPath}`
+            };
+          }
+          if (uniquePaths.length === 1) {
+            hadInstalledEntries = true;
+            try {
+              readPluginDeclaration("claude", uniquePaths[0] as string, profile);
+              pluginDir = uniquePaths[0] as string;
+            } catch (err) {
+              return { configPath, pluginDir: null, error: (err as Error).message };
+            }
+          }
+        }
+      } catch {
+        /* fall back to cache directory scan */
+      }
+      if (!pluginDir && !hadInstalledEntries) {
+        const cacheBase = join(claudeRoot, "plugins", "cache", "sentropic", "h2a");
+        pluginDir = findVerifiedPluginVersionDir(cacheBase, "claude", verifyCandidateDir);
+      }
+    } else if (host === "codex") {
+      const codexHome = resolveCodexConfigRoot(home, env);
+      const cacheBase = join(codexHome, "plugins", "cache", "sentropic", "h2a");
+      pluginDir = findVerifiedPluginVersionDir(cacheBase, "codex", verifyCandidateDir);
+    }
+  }
+  return { configPath, pluginDir, ...(error ? { error } : {}) };
+}
+
+function throwConfigConflictError(cfgPath: string, message: string): never {
+  throw Object.assign(new RegistryError("invalid_entry", message), { conflictConfigPath: cfgPath });
+}
+
+function assertCleanHostConfigForPluginRebootstrap(host: RegistryHost, cfgPath: string, profile: string): void {
+  const receiptPath = receiptPathFor(cfgPath);
+  if (existsSync(receiptPath)) {
+    let rawReceipt: unknown;
+    try {
+      rawReceipt = JSON.parse(readFileSync(receiptPath, "utf8")) as unknown;
+    } catch (err) {
+      throwConfigConflictError(
+        cfgPath,
+        `unreadable install receipt at ${receiptPath} (${(err as Error).message}); refusing auto re-bootstrap`
+      );
+    }
+    if (!isPlainObject(rawReceipt)) {
+      throwConfigConflictError(cfgPath, `malformed install receipt at ${receiptPath}; refusing auto re-bootstrap`);
+    }
+    const recordedMechanism = rawReceipt["mechanism"] ?? "file";
+    if (recordedMechanism !== "plugin") {
+      throwConfigConflictError(
+        cfgPath,
+        `conflicting mechanism ${JSON.stringify(recordedMechanism)} recorded for host=${host} profile=${profile} ` +
+        `at ${receiptPath}; plugin re-bootstrap refused (duplicate mechanism)`
+      );
+    }
+    if (rawReceipt["host"] !== host || (rawReceipt["profile"] ?? "default") !== profile) {
+      throwConfigConflictError(
+        cfgPath,
+        `existing receipt at ${receiptPath} belongs to host=${String(rawReceipt["host"])} profile=${String(rawReceipt["profile"] ?? "default")}, ` +
+        `not host=${host} profile=${profile}; refusing auto re-bootstrap`
+      );
+    }
+  }
+
+  if (!existsSync(cfgPath)) return;
+  const rawConfig = readFileSync(cfgPath, "utf8");
+  if (host === "claude") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawConfig) as unknown;
+    } catch (err) {
+      throwConfigConflictError(
+        cfgPath,
+        `host config at ${cfgPath} is not valid JSON (${(err as Error).message}); refusing auto re-bootstrap`
+      );
+    }
+    if (!isPlainObject(parsed)) {
+      throwConfigConflictError(cfgPath, `host config at ${cfgPath} is not a JSON object; refusing auto re-bootstrap`);
+    }
+    if (parsed["mcpServers"] !== undefined && !isPlainObject(parsed["mcpServers"])) {
+      throwConfigConflictError(cfgPath, `host config at ${cfgPath} has invalid mcpServers; refusing auto re-bootstrap`);
+    }
+    const mcpServers = parsed["mcpServers"] as Record<string, unknown> | undefined;
+    if (mcpServers && Object.prototype.hasOwnProperty.call(mcpServers, BRIDGE_SERVER_KEY)) {
+      const existingServer = mcpServers[BRIDGE_SERVER_KEY];
+      if (isLegacyDirectJson(existingServer) && legacyJsonDeviation(existingServer as Record<string, unknown>) === null) {
+        throwConfigConflictError(
+          cfgPath,
+          `conflicting mechanism: legacy direct h2a entry in host config at ${cfgPath} (mcpServers.${BRIDGE_SERVER_KEY}); refusing plugin auto re-bootstrap`
+        );
+      }
+      throwConfigConflictError(
+        cfgPath,
+        `conflicting mechanism: foreign h2a entry in host config at ${cfgPath} (mcpServers.${BRIDGE_SERVER_KEY}); refusing plugin auto re-bootstrap`
+      );
+    }
+  } else if (host === "codex") {
+    const codexServers = readCodexServers(rawConfig);
+    const h2aServers = codexServers.filter((s) => isCodexH2aServerName(s.name));
+    if (h2aServers.length > 0) {
+      if (h2aServers.some((s) => isCodexLegacyDirectServer(s))) {
+        throwConfigConflictError(
+          cfgPath,
+          `conflicting mechanism: legacy direct h2a entry in host config at ${cfgPath} (mcp_servers.h2a); refusing plugin auto re-bootstrap`
+        );
+      }
+      throwConfigConflictError(
+        cfgPath,
+        `conflicting mechanism: foreign h2a entry in host config at ${cfgPath} (mcp_servers.h2a); refusing plugin auto re-bootstrap`
+      );
+    }
+  }
+}
+
+/**
+ * Dedicated auto re-bootstrap for `registry-bridge serve --auto-upgrade`:
+ * - validates the installed plugin declaration;
+ * - validates the existing receipt (if present) without ever writing or overwriting it;
+ * - validates the host config (`configPath`, plus `~/.config/claude/mcp.json` on Claude)
+ *   to refuse on invalid JSON/TOML or any legacy/foreign/file `h2a` server declaration;
+ * - never touches `~/.local/bin/h2a`;
+ * - atomically provisions ONLY `defaultPluginBridgeLockPath(host, profile)`.
+ */
+export function rebootstrapMissingPluginLock(options: PluginInstallOptions): {
+  lockPath: string;
+  lockAction: "provisioned" | "already-present";
+} {
+  assertRegistryHost(options.host);
+  if (options.host !== "claude" && options.host !== "codex") {
+    throw new RegistryError("unsupported_host", `no qualified plugin adapter for host=${options.host}; plugin mechanism exists for claude and codex`);
+  }
+  const profile = options.profile ?? "default";
+  if (!options.pluginDir) {
+    throw new RegistryError("invalid_entry", "plugin re-bootstrap needs --plugin-dir <installed package root>");
+  }
+  const declaration = readPluginDeclaration(options.host, options.pluginDir, profile);
+
+  if (options.configPath) {
+    assertCleanHostConfigForPluginRebootstrap(options.host, options.configPath, profile);
+  }
+  if (options.host === "claude") {
+    try {
+      const secondaryClaudeConfig = join(pluginBridgeConfigBase(), "claude", "mcp.json");
+      if (!options.configPath || resolve(secondaryClaudeConfig) !== resolve(options.configPath)) {
+        assertCleanHostConfigForPluginRebootstrap("claude", secondaryClaudeConfig, profile);
+      }
+    } catch (err) {
+      if (err instanceof RegistryError) throw err;
+    }
+  }
+
+  if (!options.h2aEntry || !options.trackEntry) {
+    throw new RegistryError("invalid_entry", "plugin re-bootstrap needs the packed entries to provision the default lock");
+  }
+  const lockPath = defaultPluginBridgeLockPath(options.host, profile);
+  const bridgeArgsForLock = declaration.entry.args.includes("registry-bridge")
+    ? declaration.entry.args.slice(declaration.entry.args.indexOf("registry-bridge"))
+    : declaration.entry.args;
+  const lockAction = provisionBridgeLock({
+    lockPath,
+    host: options.host,
+    profile,
+    bridge: { command: "h2a", args: bridgeArgsForLock },
+    h2aEntry: options.h2aEntry,
+    trackEntry: options.trackEntry
+  }).action;
+  return { lockPath, lockAction };
 }
 
 /**
@@ -985,8 +1732,9 @@ export function readPluginDeclaration(host: RegistryHost, pluginDir: string, pro
  * provision the per-host/profile default lock and record the receipt
  * (mechanism, plugin identity, lock location). Verification edits neither
  * the plugin cache nor the host config: only the receipt (next to the host
- * config) and the default lock are written. A file-mechanism receipt for the
- * same host/profile refuses as a duplicate mechanism, and conversely.
+ * config), the default lock, and a best-effort `~/.local/bin/h2a` PATH fallback
+ * symlink are written. A file-mechanism receipt for the same host/profile
+ * refuses as a duplicate mechanism, and conversely.
  */
 export function verifyPluginInstall(options: PluginInstallOptions): InstallResult {
   assertRegistryHost(options.host);
@@ -1016,6 +1764,28 @@ export function verifyPluginInstall(options: PluginInstallOptions): InstallResul
     throw new RegistryError("invalid_entry", "plugin verification needs the packed entries to provision the default lock");
   }
   const lockPath = defaultPluginBridgeLockPath(options.host, profile);
+  let quarantinePath: string | undefined;
+  if (existsSync(lockPath)) {
+    try {
+      readBridgeLock(lockPath);
+    } catch (err) {
+      // A lock that selects sentropic.engram.memory throws `missing_binding`
+      // when read without memoryEntry; it is a valid lock, not corruption.
+      if ((err as { code?: string }).code !== "missing_binding") {
+        const q = quarantineBridgeLock(lockPath, {
+          reason: "corrupt-lock-heal",
+          forceQuarantineCorrupt: true
+        });
+        if (q.action === "error") {
+          throw new RegistryError("restore_failed", `failed to quarantine corrupt lock at ${lockPath}: ${q.error ?? "unknown error"}`);
+        }
+        if (q.quarantinePath) quarantinePath = q.quarantinePath;
+      }
+    }
+  }
+  const bridgeArgsForLock = declaration.entry.args.includes("registry-bridge")
+    ? declaration.entry.args.slice(declaration.entry.args.indexOf("registry-bridge"))
+    : declaration.entry.args;
   const record = {
     host: options.host,
     profile,
@@ -1025,25 +1795,55 @@ export function verifyPluginInstall(options: PluginInstallOptions): InstallResul
     lockPath,
     action: "installed"
   };
+  const home = process.env.HOME?.trim();
+  const fallbackDiag: LocalBinFallbackDiagnostics = {};
+  if (home) ensureLocalBinH2aFallback(home, process.env, options.stderr, fallbackDiag);
+  const pathFallback =
+    fallbackDiag.linked !== undefined || fallbackDiag.warning !== undefined
+      ? {
+          linked: fallbackDiag.linked ?? null,
+          ...(fallbackDiag.warning ? { warning: fallbackDiag.warning } : {}),
+          ...(fallbackDiag.rejected && fallbackDiag.rejected.length > 0 ? { rejected: fallbackDiag.rejected } : {})
+        }
+      : undefined;
   if (existing && deepEqualJson(existing, { format: "h2a.registry-install/v1", ...record })) {
     const lockAction = provisionBridgeLock({
       lockPath,
       host: options.host,
       profile,
-      bridge: { command: "h2a", args: declaration.entry.args },
+      bridge: { command: "h2a", args: bridgeArgsForLock },
       h2aEntry: options.h2aEntry,
       trackEntry: options.trackEntry
     }).action;
-    return { action: "reinstall-identical", receiptPath, lockAction };
+    return {
+      action: "reinstall-identical",
+      receiptPath,
+      lockAction,
+      ...(quarantinePath ? { quarantinePath } : {}),
+      ...(pathFallback ? { pathFallback } : {})
+    };
+  }
+  let backupPath: string | undefined;
+  if (existsSync(receiptPath) && (!existing || existing["host"] !== options.host || (existing["profile"] ?? "default") !== profile)) {
+    const receiptBackup = `${receiptPath}.backup-${randomUUID()}`;
+    writeFileSync(receiptBackup, readFileSync(receiptPath), { flag: "wx", mode: 0o600 });
+    backupPath = receiptBackup;
   }
   const lockAction = provisionBridgeLock({
     lockPath,
     host: options.host,
     profile,
-    bridge: { command: "h2a", args: declaration.entry.args },
+    bridge: { command: "h2a", args: bridgeArgsForLock },
     h2aEntry: options.h2aEntry,
     trackEntry: options.trackEntry
   }).action;
   writeReceiptRecord(receiptPath, record);
-  return { action: "installed", receiptPath, lockAction };
+  return {
+    action: "installed",
+    receiptPath,
+    lockAction,
+    ...(backupPath ? { backupPath } : {}),
+    ...(quarantinePath ? { quarantinePath } : {}),
+    ...(pathFallback ? { pathFallback } : {})
+  };
 }

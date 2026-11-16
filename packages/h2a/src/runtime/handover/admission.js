@@ -87,7 +87,21 @@ export async function prepareAuthority({ directory, root, physicalPrefix, frame 
   fs.mkdirSync(directory, { mode: 0o700, recursive: true }); privateDirectory(directory);
   const canonicalPrefix = fs.realpathSync(physicalPrefix), canonicalRoot = canonicalRootPath(root);
   const prefixInfo = fs.statSync(canonicalPrefix);
-  if (!prefixInfo.isDirectory() || prefixInfo.uid !== process.getuid() || (prefixInfo.mode & 0o022)) throw new Error('prefix_owner_mismatch');
+  if (!prefixInfo.isDirectory() || prefixInfo.uid !== process.getuid() || (prefixInfo.mode & 0o022)) {
+    const octalMode = (prefixInfo.mode & 0o777).toString(8).padStart(4, '0');
+    const expectedUid = process.getuid();
+    const quotedPrefix = /[^A-Za-z0-9_./:@=-]/.test(canonicalPrefix) ? `'${canonicalPrefix.replace(/'/g, "'\\''")}'` : canonicalPrefix;
+    const ownerMismatch = prefixInfo.uid !== expectedUid;
+    const modeMismatch = (prefixInfo.mode & 0o022) !== 0;
+    const remedy = ownerMismatch && modeMismatch
+      ? `chown ${expectedUid} ${quotedPrefix} && chmod go-w ${quotedPrefix}`
+      : ownerMismatch
+        ? `chown ${expectedUid} ${quotedPrefix}`
+        : `chmod go-w ${quotedPrefix}`;
+    throw new Error(
+      `prefix_owner_mismatch: ${canonicalPrefix} has mode ${octalMode} uid=${prefixInfo.uid} (expected uid=${expectedUid} without group/other write); run: ${remedy}`
+    );
+  }
   const prefixId = digest({ canonicalPrefix, uid: process.getuid() });
   const canonicalMarkerLocation = join(directory, 'marker.json');
   const path = join(directory, 'authority-domain.json');
