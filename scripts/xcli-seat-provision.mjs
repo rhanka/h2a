@@ -118,6 +118,17 @@ function readAuthFile(homeDir, seatId, rel) {
   return bytes;
 }
 
+// R38 (owner 16/11): the `local-login` gate decides on the presence of the
+// allowlisted login files only — a LOCAL test must not depend on llm-mesh
+// enrollment. The mesh gate stays the default for the trusted-lane campaign.
+function resolveLocalLoginGate({ seatId, cli }) {
+  const mapping = MESH_SEAT_PROVIDERS[cli];
+  if (!mapping) throw new Error(`seat-unknown:${seatId}`);
+  if (cli === 'vibe') throw new Error('local-seats-unsupported:vibe');
+  return { provider: mapping.provider, accountId: null,
+    meshGate: 'local-login-present', localGate: true };
+}
+
 // Resolve the mesh gate for one seat. Vibe has no other source: without a
 // readable mesh store the seat refuses (llm-mesh-store-unreachable). File
 // seats keep the live login files when the store is unreadable — the gate
@@ -152,7 +163,8 @@ async function resolveMeshGate({ seatId, cli, meshFacade, meshScope }) {
 // file's names and the seat source for receipts.
 export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'owner',
   issuedAt = new Date().toISOString(), operationId = null, meshFacade = null,
-  meshScope = meshOwnerScope(), cliVersions = {} } = {}) {
+  meshScope = meshOwnerScope(), cliVersions = {}, gate: gateMode = 'mesh' } = {}) {
+  assert.ok(['mesh', 'local-login'].includes(gateMode), 'known seat gate');
   assert.ok(seatId && slot && homeDir, 'seat, slot and home required');
   const identity = SEAT_IDENTITIES[seatId];
   if (!identity) throw new Error(`seat-unknown:${seatId}`);
@@ -176,7 +188,10 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
   if (allowlisted === null) throw new Error(`login-not-confined:${seatId}`);
   const raws = [];
   const files = {};
-  const gate = await resolveMeshGate({ seatId, cli: identity.cli, meshFacade, meshScope });
+  const gate = gateMode === 'local-login'
+    ? resolveLocalLoginGate({ seatId, cli: identity.cli })
+    : await resolveMeshGate({ seatId, cli: identity.cli, meshFacade, meshScope });
+  let seatSourceKind = identity.cli === 'vibe' ? 'llm-mesh' : 'cli-login';
   if (identity.cli === 'vibe') {
     const key = await acquireVibeKey({ facade: meshFacade, ownerScope: meshScope,
       accountId: gate.accountId });
@@ -199,12 +214,16 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
   // reference, never the hash-derived bundle binding); without it issuance
   // refuses with a typed code and the seat provisions auth-only. Vibe has
   // no measured gate and no block.
+  // R38: under the local-login gate the onboarding binding is derived from
+  // the login bytes themselves — never from a mesh account.
+  const onboardingBinding = gate.accountId ??
+    (gate.localGate ? `local-login-${digest.slice(0, 16)}` : null);
   let onboarding = undefined;
   let onboardingRefused = undefined;
-  if (identity.cli !== 'vibe' && gate.accountId) {
+  if (identity.cli !== 'vibe' && onboardingBinding) {
     const nativeCliVersion = cliVersions[identity.cli];
     const captureInput = { cli: identity.cli, seatRef: seatId, ownerScope,
-      accountBinding: gate.accountId, nativeCliVersion, os: 'linux', capturedAt: issuedAt,
+      accountBinding: onboardingBinding, nativeCliVersion, os: 'linux', capturedAt: issuedAt,
       lineage: { epoch: 1, generation: 0, operationId: opId },
       cellSynthesis: [...(SEAT_CELL_SYNTHESIS[identity.cli] ?? [])] };
     if (identity.cli === 'codex') captureInput.intent = { ...CODEX_SEAT_INTENT,
@@ -227,7 +246,7 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
     bundle = parseCliSeatProfile({ seatRef: seatId, ownerScope, cli: identity.cli,
       issuingClientRef: identity.issuingClientRef, endpointFamily: identity.endpointFamily,
       credentialFormatVersion: 'v1', os: 'linux',
-      accountBinding: onboarding ? gate.accountId : `binding-${seatId}-${digest.slice(0, 16)}`,
+      accountBinding: onboarding ? onboardingBinding : `binding-${seatId}-${digest.slice(0, 16)}`,
       entitlementClass: 'seat', epoch: 1, generation: 0, operationId: opId,
       ...(onboarding ? { nativeCliVersion: onboarding.nativeCliVersion } : {}),
       issuedAt, accessKind: 'access', accessRef: `access-${seatId}-${digest.slice(16, 32)}` });
@@ -249,7 +268,7 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
   // capture refusal code is names-only (design §3.4): it diagnoses why no
   // block was issued while the gate code stays the launch channel.
   const onboardingStatus = onboarding ? 'present' : 'absent';
-  const source = { seatId, cli: identity.cli, kind: identity.cli === 'vibe' ? 'llm-mesh' : 'cli-login',
+  const source = { seatId, cli: identity.cli, kind: seatSourceKind,
     provider: gate.provider, meshGate: gate.meshGate, files: Object.keys(files).sort(),
     onboardingStatus, launchGate: seatLaunchGate(identity.cli, onboardingStatus),
     ...(gate.accountId ? { accountId: gate.accountId } : {}),
@@ -369,8 +388,10 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   homeDir = homedir(), ownerScope = 'owner',
   outBase = join(homedir(), '.cache-tmp', 'h2a-test'),
   ghBin = 'gh', mode = 'provision', meshFacade = null,
-  meshScope = meshOwnerScope(), cliVersions = {}, allowUnavailableSeats = false } = {}) {
+  meshScope = meshOwnerScope(), cliVersions = {}, allowUnavailableSeats = false,
+  gate = 'mesh' } = {}) {
   assert.ok(['provision', 'dry-run', 'local'].includes(mode), 'known provision mode');
+  assert.ok(['mesh', 'local-login'].includes(gate), 'known seat gate');
   const slotManifest = JSON.parse(fs.readFileSync(slotManifestFile, 'utf8'));
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
   const ids = String(seatSet).split(',').map(seat => seat.trim()).filter(Boolean);
@@ -383,7 +404,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   // A facade that cannot be created degrades to null: vibe then refuses,
   // file seats record store-unreachable on their source receipt.
   let facade = meshFacade;
-  if (!facade) {
+  if (!facade && gate !== 'local-login') {
     try { facade = await createMeshSeatFacade({ ownerScope: meshScope }); }
     catch { facade = null; }
   }
@@ -425,7 +446,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       let built;
       try {
         built = await buildSeatEnvelope({ seatId, slot, homeDir, ownerScope,
-          meshFacade: facade, meshScope, cliVersions });
+          meshFacade: facade, meshScope, cliVersions, gate });
       } catch (error) {
         // Full local matrices retain the refused seat as a closed gate.
         // No envelope, credential read or launch is manufactured for it.
@@ -541,7 +562,8 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
       homeDir: option(args, '--home', homedir()),
       ownerScope: option(args, '--owner-scope', 'owner'),
       outBase: option(args, '--out-base', join(homedir(), '.cache-tmp', 'h2a-test')),
-      ghBin: option(args, '--gh-bin', 'gh'), mode, cliVersions });
+      ghBin: option(args, '--gh-bin', 'gh'), mode, cliVersions,
+      gate: option(args, '--gate', 'mesh') });
     for (const receipt of result.seats) console.log(JSON.stringify(receipt));
     for (const source of result.sources ?? []) {
       console.log(JSON.stringify({ event: 'seat-provision-sourced', ...source }));
