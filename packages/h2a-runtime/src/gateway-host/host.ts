@@ -30,7 +30,13 @@ import {
   createClusterMeshRuntime,
 } from "@sentropic/cluster-mesh";
 import { createGatewayNamespaceModule } from "@sentropic/cluster-mesh/compose/gateway";
-import { readLlmMeshConfig } from "./config-file.js";
+import {
+  applyModelRewrite,
+  matchModelRewrite,
+  readLlmMeshConfig,
+  validateModelRewrites,
+  type GatewayModelRewrite,
+} from "./config-file.js";
 import {
   createCliLlmMeshFacade,
   llmMeshOwnerScopeRef,
@@ -164,6 +170,11 @@ const observablePlanner = (delegate: RoutePlanner): RoutePlanner => ({
 export interface LocalGatewayAppOptions {
   readonly routing?: LlmMeshRoutingConfig;
   readonly ownerScopeRef?: string;
+  /**
+   * Optional request rewrites, validated at load. When absent, the gateway
+   * config file list applies; absent or empty everywhere changes nothing.
+   */
+  readonly modelRewrites?: readonly GatewayModelRewrite[];
   /** Composition injection for readiness and fail-before-bind qualification. */
   readonly prepareNamespace?: typeof createGatewayNamespaceModule;
   /**
@@ -171,6 +182,62 @@ export interface LocalGatewayAppOptions {
    * composes the PATH-resolved seat like every other seat in the registry.
    */
   readonly claudeClient?: AnthropicAdapterClient;
+  /**
+   * Explicit route planner override (test seam). When absent, the host
+   * composes the facade planner over the real provider registry.
+   */
+  readonly routePlanner?: RoutePlanner;
+}
+
+/** Routed generation wires a rewrite may touch (never count_tokens). */
+const MODEL_REWRITE_PATHS = new Set(["/v1/messages", "/v1/chat/completions"]);
+
+/**
+ * Apply the first matching rewrite to the raw request, before the gateway
+ * router (and therefore the llm-mesh planner) sees it. Unmatched, malformed
+ * or non-generation requests keep the original request untouched. The log
+ * line carries models and efforts only, never request content.
+ */
+async function rewriteRequestIfMatched(
+  raw: Request,
+  rewrites: readonly GatewayModelRewrite[],
+): Promise<{ request: Request; fromModel?: string; toModel?: string }> {
+  if (rewrites.length === 0 || raw.method !== "POST") return { request: raw };
+  let pathname: string;
+  try {
+    pathname = new URL(raw.url).pathname;
+  } catch {
+    return { request: raw };
+  }
+  if (!MODEL_REWRITE_PATHS.has(pathname)) return { request: raw };
+  let text: string;
+  try {
+    text = await raw.clone().text();
+  } catch {
+    return { request: raw };
+  }
+  if (!text) return { request: raw };
+  let body: unknown;
+  try {
+    body = JSON.parse(text) as unknown;
+  } catch {
+    return { request: raw };
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { request: raw };
+  const matched = matchModelRewrite(rewrites, body as Record<string, unknown>);
+  if (!matched) return { request: raw };
+  const rewritten = applyModelRewrite(body as Record<string, unknown>, matched.entry);
+  process.stdout.write(
+    `[gateway-host] model rewrite: ${matched.fromModel} -> ${matched.entry.target.model}`
+    + ` (effort ${matched.requestedEffort ?? "none"} -> ${matched.entry.target.effort})\n`,
+  );
+  const request = new Request(raw.url, {
+    method: raw.method,
+    headers: raw.headers,
+    body: JSON.stringify(rewritten),
+    signal: raw.signal,
+  });
+  return { request, fromModel: matched.fromModel, toModel: matched.entry.target.model };
 }
 
 function publicSessionLedger(): SessionLedgerEntry[] {
@@ -211,9 +278,15 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     return publicConfig ? publicConfig.routing : routing;
   };
   const ownerScopeRef = options.ownerScopeRef ?? llmMeshOwnerScopeRef();
+  // Rewrites load once at startup (restart to change them) and fail the
+  // startup when an entry names an unknown or unroutable target.
+  const configuredRewrites = options.modelRewrites ?? readLlmMeshConfig()?.modelRewrites;
+  const modelRewrites = configuredRewrites && configuredRewrites.length > 0
+    ? validateModelRewrites(configuredRewrites)
+    : [];
   const facade = createCliLlmMeshFacade();
   const profiles = routingProfiles(routing);
-  const planner = observablePlanner(facade.createRoutePlanner(runtimeMesh(claudeClient), {
+  const planner = observablePlanner(options.routePlanner ?? facade.createRoutePlanner(runtimeMesh(claudeClient), {
     ...(routing?.council ? { council: routing.council } : {}),
     ...(profiles ? { profiles } : {}),
   }));
@@ -285,9 +358,17 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   });
   // Hono freezes its matcher on first use. Register the delegation before
   // composition so in-process readiness checks cannot freeze a partial router.
-  app.all("*", (c) => gatewayPlugin
-    ? gatewayPlugin.fetch(c.req.raw, c.env)
-    : c.json({ error: "gateway composition incomplete" }, 503));
+  // A matched rewrite replaces the request before the gateway router plans
+  // it; the served header stays exactly as llm-mesh sets it.
+  app.all("*", async (c) => {
+    if (!gatewayPlugin) return c.json({ error: "gateway composition incomplete" }, 503);
+    const routed = await rewriteRequestIfMatched(c.req.raw, modelRewrites);
+    const response = await gatewayPlugin.fetch(routed.request, c.env);
+    if (!routed.fromModel || !routed.toModel) return response;
+    const visible = new Response(response.body, response);
+    visible.headers.set("x-h2a-model-rewrite", `${routed.fromModel} -> ${routed.toModel}`);
+    return visible;
+  });
   const ready = (async () => {
     // The Claude seat is always composed, so its startup orphan sweep
     // always runs (best-effort hygiene over the private runtime root).
