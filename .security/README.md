@@ -16,6 +16,23 @@ waiting in the register. Rows may be reviewed for at most 31 days from their
 recorded discovery date; the gate warns during the final seven days and fails
 on or after `review_due`.
 
+## Patched-fork overrides
+
+When upstream has no patched release at all, the pattern established for
+deepmerge (GHSA-gcqx-w48m-w2h4) applies: pin a patched fork through an npm
+alias override in every locked tree, and prove the installed module with
+exploit and compatibility tests in the `security-debt` CI job. Current case:
+picomatch (GHSA-fc5q-39xc-vjpf / CVE-2026-112366, `first_patched_version:
+null`, latest upstream 4.0.7) is pinned to `@ryotsu/picomatch@4.0.7-a` in the
+root, `apps/focus`, and `packages/h2a/focus-kit` trees;
+`scripts/picomatch-security.test.mjs` exercises the ReDoS patterns and the
+glob behaviour the tools rely on in each tree. No register row is needed
+because the installed code is patched, and a register row for a resolved
+finding would fail this gate. Remove all three overrides when upstream
+publishes a patched picomatch the consumers accept. Note that `npm install`
+in the workspace root can drop this alias from `package-lock.json`; the CI
+test above is the guard that turns such a silent revert red.
+
 ## Operating rule
 
 1. Fix first with a compatible, real dependency upgrade. Do not use an
