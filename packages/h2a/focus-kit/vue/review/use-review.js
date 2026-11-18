@@ -41,7 +41,9 @@ export function useReview({ adapter, currentUser, artifactId }) {
       return result;
     } catch (caught) {
       error.value = caught?.message ?? 'Review action failed';
-      return null;
+      // Stored but not delivered: show the stored comment (never retried) next to the error.
+      if (caught?.saved) await refresh().catch(() => {});
+      return caught?.saved ? caught.comment ?? null : null;
     }
   }
 

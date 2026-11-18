@@ -138,10 +138,13 @@ async function httpJson(response) {
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const error = payload?.error ?? { code: `http-${response.status}`, message: `Request failed (${response.status})` };
-    throw Object.assign(new Error(error.message), { code: error.code });
+    // `saved: true`: the comment is stored although the request failed (agent delivery) — never retry it.
+    throw Object.assign(new Error(error.message), { code: error.code, status: response.status, saved: error.saved === true, comment: error.comment });
   }
   return payload;
 }
+
+const JSON_HEADERS = { 'content-type': 'application/json' };
 
 export class HttpCommentsAdapter {
   constructor({ artifactId, baseUrl = '', currentUser, fetchImpl } = {}) {
@@ -165,17 +168,19 @@ export class HttpCommentsAdapter {
     assertAnchor(sectionKey);
     return httpJson(await this.fetch(this.#url('/comments'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ sectionKey, body, threadId, sendToAgent: Boolean(sendToAgent) }),
     }));
   }
 
+  // Every write carries a JSON content type: the backend answers 415 without it and SvelteKit's CSRF
+  // guard refuses a content-type-less cross-origin POST before the route runs.
   async close(threadId) {
-    return httpJson(await this.fetch(this.#url(`/threads/${encodeURIComponent(threadId)}/close`), { method: 'POST' }));
+    return httpJson(await this.fetch(this.#url(`/threads/${encodeURIComponent(threadId)}/close`), { method: 'POST', headers: JSON_HEADERS, body: '{}' }));
   }
 
   async reopen(threadId) {
-    return httpJson(await this.fetch(this.#url(`/threads/${encodeURIComponent(threadId)}/reopen`), { method: 'POST' }));
+    return httpJson(await this.fetch(this.#url(`/threads/${encodeURIComponent(threadId)}/reopen`), { method: 'POST', headers: JSON_HEADERS, body: '{}' }));
   }
 
   subscribe(listener) {
