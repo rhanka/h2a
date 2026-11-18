@@ -65,9 +65,24 @@ test("security debt gate fails closed on malformed audit output", () => {
   assert.match(result.errors.join("\n"), /did not return a vulnerabilities object/);
 });
 
-test("security debt gate also audits the independent Focus lockfile", () => {
+test("security debt gate allows a dated high exception only for build/test tooling", () => {
+  const highAudit = { vulnerabilities: { example: { ...vulnerability, severity: "high" } } };
+  const allowed = evaluateSecurityDebt({ audit: highAudit, register: register({ severity: "high", scope: "build/test tooling only" }), lockfile, today: new Date("2026-07-20T00:00:00Z") });
+  assert.deepEqual(allowed.errors, []);
+  const rejected = evaluateSecurityDebt({ audit: highAudit, register: register({ severity: "high" }), lockfile, today: new Date("2026-07-20T00:00:00Z") });
+  assert.match(rejected.errors.join("\n"), /build\/test tooling only/);
+});
+
+test("security debt gate only matches rows for the audited tree", () => {
+  const result = evaluateSecurityDebt({ audit, register: register({ tree: "apps/focus" }), lockfile, today: new Date("2026-07-20T00:00:00Z") });
+  assert.match(result.errors.join("\n"), /unregistered security debt/);
+  const focused = evaluateSecurityDebt({ audit, register: register({ tree: "apps/focus" }), lockfile, today: new Date("2026-07-20T00:00:00Z"), tree: "apps/focus" });
+  assert.deepEqual(focused.errors, []);
+});
+
+test("security debt gate also audits the independent Focus lockfiles", () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
   const packageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
-  assert.equal(packageJson.scripts["audit:security"], "node scripts/audit-security-debt.mjs && npm run audit:security:focus");
-  assert.equal(packageJson.scripts["audit:security:focus"], "npm --prefix apps/focus audit --audit-level=moderate");
+  assert.equal(packageJson.scripts["audit:security"], "node scripts/audit-security-debt.mjs");
+  assert.equal(packageJson.scripts["audit:security:focus"], "node scripts/audit-security-debt.mjs --tree apps/focus");
 });

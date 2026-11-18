@@ -15,8 +15,8 @@
   "rendererVersion": "0.98.10",
   "validatorVersion": "0.6.0",
   "sources": {
-    "package.json": "cf0a08f8f140e933e8f5bc104db77a1398e7538c37a694c21b2f06babe5bd03e",
-    "package-lock.json": "658588601ad79ce6d90ef271d2c236fd4bbd522941b2133ec2496d8a3afee390",
+    "package.json": "44370ac0d5490c30445d1300854f0c42ba5832f6b1630ea740b52a0c8651aeb1",
+    "package-lock.json": "d847413a7947bbbe15c22984c939a3b019a6c456c2328fc9918bda707f8ebaa0",
     "dossier.template.json": "adeaf8f84a5491d63a245afd5a5197aba6c188461d96c9029764b2c11c87a12c",
     "ecosystem.json": "f28ebf603131cbb0388dfb04f09db4991110af5e40c18873056aad9bd974f2df",
     "dossier.evidence.template.json": "d0871621e2f805d6ace328732ec2c701058fba3341657b3ca45508d8da368652",
@@ -49,7 +49,7 @@
     "src/style.css": "0d0d370cd5b1b528230d133ed2a8e8007d6777b640db1701b11af7c7e60eae38",
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
-  "html": "614497f65e6837203d14f1692e704fff7f4b6403451d1b3a54b4e2618f355d82",
-  "validator": "ec938998791f626d86529aaeb983c94a2aed97ca870254274a185319d68e2d66",
+  "html": "9cdd32f011b3d0fece7b8376e8e2d5222b9e96a724e2c924606c888186efc73d",
+  "validator": "f1d8e406d04bc75095556e5650c397f319c936a12020778c2d1e3b34c7968fb4",
   "diagramViews": "7fa19d02e614ecfd86786af0d379917c2386123bcf4930c0b1d6175093123108"
 }

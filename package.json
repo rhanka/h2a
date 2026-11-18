@@ -21,8 +21,8 @@
     "check:focus-vendor": "node scripts/check-focus-vendor.mjs",
     "build:focus-app": "node scripts/build-focus-app.mjs",
     "check:focus-app": "node scripts/check-focus-app.mjs",
-    "audit:security": "node scripts/audit-security-debt.mjs && npm run audit:security:focus",
-    "audit:security:focus": "npm --prefix apps/focus audit --audit-level=moderate",
+    "audit:security": "node scripts/audit-security-debt.mjs",
+    "audit:security:focus": "node scripts/audit-security-debt.mjs --tree apps/focus",
     "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false",
     "lint:focus-imports": "node apps/focus/scripts/check-imports.mjs",
     "smoke:artifact": "node scripts/smoke-artifact.mjs",
@@ -37,8 +37,5 @@
     "yaml": "^2.9.0",
     "esbuild": "0.28.2",
     "fflate": "0.8.3"
-  },
-  "overrides": {
-    "picomatch": "npm:@ryotsu/picomatch@4.0.7-a"
   }
 }
