@@ -744,7 +744,37 @@ test("relay sender: a registered relay without its key is refused — never re-k
   });
   const sender = createH2aSender({ getBin: () => "/opt/h2a/bin.js", relay, nodePath: "node", execFileImpl: exec.execFileImpl });
   await assert.rejects(sender.send({ target: AGENT, targetRoot: "/root-c", text: "hello" }), /is registered in \/root-c but cannot sign.*FOCUS_REVIEW_RELAY/);
-  assert.deepEqual(exec.calls.map((c) => c.args[1]), ["send", "discover"], "no key generation, no registration");
+  assert.equal(exec.calls.some((c) => c.args[1] === "keys" || c.args[1] === "register"), false, "no key generation, no registration");
+});
+
+test("relay sender: concurrent first sends into one root provision the relay exactly once", async () => {
+  // Two owners' comments posted together on a fresh root: a second `keys generate` would overwrite the
+  // private key the first one just registered, leaving the relay signing with a key nobody can verify.
+  const relay = "focus:artifact-review:0000000000cc";
+  let registered = false;
+  const exec = fakeExec((args) => {
+    if (args[1] === "send") {
+      return registered
+        ? { stdout: JSON.stringify({ recipient: AGENT, recipientLive: true }) }
+        : { error: Object.assign(new Error("Command failed"), { code: 3 }), stderr: `h2a send: cannot read the local private key for ${relay} (ENOENT)\n` };
+    }
+    if (args[1] === "discover") return { stdout: JSON.stringify(registered ? [{ id: relay, instance: relay }] : []) };
+    if (args[1] === "keys") return { stdout: JSON.stringify({ ok: true, publicKeyPem: "-----BEGIN PUBLIC KEY-----\nAAA\n-----END PUBLIC KEY-----\n" }) };
+    if (args[1] === "register") {
+      if (registered) return { error: Object.assign(new Error("Command failed"), { code: 2 }), stderr: `h2a register: Instance already registered: ${relay}\n` };
+      registered = true;
+      return { stdout: JSON.stringify({ ok: true }) };
+    }
+    return { stdout: "{}" };
+  });
+  const sender = createH2aSender({ getBin: () => "/opt/h2a/bin.js", relay, nodePath: "node", execFileImpl: exec.execFileImpl });
+  const results = await Promise.all([
+    sender.send({ target: AGENT, targetRoot: "/root-d", text: "first" }),
+    sender.send({ target: AGENT, targetRoot: "/root-d", text: "second" })
+  ]);
+  assert.deepEqual(results.map((r) => r.recipientLive), [true, true]);
+  assert.equal(exec.calls.filter((c) => c.args[1] === "keys").length, 1, "one key generation");
+  assert.equal(exec.calls.filter((c) => c.args[1] === "register").length, 1, "one registration");
 });
 
 test("relay sender: a pinned relay is never provisioned, and failures carry a reason without the command line", async () => {
