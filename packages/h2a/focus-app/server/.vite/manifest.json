@@ -8,18 +8,55 @@
       "_config.js"
     ]
   },
-  "_AppShell.0roNuOL1.css": {
-    "file": "_app/immutable/assets/AppShell.0roNuOL1.css",
-    "src": "_AppShell.0roNuOL1.css"
+  "_AppShell.8h_8Mcwh.css": {
+    "file": "_app/immutable/assets/AppShell.8h_8Mcwh.css",
+    "src": "_AppShell.8h_8Mcwh.css"
   },
   "_AppShell.js": {
     "file": "chunks/AppShell.js",
     "name": "AppShell",
     "imports": [
+      "_server2.js",
+      "_Flex.js"
+    ],
+    "css": [
+      "_app/immutable/assets/AppShell.8h_8Mcwh.css"
+    ]
+  },
+  "_EmptyState.DxOAC8BE.css": {
+    "file": "_app/immutable/assets/EmptyState.DxOAC8BE.css",
+    "src": "_EmptyState.DxOAC8BE.css"
+  },
+  "_EmptyState.js": {
+    "file": "chunks/EmptyState.js",
+    "name": "EmptyState",
+    "imports": [
       "_server2.js"
     ],
     "css": [
-      "_app/immutable/assets/AppShell.0roNuOL1.css"
+      "_app/immutable/assets/EmptyState.DxOAC8BE.css"
+    ]
+  },
+  "_Flex.js": {
+    "file": "chunks/Flex.js",
+    "name": "Flex",
+    "imports": [
+      "_server2.js"
+    ],
+    "css": [
+      "_app/immutable/assets/Flex.v2Of_WAk.css"
+    ]
+  },
+  "_Flex.v2Of_WAk.css": {
+    "file": "_app/immutable/assets/Flex.v2Of_WAk.css",
+    "src": "_Flex.v2Of_WAk.css"
+  },
+  "_Stack.js": {
+    "file": "chunks/Stack.js",
+    "name": "Stack",
+    "imports": [
+      "_server2.js",
+      "_Flex.js"
     ]
   },
   "_adapter-node-env.js": {
@@ -219,10 +256,12 @@
     "imports": [
       "_server2.js",
       "_AppShell.js",
-      "_index-server.js"
+      "_index-server.js",
+      "_Flex.js",
+      "_EmptyState.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.BgWxD2Cm.css"
+      "_app/immutable/assets/_page.C_v5Fcun.css"
     ]
   },
   "src/routes/api/actions/launch/+server.ts": {
@@ -267,6 +306,27 @@
       "_h2a-bus.js"
     ]
   },
+  "src/routes/artifact/[id]/+page.server.ts": {
+    "file": "entries/pages/artifact/_id_/_page.server.ts.js",
+    "name": "entries/pages/artifact/_id_/_page.server.ts",
+    "src": "src/routes/artifact/[id]/+page.server.ts",
+    "isEntry": true
+  },
+  "src/routes/artifact/[id]/+page.svelte": {
+    "file": "entries/pages/artifact/_id_/_page.svelte.js",
+    "name": "entries/pages/artifact/_id_/_page.svelte",
+    "src": "src/routes/artifact/[id]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_server2.js",
+      "_Flex.js",
+      "_Stack.js",
+      "_EmptyState.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.D7zqA8Sr.css"
+    ]
+  },
   "src/routes/dossier/agent-memory/+page.server.ts": {
     "file": "entries/pages/dossier/agent-memory/_page.server.ts.js",
     "name": "entries/pages/dossier/agent-memory/_page.server.ts",
@@ -285,7 +345,9 @@
     "imports": [
       "_server2.js",
       "_index-server.js",
-      "_AppShell.js"
+      "_AppShell.js",
+      "_Flex.js",
+      "_Stack.js"
     ],
     "css": [
       "_app/immutable/assets/_page.C_jty5Ez.css"
