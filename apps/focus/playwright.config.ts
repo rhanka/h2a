@@ -7,6 +7,8 @@ process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(path.dirname(fileURLToPath(im
 
 export default defineConfig({
   testDir: './e2e',
+  // The real-backend acceptance has its own config (playwright.real.config.ts).
+  testIgnore: /review\.real\.spec\.ts$/,
   timeout: 90_000,
   use: {
     baseURL: 'http://127.0.0.1:5199',
