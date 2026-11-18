@@ -8,7 +8,7 @@ const kit = fileURLToPath(new URL('../packages/h2a/focus-kit/', import.meta.url)
 const root = join(kit, 'vue');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const read = name => readFileSync(join(kit, name), 'utf8');
-const reviewInputs = (() => { try { return readdirSync(join(root, 'review')).filter(n => /\.(vue|js)$/.test(n)).sort().map(n => `vue/review/${n}`); } catch { return []; } })();
+const reviewInputs = (() => { try { return readdirSync(join(root, 'review')).filter(n => /\.(vue|js|css)$/.test(n)).sort().map(n => `vue/review/${n}`); } catch { return []; } })();
 const inputs = ['vue/package.json', 'vue/package-lock.json', ...readdirSync(root).filter(n => /\.(vue|js)$/.test(n)).sort().map(n => `vue/${n}`), ...reviewInputs,
   'src/style.css', 'src/evidence-search.js', '../../focus/src/render/presentation.ts', '../../focus-interactive/src/response-line.ts', '../../focus/src/render/evidence.ts',
   '../../focus/src/validation/evidence-bytes.ts', '../../../scripts/build-focus-vue.mjs'];
