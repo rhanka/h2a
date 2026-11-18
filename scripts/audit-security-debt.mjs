@@ -16,6 +16,12 @@ const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
 const THRESHOLD = "moderate";
 const MAX_REVIEW_DAYS = 31;
 const WARNING_REVIEW_DAYS = 7;
+const BUILD_TEST_SCOPE = "build/test tooling only";
+const TREES = [
+  { tree: "root", dir: "." },
+  { tree: "apps/focus", dir: "apps/focus" },
+  { tree: "packages/h2a/focus-kit", dir: "packages/h2a/focus-kit" }
+];
 
 function asDate(value, field, errors) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -68,7 +74,11 @@ function matchException(exception, vulnerability, lockfile) {
   return true;
 }
 
-export function evaluateSecurityDebt({ audit, register, lockfile, today = new Date() }) {
+function rowTree(exception) {
+  return typeof exception?.tree === "string" && exception.tree ? exception.tree : "root";
+}
+
+export function evaluateSecurityDebt({ audit, register, lockfile, today = new Date(), tree = "root" }) {
   const errors = [];
   const warnings = [];
   if (!audit || typeof audit !== "object" || !audit.vulnerabilities || typeof audit.vulnerabilities !== "object") {
@@ -93,7 +103,10 @@ export function evaluateSecurityDebt({ audit, register, lockfile, today = new Da
     ids.add(exception.id);
     if (typeof exception.component !== "string" || !exception.component) errors.push(`${prefix}: component is required`);
     if (!(exception.severity in SEVERITY_RANK)) errors.push(`${prefix}: unsupported severity`);
-    if (exception.severity === "high" || exception.severity === "critical") errors.push(`${prefix}: high/critical findings cannot be registered`);
+    if (exception.tree !== undefined && (typeof exception.tree !== "string" || !exception.tree)) errors.push(`${prefix}: tree must be a non-empty string`);
+    if (exception.scope !== undefined && (typeof exception.scope !== "string" || !exception.scope)) errors.push(`${prefix}: scope must be a non-empty string`);
+    if (exception.severity === "critical") errors.push(`${prefix}: critical findings cannot be registered`);
+    if (exception.severity === "high" && exception.scope !== BUILD_TEST_SCOPE) errors.push(`${prefix}: high findings can only be registered with scope "${BUILD_TEST_SCOPE}"`);
     if (!uniqueStrings(exception.paths)) errors.push(`${prefix}: paths must be a unique non-empty string list`);
     if (!uniqueStrings(exception.installed_versions)) errors.push(`${prefix}: installed_versions must be a unique non-empty string list`);
     const hasAdvisories = uniqueStrings(exception.advisory_ids);
@@ -114,8 +127,8 @@ export function evaluateSecurityDebt({ audit, register, lockfile, today = new Da
   }
 
   const findings = Object.values(audit.vulnerabilities);
-  for (const exception of register.exceptions) {
-    if (!exception || typeof exception !== "object") continue;
+  const treeRows = register.exceptions.filter((exception) => exception && typeof exception === "object" && rowTree(exception) === tree);
+  for (const exception of treeRows) {
     const vulnerability = audit.vulnerabilities[exception.component];
     const prefix = `register row ${exception.id ?? "<missing id>"}`;
     if (!vulnerability) {
@@ -131,7 +144,7 @@ export function evaluateSecurityDebt({ audit, register, lockfile, today = new Da
       continue;
     }
     if (SEVERITY_RANK[vulnerability.severity] < SEVERITY_RANK[THRESHOLD]) continue;
-    const matches = register.exceptions.filter((exception) => exception && matchException(exception, vulnerability, lockfile));
+    const matches = treeRows.filter((exception) => matchException(exception, vulnerability, lockfile));
     if (matches.length === 0) errors.push(`${vulnerability.name}@${vulnerability.severity}: unregistered security debt`);
     if (matches.length > 1) errors.push(`${vulnerability.name}@${vulnerability.severity}: matches multiple register rows`);
   }
@@ -145,9 +158,9 @@ function readYaml(path) {
   return document.toJS({ maxAliasCount: 0 });
 }
 
-function runAudit() {
+function runAudit(dir) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(npm, ["audit", "--json"], { cwd: REPO_ROOT, encoding: "utf8" });
+  const result = spawnSync(npm, ["audit", "--json"], { cwd: resolve(REPO_ROOT, dir), encoding: "utf8" });
   if (result.error) throw result.error;
   if (result.status !== 0 && result.status !== 1) throw new Error(`npm audit exited ${result.status}: ${result.stderr.trim()}`);
   try {
@@ -159,19 +172,29 @@ function runAudit() {
 
 function main() {
   try {
-    const result = evaluateSecurityDebt({
-      audit: runAudit(),
-      register: readYaml(resolve(REPO_ROOT, ".security/vulnerability-register.yaml")),
-      lockfile: JSON.parse(readFileSync(resolve(REPO_ROOT, "package-lock.json"), "utf8"))
-    });
-    for (const warning of result.warnings) process.stdout.write(`::warning::${warning}\n`);
-    if (result.errors.length > 0) {
-      for (const error of result.errors) process.stderr.write(`::error::${error}\n`);
-      process.exitCode = 1;
-      return;
+    const treeArgIndex = process.argv.indexOf("--tree");
+    const onlyTree = treeArgIndex >= 0 ? process.argv[treeArgIndex + 1] : null;
+    const selected = onlyTree ? TREES.filter((entry) => entry.tree === onlyTree) : TREES;
+    if (selected.length === 0) throw new Error(`unknown --tree ${onlyTree}; expected one of ${TREES.map((entry) => entry.tree).join(", ")}`);
+    const register = readYaml(resolve(REPO_ROOT, ".security/vulnerability-register.yaml"));
+    let failed = false;
+    for (const { tree, dir } of selected) {
+      const result = evaluateSecurityDebt({
+        audit: runAudit(dir),
+        register,
+        lockfile: JSON.parse(readFileSync(resolve(REPO_ROOT, dir, "package-lock.json"), "utf8")),
+        tree
+      });
+      for (const warning of result.warnings) process.stdout.write(`::warning::${warning}\n`);
+      if (result.errors.length > 0) {
+        failed = true;
+        for (const error of result.errors) process.stderr.write(`::error::[${tree}] ${error}\n`);
+        continue;
+      }
+      const gated = result.findings.filter((finding) => SEVERITY_RANK[finding.severity] >= SEVERITY_RANK[THRESHOLD]);
+      process.stdout.write(`security debt gate passed [${tree}]: ${gated.length} ${THRESHOLD}+ finding(s) exactly matched by the register.\n`);
     }
-    const gated = result.findings.filter((finding) => SEVERITY_RANK[finding.severity] >= SEVERITY_RANK[THRESHOLD]);
-    process.stdout.write(`security debt gate passed: ${gated.length} ${THRESHOLD}+ finding(s) exactly matched by the register.\n`);
+    if (failed) process.exitCode = 1;
   } catch (error) {
     process.stderr.write(`::error::security debt gate failed closed: ${error.message}\n`);
     process.exitCode = 1;
