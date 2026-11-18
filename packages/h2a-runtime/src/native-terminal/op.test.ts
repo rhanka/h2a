@@ -2129,3 +2129,151 @@ describe("native attach status bar (cran 2)", () => {
     );
   });
 });
+
+describe("native attach right panel (L0)", () => {
+  it("F12 reserves panel columns, is never forwarded, and panel keys stay local", async () => {
+    const { buildRightPanelSnapshot } = await import("./right-panel.js");
+    const stdin = new EventEmitter() as EventEmitter & {
+      isTTY: boolean;
+      resume: () => void;
+      pause: () => void;
+      setRawMode: () => void;
+    };
+    stdin.isTTY = false;
+    stdin.resume = () => {};
+    stdin.pause = () => {};
+    stdin.setRawMode = () => {};
+    const stdout = new FakeOutput();
+    (stdout as { columns: number }).columns = 120;
+    (stdout as { rows: number }).rows = 40;
+    let now = 0;
+    let readCount = 0;
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const childWrites: string[] = [];
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          stdin.emit("data", Buffer.from("\x1b[24~")); // F12 opens the panel
+          return replay(1, "child\n");
+        }
+        if (readCount === 2) {
+          stdin.emit("data", Buffer.from("x")); // panel focus: consumed
+          return replay(2, "");
+        }
+        stdin.emit("data", Buffer.from([0x1c])); // detach
+        return replay(3, "");
+      },
+      async state() { return running(true); },
+      async write(_l, data) { childWrites.push(data); },
+      async resize(_l, cols, rows) { resizes.push({ cols, rows }); },
+      close() {},
+    };
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      {
+        statusBar: false,
+        rightPanel: {
+          enabled: true,
+          snapshot: buildRightPanelSnapshot({
+            currentSessionId: "h2a-alpha",
+            groups: [
+              {
+                title: "core",
+                sessions: [{ id: "s2", label: "beta", status: "blocked" }],
+              },
+            ],
+            decisions: [],
+          }),
+        },
+      },
+    );
+    expect(code).toBe(0);
+    // Collapsed strip reserves 1 column; the open panel reserves 32.
+    expect(resizes[0]).toEqual({ cols: 119, rows: 40 });
+    expect(resizes.some((r) => r.cols === 88)).toBe(true);
+    expect(childWrites.join("")).not.toContain("\x1b[24~");
+    expect(childWrites).toEqual([]);
+    expect(stdout.chunks.join("")).toContain("beta");
+  });
+
+  it("flag off: F12 reaches the child unmodified and no column is reserved", async () => {
+    const stdin = new EventEmitter() as EventEmitter & {
+      isTTY: boolean;
+      resume: () => void;
+      pause: () => void;
+      setRawMode: () => void;
+    };
+    stdin.isTTY = false;
+    stdin.resume = () => {};
+    stdin.pause = () => {};
+    stdin.setRawMode = () => {};
+    const stdout = new FakeOutput();
+    (stdout as { columns: number }).columns = 120;
+    (stdout as { rows: number }).rows = 40;
+    let now = 0;
+    let readCount = 0;
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const childWrites: string[] = [];
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          stdin.emit("data", Buffer.from("\x1b[24~"));
+          return replay(1, "child\n");
+        }
+        stdin.emit("data", Buffer.from([0x1c]));
+        return replay(2, "");
+      },
+      async state() { return running(true); },
+      async write(_l, data) { childWrites.push(data); },
+      async resize(_l, cols, rows) { resizes.push({ cols, rows }); },
+      close() {},
+    };
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      { statusBar: false },
+    );
+    expect(code).toBe(0);
+    expect(resizes[0]).toEqual({ cols: 120, rows: 40 });
+    expect(childWrites).toEqual(["\x1b[24~"]);
+  });
+});
