@@ -1,121 +1,143 @@
-// Comments client — API-CONTRACT.md (figé). Tries the real SvelteKit routes first;
-// falls back to the in-page fake until the backend lane lands. When the backend PR
-// exists, delete the fallback (or keep it behind `?fake=1` for tests) — no UI change.
+// Comments client — API-CONTRACT.md (frozen v0). The real SvelteKit routes are the
+// default. The in-page fake is used only when the backend is absent: the first
+// GET .../comments answers 404 (routes not built in, or FOCUS_ARTIFACT_REVIEW off)
+// or the request cannot reach the server. Once the real backend has answered, every
+// error is surfaced to the UI (never a silent switch to the fake, never a duplicate).
 import type { Comment, CommentsClient, CreateCommentInput } from './types';
 import { createFakeClient } from './fake';
 
-interface ApiError {
-  error?: { code?: string; message?: string };
+interface ApiErrorBody {
+  error?: { code?: string; message?: string; saved?: boolean; comment?: Comment };
 }
 
-async function readJson<T>(res: Response): Promise<T> {
+/** Error raised from a JSON `{ error: { code, message } }` answer of the real backend. */
+export class ReviewApiError extends Error {
+  readonly code: string;
+  readonly status: number;
+  /** The comment was stored although the request failed (e.g. agent delivery). Never retry. */
+  readonly saved: boolean;
+  readonly comment?: Comment;
+
+  constructor(status: number, body: ApiErrorBody | null) {
+    const code = body?.error?.code ?? `http_${status}`;
+    super(body?.error?.message ?? `Request failed (${status}).`);
+    this.name = 'ReviewApiError';
+    this.code = code;
+    this.status = status;
+    this.saved = body?.error?.saved === true;
+    this.comment = body?.error?.comment;
+  }
+}
+
+async function readJson<T>(res: Response): Promise<T | null> {
   const text = await res.text();
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(`BAD_JSON_${res.status}`);
+    return null;
   }
 }
+
+async function expectOk<T>(res: Response): Promise<T> {
+  const body = await readJson<T & ApiErrorBody>(res);
+  if (!res.ok) throw new ReviewApiError(res.status, body);
+  if (body === null) throw new ReviewApiError(res.status, { error: { code: 'bad_json', message: 'The review backend answered without JSON.' } });
+  return body as T;
+}
+
+// Every write carries a JSON content type: the backend requires it (415 otherwise) and
+// SvelteKit's CSRF guard refuses a content-type-less cross-site POST before the route.
+const JSON_HEADERS = { 'content-type': 'application/json' };
 
 export function createCommentsClient(
   artifactId: string,
   opts: { authorId: string; forceFake?: boolean }
-): CommentsClient {
+): CommentsClient & { readonly backend: () => 'real' | 'fake' | 'unknown' } {
   const fake = createFakeClient(artifactId, { authorId: opts.authorId });
   const base = `/api/artifacts/${encodeURIComponent(artifactId)}`;
-  let useFake = !!opts.forceFake;
+  let backend: 'real' | 'fake' | 'unknown' = opts.forceFake ? 'fake' : 'unknown';
+
+  async function probe(): Promise<'real' | 'fake'> {
+    if (backend !== 'unknown') return backend;
+    let res: Response;
+    try {
+      res = await fetch(`${base}/comments`);
+    } catch {
+      backend = 'fake';
+      return backend;
+    }
+    if (res.status === 404) {
+      backend = 'fake';
+      return backend;
+    }
+    // Any other answer comes from the real routes: errors are surfaced from now on.
+    backend = 'real';
+    return backend;
+  }
 
   return {
+    backend: () => backend,
+
     async listThreads(): Promise<Comment[][]> {
-      if (!useFake) {
-        try {
-          const res = await fetch(`${base}/comments`);
-          if (res.ok) {
-            const data = await readJson<{ threads: Comment[][] }>(res);
-            return data.threads ?? [];
-          }
-          useFake = true;
-        } catch {
-          useFake = true;
-        }
-      }
-      return fake.listThreads();
+      if ((await probe()) === 'fake') return fake.listThreads();
+      const data = await expectOk<{ threads: Comment[][] }>(await fetch(`${base}/comments`));
+      return data.threads ?? [];
     },
 
     async create(input: CreateCommentInput): Promise<Comment> {
-      if (!useFake) {
-        try {
-          const res = await fetch(`${base}/comments`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(input)
-          });
-          if (res.ok) return readJson<Comment>(res);
-          const err = (await readJson<ApiError>(res).catch(() => ({}))) as ApiError;
-          if (res.status === 400 && err.error?.code) throw new Error(err.error.code);
-          useFake = true;
-        } catch (e) {
-          if (e instanceof Error && e.message.startsWith('ANCHOR')) throw e;
-          useFake = true;
-        }
-      }
-      return fake.create(input);
+      if ((await probe()) === 'fake') return fake.create(input);
+      const payload: Record<string, unknown> = { body: input.body };
+      if (input.sectionKey) payload.sectionKey = input.sectionKey;
+      if (input.threadId) payload.threadId = input.threadId;
+      if (input.sendToAgent) payload.sendToAgent = true;
+      return expectOk<Comment>(
+        await fetch(`${base}/comments`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(payload) })
+      );
     },
 
     async closeThread(threadId: string): Promise<{ ok: true }> {
-      if (!useFake) {
-        try {
-          const res = await fetch(`${base}/threads/${encodeURIComponent(threadId)}/close`, { method: 'POST' });
-          if (res.ok) return { ok: true };
-          useFake = true;
-        } catch {
-          useFake = true;
-        }
-      }
-      return fake.closeThread(threadId);
+      if ((await probe()) === 'fake') return fake.closeThread(threadId);
+      await expectOk(
+        await fetch(`${base}/threads/${encodeURIComponent(threadId)}/close`, { method: 'POST', headers: JSON_HEADERS, body: '{}' })
+      );
+      return { ok: true };
     },
 
     async reopenThread(threadId: string): Promise<{ ok: true }> {
-      if (!useFake) {
-        try {
-          const res = await fetch(`${base}/threads/${encodeURIComponent(threadId)}/reopen`, { method: 'POST' });
-          if (res.ok) return { ok: true };
-          useFake = true;
-        } catch {
-          useFake = true;
-        }
-      }
-      return fake.reopenThread(threadId);
+      if ((await probe()) === 'fake') return fake.reopenThread(threadId);
+      await expectOk(
+        await fetch(`${base}/threads/${encodeURIComponent(threadId)}/reopen`, { method: 'POST', headers: JSON_HEADERS, body: '{}' })
+      );
+      return { ok: true };
     },
 
     subscribe(onEvent: (type: string, payload: unknown) => void): () => void {
       let closed = false;
       let source: EventSource | undefined;
-      const fakeOff = fake.subscribe(onEvent);
-      if (!useFake && typeof EventSource !== 'undefined') {
-        try {
-          source = new EventSource(`${base}/stream`);
-          const forward = (type: string) => (e: MessageEvent) => {
-            if (closed) return;
-            try {
-              onEvent(type, JSON.parse(e.data));
-            } catch {
-              onEvent(type, e.data);
-            }
-          };
-          source.addEventListener('comment.created', forward('comment.created'));
-          source.addEventListener('thread.closed', forward('thread.closed'));
-          source.addEventListener('thread.reopened', forward('thread.reopened'));
-          source.onerror = () => {
-            // SSE unavailable → fake bus already subscribed; keep it.
-          };
-        } catch {
-          source = undefined;
+      let fakeOff: (() => void) | undefined;
+      const openReal = () => {
+        if (closed || source || typeof EventSource === 'undefined') return;
+        source = new EventSource(`${base}/stream`);
+        const forward = (type: string) => (e: MessageEvent) => {
+          if (closed) return;
+          try {
+            onEvent(type, JSON.parse(e.data));
+          } catch {
+            onEvent(type, e.data);
+          }
+        };
+        for (const type of ['comment.created', 'thread.closed', 'thread.reopened', 'agent.delivery', 'review.error']) {
+          source.addEventListener(type, forward(type));
         }
-      }
+      };
+      void probe().then((mode) => {
+        if (closed) return;
+        if (mode === 'fake') fakeOff = fake.subscribe(onEvent);
+        else openReal();
+      });
       return () => {
         closed = true;
-        fakeOff();
+        fakeOff?.();
         source?.close();
       };
     }
