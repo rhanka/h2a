@@ -13,11 +13,14 @@ import {
 } from "./model-catalog.js";
 
 // H0 (#662 adoption): the h2a embedded gateway catalog mirrors the published
-// llm-mesh 0.26.0 / llm-gateway 0.20.0 model surface (Gemini 4 Argon high,
+// llm-mesh 0.38.1 / llm-gateway 0.23.2 model surface (Gemini 4 Argon high,
 // Muse Spark, Muse Wonder + Wonder Full) with readable aliases.
 describe("gateway model catalog (H0 #662)", () => {
-  it("exposes the #662 and PR #997 model ids (argon, carbon, fable-5.1, fable-5.2, spark, wonder, wonder-full)", () => {
-    expect(GATEWAY_MODEL_IDS).toContain("gemini-4-argon");
+  it("exposes the 0.38 model ids (argon-low/-medium/-high, carbon, fable-5.1, fable-5.2, spark, wonder, ember, wonder-full)", () => {
+    expect(GATEWAY_MODEL_IDS).toContain("gemini-4-argon-low");
+    expect(GATEWAY_MODEL_IDS).toContain("gemini-4-argon-medium");
+    expect(GATEWAY_MODEL_IDS).toContain("gemini-4-argon-high");
+    expect(GATEWAY_MODEL_IDS).not.toContain("gemini-4-argon");
     expect(GATEWAY_MODEL_IDS).toContain("gemini-4-carbon");
     expect(GATEWAY_MODEL_IDS).toContain("claude-fable-5-1");
     expect(GATEWAY_MODEL_IDS).toContain("claude-fable-5-2");
@@ -27,9 +30,19 @@ describe("gateway model catalog (H0 #662)", () => {
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-full-1.0");
   });
 
-  it("resolves readable aliases to canonical ids", () => {
-    expect(resolveGatewayModelAlias("gemini-4-argon")).toBe("gemini-4-argon");
-    expect(resolveGatewayModelAlias("argon-high")).toBe("gemini-4-argon");
+  it("resolves readable aliases to canonical ids and never returns bare gemini-4-argon", () => {
+    expect(resolveGatewayModelAlias("gemini-4-argon")).toBe("gemini-4-argon-high");
+    expect(resolveGatewayModelAlias("gemini-4-argon-low")).toBe("gemini-4-argon-low");
+    expect(resolveGatewayModelAlias("gemini-4-argon-medium")).toBe("gemini-4-argon-medium");
+    expect(resolveGatewayModelAlias("gemini-4-argon-high")).toBe("gemini-4-argon-high");
+    expect(resolveGatewayModelAlias("argon")).toBe("gemini-4-argon-high");
+    expect(resolveGatewayModelAlias("argon-low")).toBe("gemini-4-argon-low");
+    expect(resolveGatewayModelAlias("argon-medium")).toBe("gemini-4-argon-medium");
+    expect(resolveGatewayModelAlias("argon-high")).toBe("gemini-4-argon-high");
+    expect(resolveGatewayModelAlias("gemini-argon")).toBe("gemini-4-argon-high");
+    expect(resolveGatewayModelAlias("gemini-argon-low")).toBe("gemini-4-argon-low");
+    expect(resolveGatewayModelAlias("gemini-argon-medium")).toBe("gemini-4-argon-medium");
+    expect(resolveGatewayModelAlias("gemini-argon-high")).toBe("gemini-4-argon-high");
     expect(resolveGatewayModelAlias("gemini-4-carbon")).toBe("gemini-4-carbon");
     expect(resolveGatewayModelAlias("carbon")).toBe("gemini-4-carbon");
     expect(resolveGatewayModelAlias("carbon-high")).toBe("gemini-4-carbon");
@@ -76,17 +89,12 @@ describe("gateway model catalog (H0 #662)", () => {
   });
 });
 
-// Parity with the adopted llm-mesh tuple: canonical routing knowledge stays
-// in llm-mesh, so every embedded id must exist there (or in the PR #997
-// pre-provisioned set while @sentropic/cluster-mesh@0.25.0 caps llm-mesh at
-// <0.33.0 on npm), resolve by itself, and every Muse secondary leg must track
+// Parity with the adopted llm-mesh 0.38 tuple: canonical routing knowledge
+// stays in llm-mesh, so every embedded id (or its base profile id for
+// effort-suffixed gemini-4-argon-{low,medium,high}) must exist in
+// modelProfiles, resolve by itself, and every Muse secondary leg must track
 // the mesh canonical route.
-const PREPROVISIONED_PR997_IDS: ReadonlySet<string> = new Set([
-  "gemini-4-carbon",
-  "claude-fable-5-2",
-]);
-
-describe("gateway model catalog parity with llm-mesh 0.26.0", () => {
+describe("gateway model catalog parity with llm-mesh 0.38", () => {
   const meshIds = new Set(
     (modelProfiles as ReadonlyArray<{ modelId: string }>).map((p) => p.modelId),
   );
@@ -95,25 +103,28 @@ describe("gateway model catalog parity with llm-mesh 0.26.0", () => {
     Array<{ providerId: string; model: string; effort: string }>
   >;
 
-  it("exposes only model ids carried by the installed mesh catalog (plus PR #997 pre-provisioned ids)", () => {
+  it("exposes only model ids carried by the installed mesh 0.38 catalog (including gemini-4-carbon, gemini-4-argon-low, and muse-ember-1.0)", () => {
+    expect(meshIds.has("gemini-4-carbon")).toBe(true);
+    expect(meshIds.has("gemini-4-argon")).toBe(true);
+    expect(meshIds.has("claude-fable-5-2")).toBe(true);
+    expect(meshIds.has("muse-ember-1.0")).toBe(true);
     for (const id of GATEWAY_MODEL_IDS) {
-      if (!MODEL_LAUNCH_AVAILABILITY[id].gatewayRoute) continue;
-      if (PREPROVISIONED_PR997_IDS.has(id)) continue;
-      expect(meshIds.has(id)).toBe(true);
+      expect(MODEL_LAUNCH_AVAILABILITY[id]).toEqual({ gatewayRoute: true });
+      const baseId = id.replace(/^gemini-4-argon-(?:low|medium|high)$/, "gemini-4-argon");
+      expect(meshIds.has(baseId)).toBe(true);
     }
   });
 
-  it("declares Ember direct-only on Muse until a published mesh carries its gateway route", () => {
+  it("enables gateway routing for muse-ember-1.0 in llm-mesh 0.38", () => {
     expect(MODEL_LAUNCH_AVAILABILITY["muse-ember-1.0"]).toEqual({
-      gatewayRoute: false,
-      directProfile: "muse",
-      reason: "Awaiting a published llm-mesh release carrying muse-ember-1.0 (sentropic #1013).",
+      gatewayRoute: true,
     });
-    expect(PREPROVISIONED_PR997_IDS.has("muse-ember-1.0")).toBe(false);
-    expect(meshIds.has("muse-ember-1.0")).toBe(false);
-    expect(Object.entries(MODEL_LAUNCH_AVAILABILITY)
-      .filter(([, availability]) => !availability.gatewayRoute)
-      .map(([id]) => id)).toEqual(["muse-ember-1.0"]);
+    expect(meshIds.has("muse-ember-1.0")).toBe(true);
+    expect(
+      Object.entries(MODEL_LAUNCH_AVAILABILITY)
+        .filter(([, availability]) => !availability.gatewayRoute)
+        .map(([id]) => id),
+    ).toEqual([]);
   });
 
   it("round-trips every catalog id through alias resolution", () => {

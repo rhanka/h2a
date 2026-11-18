@@ -1,6 +1,6 @@
 /**
  * M0-L1 packed-tuple probe: the published tuple
- * `@sentropic/cluster-mesh` 0.25.0 / `@sentropic/mcp-platform` 0.4.1 /
+ * `@sentropic/cluster-mesh` 0.26.0 / `@sentropic/mcp-platform` 0.4.1 /
  * `@sentropic/artifacts` 0.2.6 packs and resolves through the mesh loader.
  *
  * Modelled on sentropic `packages/artifacts/probe/packed-consumer.mjs`,
@@ -32,7 +32,7 @@ const H2A_PKG = join(REPO, "packages", "h2a", "package.json");
 
 /** M0 acceptance tuple (plan §2 M0-L1; re-check §1.1 on npm). */
 const TUPLE = Object.freeze({
-  clusterMesh: "0.25.0",
+  clusterMesh: "0.26.0",
   mcpPlatform: "0.4.1",
   artifacts: "0.2.6",
 });

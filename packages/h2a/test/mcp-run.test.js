@@ -738,7 +738,8 @@ test("h2a_run accepts --model gemini-4-carbon on agy, refuses effort max for it,
     for (const [embeddedModel, expectedModel, expectedEffort] of [
       ["gemini-4-carbon-high", "gemini-4-carbon", "high"],
       ["gemini-4-carbon-low", "gemini-4-carbon", "low"],
-      ["gemini-4-argon-high", "gemini-4-argon", "high"],
+      ["gemini-4-argon-high", "gemini-4-argon-high", "high"],
+      ["gemini-4-argon-low", "gemini-4-argon-low", "low"],
     ]) {
       const embeddedReq = validateH2aRunRequest(
         request(workspace, {

@@ -6149,7 +6149,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "read the initial Claude/Codex/AGY prompt from stdin (keeps it out of process argv)",
     )
     .option("--agent <agent>", "AGY agent override (for example: stp)")
-    .option("--model <model>", "Claude/Codex/AGY model override (e.g. claude-fable-5-2, gemini-4-carbon, gemini-4-argon, gpt-5.6-terra)")
+    .option("--model <model>", "Claude/Codex/AGY model override (e.g. claude-fable-5-2, gemini-4-carbon, gemini-4-argon-high, gpt-5.6-terra)")
     .option("--role <role>", "launch purpose: review|challenge|build; AGY Claude builds require explicit opt-in")
     .option("--allow-claude-build", "explicitly spend the reserved AGY Claude pool on a build")
     .option("--output-file <path>", "expected AGY Claude headless artifact; report missing or unchanged output at exit")

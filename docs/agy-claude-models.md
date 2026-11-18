@@ -2,7 +2,7 @@
 
 The `agy` profile accepts `claude-opus-5-5-{low,medium,high}` and
 `claude-sonnet-5-5-{low,medium,high}`, as well as Gemini models such as
-`gemini-4-argon` and `gemini-4-carbon`. Always select the model explicitly:
+`gemini-4-argon-{low,medium,high}` and `gemini-4-carbon`. Always select the model explicitly:
 AGY's default is Gemini 4 Argon. Interactive and headless launches apply
 `--model` before starting the agent. Effort accepts low, medium and high;
 for `claude-{opus,sonnet}-5-5`, max maps to high, whereas for `gemini-4-carbon`
