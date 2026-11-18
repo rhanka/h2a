@@ -161,6 +161,30 @@ export function createH2aSender({
     );
   }
 
+  /** Provisioning is serialised per root: two first sends must not both generate a key. */
+  /** @type {Map<string, Promise<void>>} */
+  const provisioning = new Map();
+
+  /**
+   * Provision the relay in `root` unless the registry already has it. Runs after any provisioning of the
+   * same root already in flight in this process, and re-reads the registry once it holds the turn.
+   * @param {string} bin
+   * @param {string} root
+   */
+  function provisionOnce(bin, root) {
+    const previous = provisioning.get(root) ?? Promise.resolve();
+    const turn = previous
+      .catch(() => {})
+      .then(async () => {
+        if (!(await isRegistered(bin, root))) await provision(bin, root);
+      });
+    provisioning.set(root, turn);
+    return turn;
+  }
+
+  /** @param {string} stderr */
+  const relayMissing = (stderr) => /sender is not registered|cannot read the local private key/.test(stderr);
+
   /**
    * @param {{ target: string, targetRoot?: string, text: string }} input
    * @returns {Promise<import('./types').SendResult>}
@@ -173,17 +197,17 @@ export function createH2aSender({
     let result = await h2a(bin, args);
     // `send` reads the signer key before it checks the registration, so a relay that was never provisioned
     // in this root shows up as either message. Provision only when the registry confirms it is absent: a
-    // registered relay whose key is missing must not get a new key behind its registered public key.
-    const missingRelay = /sender is not registered|cannot read the local private key/.test(result.stderr);
-    if (result.code !== 0 && autoProvision && missingRelay) {
-      if (await isRegistered(bin, targetRoot)) {
+    // registered relay whose key is missing must not get a new key behind its registered public key, so
+    // when the retry still cannot sign, the failure is reported instead.
+    if (result.code !== 0 && autoProvision && relayMissing(result.stderr)) {
+      await provisionOnce(bin, targetRoot);
+      result = await h2a(bin, args);
+      if (result.code !== 0 && relayMissing(result.stderr)) {
         throw new Error(
           `the relay identity ${relay} is registered in ${targetRoot} but cannot sign (${firstLine(result.stderr, result.code)}); ` +
             'pin a working identity with FOCUS_REVIEW_RELAY'
         );
       }
-      await provision(bin, targetRoot);
-      result = await h2a(bin, args);
     }
     if (result.code !== 0) throw new Error(firstLine(result.stderr, result.code));
     /** @type {any} */
