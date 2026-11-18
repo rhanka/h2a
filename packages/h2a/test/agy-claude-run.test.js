@@ -219,8 +219,9 @@ test("h2a_run accepts gemini-4-carbon on agy, preserves embedded Gemini effort, 
     ["gemini-4-carbon-high", "gemini-4-carbon", "high"],
     ["gemini-4-carbon-low", "gemini-4-carbon", "low"],
     ["carbon-high", "gemini-4-carbon", "high"],
-    ["gemini-4-argon-high", "gemini-4-argon", "high"],
-    ["argon-high", "gemini-4-argon", "high"],
+    ["gemini-4-argon-high", "gemini-4-argon-high", "high"],
+    ["gemini-4-argon-low", "gemini-4-argon-low", "low"],
+    ["argon-high", "gemini-4-argon-high", "high"],
   ]) {
     const embeddedReq = validateH2aRunRequest({ ...request(dir), model: embeddedModel }, dir);
     assert.equal(embeddedReq.model, expectedModel);

@@ -39,7 +39,7 @@ This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blo
 None of these require knowing a provider model id up front:
 
 1. **Profile** — `claude`, `codex`, `agy`, `muse`, or `vibe` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
-2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*, *fable-5.2*, *fable-5.1*), *luna*, *carbon* (`gemini-4-carbon`), *argon* (`gemini-4-argon`), or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
+2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*, *fable-5.2*, *fable-5.1*), *luna*, *carbon* (`gemini-4-carbon`), *argon* (`gemini-4-argon-low` / `gemini-4-argon-medium` / `gemini-4-argon-high`), or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
 3. **Effort** — `low | medium | high | xhigh`, plus `max` for Muse. For Claude/Codex, translate a user's "max" intent to `xhigh`; for Muse, pass `max` unchanged as `--reasoning-effort max`. AGY accepts only `low | medium | high` and rejects `xhigh` (`gemini-4-carbon` refuses `max`; `claude-opus-5-5` and `claude-sonnet-5-5` map `max` to `high`). Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
@@ -54,14 +54,14 @@ The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 r
 | Nickname / alias | Canonical `--model` / `model` id | Profile | Effort notes |
 | --- | --- | --- | --- |
 | `carbon`, `gemini-carbon`, `gemini-4-carbon`, `carbon-high` | `gemini-4-carbon` | `agy` | `low \| medium \| high` only (`max` is refused) |
-| `argon`, `gemini-argon`, `gemini-4-argon`, `argon-high` | `gemini-4-argon` | `agy` | `low \| medium \| high` |
+| `argon`, `gemini-argon`, `gemini-4-argon`, `argon-high`, `gemini-4-argon-high` | `gemini-4-argon-high` (`-low` / `-medium` / `-high`) | `agy` | `low \| medium \| high` (bare `gemini-4-argon` maps to `gemini-4-argon-high` or `gemini-4-argon-<effort>`) |
 | `flash`, `gemini-3.8-flash`, `flash-high` | `gemini-3.8-flash` | `agy` | `low \| medium \| high` |
 | `fable`, `fable-5.2`, `fable-5-2`, `claude-fable-5-2` | `claude-fable-5-2` | `claude` | `low \| medium \| high \| xhigh` (gateway routes base/`-high`/`-xhigh` → `gemini-4-carbon`) |
-| `fable-5.1`, `fable-5-1`, `claude-fable-5-1` | `claude-fable-5-1` | `claude` | `low \| medium \| high \| xhigh` (gateway routes to `muse-wonder-1.0` / `gemini-4-argon`) |
+| `fable-5.1`, `fable-5-1`, `claude-fable-5-1` | `claude-fable-5-1` | `claude` | `low \| medium \| high \| xhigh` (gateway routes to `muse-wonder-1.0` / `gemini-4-argon-high`) |
 | `wonder`, `muse-wonder`, `muse-wonder-1.0` | `muse-wonder-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
 | `wonder-full`, `muse-wonder-full`, `muse-wonder-full-1.0` | `muse-wonder-full-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
 | `spark`, `muse-spark`, `muse-spark-1.3` | `muse-spark-1.3` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
-| `muse-ember`, `muse-ember-1.0` | `muse-ember-1.0` | `muse` only (direct) | `low \| medium \| high \| xhigh \| max`; gateway unavailable until a published llm-mesh release carries Ember |
+| `muse-ember`, `muse-ember-1.0` | `muse-ember-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh \| max` (carried in llm-mesh 0.38+) |
 
 ## Step 3 — gateway on/off
 
@@ -72,7 +72,7 @@ New launches are **direct by default**, including named native model ids. H2A ob
 
 AGY talks to its provider directly. Use `gateway: "off"` for `profile: "agy"`; `"required"` is rejected. AGY accepts effort `low|medium|high`, not `xhigh`, and supports run-once mode through its verified `--print` stdin contract. Resolve the exact AGY model with `agy models`; for example, the displayed "Gemini 3.7 Flash (High)" id is `gemini-3.7-flash-high`.
 
-Muse talks to the Meta provider directly: always `gateway: "off"` (or `"auto"`, which resolves direct); `"required"` is rejected. Muse maps `effort` to its native `--reasoning-effort` (`low|medium|high|xhigh|max`, unchanged) and `model` to `--model`. Ember is direct-launch only on profile `muse`; its gateway route awaits a published llm-mesh release carrying `muse-ember-1.0` (sentropic #1013). Muse is interactive/background only — `headless: true` is rejected because `muse exec` has no stdin prompt contract (verified: piped stdin reports "missing prompt").
+Muse talks to the Meta provider directly: always `gateway: "off"` (or `"auto"`, which resolves direct); `"required"` is rejected. Muse maps `effort` to its native `--reasoning-effort` (`low|medium|high|xhigh|max`, unchanged) and `model` to `--model`. Ember is direct-launch only on profile `muse`; on `claude --gw` it routes through the gateway mesh via the `muse-ember-1.0` catalog profile when a `muse` account is enrolled — llm-mesh 0.38.1 carries the profile but has no `DEFAULT_TARGET_MAPPINGS` entry for it, so it resolves by profile fallback. Muse is interactive/background only — `headless: true` is rejected because `muse exec` has no stdin prompt contract (verified: piped stdin reports "missing prompt").
 
 Vibe (Mistral Vibe CLI) talks to the Mistral provider directly with its own plan-billed credential: always `gateway: "off"` (or `"auto"`, which resolves direct); `"required"` is rejected. Model and effort are NOT launch arguments on vibe — they are config concerns (`VIBE_ACTIVE_MODEL`, `/thinking`), so the `model`/`effort` parameters have no launch-argv effect for `profile: "vibe"`; resolve and record the model through the live mesh catalog instead. Vibe is interactive/background only — `headless: true` is rejected because `vibe -p` takes the prompt as an argv value and prompts are never serialized into argv (measured against `vibe --help`). Resume uses `--resume <id>` (most-recent shorthand is `vibe -c` at the CLI level).
 

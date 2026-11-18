@@ -69,6 +69,23 @@ describe("normalizeAgyEffort (low|medium|high, max→high, xhigh refused)", () =
     expect(() => resolveAgyModel("gemini-4-carbon", "xhigh")).toThrow(AgyEffortError);
     expect(() => normalizeAgyEffort("max", "gemini-4-carbon")).toThrow(AgyEffortError);
   });
+  it("normalizes bare gemini-4-argon and argon aliases to suffixed gemini-4-argon-{low,medium,high}", () => {
+    expect(resolveAgyModel("gemini-4-argon")).toBe("gemini-4-argon-high");
+    expect(resolveAgyModel("gemini-4-argon", "low")).toBe("gemini-4-argon-low");
+    expect(resolveAgyModel("gemini-4-argon", "medium")).toBe("gemini-4-argon-medium");
+    expect(resolveAgyModel("gemini-4-argon", "high")).toBe("gemini-4-argon-high");
+    expect(resolveAgyModel("gemini-4-argon-low")).toBe("gemini-4-argon-low");
+    expect(resolveAgyModel("gemini-4-argon-medium")).toBe("gemini-4-argon-medium");
+    expect(resolveAgyModel("gemini-4-argon-high")).toBe("gemini-4-argon-high");
+    expect(resolveAgyModel("gemini-4-argon-high", "low")).toBe("gemini-4-argon-low");
+    expect(resolveAgyModel("argon")).toBe("gemini-4-argon-high");
+    expect(resolveAgyModel("argon", "low")).toBe("gemini-4-argon-low");
+    expect(resolveAgyModel("argon-low")).toBe("gemini-4-argon-low");
+    expect(resolveAgyModel("argon-medium")).toBe("gemini-4-argon-medium");
+    expect(resolveAgyModel("argon-high")).toBe("gemini-4-argon-high");
+    expect(resolveAgyModel("gemini-argon")).toBe("gemini-4-argon-high");
+    expect(resolveAgyModel("gemini-argon-low")).toBe("gemini-4-argon-low");
+  });
   it("preserves embedded Gemini effort suffixes when effort is omitted and lets explicit effort override", () => {
     expect(extractEmbeddedGeminiEffort("gemini-4-carbon-high")).toBe("high");
     expect(extractEmbeddedGeminiEffort("gemini-4-carbon-low")).toBe("low");

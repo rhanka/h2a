@@ -91,6 +91,59 @@ const bearerFromHeaders = (headers: Readonly<Record<string, string>>): string | 
   return headers["x-api-key"]?.trim() || undefined;
 };
 
+/** Canonical Cloud Code identity for every suffixed Argon alias. */
+export const GEMINI_4_ARGON_MODEL = "gemini-4-argon";
+
+/**
+ * Effort suffix carried by a suffixed Argon requested model, if any.
+ * Only the canonical `gemini-4-argon-{low,medium,high}` ids qualify: the
+ * planner normalizes those to the bare canonical target with no effort, so
+ * the suffix is otherwise lost before the Cloud Code wire.
+ */
+export function argonSuffixEffort(
+  requestedModel: string,
+): "low" | "medium" | "high" | undefined {
+  // Byte-exact like the planner's normalizeExactModelId / isExactModelTarget:
+  // a non-canonical spelling must fall through to the planner's graceful
+  // unknown-model refusal, never to a targetCandidatesOverride that the
+  // exact-model gate would reject with a contract error.
+  if (requestedModel === "gemini-4-argon-low") return "low";
+  if (requestedModel === "gemini-4-argon-medium") return "medium";
+  if (requestedModel === "gemini-4-argon-high") return "high";
+  return undefined;
+}
+
+/**
+ * Planner override that carries a suffixed Argon's effort as
+ * `target.effort` when the client supplied none. The directory copies only
+ * `target.effort` into `reasoning.effort`, which the Cloud Code client
+ * expands to the suffixed wire model; without it the wire falls back to the
+ * bare canonical model (404 `model_not_found` since 0.38.1). An explicit
+ * client effort owns the wire and suppresses the override.
+ */
+export function argonEffortOverride(
+  requestedModel: string,
+  clientEffort: string | undefined,
+):
+  | readonly {
+      providerId: "gemini";
+      transportProviderId: "cloud-code";
+      model: typeof GEMINI_4_ARGON_MODEL;
+      effort: "low" | "medium" | "high";
+    }[]
+  | undefined {
+  const effort = argonSuffixEffort(requestedModel);
+  if (!effort || clientEffort !== undefined) return undefined;
+  return [
+    {
+      providerId: "gemini",
+      transportProviderId: "cloud-code",
+      model: GEMINI_4_ARGON_MODEL,
+      effort,
+    },
+  ];
+}
+
 const observablePlanner = (delegate: RoutePlanner): RoutePlanner => ({
   ...(delegate.listModels
     ? { listModels: (subject) => delegate.listModels!(subject) }
@@ -264,15 +317,20 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
           readiness,
           routePlanner: planner,
           routeMetering,
-          routeInput({ cost }) {
+          routeInput({ cost, request, canonical }) {
             const session = lookupSessionById(cost.principalId);
             const activeRouting = currentRouting();
+            const argonOverride = argonEffortOverride(
+              request.model,
+              canonical.request.reasoning?.effort,
+            );
             return {
               affinityKey: session?.clientSessionId ?? cost.principalId,
               ...(session?.workspaceId ? { workspaceId: session.workspaceId } : {}),
               ...(activeRouting?.policy ? { policyOverride: activeRouting.policy } : {}),
               ...(activeRouting?.activeProfile ? { policyProfile: activeRouting.activeProfile } : {}),
               ...(activeRouting?.explicit ? { explicit: activeRouting.explicit } : {}),
+              ...(argonOverride ? { targetCandidatesOverride: argonOverride } : {}),
             };
           },
         });

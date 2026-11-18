@@ -60,15 +60,15 @@ test(
 
       const badCli = runIso("llm-mesh", "account", "enroll", "codex", "--cli");
       assert.notEqual(badCli.status, 0, badCli.output);
-      assert.match(badCli.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
+      assert.match(badCli.output, /seat consumer input refused/);
 
       const claudeCliNoStore = runIso("llm-mesh", "account", "enroll", "claude-code", "--cli");
       assert.notEqual(claudeCliNoStore.status, 0, claudeCliNoStore.output);
-      assert.match(claudeCliNoStore.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
+      assert.match(claudeCliNoStore.output, /seat consumer input refused/);
 
       const badImport = runIso("llm-mesh", "account", "enroll", "codex", "--token");
       assert.notEqual(badImport.status, 0, badImport.output);
-      assert.match(badImport.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
+      assert.match(badImport.output, /seat consumer input refused/);
 
       const badBoth = runIso("llm-mesh", "account", "enroll", "claude-code", "--cli", "--token");
       assert.notEqual(badBoth.status, 0, badBoth.output);
@@ -84,7 +84,7 @@ test(
 
       const badFromProvider = runIso("llm-mesh", "account", "enroll", "codex", "--from", "token");
       assert.notEqual(badFromProvider.status, 0, badFromProvider.output);
-      assert.match(badFromProvider.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
+      assert.match(badFromProvider.output, /seat consumer input refused/);
 
       // m4 canaries: rejected values are never echoed back.
       const fromCanary = "canary-from-9f8e7d6c5b4a";
@@ -164,7 +164,8 @@ test(
 
       // m2 (r8): option-first ordering keeps working — `--cli muse` selects
       // the consumer import (provider recognized, not swallowed as a
-      // --cli value). The older facade refuses before any profile read,
+      // --cli value). The 0.26 facade implements importSeatBundle, so input
+      // validation refuses before any profile read,
       // never with a missing provider argument.
       // The negative marker has no `'provider'` suffix on purpose: the static
       // commander message is the bare `error: missing required argument`, so
@@ -172,7 +173,7 @@ test(
       const optionFirst = runIso("llm-mesh", "account", "enroll", "--cli", "muse");
       assert.notEqual(optionFirst.status, 0, optionFirst.output);
       assert.doesNotMatch(optionFirst.output, /missing required argument/);
-      assert.match(optionFirst.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
+      assert.match(optionFirst.output, /seat consumer input refused/);
       assert.doesNotMatch(optionFirst.output, /\[value\]/);
       // Help invites no argv value for --cli/--token (booleans, stdin only).
       assert.doesNotMatch(canonical.output, /--cli \[value\]/);

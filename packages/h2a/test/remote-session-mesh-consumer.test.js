@@ -117,7 +117,7 @@ test("registry slice imports the published archive root only", () => {
   assert.ok(!source.includes("remote-k8s-orchestrator"));
 });
 
-test("installed archive provides no origin-registry factory (incompatible-version)", async () => {
+test("installed archive provides the origin-registry factory but not the pinned r3 revision", async () => {
   let dir;
   try {
     dir = dirname(
@@ -148,8 +148,8 @@ test("installed archive provides no origin-registry factory (incompatible-versio
   const mesh = await import("@sentropic/cluster-mesh");
   assert.equal(
     typeof mesh.createSessionOriginRegistry,
-    "undefined",
-    "registry-bearing export unexpectedly present; slice must be re-cut",
+    "function",
+    "registry-bearing export missing; slice failed to re-cut",
   );
 });
 
@@ -174,7 +174,7 @@ test("built composition refuses with the typed code and zero effect", async () =
     },
   });
   assert.equal(consumer.status, "unavailable");
-  assert.equal(consumer.exportPresent, false);
+  assert.equal(consumer.exportPresent, true);
   assert.equal(consumer.unavailability.error.code, "relay_grant_unavailable");
   assert.equal(consumer.unavailability.error.retryable, true);
   assert.equal(consumer.unavailability.reason, "incompatible-version");
@@ -237,5 +237,5 @@ test("mesh-consumer lot pins no new dependency", () => {
   const pkg = JSON.parse(
     readFileSync(join(RUNTIME_DIR, "package.json"), "utf8"),
   );
-  assert.equal(pkg.dependencies["@sentropic/cluster-mesh"], "0.25.0");
+  assert.equal(pkg.dependencies["@sentropic/cluster-mesh"], "0.26.0");
 });
