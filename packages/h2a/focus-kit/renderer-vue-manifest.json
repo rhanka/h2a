@@ -36,7 +36,7 @@
     "../../../scripts/build-focus-vue.mjs": "05499668ed482cd777d10920598616044d9c673509fd258acf199f1263f9c76d"
   },
   "html": "72509ab9729b20678042159d787c019c634b7dd2f382f113ffaa6990ed963801",
-  "validator": "ec938998791f626d86529aaeb983c94a2aed97ca870254274a185319d68e2d66",
+  "validator": "f1d8e406d04bc75095556e5650c397f319c936a12020778c2d1e3b34c7968fb4",
   "modules": [
     "App.vue",
     "Canvas.vue",
