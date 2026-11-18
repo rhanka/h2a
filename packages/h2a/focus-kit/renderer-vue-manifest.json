@@ -33,10 +33,10 @@
     "vue/review/CommentThread.vue": "2a7fc2e74d47dfd2e9d0238372d59a121f0424327ebc76befe0753d321a8678f",
     "vue/review/ReviewModeToggle.vue": "3666cad35ed995e6e7a3e020361fcbc107772a40d50d9aec5461bc5248e2719a",
     "vue/review/ThreadPanel.vue": "3a02c0a47bb4e5663f3ae651c5a0afe7415380b72244898ff48caa1b79932daf",
-    "vue/review/adapter.js": "e0c7a13211e4d9b345aeded53675772955026e4022e57fb99bac9efe73402510",
+    "vue/review/adapter.js": "6cf1578cf603cbb81632ce16d230b32a50bef991036fd06a64fba8d5fdc08781",
     "vue/review/review-core.js": "1888993fad618d266e019ce1a5149fc129fadf37ecad28593987b4a1e8b49576",
     "vue/review/review.css": "fc52bf0bc8b845a3f05501b5c2eb076e4c09e8ac80a4f7b0bd148e74b4e683d2",
-    "vue/review/use-review.js": "3ea52b24eda7d41ed2d0dc020b684358287a33a01371cd973410ca51b8c56f57",
+    "vue/review/use-review.js": "e4f231acfc866d741a1936ed6ef09ae1db99078aacc077ec954071792a6b0f2d",
     "src/style.css": "0d0d370cd5b1b528230d133ed2a8e8007d6777b640db1701b11af7c7e60eae38",
     "src/evidence-search.js": "ba531b0680e85c2fcac108de34ccce8d1638bf3a89650804fd716cda9e31f2ff",
     "../../focus/src/render/presentation.ts": "9810b533fdb5a480ad25380b6a32cbd99b37413694f51c9b375011799b611dc5",
@@ -45,7 +45,7 @@
     "../../focus/src/validation/evidence-bytes.ts": "eb3ce3007c91f5b5f0e9d1b9c9dae9d3d3fc68a3b5ec9f1b95448cd76a441f3b",
     "../../../scripts/build-focus-vue.mjs": "d32a121cb0aaa61afe1555519ab3a37b3d5ba371bdd3b066341403863c2970e7"
   },
-  "html": "9c0d09a13a6b2e9d8a60d78ce378d851ab7e89ad996be1c25d945315760c6ea7",
+  "html": "f45508ed6eaa03a2f95e9aa7d717088a283460c1cb4a82d6a28ae04a5e907398",
   "validator": "f1d8e406d04bc75095556e5650c397f319c936a12020778c2d1e3b34c7968fb4",
   "modules": [
     "App.vue",

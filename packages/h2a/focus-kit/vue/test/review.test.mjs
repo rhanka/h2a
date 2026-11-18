@@ -6,7 +6,7 @@ import {
   ANCHOR_CAP, anchorLabel, decodeAnchor, encodeAnchor, encodeAnchorCapped,
   filterThreads, fitsAnchorCap, groupThreads, isUnread, layoutPins, renderMarkdownLite,
 } from '../review/review-core.js';
-import { FakeCommentsAdapter } from '../review/adapter.js';
+import { FakeCommentsAdapter, HttpCommentsAdapter } from '../review/adapter.js';
 
 const user = { actorId: 'owner', kind: 'human', displayLabel: 'Owner', color: '#2563eb' };
 function memoryStorage() {
@@ -126,4 +126,30 @@ test('all review templates compile as Vapor; only CommentThread renders markdown
   }
   const thread = readFileSync(new URL('../review/CommentThread.vue', import.meta.url), 'utf8');
   assert.match(thread, /renderMarkdownLite\(comment\.body\)/);
+});
+
+test('HTTP adapter: every write carries a JSON content type; saved-but-undelivered errors keep the comment', async () => {
+  const calls = [];
+  const comment = { id: 'c1', threadId: 't1', target: { kind: 'artifact', id: 'doc' }, author: { id: 'owner' }, body: 'x', state: 'open' };
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (url.endsWith('/comments') && init.method === 'POST') {
+      return new Response(JSON.stringify({ error: { code: 'agent_no_target', message: 'Saved, not delivered.', saved: true, comment } }), { status: 409 });
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  const adapter = new HttpCommentsAdapter({ artifactId: 'doc', baseUrl: 'http://127.0.0.1:1/', fetchImpl });
+  await adapter.close('t1');
+  await adapter.reopen('t1');
+  const failure = await adapter.create({ threadId: 't1', body: 'x', sendToAgent: true }).catch(error => error);
+  assert.equal(calls.length, 3);
+  for (const { init } of calls) assert.equal(new Headers(init.headers).get('content-type'), 'application/json');
+  assert.deepEqual(calls.map(({ url }) => url), [
+    'http://127.0.0.1:1/api/artifacts/doc/threads/t1/close',
+    'http://127.0.0.1:1/api/artifacts/doc/threads/t1/reopen',
+    'http://127.0.0.1:1/api/artifacts/doc/comments',
+  ]);
+  assert.equal(failure.code, 'agent_no_target');
+  assert.equal(failure.saved, true);
+  assert.equal(failure.comment.id, 'c1');
 });

@@ -90,8 +90,14 @@ same props/events and annotates that in each file header:
   in-page fake implementing exactly the frozen contract on `localStorage`
   (reload persists), with a simulated live agent reply for `sendToAgent`.
   Pass `?api=<base>` (or the `apiBase` prop) to switch to
-  `HttpCommentsAdapter` (fetch + `EventSource`) with no other code change;
-  do this when the backend lane lands the real routes.
+  `HttpCommentsAdapter` (fetch + `EventSource`) against the real
+  `FOCUS_ARTIFACT_REVIEW` routes of Focus Web, with no other code change.
+  Every write sends `content-type: application/json`; an error carrying
+  `error.saved: true` (stored, agent delivery failed) is shown next to the
+  stored comment and never retried. Host requirement: `renderer-vue.html`
+  ships `connect-src 'none'`, so a host enabling review against real routes
+  must widen `connect-src` to the API origin (the backend answers CORS for
+  loopback origins).
 - `review/*.vue` — Vapor `ReviewModeToggle`, `CommentLayer`, `CommentPin`,
   `CommentComposer`, `CommentThread`, `ThreadPanel` reusing DS
   `Button/Badge/Avatar/Textarea/Toggle/EmptyState` where they exist.
@@ -105,6 +111,11 @@ the D1 fallback (owner id + `provenance.runId`).
 Tests: `node --test test/review.test.mjs` (core, adapter contract, Vapor
 compile) and `packages/h2a/focus-kit/test/review-browser.test.mjs`
 (Playwright acceptance against the fake, after rebuilding the renderer).
+`packages/h2a/focus-kit/test/review-real-browser.test.mjs` runs the same
+scenario against the packaged Focus Web server of the checkout named by
+`FOCUS_REVIEW_BACKEND_REPO` (default: this one, built with `npm run build`),
+in a throwaway h2a root with one registered live recipient; it fails, never
+skips, when the backend routes are absent.
 Timings/bundle: `node test/review-measures.mjs`.
 
 ## Scope and remaining evidence
