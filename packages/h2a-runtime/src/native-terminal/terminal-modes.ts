@@ -22,6 +22,11 @@ export class TerminalModeTracker {
     return [...ALTERNATE_MODES].some((mode) => this.#enabled.has(mode));
   }
 
+  /** True when the child itself enabled mouse reporting (1000/1002/1003). */
+  isMouseTrackingEnabled(): boolean {
+    return [1000, 1002, 1003].some((mode) => this.#enabled.has(mode));
+  }
+
   feed(data: string): void {
     for (const c of data) {
       if (c === "\x18" || c === "\x1a") { this.#state = "text"; continue; }

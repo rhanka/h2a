@@ -199,6 +199,8 @@ export type RemoteCliConfig = {
   tmux?: TmuxProfileConfig;
   /** Native terminal status bar configuration (default enabled). */
   statusBar?: boolean | { enabled?: boolean };
+  /** Native right panel (default disabled; opt-in only). */
+  rightPanel?: { enabled?: boolean; width?: number };
   /** P4 — default concurrency cap for delegated jobs (local AND remote). */
   maxConcurrent?: number;
   /**
@@ -469,6 +471,15 @@ export function readRemoteConfig(): RemoteCliConfig {
       ) {
         config.statusBar = {
           enabled: (parsed.statusBar as Record<string, unknown>).enabled as boolean,
+        };
+      }
+      if (parsed.rightPanel && typeof parsed.rightPanel === "object") {
+        const rp = parsed.rightPanel as Record<string, unknown>;
+        config.rightPanel = {
+          ...(typeof rp.enabled === "boolean" ? { enabled: rp.enabled } : {}),
+          ...(typeof rp.width === "number" && Number.isFinite(rp.width)
+            ? { width: rp.width }
+            : {}),
         };
       }
       if (
