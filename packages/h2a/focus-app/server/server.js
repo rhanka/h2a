@@ -37,6 +37,34 @@ return {
 			endpoint: __memo(() => import('./entries/endpoints/api/actions/launch/_server.ts.js'))
 		},
 		{
+			id: "/api/artifacts/[artifactId]/comments",
+			pattern: /^\/api\/artifacts\/([^/]+?)\/comments\/?$/,
+			params: [{"name":"artifactId","optional":false,"rest":false,"chained":false}],
+			page: null,
+			endpoint: __memo(() => import('./entries/endpoints/api/artifacts/_artifactId_/comments/_server.ts.js'))
+		},
+		{
+			id: "/api/artifacts/[artifactId]/stream",
+			pattern: /^\/api\/artifacts\/([^/]+?)\/stream\/?$/,
+			params: [{"name":"artifactId","optional":false,"rest":false,"chained":false}],
+			page: null,
+			endpoint: __memo(() => import('./entries/endpoints/api/artifacts/_artifactId_/stream/_server.ts.js'))
+		},
+		{
+			id: "/api/artifacts/[artifactId]/threads/[threadId]/close",
+			pattern: /^\/api\/artifacts\/([^/]+?)\/threads\/([^/]+?)\/close\/?$/,
+			params: [{"name":"artifactId","optional":false,"rest":false,"chained":false},{"name":"threadId","optional":false,"rest":false,"chained":false}],
+			page: null,
+			endpoint: __memo(() => import('./entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/close/_server.ts.js'))
+		},
+		{
+			id: "/api/artifacts/[artifactId]/threads/[threadId]/reopen",
+			pattern: /^\/api\/artifacts\/([^/]+?)\/threads\/([^/]+?)\/reopen\/?$/,
+			params: [{"name":"artifactId","optional":false,"rest":false,"chained":false},{"name":"threadId","optional":false,"rest":false,"chained":false}],
+			page: null,
+			endpoint: __memo(() => import('./entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/reopen/_server.ts.js'))
+		},
+		{
 			id: "/api/decisions/inject",
 			pattern: /^\/api\/decisions\/inject\/?$/,
 			params: [],
