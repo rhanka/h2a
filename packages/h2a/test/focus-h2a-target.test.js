@@ -79,6 +79,32 @@ test("liveCliSessions drops closed sessions and non-CLI hosts, freshest first", 
   );
 });
 
+test("every h2a CLI host is a receiving CLI — muse: and vibe: included, whatever the CLI (defect F1)", () => {
+  // The artifact review "send to agent" path reaches the owning session WHATEVER ITS CLI. The host
+  // registry (`CLI_HOSTS` in packages/h2a/src/cli.ts) has eight hosts; the filter used to know six, so a
+  // Muse or Vibe session working in this very checkout was invisible and delivery said "no live session".
+  const hosts = ["claude", "codex", "gemini", "agy", "hermes", "opencode", "muse", "vibe"];
+  const live = liveCliSessions(
+    hosts.map((host, index) => ({
+      instance: `${host}:lane:${String(index).padStart(12, "0")}`,
+      state: "live",
+      heartbeatAt: `2026-11-18T10:00:0${index}.000Z`
+    }))
+  );
+  assert.deepEqual(new Set(live.map((s) => s.instance.split(":")[0])), new Set(hosts));
+
+  const resolution = chooseLiveTarget(
+    [{ instance: "vibe:owner-lane:0123456789ab", state: "live", heartbeatAt: "2026-11-18T10:00:00.000Z", workspace: { path: MAIN }, root: "/r" }],
+    { repoPaths: [MAIN], nameCandidates: ["a2a-cli"] }
+  );
+  assert.equal(resolution.target, "vibe:owner-lane:0123456789ab");
+  assert.equal(resolution.reason, "workspace");
+  assert.equal(resolution.targetRoot, "/r");
+
+  // Non-CLI actors still never pose as a CLI.
+  assert.deepEqual(liveCliSessions([{ instance: "focus:artifact-review:abc", state: "live" }]), []);
+});
+
 test("opening and draining sessions can still receive — they are live presences", () => {
   // `h2a sessions` has already applied the 90s heartbeat TTL. Re-filtering on state === "live" in the
   // consumer additionally discarded legitimately reachable sessions.

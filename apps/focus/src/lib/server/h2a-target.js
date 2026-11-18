@@ -24,8 +24,12 @@
 // Dependency-free ESM on purpose: imported by the SvelteKit server routes AND run directly by the repo's
 // `node --test` suite, so the ladder above is asserted rather than asserted-about.
 
-/** A real CLI host we can hand a decision to — not another agent/service posing as one. */
-const CLI_HOST_PREFIX = /^(claude|codex|gemini|agy|hermes|opencode):/;
+/**
+ * A real CLI host we can hand a decision to — not another agent/service posing as one. Same set as the
+ * h2a host registry (`CLI_HOSTS` in packages/h2a/src/cli.ts): a host missing here is a CLI whose live
+ * sessions Focus cannot see, so "whatever the CLI" silently became "six of the eight CLIs".
+ */
+const CLI_HOST_PREFIX = /^(claude|codex|gemini|agy|hermes|opencode|muse|vibe):/;
 
 /**
  * Presence states that can still receive. `h2a sessions` has ALREADY applied the 90s heartbeat TTL, so
