@@ -9,18 +9,24 @@
     "build": "svelte-kit sync && vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "lint": "node scripts/check-imports.mjs"
+    "lint": "node scripts/check-imports.mjs",
+    "test": "svelte-kit sync && vitest run",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@sveltejs/adapter-node": "^6.0.1",
     "@sveltejs/kit": "^3.1.1",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@testing-library/svelte": "^5.2.8",
     "@tsconfig/svelte": "^5.0.0",
     "@types/node": "^20.14.2",
+    "jsdom": "^27.2.0",
     "svelte": "^5.57.1",
     "svelte-check": "^4.1.0",
     "typescript": "^6.0.3",
-    "vite": "^8.3.8"
+    "vite": "^8.3.8",
+    "vitest": "^4.0.15"
   },
   "overrides": {
     "@sveltejs/vite-plugin-svelte": {
