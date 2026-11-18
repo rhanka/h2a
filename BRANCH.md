@@ -3151,8 +3151,9 @@ scope stays pre-SG-R15.
 - User-authorized dependency and CI edits apply to this branch. No Track state changes, merge or release.
 - L0: six frozen desktop/phone captures with prepared-data bytes and DOM observations.
 - L1: explicit opt-in, Vapor SFC sources, bounded generic diagram projection and frozen-export builder.
-- BLOCKED: DS Vue next declares unpublished themes 0.14.0 and diagram-canvas 0.2.0; older overrides are incompatible and not committed.
+- UNBLOCKED 2026-11-17: themes 0.14.0 published 2026-11-14; tuple bumped to design-system-vue 0.41.0-next.7 + diagram-canvas 0.2.5 + diagram-core 0.3.0, themes kept as direct pin (no DS re-export; analysis in tmp/h-cond/pr451-themes-need.md). L1 builds behind `--renderer vue`; Svelte stays default.
+- Rebased on origin/main: L0 baseline re-frozen from current Svelte (decision/option codes, response summary, Sources bibliography); Vue mirrors them. Both Svelte and Vue parity pass at 1440/390; generated Vue assets committed after that qualification.
 - No ReportDocument exists on this baseline. Report is a read-only view of the same validated decision dossier.
-- Vue parity, offline candidate assets and L1 acceptance remain pending. L2 belongs to sentropic.
+- Still waiting on DS: stable design-system-vue release/support statement, themes re-export or documented direct dependency, anatomy/glyph qualification. L2 belongs to sentropic.
 - Validation and reproduction: packages/h2a/focus-kit/vue/README.md.
 - Independent peer review unavailable: required h2a_run MCP tool is absent.

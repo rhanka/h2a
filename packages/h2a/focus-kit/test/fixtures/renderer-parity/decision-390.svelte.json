@@ -1,6 +1,6 @@
 {
   "title": "Décision dossiers — format de présentation",
-  "text": "Focus 1 question(s) · 4 minutes Votre demande Chaque dossier de décision doit utiliser Focus et montrer notre écosystème. Le propriétaire doit comprendre les choix et leurs effets sans dépendre d'un service en ligne. En mots simples (1 terme) En bref : Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier. Quel format adopter pour les prochains dossiers ? En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Question ouverte Formats possibles Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent. Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse. La rédaction transmet le dossier à la lecture. Déplacez le schéma et pincez pour zoomer, ou utilisez les boutons + et −. transmet NODE Rédaction NODE Lecture Svelte Flow Lire les relations du schéma En bref : JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone. Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée. Source et version",
+  "text": "Focus 1 question(s) · 4 minutes Votre demande Chaque dossier de décision doit utiliser Focus et montrer notre écosystème. Le propriétaire doit comprendre les choix et leurs effets sans dépendre d'un service en ligne. En mots simples (1 terme) En bref : Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier. D1 ·Quel format adopter pour les prochains dossiers ? En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Question ouverte Formats possibles A · Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent. B · Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse. La rédaction transmet le dossier à la lecture. Déplacez le schéma et pincez pour zoomer, ou utilisez les boutons + et −. transmet NODE Rédaction NODE Lecture Svelte Flow Lire les relations du schéma En bref : JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone. Votre réponse Les choix sans réponse sont indiqués par —. D1 — Copier Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée. Source et version",
   "sections": [
     {
       "id": "context",
@@ -9,14 +9,14 @@
     },
     {
       "id": "format",
-      "text": "Quel format adopter pour les prochains dossiers ? En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Question ouverte",
+      "text": "D1 ·Quel format adopter pour les prochains dossiers ? En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Question ouverte",
       "headings": [
-        "Quel format adopter pour les prochains dossiers ?"
+        "D1 ·Quel format adopter pour les prochains dossiers ?"
       ]
     },
     {
       "id": "formats",
-      "text": "Formats possibles Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent. Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse.",
+      "text": "Formats possibles A · Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent. B · Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse.",
       "headings": [
         "Formats possibles"
       ]
@@ -43,11 +43,15 @@
     },
     {
       "tag": "H2",
-      "text": "Quel format adopter pour les prochains dossiers ?"
+      "text": "D1 ·Quel format adopter pour les prochains dossiers ?"
     },
     {
       "tag": "H3",
       "text": "Formats possibles"
+    },
+    {
+      "tag": "H2",
+      "text": "Votre réponse"
     }
   ],
   "details": [
@@ -71,12 +75,12 @@
       "pressed": "false"
     },
     {
-      "text": "Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent.",
+      "text": "A · Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent.",
       "label": null,
       "pressed": "false"
     },
     {
-      "text": "Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale.",
+      "text": "B · Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale.",
       "label": null,
       "pressed": "false"
     },
@@ -98,6 +102,11 @@
     {
       "text": "",
       "label": "Toggle Interactivity",
+      "pressed": null
+    },
+    {
+      "text": "Copier",
+      "label": null,
       "pressed": null
     }
   ],
