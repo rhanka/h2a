@@ -5,7 +5,7 @@ import { parse, compileScript } from '@vue/compiler-sfc';
 import { diagramAdapter } from '../diagram-adapter.js';
 
 test('all application templates compile as Vapor without handwritten render functions', () => {
-  for (const filename of ['App.vue', 'Canvas.vue', 'Evidence.vue', 'SourceViewer.vue']) {
+  for (const filename of ['App.vue', 'Canvas.vue', 'Citation.vue', 'Evidence.vue', 'SourceViewer.vue']) {
     const source = readFileSync(new URL(`../${filename}`, import.meta.url), 'utf8');
     const { descriptor, errors } = parse(source, { filename });
     assert.deepEqual(errors, []); assert.equal(descriptor.vapor, true);
