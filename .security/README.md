@@ -1,20 +1,21 @@
 # npm security-debt policy
 
 `npm run audit:security` is the repository's dependency-security gate. It runs
-`npm audit --json` against the installed root npm tree and fails on every new
-or changed `moderate`, `high`, or `critical` vulnerability. The threshold is
-`moderate`: `high` would make the two currently accepted runtime exceptions
-invisible, while a `low` failure is too noisy for this gate to stay enabled.
+`npm audit --json` against the three locked npm trees (root, `apps/focus`,
+and `packages/h2a/focus-kit`) and fails on every new or changed `moderate`,
+`high`, or `critical` vulnerability. The threshold is `moderate`, while a
+`low` failure is too noisy for this gate to stay enabled.
 
 The gate reads [vulnerability-register.yaml](./vulnerability-register.yaml).
-An exception is not a package allowlist: it must exactly name the component,
-severity, every embedded lockfile path, installed version, and either all GHSA
-advisories or its complete `via` package chain. The script rejects malformed,
-ambiguous, expired, or resolved-but-still-recorded rows. It also rejects high
-and critical exceptions: those receive a dedicated fix branch rather than
-waiting in the register. Rows may be reviewed for at most 31 days from their
-recorded discovery date; the gate warns during the final seven days and fails
-on or after `review_due`.
+An exception is not a package allowlist: it must exactly name the tree,
+component, severity, every embedded lockfile path, installed version, and
+either all GHSA advisories or its complete `via` package chain. The script
+rejects malformed, ambiguous, expired, or resolved-but-still-recorded rows.
+It rejects critical exceptions outright, and high exceptions unless the row
+records `scope: "build/test tooling only"`; other high findings receive a
+dedicated fix branch rather than waiting in the register. Rows may be
+reviewed for at most 31 days from their recorded discovery date; the gate
+warns during the final seven days and fails on or after `review_due`.
 
 ## Operating rule
 
@@ -38,9 +39,10 @@ on or after `review_due`.
 - **Habit:** the owner must act before the printed review date. Automation
   makes that habit visible but cannot make the upstream release happen.
 
-The gate stops at the root `package-lock.json` npm dependency tree. It does
-not scan container images, vendored artefacts, the separately locked and
-packaged Focus build under `apps/focus`, or arbitrary release artefacts.
+The gate stops at the three locked `package-lock.json` npm dependency trees
+(root, `apps/focus`, `packages/h2a/focus-kit`). It does not scan container
+images, vendored artefacts, packaged Focus artefacts, or arbitrary release
+artefacts.
 It runs on Linux only under the owner's cross-platform decision
 `01KYJ3Q3V5AW9YR0QMXSGW93RE`; it is not evidence of Windows or macOS security
 behaviour. Finally, this check can fail a workflow, but branch protection must

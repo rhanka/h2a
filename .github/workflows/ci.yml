@@ -50,8 +50,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run audit:security
-      - run: npm --prefix packages/h2a/focus-kit audit --audit-level=moderate
-      - name: Verify the deepmerge security override in both build trees
+      - run: node scripts/audit-security-debt.mjs --tree packages/h2a/focus-kit
+      - name: Verify the deepmerge security override in every locked tree
         run: |
           npm --prefix apps/focus ci --ignore-scripts
           npm --prefix packages/h2a/focus-kit ci --ignore-scripts

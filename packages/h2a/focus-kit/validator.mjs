@@ -23,16 +23,16 @@ SOFTWARE.
 
 */
 
-// packages/focus/src/model.ts
+// ../../focus/src/model.ts
 var isReportDocument = (doc) => "kind" in doc && doc.kind === "report";
 var isEvidenceDossier = (doc) => "schemaVersion" in doc && doc.schemaVersion === 2;
 
-// packages/focus/src/render/markdown-table.ts
+// ../../focus/src/render/markdown-table.ts
 function splitMarkdownTableCells(line) {
   return line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
 }
 
-// packages/focus/src/validation/readability.ts
+// ../../focus/src/validation/readability.ts
 var READABILITY_BUDGETS = { low: 2, medium: 8, high: 30 };
 var READABILITY_LIMITS = {
   minOwnerRequestQuoteLength: 8,
@@ -540,7 +540,7 @@ var validateDecisionDossierReadability = (doc, options) => {
   }
 };
 
-// packages/focus/src/validation/evidence-shape.ts
+// ../../focus/src/validation/evidence-shape.ts
 var EvidenceError = class extends Error {
   constructor(issue2) {
     super(issue2.message);
@@ -583,7 +583,7 @@ function imageDimensions(bytes, media) {
   return void 0;
 }
 
-// packages/focus/src/validation/evidence-bytes.ts
+// ../../focus/src/validation/evidence-bytes.ts
 var K = [
   1116352408,
   1899447441,
@@ -696,7 +696,7 @@ function decodeEvidence(data) {
 var evidenceText = (bytes) => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 var evidenceLines = (text2) => text2.split(/\r\n|\n|\r/);
 
-// packages/focus/src/validation/evidence-sources.ts
+// ../../focus/src/validation/evidence-sources.ts
 var isTextSource = (media) => /^text\/[a-z0-9.+-]+$/.test(media) || ["application/json", "application/yaml", "application/x-yaml", "application/x-ndjson"].includes(media);
 function checkSources(value, register) {
   const lineCounts = /* @__PURE__ */ new Map();
@@ -738,7 +738,7 @@ function checkSources(value, register) {
   return { sources, lineCounts };
 }
 
-// packages/focus/src/validation/evidence.ts
+// ../../focus/src/validation/evidence.ts
 function checkEvidence(value, legacy) {
   try {
     const { schemaVersion: _version, sources: rawSources, citations: rawCitations, evidenceGroups: rawGroups, annexes: rawAnnexes, ...base } = value;
@@ -849,7 +849,7 @@ function checkEvidence(value, legacy) {
   }
 }
 
-// packages/focus/src/validation/index.ts
+// ../../focus/src/validation/index.ts
 var DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
 var DOSSIER_SCHEMA_VERSION = "1.0.0";
 var DOSSIER_V2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.0.0";
