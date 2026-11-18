@@ -1,0 +1,696 @@
+{
+  "version": 1,
+  "profilePairs": [
+    "claude:claude",
+    "claude:codex",
+    "claude:muse",
+    "claude:agy",
+    "codex:claude",
+    "codex:codex",
+    "codex:muse",
+    "codex:agy",
+    "muse:claude",
+    "muse:codex",
+    "muse:muse",
+    "muse:agy",
+    "agy:claude",
+    "agy:codex",
+    "agy:muse",
+    "agy:agy"
+  ],
+  "probeTools": [
+    "h2a_identity_status",
+    "h2a_inbox",
+    "h2a_send"
+  ],
+  "mandatory": {
+    "merge": [
+      {
+        "scenario": "probe",
+        "pair": "claude:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:agy"
+      }
+    ],
+    "release": [
+      {
+        "scenario": "probe",
+        "pair": "claude:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:agy"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "scenario": "probe",
+      "pair": "claude:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "claude:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "claude:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "claude:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "unavailability:stopped-receiver",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "unavailability:unknown-instance",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "unavailability:identity-never-ready",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "refusal:unsigned-wake",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "refusal:misaddressed-wake",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "refusal:replayed-wake",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:lifecycle",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:join-unknown",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:report-without-join",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:report-after-done",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "negotiation:flow",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "negotiation:offer-unknown",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "negotiation:stabilize-without-offer",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "negotiation:replayed-stabilization",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "inventory:read-paths",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "inventory:session-paths",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "inventory:conductor-paths",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "inventory:governance-paths",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "functions-remainder",
+      "status": "not-covered",
+      "blocker": "no-executable-s-tier-scenario",
+      "owner": "L15",
+      "tools": [
+        "h2a_run",
+        "h2a_drive_consent_request",
+        "h2a_drive_consent_respond",
+        "h2a_drive_consent_cosign",
+        "h2a_drive_consent_status",
+        "h2a_drive_consent_revoke"
+      ]
+    },
+    {
+      "scenario": "cli-verb:send",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:inbox-pop",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:inbox-name-resolution",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:session-list",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:session-resume",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:session-stop",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:host-setup",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:host-status",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:upgrade-refusal",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    }
+  ],
+  "simulationMandatory": {
+    "scenarios": [
+      "unavailability:stopped-receiver",
+      "unavailability:unknown-instance",
+      "unavailability:identity-never-ready",
+      "refusal:unsigned-wake",
+      "refusal:misaddressed-wake",
+      "refusal:replayed-wake",
+      "loop:lifecycle",
+      "loop:join-unknown",
+      "loop:report-without-join",
+      "loop:report-after-done",
+      "negotiation:flow",
+      "negotiation:offer-unknown",
+      "negotiation:stabilize-without-offer",
+      "negotiation:replayed-stabilization",
+      "inventory:read-paths",
+      "inventory:session-paths",
+      "inventory:conductor-paths",
+      "inventory:governance-paths"
+    ],
+    "pairs": "all-36",
+    "tiers": [
+      "S"
+    ]
+  }
+}

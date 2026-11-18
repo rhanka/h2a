@@ -16,7 +16,7 @@ import { digest } from '../../src/runtime/handover/wire.js';
 const shortQualificationRoot = process.env.H2A_TEST_QUALIFICATION_ROOT;
 if (shortQualificationRoot !== undefined) {
   assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot) ||
-    /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(shortQualificationRoot),
+    /^\/home\/[^/]+\/\.cache-tmp\/(?:h2a-test|h2a-xcli|h2a-test\/h2a-xcli)\/run-[A-Za-z0-9]+$/.test(shortQualificationRoot),
   "REFUSING invalid short qualification root");
   const info = lstatSync(shortQualificationRoot);
   assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,

@@ -1,0 +1,27 @@
+{
+  "run": 38909510272,
+  "sha": "2f4568a93922942c24dfc59d8b62de6725f0147c",
+  "job": 117001491771,
+  "name": "source-consumers (22, native)",
+  "conclusion": "success",
+  "url": "https://github.com/rhanka/h2a/actions/runs/38909510272/job/117001491771",
+  "commands": [
+    {
+      "command": "node scripts/xcli-node-headers.mjs",
+      "outputCounts": {},
+      "outcomes": []
+    },
+    {
+      "command": "node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs packages/h2a/test/runtime-llm-mesh-account.test.js packages/h2a/test/restore-dead-session-recovery.test.js packages/h2a/test/runtime-restore-native.test.js packages/h2a/test/cli-command-map.test.js packages/h2a/test/native-session-restart.test.js packages/h2a/test/resume-conflict-selfheal.test.js packages/h2a/test/native-inventory-absence.test.js packages/h2a/test/m02-drive-characterization.test.js packages/h2a/test/m04-wake-characterization.test.js packages/h2a/test/native-host-generations.test.js packages/h2a/test/native-process-view.test.js packages/h2a/test/native-spawn-guard.test.js packages/h2a/test/pty-native-messaging.test.js packages/h2a/test/drive.test.js",
+      "outputCounts": {
+        "tests": 163,
+        "pass": 151,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 12
+      },
+      "outcomes": []
+    }
+  ]
+}

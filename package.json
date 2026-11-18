@@ -31,6 +31,9 @@
     "pack:h2a-runtime": "node scripts/package-release.mjs --package @sentropic/h2a-runtime",
     "publish:h2a-runtime": "node scripts/package-release.mjs --package @sentropic/h2a-runtime --publish"
   },
+  "dependencies": {
+    "@sentropic/llm-mesh": "0.33.0"
+  },
   "devDependencies": {
     "@types/node": "^22.19.19",
     "typescript": "^5.9.3",

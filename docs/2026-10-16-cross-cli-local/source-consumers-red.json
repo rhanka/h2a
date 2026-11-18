@@ -1,0 +1,49 @@
+{
+  "command": [
+    "node",
+    "--import",
+    "/tmp/h2a-qual-RlS1NG/build/packages/h2a/test/helpers/native-isolation.js",
+    "--test",
+    "--test-reporter=tap",
+    "--test-reporter-destination=stdout",
+    "--test-reporter=/home/antoinefa/src/h2a/tmp/worktrees/xcli/scripts/node-evidence-reporter.mjs",
+    "--test-reporter-destination=/tmp/h2a-qual-RlS1NG/execution.json",
+    "--test-concurrency=1",
+    "packages/h2a/test/native-process-view.test.js",
+    "packages/h2a/test/native-spawn-guard.test.js",
+    "packages/h2a/test/pty-native-messaging.test.js",
+    "packages/h2a/test/drive.test.js",
+    "packages/h2a/test/cli-contract.test.js"
+  ],
+  "counts": {
+    "tests": 149,
+    "pass": 144,
+    "fail": 4,
+    "cancelled": 0,
+    "skipped": 1,
+    "todo": 0
+  },
+  "exitCode": 1,
+  "sourceBuild": {
+    "path": "/tmp/h2a-qual-RlS1NG/build",
+    "sourceDigest": "3269437cae6d64c8883fd34768d7b47c6bf5d9f62657d5b63f044b77ba836993",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-RlS1NG/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-RlS1NG/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "scripts/qualify-cross-cli.mjs": "5addd74e71bce3fd4795139e82466165ee071d39bcdd8e9c905bd822169bd392",
+  "scripts/xcli-lab.mjs": "60ae50b9272a430b12a818f6bf151e20a3daf8b5f1ce1501729a4d3f651661f3",
+  "scripts/xcli-proxy.mjs": "d92bd8324d1bf1c401fd0ade6996f5ae7b7e900595b8ab91c83e9f1a79d82f97",
+  "scripts/xcli-lab.test.mjs": "2dd3e4eecfc5f124fc32f6258621110047f2de6faf1b12eb41e2471df6965399",
+  "scripts/xcli-proxy.test.mjs": "4f7fc49ae24dae234096a7610f11e212e64e7d3d2a859f4558373a77eb544071"
+}

@@ -66,5 +66,96 @@
     "specifier": "@sentropic/llm-gateway/node_modules/",
     "classification": "negative-assertion",
     "reason": "Single-mesh unit probe data; never loaded as a dependency."
+  },
+  {
+    "file": "scripts/xcli-llm-mesh-seats.mjs",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "retained-h2a-adapter",
+    "reason": "Bench seats resolve through the mesh facade acquire/release pair (auth-only projection, lease released immediately); the module re-exports the facade and never re-implements enrollment.",
+    "decision": "Owner directive 2026-11-01 (bench round 23): vibe and agy seats sourced from llm-mesh, like the cyber seats."
+  },
+  {
+    "file": "scripts/xcli-llm-mesh-seats.mjs",
+    "specifier": "@sentropic/llm-mesh/node",
+    "classification": "retained-h2a-adapter",
+    "reason": "Bench seats open the runtime mesh store (EncryptedFileKeyring) through the re-exported keyring only; the module never re-implements keyring crypto or enrollment.",
+    "decision": "Owner directive 2026-11-02 (bench round 25): source the seats from the llm-mesh store h2a actually uses."
+  },
+  {
+    "file": "scripts/xcli-llm-mesh-seats.test.mjs",
+    "specifier": "@sentropic/llm-mesh/node",
+    "classification": "retained-h2a-adapter",
+    "reason": "R25 synthetic fixtures write through the real keyring API into temp dirs only; never the owner store, never real secrets.",
+    "decision": "Owner directive 2026-11-02 (bench round 25): RED-GREEN proof through the real facade."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/agy-cli-import.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/agy-cli-import.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs for the agy cloud-code tuple.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/cli-seat-import.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/cli-seat-import.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs for seat parsing.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/mistral-vibe.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/mistral-vibe.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed for the mistral-vibe key validity constant.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/seat-bundle.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/seat-bundle.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs and xcli-seat-load.mjs for seat-bundle validation.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports."
+  },
+  {
+    "file": "packages/h2a/focus-kit/test/distribution-fixture.mjs",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "retained-h2a-adapter",
+    "reason": "Offline consumer collapses the rewritten closure to the single gateway-serving line (lock paths only); never imported, never re-implemented.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports. Prior basis: Bench round 26 mesh vendor: keep the offline consumer resolvable with zero metadata."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/seat-onboarding.js",
+    "specifier": "@sentropic/llm-mesh/enrollment",
+    "classification": "retained-h2a-adapter",
+    "reason": "Published seat-onboarding API re-export, digest-pinned in VENDOR.json (llm-mesh 0.33.0); no logic, consumed by xcli-seat-import.mjs, xcli-seat-provision.mjs and xcli-seat-load.mjs for validation, capture and both materialization stages.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports. Prior basis: Bench round 27 seat onboarding: re-export, never re-implement."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/seat-onboarding.js",
+    "specifier": "@sentropic/llm-mesh/node",
+    "classification": "retained-h2a-adapter",
+    "reason": "Published seat-onboarding node API re-export, digest-pinned in VENDOR.json (llm-mesh 0.33.0); no logic, consumed by xcli-seat-import.mjs and xcli-seat-provision.mjs for capture and both materialization stages.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports. Prior basis: Bench round 27 seat onboarding: re-export, never re-implement."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/VENDOR.json",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "retained-h2a-adapter",
+    "reason": "Published release pin for the bench seat-onboarding vendor line (packages map); no import, never re-implemented.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports. Prior basis: Bench round 27 seat onboarding: re-export, never re-implement."
+  },
+  {
+    "file": "scripts/xcli-seat-onboarding.test.mjs",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "retained-h2a-adapter",
+    "reason": "Test-only assertion that the installed bench dependency is the pinned release (names only); no import, never re-implemented.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports. Prior basis: Bench round 27 seat onboarding: re-export, never re-implement."
+  },
+  {
+    "file": "scripts/xcli-seat-onboarding.test.mjs",
+    "specifier": "@sentropic/llm-mesh/package.json",
+    "classification": "retained-h2a-adapter",
+    "reason": "Test-only version read of the installed bench dependency (names only); no import, never re-implemented.",
+    "decision": "Owner directive 2026-11-05 (bench round 28): preserve the existing mesh seat projections and digest-pinned upstream re-exports. Prior basis: Bench round 27 seat onboarding: re-export, never re-implement."
   }
 ]

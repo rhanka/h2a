@@ -1,6 +1,8 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { lstat, rm, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
@@ -20,10 +22,15 @@ const npmCli = process.env.npm_execpath;
 const npmCommand = npmCli ? process.execPath : "npm";
 const npmArgs = (args: string[]) => npmCli ? [npmCli, ...args] : args;
 const buildToolPath = process.env.PATH ?? "/usr/bin:/bin";
+// The source-consumer runner freshly builds this checkout before selecting
+// it for closed packaging. Capture the path before installing private state.
+const upgradeWorkspace = process.env.H2A_TEST_UPGRADE_WORKSPACE;
 setupNativeTestEnvironment(afterAll);
 
 import { readNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
+// @ts-ignore Shared test-only boundary for published pre-owned-proc hosts.
+import { assertPrivatePidNamespace } from "../../../h2a/test/helpers/private-pid-namespace.mjs";
 
 // Scenario 9 (CONTRAT v5): the published 0.98.4 dist against the 0.98.5
 // candidate. R5 requires BOTH dists to be qualified as installed dists: the
@@ -32,7 +39,7 @@ import { NativeTerminalClient } from "./client.js";
 // own throwaway prefix inside the qualification boundary. Never the global
 // install, never the owner's real dist, never the installed `h2a` binary.
 const DIST_VERSION = "0.98.4";
-const workspacePackageDir = fileURLToPath(new URL("../../", import.meta.url));
+const workspacePackageDir = upgradeWorkspace ?? fileURLToPath(new URL("../../", import.meta.url));
 
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();
@@ -125,6 +132,7 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
     "install",
     "--prefix",
     prefix,
+    "--ignore-scripts",
     ...args,
     "--cache",
     cache,
@@ -135,6 +143,23 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
   const output = captureOutput(install);
   const [code] = await once(install, "exit");
   expect(code, `npm install ${args.join(" ")} failed: ${output.stderr}`).toBe(0);
+  // The owner forbids Python. npm's node-pty install script normally invokes
+  // node-gyp: build that unchanged N-API source directly in this private prefix.
+  const require = createRequire(join(prefix, "node_modules/@sentropic/h2a-runtime/package.json"));
+  const ptyRoot = dirname(require.resolve("node-pty/package.json"));
+  // Closed candidates ship the qualified prebuild, without compiler inputs.
+  // Load those exact bytes; a broken shipped binary must fail, never rebuild.
+  if (existsSync(join(ptyRoot, "build/Release/pty.node"))) {
+    require("node-pty");
+    return;
+  }
+  const addonRoot = dirname(require.resolve("node-addon-api/package.json", { paths: [ptyRoot] }));
+  mkdirSync(join(ptyRoot, "build/Release"), { recursive: true });
+  const compiled = spawnSync("/usr/bin/g++", ["-std=c++17", "-shared", "-fPIC", "-O2", "-pthread",
+    "-DNAPI_CPP_EXCEPTIONS", `-I${process.env.XCLI_NODE_HEADERS ?? "/usr/include/node"}`, `-I${addonRoot}`,
+    join(ptyRoot, "src/unix/pty.cc"), "-o", join(ptyRoot, "build/Release/pty.node"), "-lutil"],
+  { env: process.env, encoding: "utf8" });
+  expect(compiled.status, `private node-pty build failed: ${compiled.stderr}`).toBe(0);
 }
 
 type LeaseSnapshot = Readonly<{ token: string; heartbeatAt: string; expiresAt: string }>;
@@ -327,6 +352,7 @@ function sessionEnv(): Record<string, string> {
 
 describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario 9)", () => {
   beforeAll(async () => {
+    assertPrivatePidNamespace();
     // The PUBLISHED 0.98.4 dist, installed into a throwaway prefix.
     const cache = createPrivateTestDirectory("upgrade-cache-");
     prefixes.add(cache);
@@ -353,9 +379,29 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     expect(packCode, `npm pack of the candidate failed: ${packOutput.stderr}`).toBe(0);
     const tarball = readdirSync(join(packDir, "closed/artifacts")).find((name) => name.endsWith(".tgz"));
     expect(tarball, "the candidate pack contains no tarball").toBeDefined();
+    // The candidate runtime imports its core peer during lease/supervision.
+    // Install the matching source-built core, never an owner's installed dist.
+    // The runtime tarball lives under the closed-pack artifacts dir; sibling
+    // candidates are packed beside it with plain npm pack (same layout the
+    // packaged-review test parses from this loop).
+    const candidateTarballs = [join(packDir, "closed/artifacts", tarball!)];
+    for (const dependency of ["h2a", "track", "focus"]) {
+      const before = new Set(readdirSync(packDir));
+      const dependencyPack = spawn(npmCommand, npmArgs(["pack", "--ignore-scripts", "--pack-destination", packDir]), {
+        cwd: join(workspacePackageDir, "..", dependency),
+        env: { ...process.env, PATH: buildToolPath }, stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(dependencyPack);
+      const dependencyOutput = captureOutput(dependencyPack);
+      const [dependencyCode] = await once(dependencyPack, "exit");
+      expect(dependencyCode, `npm pack of candidate ${dependency} failed: ${dependencyOutput.stderr}`).toBe(0);
+      const dependencyTarball = readdirSync(packDir).find((name) => name.endsWith(".tgz") && !before.has(name));
+      expect(dependencyTarball, `the matching candidate ${dependency} pack is mandatory`).toBeDefined();
+      candidateTarballs.push(join(packDir, dependencyTarball!));
+    }
     candidatePrefix = createPrivateTestDirectory("upgrade-candidate-");
     prefixes.add(candidatePrefix);
-    await npmInstall([join(packDir, "closed/artifacts", tarball!)], candidatePrefix, cache);
+    await npmInstall(candidateTarballs, candidatePrefix, cache);
     candidateRoot = join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "dist");
     candidateEntry = join(candidateRoot, "native-terminal", "process.js");
 
@@ -363,6 +409,9 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     const candidateVersion = (JSON.parse(readFileSync(join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "package.json"), "utf8")) as { version: string }).version;
     const workspaceVersion = (JSON.parse(readFileSync(join(workspacePackageDir, "package.json"), "utf8")) as { version: string }).version;
     expect(candidateVersion).toBe(workspaceVersion);
+    const candidateFocus = JSON.parse(readFileSync(join(candidatePrefix, "node_modules", "@sentropic", "focus", "package.json"), "utf8")) as { version: string };
+    const workspaceFocus = JSON.parse(readFileSync(join(workspacePackageDir, "..", "focus", "package.json"), "utf8")) as { version: string };
+    expect(candidateFocus.version, "Focus must come from the matching local candidate, including prerelease versions").toBe(workspaceFocus.version);
     // And it is THIS train's build — the coded live-owner refusal exists only
     // in the candidate, not in the published 0.98.4 (the two dists differ).
     const candidateRefusal = readFileSync(join(candidateRoot, "native-terminal", "server.js"), "utf8");

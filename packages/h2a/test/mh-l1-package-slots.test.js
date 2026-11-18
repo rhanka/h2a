@@ -14,6 +14,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
   assertSingleHoistedMesh,
   deferredChildSource,
@@ -29,6 +30,15 @@ const maps = () => ({
   top: new Map(),
   slotSource: new Map(),
   reservations: new Map(),
+});
+
+test('plain npm consumer manifests anchor the same exact product mesh version', () => {
+  const core = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
+  const runtime = JSON.parse(readFileSync(new URL('../../h2a-runtime/package.json', import.meta.url)));
+  const mesh = '@sentropic/llm-mesh';
+  assert.match(core.dependencies[mesh], /^\d+\.\d+\.\d+$/);
+  assert.equal(runtime.dependencies[mesh], core.dependencies[mesh],
+    'a fresh runtime install must not select a mesh generation its product gateway cannot share');
 });
 
 test('P1: native prebuild registration records the slot source', () => {

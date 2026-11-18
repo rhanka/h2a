@@ -1,0 +1,11 @@
+{
+  "files": [
+    "packages/h2a-runtime/src/native-terminal/drive.functional.test.ts"
+  ],
+  "tests": 1,
+  "passed": 0,
+  "failed": 1,
+  "pending": 0,
+  "evidence": "/tmp/h2a-qual-jwQVuS",
+  "exitCode": 1
+}

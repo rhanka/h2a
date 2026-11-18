@@ -2,8 +2,9 @@
  * Vitest config for the TypeScript suites of @sentropic/h2a-runtime.
  *
  * SPEC 0.98.5 R8.1 pins this file at EXACTLY `packages/h2a-runtime/vitest.config.ts`
- * and the gate command at EXACTLY
- *   `node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts`
+ * and the gate command at EXACTLY (SPEC v3 Lot L2: via the PID-namespace
+ * launcher, which confines this exact invocation on Linux)
+ *   `node scripts/xcli-in-pid-namespace.mjs --gate packages/h2a-runtime/vitest.config.ts`
  * (executed from the repository root). Until this config existed, no npm script
  * or release gate ever executed the runtime's TypeScript suites: `npm test`
  * discovered only `packages/h2a/test` and `packages/focus-interactive/test`

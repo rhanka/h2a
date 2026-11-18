@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "3ef2030e441720850e8a00c37394b1c939d58481",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --pair claude:claude --timeout-ms 30000 --auth-home /home/antoinefa --output docs/2026-10-16-cross-cli-terminal-claude.json",
+  "root": "/tmp/h2a-qual-wXBOpJ",
+  "build": {
+    "path": "/tmp/h2a-qual-wXBOpJ/build",
+    "sourceDigest": "e11a92d5a23958a22596e7ffb5a0f34b30c61d6bd015349ca1e2a99a398d581c",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-wXBOpJ/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-wXBOpJ/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "1abe034b260920e1ee17b5d49094d93837da48c6427f7a53884e6438a89681c9",
+    "xcli-lab.mjs": "5cf366d1b38942668815a25d2f3d0dd41b43274958a5ed38c56a5d509bff78eb",
+    "xcli-proxy.mjs": "e62e349da794ff9f81d77ceafc9e967712625a30f6d221e867418a744119b241",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "claude",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 55935,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "startup-terminal-response",
+          "role": "receiver",
+          "count": 1,
+          "at": 1792127934806
+        },
+        {
+          "event": "startup-ui",
+          "role": "receiver",
+          "action": "trust-empty-workspace",
+          "at": 1792127934807
+        }
+      ],
+      "startedAt": "2026-10-16T05:18:53.200Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json",
+          ".claude.json:login-metadata-only"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 2144
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 0,
+    "blocked": 1
+  }
+}

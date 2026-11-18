@@ -1,0 +1,81 @@
+// Lot L11 (SPEC v3 §5.4): machine check of docs/cross-cli-matrix.json.
+// Re-derives the expected 16 profile pairs from the runtime CLIS ground
+// truth plus the owner seated roster — never from the manifest itself — so
+// a hand-edited or confusable-typed pair fails closed. Probe rows must name
+// a profile pair with tiers S/C/R1 and the three probe tools; every other
+// row must declare a NOT-covered status with blocker and owning lot.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { join } from 'node:path';
+import { CLIS } from './xcli-lab.mjs';
+import { SCENARIO_ROWS } from './xcli-scenarios.mjs';
+
+// Owner roster of seated families. Gemini and vibe hold no seat.
+export const SEATED_FAMILIES = Object.freeze(['claude', 'codex', 'muse', 'agy']);
+
+export const PROBE_TOOLS = Object.freeze(['h2a_identity_status', 'h2a_inbox', 'h2a_send']);
+
+export function checkMatrixManifest(manifest) {
+  assert.equal(manifest.version, 1, 'matrix manifest version must be 1');
+  for (const family of SEATED_FAMILIES) {
+    assert.ok(CLIS.includes(family), `seated family '${family}' must be a known CLI id`);
+  }
+  const expected = SEATED_FAMILIES.flatMap(a => SEATED_FAMILIES.map(b => `${a}:${b}`));
+  assert.deepEqual([...manifest.profilePairs].sort(), [...expected].sort(),
+    'profilePairs must be exactly the 16 seated cross-product pairs');
+  assert.deepEqual(manifest.probeTools, [...PROBE_TOOLS], 'probeTools must be the three probe tools');
+  for (const gate of ['merge', 'release']) {
+    const listed = (manifest.mandatory?.[gate] ?? []).map(row => `${row.scenario}:${row.pair}`).sort();
+    const wanted = expected.map(pair => `probe:${pair}`).sort();
+    assert.deepEqual(listed, wanted, `mandatory.${gate} must require the probe on all 16 pairs`);
+  }
+  const pairs = new Set(manifest.profilePairs);
+  const defined = new Set();
+  for (const row of manifest.rows) {
+    if (row.scenario === 'probe') {
+      assert.ok(pairs.has(row.pair), `probe row names an unknown pair: ${row.pair}`);
+      assert.deepEqual(row.tiers, ['S', 'C', 'R1'], `probe row ${row.pair} runs tiers S/C/R1`);
+      assert.deepEqual(row.tools, [...PROBE_TOOLS], `probe row ${row.pair} covers the three probe tools`);
+    } else if (SCENARIO_ROWS.includes(row.scenario) && row.status !== 'not-covered') {
+      // Lot L12+: defined scenario rows cover all 36 pairs at S with a
+      // named R2 ratchet entry — never free-floating follow-ups.
+      assert.equal(row.pairs, 'all-36', `row ${row.scenario} covers all 36 ordered pairs`);
+      assert.deepEqual(row.tiers, ['S'], `row ${row.scenario} runs at tier S`);
+      assert.equal(row.status, 'covered-simulated', `row ${row.scenario} states its coverage`);
+      assert.equal(row.ratchet?.scope, 'R2-seated', `row ${row.scenario} names its R2 ratchet scope`);
+      assert.equal(row.ratchet?.entry, 'L9-diagonals-green', `row ${row.scenario} names its ratchet entry`);
+      assert.ok(!defined.has(row.scenario), `duplicate row ${row.scenario}`);
+      defined.add(row.scenario);
+    } else {
+      assert.equal(row.status, 'not-covered', `row ${row.scenario} must declare not-covered`);
+      assert.ok(typeof row.blocker === 'string' && row.blocker.length > 0, `row ${row.scenario} needs a blocker`);
+      assert.match(row.owner ?? '', /^L1[2-5]$/, `row ${row.scenario} needs an owning lot L12-L15`);
+      // Lot L15: the remainder row names every uncovered tool — no
+      // unnamed residue may close the inventory.
+      if (row.scenario === 'functions-remainder') {
+        assert.ok(Array.isArray(row.tools) && row.tools.length > 0, 'remainder names its tools');
+      }
+    }
+  }
+  // Lots promote rows incrementally: the defined rows must equal exactly
+  // the simulationMandatory set — every mandated row defined once, no
+  // unmandated defined row, every SCENARIO_ROWS member either mandated or
+  // explicitly not-covered elsewhere.
+  const mandated = [...manifest.simulationMandatory.scenarios].sort();
+  assert.deepEqual([...defined].sort(), mandated, 'defined rows equal the simulationMandatory set');
+  const notCovered = new Set(manifest.rows.filter(row => row.status === 'not-covered').map(row => row.scenario));
+  for (const scenario of SCENARIO_ROWS) {
+    assert.ok(defined.has(scenario) || notCovered.has(scenario), `${scenario} is defined or explicitly not-covered`);
+  }
+  for (const scenario of mandated) assert.ok(SCENARIO_ROWS.includes(scenario), `${scenario} is scenario vocabulary`);
+  assert.equal(manifest.simulationMandatory.pairs, 'all-36', 'simulationMandatory covers all 36 pairs');
+  assert.deepEqual(manifest.simulationMandatory.tiers, ['S'], 'simulationMandatory runs at tier S');
+  return { pairs: expected.length };
+}
+
+const invokedAsCli = process.argv[1] === new URL(import.meta.url).pathname;
+if (invokedAsCli) {
+  const file = process.argv[2] ?? join(new URL('..', import.meta.url).pathname, 'docs/cross-cli-matrix.json');
+  const result = checkMatrixManifest(JSON.parse(fs.readFileSync(file, 'utf8')));
+  console.log(`matrix-ok pairs=${result.pairs} file=${file}`);
+}
