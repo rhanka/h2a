@@ -5,7 +5,7 @@
   import { Button } from '@sentropic/design-system-svelte';
   import type { AnchorPayload, CollaborationActor, Comment, ReviewThread, ThreadFilter } from './types';
   import { filterThreads, groupThreads, isUnread, resolveAnchor } from './anchor';
-  import { createCommentsClient } from './adapter';
+  import { createCommentsClient, ReviewApiError } from './adapter';
   import ReviewModeToggle from './ReviewModeToggle.svelte';
   import CommentLayer from './CommentLayer.svelte';
   import CommentComposer from './CommentComposer.svelte';
@@ -133,6 +133,14 @@
       selectThread(created.threadId);
       status = sendToAgent ? "Commentaire créé et envoyé à l'agent." : 'Commentaire créé.';
     } catch (e) {
+      if (e instanceof ReviewApiError && e.saved) {
+        // Stored but not delivered (agent target, h2a): show it once, never retry.
+        pending = null;
+        await refresh();
+        if (e.comment) selectThread(e.comment.threadId);
+        loadError = e.message;
+        return;
+      }
       allThreads = before;
       pendingError = e instanceof Error ? e.message : 'Création impossible.';
     }
@@ -146,6 +154,12 @@
       markRead(threadId);
       status = sendToAgent ? "Réponse envoyée à l'agent." : 'Réponse ajoutée.';
     } catch (e) {
+      if (e instanceof ReviewApiError && e.saved) {
+        await refresh();
+        markRead(threadId);
+        loadError = e.message;
+        return;
+      }
       allThreads = before;
       loadError = e instanceof Error ? e.message : 'Réponse impossible.';
     }
