@@ -3,8 +3,12 @@ import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { homedir } from "node:os";
 // src/lib/server/h2a-target.js
-/** A real CLI host we can hand a decision to — not another agent/service posing as one. */
-var CLI_HOST_PREFIX = /^(claude|codex|gemini|agy|hermes|opencode):/;
+/**
+* A real CLI host we can hand a decision to — not another agent/service posing as one. Same set as the
+* h2a host registry (`CLI_HOSTS` in packages/h2a/src/cli.ts): a host missing here is a CLI whose live
+* sessions Focus cannot see, so "whatever the CLI" silently became "six of the eight CLIs".
+*/
+var CLI_HOST_PREFIX = /^(claude|codex|gemini|agy|hermes|opencode|muse|vibe):/;
 /**
 * Presence states that can still receive. `h2a sessions` has ALREADY applied the 90s heartbeat TTL, so
 * anything it returns is fresh; re-filtering on `state === 'live'` (as the previous code did) additionally
@@ -336,6 +340,6 @@ function putEnvelope(root, target, envelope, targetRoot) {
 		return { recipientLive: false };
 	}
 }
-export { resolveTarget as i, repoIdentity as n, repoRoot as r, putEnvelope as t };
+export { resolveTarget as a, repoRoot as i, putEnvelope as n, repoIdentity as r, h2aBin as t };
 
 //# sourceMappingURL=h2a-bus.js.map

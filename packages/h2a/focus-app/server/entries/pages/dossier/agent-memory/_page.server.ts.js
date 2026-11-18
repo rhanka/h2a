@@ -1,4 +1,4 @@
-import { i as resolveTarget, r as repoRoot } from "../../../../chunks/h2a-bus.js";
+import { a as resolveTarget, i as repoRoot } from "../../../../chunks/h2a-bus.js";
 import { a as loadAgentMemoryMatrix, i as loadAgentMemoryDossier } from "../../../../chunks/agent-memory-dossier.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
