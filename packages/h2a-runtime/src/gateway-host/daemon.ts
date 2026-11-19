@@ -272,6 +272,105 @@ export async function acquireLlmMeshSessionEnv(
   }
 }
 
+export type LocalGatewayModelsCheckResult =
+  | Readonly<{ ok: true; baseUrl: string; modelCount: number }>
+  | Readonly<{ ok: false; baseUrl?: string; reason: string }>;
+
+/**
+ * Verify that the local llm-mesh gateway is reachable and serves at least one
+ * model on `/v1/models` (non-empty `data` list). Never prints or includes any
+ * gateway bearer token in its return value or error reasons.
+ */
+export async function checkLocalGatewayModels(
+  options: {
+    dir?: string;
+    baseUrl?: string;
+    token?: string;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  } = {},
+): Promise<LocalGatewayModelsCheckResult> {
+  const fetchFn = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  let baseUrl = options.baseUrl;
+  let token = options.token;
+
+  if (!baseUrl) {
+    const acquired = await acquireLlmMeshSessionEnv(
+      options.dir,
+      "h2a-restart-preflight",
+    );
+    if (!acquired) {
+      return {
+        ok: false,
+        reason:
+          "local llm-mesh gateway is not running or unreachable; start it with `h2a llm-mesh start` and enroll an account before switching --gw on",
+      };
+    }
+    baseUrl = acquired.ANTHROPIC_BASE_URL;
+    token = acquired.ANTHROPIC_AUTH_TOKEN;
+  }
+
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["x-api-key"] = token;
+    headers["authorization"] = `Bearer ${token}`;
+  }
+
+  let resp: Response;
+  try {
+    resp = await fetchFn(`${normalizedBase}/v1/models`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      baseUrl: normalizedBase,
+      reason: `local llm-mesh gateway at ${normalizedBase} failed /v1/models check (${detail})`,
+    };
+  }
+
+  if (!resp.ok) {
+    return {
+      ok: false,
+      baseUrl: normalizedBase,
+      reason: `local llm-mesh gateway at ${normalizedBase} rejected /v1/models (HTTP ${resp.status})`,
+    };
+  }
+
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return {
+      ok: false,
+      baseUrl: normalizedBase,
+      reason: `local llm-mesh gateway at ${normalizedBase} returned invalid JSON from /v1/models`,
+    };
+  }
+
+  const data =
+    typeof body === "object" &&
+    body !== null &&
+    Array.isArray((body as { data?: unknown }).data)
+      ? (body as { data: unknown[] }).data
+      : null;
+
+  if (!data || data.length === 0) {
+    return {
+      ok: false,
+      baseUrl: normalizedBase,
+      reason: `local llm-mesh gateway at ${normalizedBase} serves no models (/v1/models returned empty list); enroll an account before switching --gw on`,
+    };
+  }
+
+  return { ok: true, baseUrl: normalizedBase, modelCount: data.length };
+}
+
 /** Whether the old listener still accepts loopback connections. */
 async function listenerReleased(port: number): Promise<boolean> {
   return new Promise((resolve) => {

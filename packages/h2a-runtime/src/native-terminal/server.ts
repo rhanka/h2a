@@ -29,6 +29,7 @@ import {
   parseNativeTerminalRequest,
   type NativeTerminalErrorResponse,
   type NativeTerminalRequest,
+  type NativeTerminalRespawnOptions,
   type NativeTerminalResponse,
 } from "./protocol.js";
 import {
@@ -196,6 +197,39 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
   };
 }
 
+function respawnOptions(params: unknown): NativeTerminalRespawnOptions {
+  const options = requiredRecord(params, "respawn params");
+  if (!Array.isArray(options.args) || !options.args.every((arg) => typeof arg === "string")) {
+    throw new TypeError("terminal args must be an array of strings");
+  }
+  const environment = requiredRecord(options.env, "terminal env");
+  if (!Object.values(environment).every((value) => typeof value === "string")) {
+    throw new TypeError("terminal env values must be strings");
+  }
+  if (
+    options.signal !== undefined &&
+    !isNativeTerminalStopSignal(options.signal)
+  ) {
+    throw new TypeError(
+      "terminal stop signal must be SIGHUP, SIGINT, SIGTERM or SIGKILL",
+    );
+  }
+  const timeoutMs = options.timeoutMs === undefined
+    ? undefined
+    : requiredInteger(options.timeoutMs, "terminal respawn timeoutMs");
+  return {
+    id: requiredIdentifier(options.id, "terminal session id"),
+    generation: requiredIdentifier(options.generation, "host generation"),
+    incarnation: requiredIdentifier(options.incarnation, "session incarnation"),
+    command: requiredString(options.command, "terminal command"),
+    args: options.args,
+    cwd: requiredString(options.cwd, "terminal cwd"),
+    env: environment as Record<string, string>,
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+}
+
 function releaseConnectionLeases(host: NativeTerminalHost, context: ConnectionContext): void {
   for (const lease of context.leases.values()) {
     try {
@@ -213,6 +247,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
     case "ping":
       return {
         launchFence: true,
+        softRespawn: true,
         generation: host.generation,
         hostPid: process.pid,
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -317,6 +352,8 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         record.signal,
       );
     }
+    case "respawn-if-incarnation":
+      return host.respawnIfIncarnation(respawnOptions(params));
   }
 }
 

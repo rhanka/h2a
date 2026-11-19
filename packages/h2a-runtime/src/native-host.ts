@@ -36,7 +36,13 @@ import {
   probeStructuredReadiness,
 } from "./tmux.js";
 import { readProcessTreeCpuMs, readWorkerPid, parseProcStat } from "./proc-cpu.js";
-import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
+import {
+  detectHostModal,
+  paneHasBlockingActivity,
+  paneIsReady,
+  sleepSync,
+  type PromptDeliveryDeps,
+} from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { appendCrashLog } from "./crash-log.js";
@@ -75,6 +81,7 @@ export type NativeSessionState = {
   readonly incarnation: string;
   readonly pid: number;
   readonly status: "running" | "stopping" | "exited";
+  readonly latestSeq?: number;
   readonly exit: { readonly exitCode: number; readonly signal?: number } | null;
   /**
    * Controller-visibility bit (never the controller's identity): true when an
@@ -117,13 +124,13 @@ export function nativeHostAvailable():
 
 function runOp(
   args: ReadonlyArray<string>,
-  options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined } = {},
+  options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined; timeoutMs?: number | undefined } = {},
 ): { status: number | null; payload: unknown } {
   options.onCreateAttempt?.();
   const r = spawnSync(process.execPath, [opEntryPath(), ...args, ...(options.socketPath ? ["--socket", options.socketPath] : [])], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: OP_TIMEOUT_MS,
+    timeout: options.timeoutMs ?? OP_TIMEOUT_MS,
   });
   if (r.error) {
     // The op child never started: a startup failure, not a child exit.
@@ -690,6 +697,271 @@ export function killNativeSessionIfIncarnation(
     { allowFailure: true, socketPath },
   );
   return status === 0;
+}
+
+/**
+ * Raised when `--soft` restart targets a native terminal host that predates
+ * `respawn-if-incarnation` (does not advertise `softRespawn: true`). Callers
+ * must refuse by default and fall back to a hard restart ONLY when the user
+ * explicitly passed `--allow-hard`.
+ */
+export class NativeHostSoftRespawnUnsupportedError extends Error {
+  readonly code = "host-soft-restart-unsupported" as const;
+  readonly host: Readonly<{ generation: string; socketPath: string }>;
+
+  constructor(host: Readonly<{ generation: string; socketPath: string }>) {
+    super(
+      `host-soft-restart-unsupported: native terminal host ${host.generation} on ${host.socketPath} is too old to support --soft respawn; pass --allow-hard to fall back to a hard restart`,
+    );
+    this.name = "NativeHostSoftRespawnUnsupportedError";
+    this.host = host;
+  }
+}
+
+export type NativeSoftRespawnResult = Readonly<{
+  name: string;
+  slug: string;
+  pid: number;
+  generation: string;
+  incarnation: string;
+  latestSeq: number;
+  socketPath?: string;
+}>;
+
+/**
+ * In-place soft restart of a live native session's CLI child inside the SAME
+ * terminal session/PTY (same host socket, same incarnation, same attached
+ * controllers, scrollback kept). Fenced on `(generation, incarnation)`.
+ *
+ * Refuses with `NativeHostSoftRespawnUnsupportedError` if the owning host does
+ * not support `respawn-if-incarnation`.
+ */
+export function softRespawnNativeSessionIfIncarnation(
+  profile: string,
+  command: string,
+  cwd: string,
+  args: ReadonlyArray<string>,
+  label: string,
+  fence: Readonly<{
+    name: string;
+    generation: string;
+    incarnation: string;
+    socketPath?: string;
+  }>,
+  metadata: NativeLaunchMetadata = {},
+): NativeSoftRespawnResult {
+  const slug = slugify(label);
+  const name = fence.name;
+  const agentCommand = metadata.terminateOnAgentExit
+    ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
+    : [
+        "/bin/bash",
+        "-lc",
+        LOCAL_WRAPPER,
+        localRelaunchCommand(
+          profile,
+          cwd,
+          label,
+          metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+        ),
+        command,
+        ...args,
+      ];
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  env["TERM"] = "xterm-256color";
+  env["H2A_NATIVE_TERMINAL"] = "1";
+  env["H2A_NATIVE_PTY_SESSION"] = name;
+  stampDirectRoutingScrub(env);
+  if (metadata.sessionClass !== undefined) {
+    env[SESSION_CLASS_ENV] = metadata.sessionClass;
+  }
+  const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
+  const envFile = join(envDir, "env.json");
+  try {
+    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
+    const { status, payload } = runOp(
+      [
+        "respawn-if-incarnation",
+        "--id",
+        name,
+        "--generation",
+        fence.generation,
+        "--incarnation",
+        fence.incarnation,
+        "--cwd",
+        cwd,
+        "--env-file",
+        envFile,
+        "--",
+        ...agentCommand,
+      ],
+      {
+        allowFailure: true,
+        socketPath: fence.socketPath,
+        timeoutMs: 20_000,
+      },
+    );
+    const record = payload as
+      | (NativeSessionState & { code?: string; generation?: string; socketPath?: string })
+      | undefined;
+    if (record?.code === "host-soft-restart-unsupported") {
+      throw new NativeHostSoftRespawnUnsupportedError({
+        generation: typeof record.generation === "string" ? record.generation : fence.generation,
+        socketPath: typeof record.socketPath === "string" ? record.socketPath : (fence.socketPath ?? ""),
+      });
+    }
+    if (status !== 0 || !record || typeof record.pid !== "number") {
+      throw new Error(`fenced soft respawn failed for ${slug}`);
+    }
+    return {
+      name,
+      slug,
+      pid: record.pid,
+      generation: record.generation,
+      incarnation: record.incarnation,
+      latestSeq: typeof record.latestSeq === "number" ? record.latestSeq : 0,
+      ...(record.socketPath !== undefined
+        ? { socketPath: record.socketPath }
+        : fence.socketPath !== undefined
+          ? { socketPath: fence.socketPath }
+          : {}),
+    };
+  } finally {
+    rmSync(envDir, { recursive: true, force: true });
+  }
+}
+
+export type NativeOutputSinceProbe = Readonly<{
+  text: string;
+  latestSeq: number;
+  status: "running" | "stopping" | "exited";
+  pid: number;
+  generation: string;
+  incarnation: string;
+}>;
+
+/**
+ * Read and render terminal output emitted strictly AFTER `afterSeq`, together
+ * with the session's live state. Used by restart health checks so retained
+ * pre-restart scrollback cannot satisfy post-restart prompt readiness.
+ */
+export function probeNativeOutputSince(
+  name: string,
+  afterSeq: number,
+  socketPath?: string,
+): NativeOutputSinceProbe | undefined {
+  const { status, payload } = runOp(
+    ["capture-since", "--id", name, "--after-seq", String(afterSeq)],
+    { allowFailure: true, socketPath },
+  );
+  if (status !== 0 || !payload || typeof payload !== "object") return undefined;
+  const record = payload as Partial<NativeOutputSinceProbe>;
+  if (
+    typeof record.text !== "string" ||
+    typeof record.latestSeq !== "number" ||
+    typeof record.status !== "string" ||
+    typeof record.pid !== "number" ||
+    typeof record.generation !== "string" ||
+    typeof record.incarnation !== "string"
+  ) {
+    return undefined;
+  }
+  return record as NativeOutputSinceProbe;
+}
+
+/**
+ * Decide whether output rendered strictly AFTER a restart proves the restarted
+ * CLI prompt is alive (not empty, not blocked on a host modal, and not still
+ * compacting/loading).
+ */
+export function isRestartPromptAlive(
+  renderedPostRestart: string,
+  profile: string,
+): boolean {
+  if (renderedPostRestart.trim().length === 0) return false;
+  if (paneHasBlockingActivity(renderedPostRestart)) return false;
+  if (detectHostModal(renderedPostRestart) !== undefined) return false;
+  if (paneIsReady(renderedPostRestart, profile)) return true;
+  // Compact prompt glyph drawn by the restarted CLI (e.g. Claude `❯` / Codex `›`).
+  return /(?:^|\n)\s*[❯›]\s*(?:\S|$)/m.test(renderedPostRestart);
+}
+
+/**
+ * Wait until a restarted native session's child is back (`status === "running"`)
+ * and its prompt is alive in output emitted after `afterSeq`. On `--soft`,
+ * also verifies PTY identity (`generation` + `incarnation`) stayed unchanged.
+ */
+export async function waitForNativeRestartHealth(options: Readonly<{
+  name: string;
+  profile: string;
+  afterSeq: number;
+  expectedGeneration?: string;
+  expectedIncarnation?: string;
+  previousPid?: number;
+  socketPath?: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}>): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> {
+  const timeoutMs = options.timeoutMs ?? 20_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 250;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const probe = probeNativeOutputSince(
+      options.name,
+      options.afterSeq,
+      options.socketPath,
+    );
+    if (!probe) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      continue;
+    }
+    if (probe.status === "exited") {
+      return { ok: false, reason: `restarted child exited (pid=${probe.pid})` };
+    }
+    if (
+      options.expectedGeneration !== undefined &&
+      probe.generation !== options.expectedGeneration
+    ) {
+      return {
+        ok: false,
+        reason: "native host generation changed during soft restart",
+      };
+    }
+    if (
+      options.expectedIncarnation !== undefined &&
+      probe.incarnation !== options.expectedIncarnation
+    ) {
+      return {
+        ok: false,
+        reason: "native session incarnation changed during soft restart",
+      };
+    }
+    if (options.previousPid !== undefined && probe.pid === options.previousPid) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      continue;
+    }
+    const modal = detectHostModal(probe.text);
+    if (modal !== undefined) {
+      return { ok: false, reason: modal.reason };
+    }
+    if (
+      probe.status === "running" &&
+      probe.latestSeq > options.afterSeq &&
+      isRestartPromptAlive(probe.text, options.profile)
+    ) {
+      return { ok: true };
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  return {
+    ok: false,
+    reason: `restarted child did not show a live prompt within ${timeoutMs}ms`,
+  };
 }
 
 export type NativeDriveInstructionOutcome =
