@@ -20,10 +20,20 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  inspectTabHostState,
   launchLayout,
   tabCommand,
   type HostViewSnapshot,
 } from "./launch-layout.js";
+import type { AgentLaunchProfile } from "./agent-launch-args.js";
+import {
+  claudeTranscriptPath,
+  formatRestoreRewritePlanLines,
+  isRestoreRewriteSourceTool,
+  resolveRestoreAgyModel,
+  type RestoreModelRole,
+  type RestoreTabRewrite,
+} from "./restore-profile.js";
 
 import {
   getLayoutConfig,
@@ -56,10 +66,20 @@ import { listNativeSessions } from "./native-host.js";
 // a module WITHOUT reader access (F3) — but callers keep importing it here.
 export {
   ambiguousLiveSessionNames,
+  inspectTabHostState,
   launchLayout,
   tabCommand,
   type HostViewSnapshot,
 } from "./launch-layout.js";
+export {
+  AGY_RESTORE_DEFAULT_MODEL,
+  AGY_RESTORE_DESIGN_MODEL,
+  resolveRestoreAgyModel,
+  resolveRestoreModelInput,
+  resolveRestoreProfileInput,
+  type RestoreModelRole,
+  type RestoreTabRewrite,
+} from "./restore-profile.js";
 
 export type DiscoveredSession = {
   project: string;
@@ -109,6 +129,12 @@ export type DiscoveredSession = {
    * transcript scan is always `unclassified` because it carries no role/class.
    */
   restoreClass: "human" | "unclassified";
+  /** Recorded model override from the registry row, if any. */
+  model?: string;
+  /** Recorded role from the registry row, if any. */
+  role?: string;
+  /** Recorded brief/task from the registry row, if any. */
+  task?: string;
 };
 
 export type LayoutTab = {
@@ -132,6 +158,14 @@ export type LayoutTab = {
   managedName?: string;
   /** Attach-only tab for a live managed row without a resolved conversation. */
   attachLive?: boolean;
+  /** Effective model to pass via `--model` on relaunch, if any. */
+  model?: string;
+  /** Recorded role metadata (used by role-based model mapping). */
+  role?: string;
+  /** Recorded session brief/task (carried into runtime handoff on cross-profile restore). */
+  task?: string;
+  /** Rewrite provenance when `h2a restore --profile/--model` altered this tab. */
+  rewrite?: RestoreTabRewrite;
 };
 
 export type LayoutWindow = { title: string; tabs: LayoutTab[] };
@@ -564,6 +598,7 @@ export function registrySessions(
   evidence: LegacySessionEvidence = legacySessionEvidence(home),
   liveView?: ManagedLiveLookup,
   unreadable: readonly RawRow[] = [],
+  profileOverride?: AgentLaunchProfile,
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
@@ -591,6 +626,7 @@ export function registrySessions(
     // NEVER lost to a broken conversation id: the process exists and is
     // re-enterable by its persisted kind + exact managed name alone.
     let attachLiveName: string | undefined;
+    let unresolvedCrossProfileBypass = false;
     if (
       resolution &&
       isManagedLocalKind(e.kind) &&
@@ -601,8 +637,21 @@ export function registrySessions(
         ? [e.tmuxSession]
         : managedSessionCandidates(e.id);
       const live = liveView?.(e.kind, candidates);
-      if (live === undefined || live.state !== "live") continue;
-      attachLiveName = live.name;
+      if (live !== undefined && live.state === "live") {
+        attachLiveName = live.name;
+      } else if (
+        profileOverride !== undefined &&
+        profileOverride !== e.tool &&
+        isRestoreRewriteSourceTool(e.tool)
+      ) {
+        // Cross-profile restore (e.g. claude/codex -> agy) starts a fresh
+        // target conversation and never emits `--resume <old-convId>`, so a
+        // dead row whose Claude convId was unresolved can still be relaunched
+        // in its recorded name, workspace, and layout slot.
+        unresolvedCrossProfileBypass = true;
+      } else {
+        continue;
+      }
     }
     // A hook conversation already owned by a run session (same real convId, but
     // the run entry carries the label + tmux name) must not ALSO appear as an
@@ -619,10 +668,11 @@ export function registrySessions(
     const project = projectForCwd(src, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
-    // An attach-live row has NO resolved conversation: its sid stays empty so
-    // no path can ever render a broken `--resume <label>` from it.
+    // An attach-live row (or a dead row bypassing an unresolved foreign convId
+    // under cross-profile restore) has NO resolved conversation: its sid stays
+    // empty so no path can ever render a broken `--resume <label>` from it.
     const sid =
-      attachLiveName !== undefined
+      attachLiveName !== undefined || unresolvedCrossProfileBypass
         ? ""
         : (resolution?.resolvedSid.get(e.id) ?? e.convId ?? "");
     const session: DiscoveredSession = {
@@ -639,6 +689,9 @@ export function registrySessions(
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
     if (e.gatewayProvenance !== undefined) session.gatewayProvenance = e.gatewayProvenance;
     if (e.bare !== undefined) session.bare = e.bare;
+    if (e.model !== undefined) session.model = e.model;
+    if (e.role !== undefined) session.role = e.role;
+    if (e.task !== undefined) session.task = e.task;
     // WHICH host serves this tab is decided by the ONE symmetric resolver
     // (resolveManagedHost) over this plan's registry read, with the plan's
     // single probe snapshot injected — restore never re-implements the
@@ -885,6 +938,9 @@ export function groupSessions(
       if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
       if (s.managedName !== undefined) tab.managedName = s.managedName;
       if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
+      if (s.model !== undefined) tab.model = s.model;
+      if (s.role !== undefined) tab.role = s.role;
+      if (s.task !== undefined) tab.task = s.task;
       return tab;
     });
   };
@@ -938,6 +994,140 @@ function projLatest(arr: DiscoveredSession[]): number {
 }
 
 
+/**
+ * Rewrite local tabs in `windows` according to `--profile` / `--model` while
+ * preserving layout slots, PTY names (`label`), workspaces (`cwd`), and host
+ * pins (`hostKind`, `managedName`, `attachLive`).
+ *
+ * - Remote tabs (`remoteId`) are left untouched.
+ * - Cross-profile rewrites (`claude`/`codex` -> `agy`, etc.) drop the foreign
+ *   `sid` (cannot be resumed by the target CLI) and strip Claude-only gateway/
+ *   bare pins when targeting a non-Claude profile.
+ * - Same-profile tabs (`agy` -> `agy`) keep their native `sid` intact.
+ */
+export function applyRestoreProfileOverride(
+  windows: LayoutWindow[],
+  opts: {
+    profile?: AgentLaunchProfile | undefined;
+    model?: string | undefined;
+    home?: string | undefined;
+  },
+): LayoutWindow[] {
+  if (opts.profile === undefined && opts.model === undefined) return windows;
+  const home = opts.home ?? homedir();
+  return windows.map((win) => ({
+    title: win.title,
+    tabs: win.tabs.map((tab) => {
+      if (tab.remoteId) return tab;
+      const fromTool = tab.tool ?? "shell";
+      const fromModel = tab.model;
+
+      // Case 1: --profile <target> requested
+      if (opts.profile !== undefined) {
+        const targetProfile = opts.profile;
+        if (fromTool === targetProfile) {
+          let toModel = fromModel;
+          let modelRole: RestoreModelRole = "preserved";
+          if (opts.model !== undefined) {
+            toModel = opts.model;
+            modelRole = "explicit";
+          } else if (targetProfile === "agy" && fromModel === undefined) {
+            const mapped = resolveRestoreAgyModel({
+              label: tab.label,
+              role: tab.role,
+            });
+            toModel = mapped.model;
+            modelRole = mapped.role;
+          }
+          const rewrite: RestoreTabRewrite = {
+            fromTool,
+            ...(fromModel !== undefined ? { fromModel } : {}),
+            toTool: targetProfile,
+            ...(toModel !== undefined ? { toModel } : {}),
+            modelRole,
+            crossProfile: false,
+          };
+          return {
+            ...tab,
+            tool: targetProfile,
+            ...(toModel !== undefined ? { model: toModel } : {}),
+            rewrite,
+          };
+        }
+
+        if (!isRestoreRewriteSourceTool(fromTool)) {
+          return tab;
+        }
+
+        let toModel: string | undefined = opts.model;
+        let modelRole: RestoreModelRole =
+          opts.model !== undefined ? "explicit" : "default";
+        if (targetProfile === "agy") {
+          const mapped = resolveRestoreAgyModel({
+            label: tab.label,
+            role: tab.role,
+            explicitModel: opts.model,
+          });
+          toModel = mapped.model;
+          modelRole = mapped.role;
+        }
+        const droppedSid = tab.sid && tab.sid.length > 0 ? tab.sid : undefined;
+        let priorTranscriptPath: string | undefined;
+        if (fromTool === "claude" && droppedSid) {
+          const candidate = claudeTranscriptPath(home, tab.cwd, droppedSid);
+          if (existsSync(candidate)) priorTranscriptPath = candidate;
+        }
+        const rewrite: RestoreTabRewrite = {
+          fromTool,
+          ...(fromModel !== undefined ? { fromModel } : {}),
+          toTool: targetProfile,
+          ...(toModel !== undefined ? { toModel } : {}),
+          modelRole,
+          crossProfile: true,
+          ...(droppedSid !== undefined ? { droppedSid } : {}),
+          ...(priorTranscriptPath !== undefined ? { priorTranscriptPath } : {}),
+          ...(tab.task !== undefined ? { hasBrief: true } : {}),
+        };
+        const next: LayoutTab = {
+          ...tab,
+          tool: targetProfile,
+          rewrite,
+        };
+        // Foreign conversation ids cannot be resumed across CLIs.
+        delete next.sid;
+        if (toModel !== undefined) next.model = toModel;
+        else delete next.model;
+        // Strip Claude-only pins when targeting a non-Claude profile.
+        if (targetProfile !== "claude") {
+          delete next.gatewayMode;
+          delete next.gatewayProvenance;
+          delete next.bare;
+        }
+        return next;
+      }
+
+      // Case 2: --model <id> without --profile
+      if (opts.model !== undefined && fromTool !== "shell") {
+        const rewrite: RestoreTabRewrite = {
+          fromTool,
+          ...(fromModel !== undefined ? { fromModel } : {}),
+          toTool: fromTool,
+          toModel: opts.model,
+          modelRole: "explicit",
+          crossProfile: false,
+        };
+        return {
+          ...tab,
+          model: opts.model,
+          rewrite,
+        };
+      }
+
+      return tab;
+    }),
+  }));
+}
+
 export type RestoreOptions = {
   dryRun?: boolean;
   /** Launch only the group whose title matches (exact or slug-normalized). */
@@ -956,6 +1146,14 @@ export type RestoreOptions = {
    * replaced to apply this override.
    */
   forceGateway?: "gateway" | "direct";
+  /**
+   * Relaunch local claude/codex sessions under another CLI profile (e.g. `agy`)
+   * while preserving layout slot, PTY name, and workspace. Live sessions stay
+   * attach-only (stop first to switch profile).
+   */
+  profile?: AgentLaunchProfile;
+  /** Explicit model override for relaunched sessions (overrides role mapping). */
+  model?: string;
   stderr?: NodeJS.WriteStream;
 };
 
@@ -1035,19 +1233,21 @@ export function restore(
       // PART A/A2: the unreadable rows from this SAME read, so a valid row +
       // an unreadable twin poisons that one identity's host resolution.
       registryRead.unreadable,
+      opts.profile,
     ),
     scanned,
   );
   // Never emit a broken `--resume <label>`. A LIVE unresolved row was kept by
-  // the §4.1 gate as an attach-live tab; only the dead/unprovable remainder
-  // is skipped, with an explicit attach hint instead of a silent drop.
-  const attachLiveIds = new Set(
+  // the §4.1 gate as an attach-live tab, and a dead claude/codex row under a
+  // cross-profile override (e.g. `--profile agy`) was kept because it starts a
+  // fresh target conversation; only the truly skipped remainder gets a note.
+  const keptRegistryIds = new Set(
     allDiscovered.flatMap((s) =>
-      s.attachLive === true && s.registryId !== undefined ? [s.registryId] : [],
+      s.registryId !== undefined ? [s.registryId] : [],
     ),
   );
   for (const id of resolution.unresolvedRunIds) {
-    if (attachLiveIds.has(id)) continue;
+    if (keptRegistryIds.has(id)) continue;
     const e = registryEntries.find((x) => x.id === id);
     if (!e) continue;
     const label = e.label ?? e.id;
@@ -1107,15 +1307,62 @@ export function restore(
   // Scope to a single group/batch if requested.
   if (opts.group) windows = windows.filter((w) => titleMatches(w.title, opts.group!));
 
+  const hasRewriteOpts = opts.profile !== undefined || opts.model !== undefined;
+  if (hasRewriteOpts) {
+    windows = applyRestoreProfileOverride(windows, {
+      profile: opts.profile,
+      model: opts.model,
+      home,
+    });
+  }
+
   const total = windows.reduce((n, w) => n + w.tabs.length, 0);
+  const tabOpts = opts.forceGateway ? { forceGateway: opts.forceGateway } : {};
+  let hasCrossProfileRewrite = false;
   for (const w of windows) {
     stderr.write(`  ${w.title} (${w.tabs.length}):\n`);
     for (const t of w.tabs) {
-      const what = t.remoteId
-        ? `SCW:${t.remoteId}`
-        : `${t.tool} (local) [${t.origin === "registry" ? "registry" : "guess"}]`;
-      stderr.write(`    - ${t.label}  ${what}  ${t.cwd}\n`);
+      if (hasRewriteOpts) {
+        if (t.rewrite?.crossProfile) hasCrossProfileRewrite = true;
+        const liveState = inspectTabHostState(t, hostView);
+        const skippedLive =
+          liveState.state === "live-attached" &&
+          (liveState.hostLabel === "local-native" || opts.reattach !== true);
+        const cmd =
+          liveState.state === "live-detached" ||
+          (liveState.state === "live-attached" && !skippedLive)
+            ? tabCommand(t, new Set([slugify(t.label)]), {
+                attachSession: liveState.exactName,
+              })
+            : tabCommand(t, new Set(), tabOpts);
+        for (const line of formatRestoreRewritePlanLines({
+          label: t.label,
+          cwd: t.cwd,
+          remoteId: t.remoteId,
+          tool: t.tool,
+          model: t.model,
+          sid: t.sid,
+          origin: t.origin,
+          rewrite: t.rewrite,
+          liveState,
+          command: cmd,
+          skippedLive,
+        })) {
+          stderr.write(line);
+        }
+      } else {
+        const what = t.remoteId
+          ? `SCW:${t.remoteId}`
+          : `${t.tool} (local) [${t.origin === "registry" ? "registry" : "guess"}]`;
+        stderr.write(`    - ${t.label}  ${what}  ${t.cwd}\n`);
+      }
     }
+  }
+  if (hasCrossProfileRewrite) {
+    stderr.write(
+      `[h2a] note: Claude/Codex conversation history cannot be resumed by ${opts.profile}; ` +
+        "rewritten sessions start fresh in the same workspace, PTY name, and layout slot.\n",
+    );
   }
   if (dropped > 0 && !opts.group)
     stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);

@@ -1696,6 +1696,7 @@ export function enrollFromRun(args: {
   pid?: number;
   cwd: string;
   convId?: string;
+  model?: string;
   gatewayMode?: "gateway" | "direct";
   gatewayProvenance?: "explicit";
   bare?: boolean;
@@ -1736,6 +1737,7 @@ export function enrollFromRun(args: {
         ? { delegatorTmuxSession: args.delegatorTmuxSession }
         : {}),
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
+      ...(args.model !== undefined ? { model: args.model } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
       ...(args.gatewayProvenance !== undefined
         ? { gatewayProvenance: args.gatewayProvenance }

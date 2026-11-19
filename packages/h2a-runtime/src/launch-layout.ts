@@ -17,6 +17,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { profileUsesLlmMeshGateway } from "./protocol-local.js";
+import {
+  buildRestoreHandoffMarkdown,
+  type TabLiveHostState,
+} from "./restore-profile.js";
 import { localSessionName, slugify, type LocalSession } from "./tmux.js";
 import type { LayoutTab, LayoutWindow } from "./restore.js";
 
@@ -72,19 +77,29 @@ export function tabCommand(
     // so no run/replace command may ever be rendered for it.
     return `h2a attach ${q(tab.managedName ?? localSessionName(slug))}`;
   }
+  const effectiveTool = tab.tool ?? "shell";
+  const usesGateway = profileUsesLlmMeshGateway(effectiveTool);
   // Effective gateway posture: an explicit `restore --gw/--no-gw` OVERRIDES the
   // per-instance pin; otherwise honour a pinned DIRECT posture verbatim (it
   // can only keep a session off the gateway) and a pinned GATEWAY posture
   // ONLY when its provenance is explicit. A legacy gateway pin without
   // provenance resolves to direct, so it never re-emits --gw on its own.
+  // Non-gateway profiles (e.g. agy) never inherit a Claude --gw pin.
   const pinned = tab.gatewayMode === "direct"
     ? "direct"
     : tab.gatewayProvenance === "explicit"
       ? tab.gatewayMode
       : undefined;
   const posture = opts.forceGateway ?? pinned;
-  const gwFlag =
-    posture === "gateway" ? " --gw" : posture === "direct" ? " --no-gw" : "";
+  const gwFlag = !usesGateway
+    ? opts.forceGateway === "direct"
+      ? " --no-gw"
+      : ""
+    : posture === "gateway"
+      ? " --gw"
+      : posture === "direct"
+        ? " --no-gw"
+        : "";
   // Persisted-host pin — the gatewayMode pattern applied to the terminal
   // host: a NON-LIVE session is re-created on the host its registry record
   // names, never on the current default. A recorded native session survives
@@ -96,11 +111,19 @@ export function tabCommand(
   const nativePin =
     tab.hostKind === "local-native" ? "H2A_SESSION_HOST=native " : "";
   const tmuxPin = tab.hostKind === "local-tmux" ? " --tmux" : "";
-  const bareFlag = tab.bare === true ? " --bare" : tab.bare === false ? " --no-bare" : "";
+  const bareFlag =
+    effectiveTool === "claude"
+      ? tab.bare === true
+        ? " --bare"
+        : tab.bare === false
+          ? " --no-bare"
+          : ""
+      : "";
+  const modelFlag = tab.model ? ` --model ${q(tab.model)}` : "";
   const runCmd = (extra: string) =>
-    `${nativePin}h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
+    `${nativePin}h2a run ${q(effectiveTool)} ${q(tab.cwd)} ` +
     (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
-    `--name ${q(tab.label)}${gwFlag}${bareFlag}${tmuxPin}${extra}`;
+    `--name ${q(tab.label)}${modelFlag}${gwFlag}${bareFlag}${tmuxPin}${extra}`;
   if (opts.attachSession) {
     // `h2a attach` resolves the exact managed name and honors the session's
     // RECORDED host (tmux attach for tmux sessions, the native bridge for
@@ -116,6 +139,71 @@ export function tabCommand(
     return `h2a attach ${q(slug)}`;
   }
   return runCmd("");
+}
+
+/**
+ * Pure per-tab host-liveness classification over the ONE `HostViewSnapshot`
+ * (F3: reads only `hostView`, never probes a live host). Used by `--dry-run`
+ * plan rendering to distinguish live attach-only sessions from absent ones.
+ */
+export function inspectTabHostState(
+  tab: LayoutTab,
+  hostView: HostViewSnapshot,
+): TabLiveHostState {
+  if (tab.remoteId) return { state: "absent" };
+  const slug = slugify(tab.label);
+  if (tab.hostKind === "local-native") {
+    const exact = tab.managedName ?? `h2a-${slug}`;
+    if (!hostView.native.known) return { state: "unknown" };
+    const matches = hostView.native.sessions.filter((s) => s.name === exact);
+    if (matches.length > 1) return { state: "unknown" };
+    const hit = matches[0];
+    if (hit !== undefined) {
+      if (hit.controlled === undefined) return { state: "unknown" };
+      return {
+        state: hit.controlled ? "live-attached" : "live-detached",
+        exactName: exact,
+        hostLabel: "local-native",
+      };
+    }
+    if (hostView.native.complete === false) return { state: "unknown" };
+    return { state: "absent" };
+  }
+  if (tab.hostKind === "local-tmux") {
+    const exact = tab.managedName ?? `h2a-${slug}`;
+    if (!hostView.tmux.known) return { state: "unknown" };
+    const hit = hostView.tmux.sessions.find((s) => s.name === exact);
+    if (hit !== undefined) {
+      return {
+        state: hit.attached ? "live-attached" : "live-detached",
+        exactName: exact,
+        hostLabel: "local-tmux",
+      };
+    }
+    return { state: "absent" };
+  }
+  if (!hostView.tmux.known) return { state: "unknown" };
+  const tmuxHit = hostView.tmux.sessions.find((s) => s.slug === slug);
+  if (tmuxHit !== undefined) {
+    return {
+      state: tmuxHit.attached ? "live-attached" : "live-detached",
+      exactName: tmuxHit.name,
+      hostLabel: "local-tmux",
+    };
+  }
+  if (!hostView.native.known || hostView.native.complete === false) {
+    return { state: "unknown" };
+  }
+  const exactNative = `h2a-${slug}`;
+  const nativeHit = hostView.native.sessions.find((s) => s.name === exactNative);
+  if (nativeHit !== undefined) {
+    return {
+      state: nativeHit.controlled ? "live-attached" : "live-detached",
+      exactName: exactNative,
+      hostLabel: "local-native",
+    };
+  }
+  return { state: "absent" };
 }
 
 /** Group collision candidates before restore emits bare-slug attach/resume commands. */
@@ -405,6 +493,29 @@ export function launchLayout(
       runDir(),
       `restore-${process.pid}-${slug}-${mapCounter++}.map`,
     );
+    for (const { tab, command } of activeTabs) {
+      if (
+        tab.rewrite?.crossProfile &&
+        !command.startsWith("h2a attach ") &&
+        (tab.task || tab.rewrite.priorTranscriptPath || tab.rewrite.droppedSid)
+      ) {
+        const handoffPath = join(
+          runDir(),
+          `restore-handoff-${process.pid}-${slugify(tab.label)}-${mapCounter++}.md`,
+        );
+        writeFileSync(
+          handoffPath,
+          buildRestoreHandoffMarkdown({
+            label: tab.label,
+            cwd: tab.cwd,
+            rewrite: tab.rewrite,
+            task: tab.task,
+          }),
+          "utf8",
+        );
+        stderr.write(`[h2a] handoff (${tab.label}): ${handoffPath}\n`);
+      }
+    }
     const body =
       activeTabs
         .map(({ tab, command }) => `${tab.cwd}\t${command}`)
