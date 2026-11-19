@@ -77,6 +77,11 @@ import {
   type GatewayRequestLogEntry,
   type SanitizedUpstreamError,
 } from "./request-log.js";
+import {
+  createCloudCodeRetryFetch,
+  formatCloudCodeRetryLogLine,
+  type CloudCodeRetryPolicy,
+} from "./cloud-code-retry.js";
 
 /** Pending upstream U3: legacy config ports are inert on the planner-routed path. */
 const legacyPortReached = (): never => { throw new Error("Inert legacy gateway port reached (pending upstream U3)"); };
@@ -96,10 +101,11 @@ const routingConfigFromEnvironment = (): LlmMeshRoutingConfig | undefined => {
 const runtimeMesh = (
   claudeClient: AnthropicAdapterClient,
   upstreamFetch: typeof fetch,
+  cloudCodeFetch: typeof fetch,
 ) => createLlmMesh({
   registry: createProviderRegistry([
     new OpenAIAdapter({ client: new CodexRuntimeClient({ fetch: upstreamFetch }) }),
-    new GeminiAdapter({ client: new CloudCodeRuntimeClient(upstreamFetch) }),
+    new GeminiAdapter({ client: new CloudCodeRuntimeClient(cloudCodeFetch) }),
     new MistralAdapter({ client: new MistralRuntimeClient({ fetch: upstreamFetch }) }),
     new MuseAdapter({ client: new MuseRuntimeClient({ fetch: upstreamFetch }) }),
     new AnthropicAdapter({ client: claudeClient }),
@@ -345,6 +351,13 @@ export interface LocalGatewayAppOptions {
   readonly upstreamFetch?: typeof fetch;
   /** Optional structured log sink (test seam); defaults to process.stdout.write. */
   readonly writeLog?: (line: string) => void;
+  /**
+   * Explicit Cloud Code upstream fetch override (test seam). Wrapped by
+   * createCloudCodeRetryFetch and createObservedUpstreamFetch.
+   */
+  readonly cloudCodeFetch?: typeof fetch;
+  /** Bounded Cloud Code 429 retry policy override (mainly for tests). */
+  readonly cloudCodeRetry?: CloudCodeRetryPolicy;
 }
 
 /**
@@ -498,7 +511,8 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   // Claude seat like every other seat: an explicit override wins (test seam),
   // otherwise compose the PATH-resolved seat unconditionally.
   const claudeClient = options.claudeClient ?? createClaudeSeatClient();
-  const upstreamFetch = createObservedUpstreamFetch(options.upstreamFetch ?? fetch);
+  const rawBaseFetch: typeof fetch = options.upstreamFetch ?? ((input, init) => fetch(input, init));
+  const upstreamFetch = createObservedUpstreamFetch(rawBaseFetch);
   const writeLog = options.writeLog ?? ((line: string) => { process.stdout.write(line); });
   const rateLimitTracker = new RateLimitCooldownTracker();
   const routing = options.routing ?? routingConfigFromEnvironment();
@@ -516,11 +530,18 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   const modelRewrites = validateModelRewrites(
     options.modelRewrites ?? readLlmMeshConfig()?.modelRewrites,
   );
+  const cloudCodeRetryPolicy: CloudCodeRetryPolicy = {
+    onLog: (event) => writeLog(formatCloudCodeRetryLogLine(event)),
+    ...options.cloudCodeRetry,
+  };
+  const cloudCodeFetch = createObservedUpstreamFetch(
+    createCloudCodeRetryFetch(options.cloudCodeFetch ?? rawBaseFetch, cloudCodeRetryPolicy),
+  );
   const facade = createCliLlmMeshFacade();
   const profiles = routingProfiles(routing);
   const planner = observablePlanner(
     options.routePlanner ??
-      facade.createRoutePlanner(runtimeMesh(claudeClient, upstreamFetch), {
+      facade.createRoutePlanner(runtimeMesh(claudeClient, upstreamFetch, cloudCodeFetch), {
         ...(routing?.council ? { council: routing.council } : {}),
         ...(profiles ? { profiles } : {}),
       }),
