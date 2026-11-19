@@ -7,7 +7,7 @@ import {
   InMemoryAccountTransportCoordinator,
   InMemoryRoutePlanner,
 } from "@sentropic/cluster-mesh/llm-mesh";
-import { EncryptedFileKeyring } from "@sentropic/llm-mesh/node";
+import { EncryptedFileKeyring } from "@sentropic/cluster-mesh/llm-mesh/node";
 import {
   classifyCloudCode429,
   createCloudCodeRetryFetch,
