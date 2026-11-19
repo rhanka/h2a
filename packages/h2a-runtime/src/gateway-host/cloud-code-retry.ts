@@ -4,7 +4,7 @@
  *
  * Mirrors @google/gemini-cli's classification & retry policy
  * (packages/core/src/utils/googleQuotaErrors.ts and retry.ts) without forking
- * or patching @sentropic/llm-mesh:
+ * or patching the upstream mesh SDK:
  * - Parses Google RPC error details (ErrorInfo, RetryInfo.retryDelay,
  *   QuotaFailure, quotaResetDelay, quotaResetTimeStamp) and HTTP Retry-After.
  * - Retries transient capacity/rate-limit 429s before CloudCodeProviderAdapter
