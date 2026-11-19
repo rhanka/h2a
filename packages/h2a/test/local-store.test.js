@@ -220,4 +220,14 @@ test("findInstance incrementally reads appended registry rows without re-reading
   writeFileSync(store.paths.instances, JSON.stringify(makeReg("inst:rewritten")) + "\n", "utf8");
   assert.equal(store.findInstance("inst:0"), undefined);
   assert.equal(store.findInstance("inst:rewritten")?.id, "inst:rewritten");
+
+  // External same-inode in-place rewrite that GROWS the file must also invalidate
+  // the cached prefix (not seek into the middle of a rewritten line).
+  writeFileSync(
+    store.paths.instances,
+    JSON.stringify({ ...makeReg("inst:rewritten"), roles: ["PRINCIPAL"], scopes: ["scope:expanded-longer-value"] }) + "\n",
+    "utf8"
+  );
+  assert.deepEqual(store.findInstance("inst:rewritten")?.roles, ["PRINCIPAL"]);
+  assert.deepEqual(store.findInstance("inst:rewritten")?.scopes, ["scope:expanded-longer-value"]);
 });
