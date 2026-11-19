@@ -1,0 +1,211 @@
+flowchart LR
+%% @dl format engram.archi-mermaid/1
+%% @dl document notes-example
+%% @dl schema 1.1
+%% @dl revision 0
+%% @dl language en
+%% @dl owning-repo e_repo_notes
+%% @dl profile archi@1
+%% @dl profile generic@2
+%% @dl pin profile archi 1.0.0 81ed1a11925f9bb1d644a839cad788555ffeea876c8c09d2d0a34d6981e8b344
+%% @dl pin profile generic 2.0.0 cb103606707577720eba48570c0e49aadd209d8e51a9a0bc2c725b7434f79283
+%% @dl pin cards archi-cards 1 7de031e42469eb426cd520fab2f390e33ec62fca374d224b463bbe9d70cb1246
+%% @dl pin view-schema diagram-view-schema 2 50c97fc87a9546facff86f2deab8fdb99073419f43eef09958b96225367037ef
+
+%% @dl entity actor team
+%% @dl evidence "assertion: synthetic fixture"
+e_act_team["Notes team"]
+
+%% @dl entity actor human
+%% @dl evidence "assertion: synthetic fixture"
+e_act_writer["Writer"]
+
+%% @dl entity system
+%% @dl role "Takes and serves notes"
+%% @dl evidence "README.md:3"
+subgraph e_sys_notes["Notes"]
+  %% @dl entity package app
+  %% @dl role "Ships the notes CLI and server"
+  %% @dl evidence "package.json:2"
+  %% @dl category "edge"
+  %% @dl version "1.0.0"
+  %% @dl nest po-pkg-app
+  %% @dl evidence "package.json:2"
+  subgraph e_pkg_app["@example/notes"]
+    %% @dl entity component
+    %% @dl role "Indexes notes for search"
+    %% @dl evidence "src/index.ts:10"
+    %% @dl category "core"
+    %% @dl nest po-indexer
+    %% @dl evidence "src/index.ts:1"
+    e_cmp_indexer["Indexer"]
+    %% @dl entity artifact skill
+    %% @dl role "Teaches agents the notes commands"
+    %% @dl evidence "skills/notes/SKILL.md:1"
+    %% @dl nest po-skill
+    %% @dl evidence "package.json:12"
+    e_art_skill["notes skill"]
+  end
+  %% @dl entity package library
+  %% @dl role "Parses and stores notes"
+  %% @dl evidence "core/package.json:2"
+  %% @dl category "core"
+  %% @dl version "1.0.0"
+  %% @dl nest po-pkg-core
+  %% @dl evidence "core/package.json:2"
+  subgraph e_pkg_core["@example/notes-core"]
+  end
+  %% @dl entity runtime cli
+  %% @dl role "Writes notes from the terminal"
+  %% @dl evidence "package.json:8"
+  %% @dl category "edge"
+  %% @dl nest po-cli
+  %% @dl evidence "package.json:8"
+  e_rt_cli["notes"]
+  %% @dl entity runtime daemon
+  %% @dl role "Serves notes over HTTP"
+  %% @dl evidence "package.json:9"
+  %% @dl category "core"
+  %% @dl nest po-server
+  %% @dl evidence "package.json:9"
+  e_rt_server["notes-server"]
+  %% @dl entity service
+  %% @dl role "Full-text search over notes"
+  %% @dl lifecycle proposed
+  %% @dl evidence "assertion: planned in the synthetic fixture"
+  %% @dl nest po-search
+  %% @dl lifecycle proposed
+  %% @dl evidence "assertion: planned in the synthetic fixture"
+  e_svc_search["Search"]
+  %% @dl entity api http
+  %% @dl role "Reads and writes notes"
+  %% @dl evidence "src/server.ts:20"
+  %% @dl access read-write
+  %% @dl nest po-api
+  %% @dl evidence "src/server.ts:20"
+  e_api_http["Notes HTTP API"]
+  %% @dl entity store file
+  %% @dl role "One file per note"
+  %% @dl evidence "src/store.ts:5"
+  %% @dl writerPolicy multi-writer
+  %% @dl nest po-store
+  %% @dl evidence "src/store.ts:5"
+  e_st_notes["notes directory"]
+end
+
+%% @dl entity repo
+%% @dl role "Code of the notes app"
+%% @dl evidence "README.md:1"
+%% @dl url "https://example.invalid/notes"
+subgraph e_repo_notes["notes"]
+end
+
+%% @dl entity host workstation
+%% @dl role "Runs the CLI and the server"
+%% @dl evidence "assertion: synthetic fixture"
+subgraph e_host_ws["Workstation"]
+end
+
+%% @dl entity legend
+subgraph e_legend_layers["Layers"]
+  %% @dl entity legend-key
+  %% @dl category "core"
+  %% @dl nest ct-key-core
+  e_key_core["Core"]
+  %% @dl entity legend-key
+  %% @dl category "edge"
+  %% @dl nest ct-key-edge
+  e_key_edge["Edge"]
+end
+
+%% @dl rel us-cli uses e_act_writer e_rt_cli
+%% @dl evidence "README.md:5"
+%% @dl rel mi-notes managedIn e_sys_notes e_repo_notes
+%% @dl evidence "README.md:1"
+%% @dl edge da-cli deployedAs
+%% @dl evidence "package.json:8"
+e_pkg_app -->|"deployed as"| e_rt_cli
+%% @dl edge da-server deployedAs
+%% @dl evidence "package.json:9"
+e_pkg_app -->|"deployed as"| e_rt_server
+%% @dl edge do-core dependsOn
+%% @dl evidence "package.json:14"
+e_pkg_app -->|"depends on"| e_pkg_core
+%% @dl rel eb-indexer executedBy e_cmp_indexer e_rt_server
+%% @dl evidence "src/server.ts:3"
+%% @dl rel lb-skill loadedBy e_art_skill e_rt_cli
+%% @dl evidence "skills/notes/SKILL.md:1"
+%% @dl edge dc-skill documents
+%% @dl evidence "skills/notes/SKILL.md:4"
+e_art_skill -->|"documents · commands"| e_rt_cli
+%% @dl rel ro-cli runsOn e_rt_cli e_host_ws
+%% @dl evidence "README.md:7"
+%% @dl edge in-server invokes
+%% @dl evidence "src/cli.ts:30"
+%% @dl trigger command
+e_rt_cli -->|"launches · on demand"| e_rt_server
+%% @dl edge ca-api consumesApi
+%% @dl evidence "src/cli.ts:40"
+e_rt_cli -->|"calls · HTTP"| e_api_http
+%% @dl edge ac-cli accesses
+%% @dl evidence "src/cli.ts:50"
+%% @dl mode append
+e_rt_cli -->|"appends to"| e_st_notes
+%% @dl rel ro-server runsOn e_rt_server e_host_ws
+%% @dl evidence "README.md:8"
+%% @dl rel pa-api providesApi e_rt_server e_api_http
+%% @dl evidence "src/server.ts:20"
+%% @dl edge ac-server accesses
+%% @dl evidence "src/store.ts:9"
+%% @dl mode write
+e_rt_server -->|"writes"| e_st_notes
+%% @dl rel ro-search runsOn e_svc_search e_host_ws
+%% @dl lifecycle proposed
+%% @dl evidence "assertion: planned in the synthetic fixture"
+%% @dl rel op-search operatedBy e_svc_search e_act_team
+%% @dl lifecycle proposed
+%% @dl evidence "assertion: planned in the synthetic fixture"
+%% @dl rel ac-search accesses e_svc_search e_st_notes
+%% @dl lifecycle proposed
+%% @dl evidence "assertion: planned in the synthetic fixture"
+%% @dl mode read
+%% @dl rel ob-notes ownedBy e_repo_notes e_act_team
+%% @dl evidence "assertion: synthetic fixture"
+%% @dl rel op-ws operatedBy e_host_ws e_act_writer
+%% @dl evidence "assertion: synthetic fixture"
+
+%% @dl view deployment archi-deployment
+%% @dl draw e_host_ws
+%% @dl draw e_rt_cli
+%% @dl draw e_rt_server
+%% @dl draw e_svc_search
+%% @dl expanded e_host_ws
+
+%% @dl view overview archi-composition
+%% @dl draw e_act_team
+%% @dl draw e_act_writer
+%% @dl draw e_api_http
+%% @dl draw e_art_skill
+%% @dl draw e_cmp_indexer
+%% @dl draw e_pkg_app
+%% @dl draw e_pkg_core
+%% @dl draw e_rt_cli
+%% @dl draw e_rt_server
+%% @dl draw e_st_notes
+%% @dl draw e_svc_search
+%% @dl draw e_sys_notes
+%% @dl expanded e_pkg_app
+%% @dl expanded e_sys_notes
+%% @dl legend e_legend_layers "Layers"
+%% @dl key e_key_core
+%% @dl key e_key_edge
+%% @dl token "core" st-semantic-data-category1
+%% @dl token "edge" st-semantic-data-category2
+%% @dl stretch true
+%% @dl order e_sys_notes e_pkg_app e_pkg_core e_rt_cli e_rt_server e_api_http e_st_notes e_svc_search
+%% @dl group people rows
+%% @dl item people e_act_writer
+%% @dl item people e_act_team
+
+classDef dashed stroke-dasharray: 5 5
+class e_svc_search dashed
