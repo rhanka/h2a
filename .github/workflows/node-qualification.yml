@@ -25,19 +25,26 @@ name: Node qualification (release)
 # producers, then move these runs-on back to ubuntu-latest while it is still
 # offered. Track: 01M6VTPX93E083FX480N9MF5FY.
 
-# Node versions float on purpose, matching the verify legs that import these
-# proofs: SPEC 0.98.5 R8.1 pins verify's setup-node to the matrix link, and
-# the imported-proof context binds process.version, so a patch-level drift
-# between a producer leg and its consumer leg fails the context check and
-# blocks the release (fails closed). ci.yml pins exact versions because both
-# its sides are free to pin together; the release side cannot pin producers
-# without re-pinning verify against the R8.1 spec test — that remains an
-# owner decision, follow-up TODO(release-node-pins).
+# Exact Node pins are required inputs from release.yml (matching ci.yml's
+# PIN_NODE_22 / PIN_NODE_24): the imported-proof context binds exact
+# process.version, and floating "22"/"24" tags resolve per-runner from
+# preinstall caches. During a runner image rollout (v0.98.11-rc.2, run
+# 44602999872: ubuntu-24.04 20261103.629 vs 20261111.635), bulk-22 resolved
+# v22.23.4 while m17-22 resolved v22.23.5 (and shard-24-0 resolved v24.22.3
+# against v24.22.2 producers), making every node-shard leg fail provenance
+# verification. Pinning exact versions across every producer and verify makes
+# every leg run the exact same Node bits.
 
 on:
   workflow_call:
     inputs:
       release-sha:
+        required: true
+        type: string
+      pin-node-22:
+        required: true
+        type: string
+      pin-node-24:
         required: true
         type: string
 
@@ -65,7 +72,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -106,7 +113,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -155,7 +162,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}
           cache: npm
       - run: npm ci
       - run: npm run build

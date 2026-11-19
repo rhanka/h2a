@@ -88,6 +88,8 @@ jobs:
     uses: ./.github/workflows/node-qualification.yml
     with:
       release-sha: ${{ needs.resolve-release-sha.outputs.release-sha }}
+      pin-node-22: "22.23.4"
+      pin-node-24: "24.22.1"
 
   verify:
     # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
@@ -142,7 +144,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node == '24' && '24.22.1' || '22.23.4' }}
           cache: npm
 
       - name: Prove effective Node version and release checkout
