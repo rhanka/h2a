@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import fs, { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -173,4 +174,60 @@ test("readNegotiationJournal throws on a tampered file", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("findInstance incrementally reads appended registry rows without re-reading the whole log and invalidates on rewrite or truncation", (t) => {
+  const root = freshRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const store = createLocalStore({ root });
+  const originalRead = fs.readFileSync;
+  let fullReads = 0;
+  t.mock.method(fs, "readFileSync", function (p, ...args) {
+    if (p === store.paths.instances) fullReads++;
+    return Reflect.apply(originalRead, this, [p, ...args]);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+
+  const makeReg = (id) => ({
+    id,
+    instance: id,
+    roles: ["AGENTS"],
+    scopes: ["scope:default"],
+    capabilities: [],
+    endpoints: [],
+    publicKeys: [],
+    acceptedPolicies: [],
+    createdAt: "2026-05-18T00:00:00.000Z"
+  });
+
+  for (let i = 0; i < 20; i++) {
+    store.registerInstance(makeReg(`inst:${i}`));
+  }
+  assert.ok(fullReads <= 2, `expected incremental tail reads, got ${fullReads} full reads of instances.jsonl`);
+  assert.equal(store.findInstance("inst:0")?.id, "inst:0");
+  assert.equal(store.findInstance("inst:19")?.id, "inst:19");
+  assert.equal(store.findInstance("missing"), undefined);
+
+  // External append is observed immediately without a full re-read.
+  appendFileSync(store.paths.instances, JSON.stringify(makeReg("inst:external")) + "\n", "utf8");
+  assert.equal(store.findInstance("inst:external")?.id, "inst:external");
+
+  // External rewrite / truncation invalidates the cached prefix.
+  writeFileSync(store.paths.instances, JSON.stringify(makeReg("inst:rewritten")) + "\n", "utf8");
+  assert.equal(store.findInstance("inst:0"), undefined);
+  assert.equal(store.findInstance("inst:rewritten")?.id, "inst:rewritten");
+
+  // External same-inode in-place rewrite that GROWS the file must also invalidate
+  // the cached prefix (not seek into the middle of a rewritten line).
+  writeFileSync(
+    store.paths.instances,
+    JSON.stringify({ ...makeReg("inst:rewritten"), roles: ["PRINCIPAL"], scopes: ["scope:expanded-longer-value"] }) + "\n",
+    "utf8"
+  );
+  assert.deepEqual(store.findInstance("inst:rewritten")?.roles, ["PRINCIPAL"]);
+  assert.deepEqual(store.findInstance("inst:rewritten")?.scopes, ["scope:expanded-longer-value"]);
 });
