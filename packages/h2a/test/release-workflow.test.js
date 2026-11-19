@@ -98,8 +98,8 @@ test("R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exact
   );
   assert.equal(
     setups[0].with?.["node-version"],
-    "${{ matrix.node }}",
-    "verify's node-version must BE the matrix link: a fixed value (round-6: node-version: \"22\") runs every leg on that one version while matrix.node still claims both legs are tested",
+    "${{ matrix.node == '24' && '24.22.1' || '22.23.4' }}",
+    "verify's node-version must map each matrix leg to its exact pinned Node version (matching node-qualification and ci.yml): a fixed value (round-6: node-version: \"22\") runs every leg on that one version, while a floating major drifts across runner images (v0.98.11-rc.2 run 44602999872)",
   );
 });
 
