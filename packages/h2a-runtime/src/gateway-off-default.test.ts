@@ -33,7 +33,7 @@ const ORIGINAL_ENV = {
 const ORIGINAL_EXIT_CODE = process.exitCode;
 
 const acquireLlmMeshSessionEnv = vi.fn();
-const readLlmMeshConfig = vi.fn((): { port?: number } => ({}));
+const readLlmMeshConfig = vi.fn((): { port?: number; modelRewrites?: unknown } => ({}));
 const startGateway = vi.fn();
 const stopGateway = vi.fn();
 const readGatewayPid = vi.fn((): number | null => null);
@@ -70,9 +70,11 @@ vi.mock("./pty.js", async (importOriginal) => ({
   nodePtySpawner: localPtySpawner,
 }));
 
-vi.mock("./gateway-host/config-file.js", () => ({
+vi.mock("./gateway-host/config-file.js", async (importOriginal) => ({
   readLlmMeshConfig,
   writeLlmMeshConfig: vi.fn(),
+  validateModelRewrites: (await importOriginal<typeof import("./gateway-host/config-file.js")>())
+    .validateModelRewrites,
 }));
 
 vi.mock("./gateway-host/daemon.js", async (importOriginal) => {
@@ -454,6 +456,20 @@ describe("llm-mesh lifecycle (service operations are not routing consent)", () =
     const code = await main(["node", "h2a", "llm-mesh", "restart"]);
     expect(code).toBe(0);
     expect(llmMeshEnabled()).not.toBe(true);
+  });
+
+  it("restart refuses an invalid modelRewrites before stopping the gateway", async () => {
+    readLlmMeshConfig.mockReturnValueOnce({
+      modelRewrites: [{
+        match: { model: "claude-opus-5-5" },
+        target: { model: "muse-inconnu-9.9", effort: "max" },
+      }],
+    });
+    // The entry point prints the rejection and exits 1.
+    await expect(main(["node", "h2a", "llm-mesh", "restart"]))
+      .rejects.toThrow(/modelRewrites\[0\].*muse-inconnu-9\.9/);
+    expect(stopGateway).not.toHaveBeenCalled();
+    expect(startGateway).not.toHaveBeenCalled();
   });
 
   it("stop clears a leftover enabled=true", async () => {

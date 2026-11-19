@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
 import { randomBytes } from "node:crypto";
-import { llmMeshOwnerScopeRef, sentropicDir, readLlmMeshConfig, writePrivateMetadata, type LlmMeshConfig } from "./config-file.js";
+import {
+  llmMeshOwnerScopeRef,
+  sentropicDir,
+  readLlmMeshConfig,
+  validateModelRewrites,
+  writePrivateMetadata,
+  type LlmMeshConfig,
+} from "./config-file.js";
 
 const ANTHROPIC_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
@@ -97,6 +104,9 @@ export async function startGateway(
   config: LlmMeshConfig,
   opts: StartGatewayOptions = {},
 ): Promise<StartResult> {
+  // Validate in the parent: the child would only log the named entry and
+  // the caller would see an opaque readiness timeout.
+  validateModelRewrites(config.modelRewrites);
   const port = config.port ?? 3002;
   const stateDir = opts.stateDir;
   // An explicitly isolated state root must not inherit a live gateway's log.
