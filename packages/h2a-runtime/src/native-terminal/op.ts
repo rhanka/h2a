@@ -1808,7 +1808,13 @@ export async function runNativeTerminalOp(
       const { client } = selected;
       const ping = await client.ping();
       client.close();
-      emit({ hostPid: ping.hostPid, generation: ping.generation, socketPath: selected.socketPath, launchFence: ping.launchFence === true });
+      emit({
+        hostPid: ping.hostPid,
+        generation: ping.generation,
+        socketPath: selected.socketPath,
+        launchFence: ping.launchFence === true,
+        softRespawn: ping.softRespawn === true,
+      });
       return 0;
     }
     case "list": {
@@ -2058,6 +2064,29 @@ export async function runNativeTerminalOp(
       emit({ text: (await renderTerminalScreen(raw)).slice(-budget) });
       return 0;
     }
+    case "capture-since": {
+      const id = required(parsed, "id");
+      const afterSeq = Number(parsed.flags.get("after-seq") ?? 0);
+      if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
+        throw new Error(`invalid after-seq: ${parsed.flags.get("after-seq")}`);
+      }
+      const { client } = await owningClient(parsed, id);
+      const replay = await client.readOutput(id, afterSeq);
+      const state = replay.state ?? (await client.state(id));
+      client.close();
+      const raw = replay.chunks.map((chunk) => chunk.data).join("");
+      const budget = Number(parsed.flags.get("bytes") ?? 16384);
+      const text = raw.length > 0 ? (await renderTerminalScreen(raw)).slice(-budget) : "";
+      emit({
+        text,
+        latestSeq: replay.latestSeq,
+        status: state.status,
+        pid: state.pid,
+        generation: state.generation,
+        incarnation: state.incarnation,
+      });
+      return 0;
+    }
     case "pid": {
       const { client } = await owningClient(parsed, required(parsed, "id"));
       const state = await client.state(required(parsed, "id"));
@@ -2134,6 +2163,97 @@ export async function runNativeTerminalOp(
       appendCrashLog("cli", { event: "sessionExit", sessionId: id, instanceId: generation, reason: `killed-${signal}`, signal });
       emit(after);
       return 0;
+    }
+    case "respawn-if-incarnation": {
+      const id = required(parsed, "id");
+      const generation = required(parsed, "generation");
+      const incarnation = required(parsed, "incarnation");
+      const cwd = required(parsed, "cwd");
+      const signal = parsed.flags.get("signal") ?? "SIGTERM";
+      if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
+        throw new Error(`unsupported signal: ${signal}`);
+      }
+      const rawTimeout = parsed.flags.get("timeout-ms");
+      const timeoutMs = rawTimeout === undefined ? undefined : Number(rawTimeout);
+      if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+        throw new Error(`invalid timeout-ms: ${rawTimeout}`);
+      }
+      const envFile = parsed.flags.get("env-file");
+      const env = envFile !== undefined
+        ? (JSON.parse(readFileSync(envFile, "utf8")) as Record<string, string>)
+        : Object.fromEntries(
+            Object.entries(process.env).filter(
+              (entry): entry is [string, string] => entry[1] !== undefined,
+            ),
+          );
+      if (parsed.command.length === 0) throw new Error("respawn-if-incarnation requires -- command");
+      const owner = await owningClient(parsed, id);
+      const { client } = owner;
+      try {
+        const ping = await client.ping();
+        if (ping.softRespawn !== true) {
+          appendCrashLog("cli", {
+            event: "refusal",
+            sessionId: id,
+            instanceId: ping.generation,
+            reason: "host-soft-restart-unsupported",
+            detail: owner.socketPath,
+          });
+          emit({
+            code: "host-soft-restart-unsupported",
+            id,
+            generation: ping.generation,
+            socketPath: owner.socketPath,
+          });
+          return 1;
+        }
+        const before = await client.state(id);
+        if (before.generation !== generation) {
+          appendCrashLog("cli", { event: "refusal", sessionId: id, instanceId: generation, reason: "stale-terminal-host-generation" });
+          throw new Error("stale terminal host generation");
+        }
+        if (before.incarnation !== incarnation) {
+          appendCrashLog("cli", { event: "refusal", sessionId: id, instanceId: generation, reason: "stale-terminal-session-incarnation" });
+          throw new Error("stale terminal session incarnation");
+        }
+        const after = await client.respawnIfIncarnation({
+          id,
+          generation,
+          incarnation,
+          command: parsed.command[0]!,
+          args: parsed.command.slice(1),
+          cwd,
+          env,
+          signal,
+          ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+        });
+        emit({ ...after, socketPath: owner.socketPath });
+        return 0;
+      } catch (error) {
+        if (
+          error instanceof NativeTerminalRemoteError &&
+          error.code === "invalid-request" &&
+          /unknown terminal operation/i.test(error.message)
+        ) {
+          appendCrashLog("cli", {
+            event: "refusal",
+            sessionId: id,
+            instanceId: generation,
+            reason: "host-soft-restart-unsupported",
+            detail: owner.socketPath,
+          });
+          emit({
+            code: "host-soft-restart-unsupported",
+            id,
+            generation,
+            socketPath: owner.socketPath,
+          });
+          return 1;
+        }
+        throw error;
+      } finally {
+        client.close();
+      }
     }
     case "attach": {
       const id = required(parsed, "id");

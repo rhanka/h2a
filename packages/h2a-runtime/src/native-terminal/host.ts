@@ -36,6 +36,8 @@ import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
+  isNativeTerminalStopSignal,
+  type NativeTerminalRespawnOptions,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
 // N3 CLI proof authority: host-local mint/verify bound to the session table.
@@ -735,18 +737,22 @@ export type NativeTerminalReapOutcome = Readonly<
 type SessionRecord = {
   readonly id: string;
   readonly incarnation: string;
-  readonly pty: PtyHandle;
+  pty: PtyHandle;
   /**
    * The group-membership token persisted on this session's durable row (see
    * `RegistryEntry.pgidGroupToken`). Kept in memory so a prune can COMPARE-AND-
    * DELETE on the row's own identity — pgid AND token — instead of on a session
    * id another host may legitimately be using by now.
    */
-  readonly groupToken: string;
+  groupToken: string;
   readonly replay: TerminalReplayBuffer;
+  cols: number;
+  rows: number;
   status: NativeTerminalSessionStatus;
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
+  respawning: boolean;
+  onRespawnOldExit?: (event: { exitCode: number; signal?: number }) => void;
   controllerId: string | null;
   controllerActivity: NativeTerminalControllerActivity | null;
   controllerIdentity: NativeTerminalControllerIdentity | null;
@@ -1025,9 +1031,12 @@ export class NativeTerminalHost {
       pty,
       groupToken,
       replay: new TerminalReplayBuffer(this.#replayBytesPerSession),
+      cols: options.cols,
+      rows: options.rows,
       status: "running",
       exit: null,
       stopSignal: null,
+      respawning: false,
       controllerId: null,
       controllerActivity: null,
       controllerIdentity: null,
@@ -1035,7 +1044,12 @@ export class NativeTerminalHost {
       lastHumanActivityAt: null,
     };
     this.#sessions.set(record.id, record);
+    this.#attachPtyListeners(record, pty);
 
+    return this.#snapshot(record);
+  }
+
+  #attachPtyListeners(record: SessionRecord, pty: PtyHandle): void {
     // Carry of the previous chunk so a DSR split across chunks is still seen.
     // At most 3 chars: a full 4-char query can never hide entirely in it.
     let dsrTail = "";
@@ -1043,9 +1057,9 @@ export class NativeTerminalHost {
       (data) => { record.replay.append(data); },
       () => record.replay.resetSequence(),
     );
-    record.dataSubscription = record.pty.onData((data) => {
+    record.dataSubscription = pty.onData((data) => {
       try {
-        if (record.exit !== null || data.length === 0) return;
+        if (record.pty !== pty || record.exit !== null || data.length === 0) return;
         resetRelay.feed(data);
         // Answer Device Status Report cursor queries (ESC[6n) like a real
         // terminal/tmux: TUIs that require a cursor-position report (muse
@@ -1055,7 +1069,7 @@ export class NativeTerminalHost {
         const queries = window.split("\x1b[6n").length - 1;
         for (let i = 0; i < queries; i++) {
           try {
-            record.pty.write("\x1b[1;1R");
+            pty.write("\x1b[1;1R");
           } catch {
             // R7.5 named exemption: expected transport failure, potentially
             // high volume. Count it instead of logging every failed reply.
@@ -1073,8 +1087,16 @@ export class NativeTerminalHost {
         this.#reportSessionCallbackFailure("data", record, error);
       }
     });
-    record.exitSubscription = record.pty.onExit((event) => {
+    record.exitSubscription = pty.onExit((event) => {
       try {
+        if (record.pty !== pty) return;
+        if (record.onRespawnOldExit !== undefined) {
+          resetRelay.flush();
+          const cb = record.onRespawnOldExit;
+          delete record.onRespawnOldExit;
+          cb(event);
+          return;
+        }
         if (record.exit !== null) return;
         resetRelay.flush();
         // A durable row exists to make this session reapable after THIS host
@@ -1118,8 +1140,6 @@ export class NativeTerminalHost {
         this.#reportSessionCallbackFailure("exit", record, error);
       }
     });
-
-    return this.#snapshot(record);
   }
 
   list(): ReadonlyArray<NativeTerminalSessionState> {
@@ -1269,6 +1289,7 @@ export class NativeTerminalHost {
     }
     const record = this.#requireController(lease);
     if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+    if (record.respawning) return;
     record.pty.write(data);
   }
 
@@ -1285,7 +1306,12 @@ export class NativeTerminalHost {
     ) {
       throw new RangeError("terminal dimensions must be positive safe integers");
     }
-    this.#requireController(lease).pty.resize(cols, rows);
+    const record = this.#requireController(lease);
+    record.cols = cols;
+    record.rows = rows;
+    if (!record.respawning) {
+      record.pty.resize(cols, rows);
+    }
   }
 
   stop(
@@ -1293,6 +1319,9 @@ export class NativeTerminalHost {
     signal: NativeTerminalStopSignal = "SIGTERM",
   ): NativeTerminalSessionState {
     const record = this.#requireMatchingController(lease);
+    if (record.respawning) {
+      throw new Error(`terminal session respawn already in progress: ${record.id}`);
+    }
     const previousStatus = record.status;
     const previousSignal = record.stopSignal;
     record.status = "stopping";
@@ -1330,6 +1359,9 @@ export class NativeTerminalHost {
     if (record.incarnation !== expectedIncarnation) {
       throw new Error("stale terminal session incarnation");
     }
+    if (record.respawning) {
+      throw new Error(`terminal session respawn already in progress: ${id}`);
+    }
     const previousStatus = record.status;
     const previousSignal = record.stopSignal;
     record.status = "stopping";
@@ -1345,6 +1377,176 @@ export class NativeTerminalHost {
     // accepted. A failed signal leaves the live session and its controller
     // exactly as they were.
     this.#invalidateController(record);
+    return this.#snapshot(record);
+  }
+
+  /**
+   * In-place soft restart of a live session's CLI child inside the SAME
+   * terminal session record. Preserves host generation, session incarnation,
+   * replay scrollback, live terminal dimensions, and any attached controller
+   * lease so attached terminals stay connected without losing their PTY.
+   *
+   * Fenced atomically on `(generation, incarnation)` before any signal or
+   * await, matching `stopIfIncarnation`.
+   */
+  async respawnIfIncarnation(
+    options: NativeTerminalRespawnOptions,
+  ): Promise<NativeTerminalSessionState> {
+    if (options.generation !== this.#generation) {
+      throw new Error("stale terminal host generation");
+    }
+    const record = this.#requireControllableSession(options.id);
+    if (record.incarnation !== options.incarnation) {
+      throw new Error("stale terminal session incarnation");
+    }
+    if (record.status !== "running") {
+      throw new Error(`terminal session is not running: ${options.id}`);
+    }
+    if (record.respawning) {
+      throw new Error(`terminal session respawn already in progress: ${options.id}`);
+    }
+    const signal = options.signal ?? "SIGTERM";
+    if (!isNativeTerminalStopSignal(signal)) {
+      throw new TypeError(
+        "terminal stop signal must be SIGHUP, SIGINT, SIGTERM or SIGKILL",
+      );
+    }
+    const timeoutMs = options.timeoutMs ?? 4_000;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
+      throw new RangeError("terminal respawn timeoutMs must be between 1 and 30000");
+    }
+
+    record.respawning = true;
+    const oldPty = record.pty;
+    let oldExited = false;
+    let resolveOldExit: (() => void) | undefined;
+    const oldExitPromise = new Promise<void>((resolve) => {
+      resolveOldExit = resolve;
+    });
+    record.onRespawnOldExit = () => {
+      oldExited = true;
+      resolveOldExit?.();
+    };
+
+    const waitForOldExit = async (budgetMs: number): Promise<boolean> => {
+      if (oldExited) return true;
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          oldExitPromise,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, budgetMs);
+            timer.unref();
+          }),
+        ]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+      return oldExited;
+    };
+
+    try {
+      oldPty.kill(signal);
+    } catch (error) {
+      delete record.onRespawnOldExit;
+      record.respawning = false;
+      throw error;
+    }
+
+    if (!(await waitForOldExit(timeoutMs))) {
+      if (signal !== "SIGKILL") {
+        try {
+          oldPty.kill("SIGKILL");
+        } catch {
+          // Process may have exited between timeout check and escalation.
+        }
+        await waitForOldExit(Math.min(1_000, timeoutMs));
+      }
+    }
+
+    delete record.onRespawnOldExit;
+    if (!oldExited) {
+      record.respawning = false;
+      throw new Error(
+        `terminal session ${options.id} child pid=${oldPty.pid} did not exit during soft respawn`,
+      );
+    }
+
+    record.dataSubscription?.dispose();
+    record.exitSubscription?.dispose();
+    delete record.dataSubscription;
+    delete record.exitSubscription;
+
+    // Leave any active application terminal modes (alt screen, mouse, bracketed
+    // paste) cleanly without clearing scrollback.
+    const modeReset = record.replay.resetSequence();
+    if (modeReset.length > 0) {
+      record.replay.append(modeReset);
+    }
+
+    const newGroupToken = randomUUID();
+    let newPty: PtyHandle;
+    try {
+      newPty = this.#spawner({
+        command: options.command,
+        args: options.args,
+        cwd: options.cwd,
+        env: {
+          ...options.env,
+          H2A_NATIVE_TERMINAL: "1",
+          [H2A_SESSION_TOKEN_ENV_VAR]: newGroupToken,
+        },
+        cols: record.cols,
+        rows: record.rows,
+      });
+    } catch (error) {
+      record.exit = Object.freeze({ exitCode: 1 });
+      record.status = "exited";
+      record.respawning = false;
+      this.#invalidateController(record);
+      throw new Error(
+        `refusing to complete soft respawn for ${options.id}: failed to spawn replacement child (${String(error)})`,
+      );
+    }
+
+    try {
+      const ownStartTime = readProcessStartTime(process.pid);
+      const leaderStartTime = this.#readLeaderStartTime(newPty.pgid);
+      persistNativeTerminalPgid(
+        record.id,
+        newPty.pgid,
+        this.#registryPath,
+        {
+          pid: process.pid,
+          ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
+          ...(this.#socketPath === undefined ? {} : { socketPath: this.#socketPath }),
+        },
+        leaderStartTime,
+        newGroupToken,
+      );
+    } catch (error) {
+      try {
+        newPty.kill("SIGKILL");
+      } catch {
+        // Best-effort cleanup of the untracked child.
+      }
+      record.exit = Object.freeze({ exitCode: 1 });
+      record.status = "exited";
+      record.respawning = false;
+      this.#invalidateController(record);
+      throw new Error(
+        `refusing to complete soft respawn for ${options.id}: failed to durably persist its pgid (${String(error)})`,
+      );
+    }
+
+    record.pty = newPty;
+    record.groupToken = newGroupToken;
+    record.status = "running";
+    record.exit = null;
+    record.stopSignal = null;
+    record.respawning = false;
+    this.#attachPtyListeners(record, newPty);
+
     return this.#snapshot(record);
   }
 

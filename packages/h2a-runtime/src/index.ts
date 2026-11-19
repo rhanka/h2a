@@ -166,13 +166,18 @@ import {
   startNativeHeadlessSession,
   startNativeSession,
   startNativeSessionSingleShot,
+  softRespawnNativeSessionIfIncarnation,
+  waitForNativeRestartHealth,
   NativeHostCapabilityMismatchError,
+  NativeHostSoftRespawnUnsupportedError,
   NativeLaunchAdmissionError,
   type NativeLaunchOwnership,
+  type NativeSoftRespawnResult,
   type SessionHostKind,
 } from "./native-host.js";
 import {
   executeNativeRestart,
+  formatNativeRestartTable,
   NativeRestartError,
   type NativeRestartCandidate,
   type NativeRestartGatewayMode,
@@ -458,6 +463,7 @@ import {
   llmMeshLogPath,
   replaceAnthropicGatewayEnvironment,
   acquireLlmMeshSessionEnv,
+  checkLocalGatewayModels,
 } from "./gateway-host/daemon.js";
 import {
   describeLlmMeshRoutingConfig,
@@ -475,20 +481,33 @@ export { run } from "./run.js";
 export type { RunOptions, RunResult } from "./run.js";
 export {
   executeNativeRestart,
+  formatNativeRestartTable,
   nativeMcpRelaunchInstruction,
   NativeRestartError,
 } from "./native-restart.js";
+export {
+  NativeHostSoftRespawnUnsupportedError,
+  softRespawnNativeSessionIfIncarnation,
+  isRestartPromptAlive,
+  waitForNativeRestartHealth,
+} from "./native-host.js";
+export { checkLocalGatewayModels } from "./gateway-host/daemon.js";
 export type {
   NativeRestartCandidate,
   NativeRestartDependencies,
   NativeRestartFailure,
+  NativeRestartGatewayDisplay,
   NativeRestartGatewayMode,
   NativeRestartGatewayOption,
+  NativeRestartHealthCheckContext,
+  NativeRestartHealthCheckResult,
   NativeRestartInstructionOutcome,
   NativeRestartRequest,
   NativeRestartResult,
   NativeRestartSessionResult,
+  NativeRestartSkipReason,
   NativeRestartSnapshot,
+  NativeRestartStrategy,
 } from "./native-restart.js";
 export {
   AGENT_LAUNCH_EFFORTS,
@@ -2367,6 +2386,26 @@ function renderNativeRestartResult(
 ): void {
   if (json) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  const showTable =
+    result.scope === "all" ||
+    result.soft === true ||
+    result.dryRun === true ||
+    result.sessions.some(
+      (row) =>
+        row.state === "skipped" ||
+        row.failure === "host-soft-restart-unsupported",
+    );
+  if (showTable) {
+    process.stdout.write(formatNativeRestartTable(result));
+    for (const row of result.sessions) {
+      if (row.failure === "host-soft-restart-unsupported") {
+        process.stderr.write(
+          `[h2a] restart: ${row.id}: ${row.detail ?? "host-soft-restart-unsupported (pass --allow-hard to fall back to a hard restart)"}\n`,
+        );
+      }
+    }
     return;
   }
   for (const row of result.sessions) {
@@ -8897,10 +8936,30 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("restart [session]")
     .description(
-      "Restart one live managed native-PTY CLI, or every live managed native CLI with --all. --gw requires the explicit value on|off. With --relaunch-mcp alone, keep the CLI alive and submit one guarded MCP relaunch/attach instruction through the native drive backchannel.",
+      "Restart one live managed native-PTY CLI, or every live managed native CLI with --all. --gw requires the explicit value on|off. With --soft, keep the native terminal host and PTY (attached windows and scrollback preserved) and respawn only the CLI child inside it. With --relaunch-mcp alone, keep the CLI alive and submit one guarded MCP relaunch/attach instruction through the native drive backchannel.",
     )
     .option("--all", "target every live managed native CLI session")
     .option("--gw <on|off>", "restart with llm-mesh gateway explicitly on or off")
+    .option(
+      "--soft",
+      "keep the native terminal host and PTY (same socket, attached terminals, scrollback) and respawn only the CLI child inside it",
+    )
+    .option(
+      "--allow-hard",
+      "with --soft, fall back to a hard PTY restart when the native host is too old to support in-place child respawn",
+    )
+    .option(
+      "--continue",
+      "with --all, continue to remaining sessions after a failure instead of stopping on the first failure",
+    )
+    .option(
+      "--include-self",
+      "with --all, include the native session running this command (skipped by default)",
+    )
+    .option(
+      "--dry-run",
+      "show the planned restart table without changing any session or registry entry",
+    )
     .option(
       "--relaunch-mcp <name>",
       "submit a bounded instruction to relaunch or attach this MCP server; submission does not prove MCP health",
@@ -8911,6 +8970,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       opts: {
         all?: boolean;
         gw?: string;
+        soft?: boolean;
+        allowHard?: boolean;
+        continue?: boolean;
+        includeSelf?: boolean;
+        dryRun?: boolean;
         relaunchMcp?: string;
         json?: boolean;
       },
@@ -8946,6 +9010,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(entry.bare !== undefined ? { bare: entry.bare } : {}),
           }),
         );
+        const currentSession =
+          process.env["H2A_NATIVE_PTY_SESSION"] ??
+          process.env["H2A_NATIVE_TARGET_SESSION"];
+        const shouldHealthCheck = opts.all === true || opts.soft === true;
         const result = await executeNativeRestart<PreparedNativeRestart>(
           {
             ...(session !== undefined ? { target: session } : {}),
@@ -8953,6 +9021,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(opts.gw !== undefined
               ? { gateway: opts.gw as "on" | "off" }
               : {}),
+            ...(opts.soft === true ? { soft: true } : {}),
+            ...(opts.allowHard === true ? { allowHard: true } : {}),
+            ...(opts.continue === true ? { continueOnError: true } : {}),
+            ...(opts.includeSelf === true ? { includeSelf: true } : {}),
+            ...(opts.dryRun === true ? { dryRun: true } : {}),
+            ...(currentSession !== undefined ? { currentSession } : {}),
             ...(opts.relaunchMcp !== undefined
               ? { relaunchMcp: opts.relaunchMcp }
               : {}),
@@ -8972,12 +9046,73 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 state: "live",
                 generation: probe.session.generation,
                 incarnation: probe.session.incarnation,
+                pid: probe.session.pid,
+                ...(probe.session.latestSeq !== undefined
+                  ? { latestSeq: probe.session.latestSeq }
+                  : {}),
                 ...(probe.session.socketPath ? { socketPath: probe.session.socketPath } : {}),
                 controlled: probe.session.controlled ?? true,
               };
             },
+            checkGatewayModels: async () => {
+              const check = await checkLocalGatewayModels();
+              if (!check.ok) {
+                throw new NativeRestartError(
+                  "gateway-models-unavailable",
+                  check.reason,
+                );
+              }
+            },
             prepare: (candidate, _snapshot, mode) =>
               prepareNativeRestart(candidate, mode),
+            softRestart: (candidate, snapshot, mode, prepared) => {
+              const restore = replaceAnthropicGatewayEnvironment(
+                process.env,
+                prepared.gatewayEnvironment,
+              );
+              try {
+                const respawned = softRespawnNativeSessionIfIncarnation(
+                  candidate.profile,
+                  prepared.command,
+                  candidate.cwd,
+                  prepared.args,
+                  candidate.id,
+                  {
+                    name: candidate.name,
+                    generation: snapshot.generation,
+                    incarnation: snapshot.incarnation,
+                    ...(snapshot.socketPath !== undefined
+                      ? { socketPath: snapshot.socketPath }
+                      : {}),
+                  },
+                  {
+                    ...(candidate.convId !== undefined
+                      ? { resumeId: candidate.convId }
+                      : {}),
+                    sessionClass: candidate.sessionClass ?? "human",
+                  },
+                );
+                enrollFromRun({
+                  profile: candidate.profile,
+                  slug: candidate.id,
+                  tmuxSession: respawned.name,
+                  hostKind: "local-native",
+                  pid: respawned.pid,
+                  cwd: candidate.cwd,
+                  sessionClass: candidate.sessionClass ?? "human",
+                  ...(candidate.convId !== undefined
+                    ? { convId: candidate.convId }
+                    : {}),
+                  ...(mode !== "auto"
+                    ? { gatewayMode: mode, gatewayProvenance: "explicit" as const }
+                    : {}),
+                  ...(candidate.bare !== undefined ? { bare: candidate.bare } : {}),
+                });
+                return respawned;
+              } finally {
+                restore();
+              }
+            },
             restart: (candidate, snapshot, mode, prepared) => {
               if (
                 !killNativeSessionIfIncarnation(
@@ -9024,10 +9159,39 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     : {}),
                   ...(candidate.bare !== undefined ? { bare: candidate.bare } : {}),
                 });
+                return relaunched;
               } finally {
                 restore();
               }
             },
+            ...(shouldHealthCheck
+              ? {
+                  healthCheck: (candidate, snapshot, context) => {
+                    const respawned = context.soft
+                      ? (context.restartResult as NativeSoftRespawnResult | undefined)
+                      : undefined;
+                    return waitForNativeRestartHealth({
+                      name: candidate.name,
+                      profile: candidate.profile,
+                      afterSeq: context.soft
+                        ? (respawned?.latestSeq ?? snapshot.latestSeq ?? 0)
+                        : 0,
+                      ...(context.soft
+                        ? {
+                            expectedGeneration: snapshot.generation,
+                            expectedIncarnation: snapshot.incarnation,
+                            ...(respawned?.socketPath !== undefined
+                              ? { socketPath: respawned.socketPath }
+                              : snapshot.socketPath !== undefined
+                                ? { socketPath: snapshot.socketPath }
+                                : {}),
+                          }
+                        : {}),
+                      ...(snapshot.pid !== undefined ? { previousPid: snapshot.pid } : {}),
+                    });
+                  },
+                }
+              : {}),
             drive: (candidate, instruction) =>
               driveNativeInstruction(candidate.id, instruction),
           },
@@ -9035,7 +9199,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         renderNativeRestartResult(result, opts.json === true);
         if (!result.ok) process.exitCode = 1;
       } catch (error) {
-        const known = error instanceof NativeRestartError;
+        const known =
+          error instanceof NativeRestartError ||
+          error instanceof NativeHostSoftRespawnUnsupportedError;
         const code = known ? error.code : "restart-internal";
         const message = known ? error.message : "restart failed unexpectedly";
         if (opts.json === true) {
