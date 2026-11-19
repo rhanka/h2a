@@ -449,6 +449,7 @@ import {
 import {
   readLlmMeshConfig,
   updateLlmMeshRoutingConfig,
+  validateModelRewrites,
 } from "./gateway-host/config-file.js";
 import {
   startGateway,
@@ -11163,6 +11164,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("-v, --verbose", "verbose output")
     .action(async (opts: { verbose?: boolean }) => {
       const config = readLlmMeshConfig() ?? {};
+      // Never stop a healthy gateway for a config the new one would refuse.
+      validateModelRewrites(config.modelRewrites);
       const stopped = await stopGateway();
       if (stopped.stopped) {
         process.stdout.write(

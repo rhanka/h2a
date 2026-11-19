@@ -85,6 +85,108 @@ Profile definitions and the equivalence council are constructed at startup:
 restart the daemon after changing them. Legacy `OPENAI_MODEL_MAP` does not
 configure the current routing engine.
 
+## Gateway model rewrites (`modelRewrites`)
+
+The local gateway host can rewrite a requested model + effort to another
+gateway model before llm-mesh routing, so the planner routes the rewritten
+model normally. Add an optional `modelRewrites` list to the public
+`~/.sentropic/llm-mesh.json`:
+
+```json
+{
+  "modelRewrites": [
+    {
+      "match": { "model": "claude-opus-5-5", "effort": "medium" },
+      "target": { "model": "muse-ember-1.0", "effort": "max" }
+    }
+  ]
+}
+```
+
+With this entry, Claude Code requests for Opus 5.5 at `medium` are served by
+Muse Ember at `max`. Each entry is `{ match: { model, effort? }, target:
+{ model, effort } }`; the first matching entry wins, and a match without
+`effort` accepts every requested effort. The requested effort is read from
+the request itself. Claude Code (`h2a run claude --model claude-opus-5-5
+--effort medium`) sends the plain model id and carries the effort in
+`output_config.effort` (effort beta); that field is read first. Then come
+the explicit `reasoning.effort` / `reasoning_effort` fields, and last
+the model id suffix of a launch alias (`claude-opus-5-5-medium`). A
+`thinking.budget_tokens` value is a token ceiling and never selects an
+effort rung, so a budget-only request does not satisfy an effort-qualified
+match. The rewritten request carries the target effort in
+`reasoning.effort` and in every effort field the client already sent
+(`output_config.effort` included), so the original rung never leaks to the
+target. Only `POST /v1/messages` (the Anthropic Messages wire used by
+Claude Code) is rewritten. `POST /v1/chat/completions` passes through
+untouched, because on that wire an effort requires the `reasoning-controls`
+route feature, which a target such as Muse does not serve (`no_route`).
+Token counting is never rewritten.
+
+The list is validated by `h2a llm-mesh start` / `restart` before anything
+is spawned or stopped, and again at gateway startup. The value must be an
+array. The target must be a routable gateway catalog model. The target
+effort must be allowed for that model and must agree with any effort suffix
+in the target id. A match whose suffix contradicts its `effort` is refused,
+and so are duplicates: `x-medium` and `x` + `medium` count as the same
+match. Chains and loops are refused too. Every failure names the offending
+`modelRewrites[<index>]` entry, and a healthy running gateway is never
+stopped for a list the new one would refuse. An absent or empty list
+changes nothing. Each rewritten request is visible without any
+request content: the response carries
+`x-h2a-model-rewrite: <requested model> -> <target model>` next to the
+unchanged `x-sentropic-served` header, and the gateway log gains one
+`[gateway-host] model rewrite: ... (effort ... -> ...)` line.
+
+Example: run every gateway session on Gemini 4 instead of Claude. Rules
+without `effort` match every requested rung. This example is not a built-in
+default:
+
+```json
+{
+  "modelRewrites": [
+    {
+      "match": { "model": "claude-opus-5-5" },
+      "target": { "model": "gemini-4-argon-high", "effort": "high" }
+    },
+    {
+      "match": { "model": "claude-fable-5-2" },
+      "target": { "model": "gemini-4-carbon", "effort": "high" }
+    }
+  ]
+}
+```
+
+With this example, Opus 5.5 sessions are served by Gemini 4 Argon at `high`
+and Fable 5.2 (design) sessions by Gemini 4 Carbon at `high`, whatever
+effort they request. To move to a newer model, edit `target.model` once
+that model is in the gateway catalog. Validation refuses any target that is
+not in the catalog yet. The targets need a ready Cloud Code account
+in llm-mesh.
+
+Enable it locally:
+
+1. Re-authenticate the Muse account in llm-mesh if needed:
+   `h2a llm-mesh account enroll muse` (add `--cli` for the CLI-store
+   import). Without a ready Muse account the rewritten route has no
+   eligible account and fails with no route instead of falling back.
+2. Paste the `modelRewrites` list into `~/.sentropic/llm-mesh.json`.
+3. Restart the gateway so it loads the list: `h2a llm-mesh restart`.
+   Already-running Claude sessions keep their current behaviour; launch
+   new sessions with `h2a run claude --gw` to use the gateway.
+
+Turn it off by removing `modelRewrites` (or setting it to `[]`) and running
+`h2a llm-mesh restart` again. Per session, launch without `--gw` (or with
+`--no-gw`) to bypass the gateway entirely.
+
+Known risks: Anthropic prompt-cache markers do not cross the canonical
+translation, so rewritten traffic loses prompt caching (higher cost and
+latency, no cache usage counters); tool use through the translated Muse
+route and the Muse reasoning-effort slot are not yet qualified live, so
+qualify tool calls against a real Muse account before production use.
+Every rewritten request body is parsed and re-serialized in the local host,
+which costs a little on long contexts.
+
 ## Rollback to 0.98.0
 
 Stop the identified 0.98.1 daemon and await exit before reinstalling h2a and
