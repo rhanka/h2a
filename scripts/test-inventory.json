@@ -646,7 +646,9 @@
   "packages/h2a/test/local-store-roles-normalize.test.js": [],
   "packages/h2a/test/local-store-schema.test.js": [],
   "packages/h2a/test/local-store-stabilize-persist.test.js": [],
-  "packages/h2a/test/local-store.test.js": [],
+  "packages/h2a/test/local-store.test.js": [
+    "findInstance incrementally reads appended registry rows without re-reading the whole log and invalidates on rewrite or truncation"
+  ],
   "packages/h2a/test/loop-autotick-policy.test.js": [],
   "packages/h2a/test/loop-decision-routing.test.js": [],
   "packages/h2a/test/loop-decision.test.js": [],
@@ -680,7 +682,8 @@
   "packages/h2a/test/mcp-payload-store.test.js": [
     "writes below quota avoid expiry metadata scans while pressure reclaims only expired bytes",
     "automatic expiry maintenance advances monotonically and explicit sweeps stay immediate",
-    "repeated sweeps reuse unchanged live expiry metadata and revalidate external replacements"
+    "repeated sweeps reuse unchanged live expiry metadata and revalidate external replacements",
+    "read-only payload quota and expiry scans run outside the global writer mutation lock while mutations still enforce the barrier and quota"
   ],
   "packages/h2a/test/mcp-phase-trace-unit.test.js": [],
   "packages/h2a/test/mcp-phase-trace.test.js": [],

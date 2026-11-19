@@ -6,6 +6,7 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs, { mkdtempSync, rmSync, statSync } from "node:fs";
 import { syncBuiltinESMExports } from 'node:module';
@@ -13,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { establishWriterControl, resolveMutationFlock, updateWriterControl, writerDirectory } from "../dist/runtime/handover/mutation.js";
 import { createPayloadStore, PAYLOAD_MAX_READ_BYTES, PAYLOAD_ROOT_QUOTA_BYTES } from "../dist/runtime/mcp/payload-store.js";
 
 function freshRoot() {
@@ -234,4 +236,100 @@ test("maxBytes is capped at 65536 and never cuts a chunk mid-read", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("read-only payload quota and expiry scans run outside the global writer mutation lock while mutations still enforce the barrier and quota", (t) => {
+  const base = freshRoot();
+  const root = join(base, "store");
+  const state = join(base, "state");
+  fs.mkdirSync(root, { mode: 0o700 });
+  fs.mkdirSync(state, { mode: 0o700 });
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+
+  establishWriterControl(root, state);
+  const store = createPayloadStore(root);
+  const dir = join(root, "mcp-payloads");
+  const lockFile = join(writerDirectory(root), ".mutation.lock");
+  const flock = resolveMutationFlock();
+
+  const isMutationLockHeld = () => {
+    const fd = fs.openSync(lockFile, fs.constants.O_RDWR | fs.constants.O_NOFOLLOW);
+    try {
+      const res = spawnSync(flock, ["--nonblock", "--exclusive", "3"], {
+        stdio: ["ignore", "ignore", "ignore", fd],
+        env: {}
+      });
+      return res.status !== 0;
+    } finally {
+      fs.closeSync(fd);
+    }
+  };
+
+  // Seed initial payloads so the directory and quota watermark exist.
+  const seeded = Array.from({ length: 4 }, (_, i) => store.persistOutput(Buffer.from(`seed-${i}`)));
+
+  let persistScanFree = 0;
+  let persistScanHeld = 0;
+  let sweepScanFree = 0;
+  let sweepScanHeld = 0;
+  let mode = "";
+
+  const origStatSync = fs.statSync;
+  const origLstatSync = fs.lstatSync;
+  t.mock.method(fs, "statSync", function (p, ...args) {
+    if (mode === "persist" && typeof p === "string" && p.startsWith(dir + "/")) {
+      if (isMutationLockHeld()) persistScanHeld++;
+      else persistScanFree++;
+    }
+    return Reflect.apply(origStatSync, this, [p, ...args]);
+  });
+  t.mock.method(fs, "lstatSync", function (p, ...args) {
+    if (mode === "sweep" && typeof p === "string" && p.startsWith(dir + "/") && p.endsWith(".json")) {
+      if (isMutationLockHeld()) sweepScanHeld++;
+      else sweepScanFree++;
+    }
+    return Reflect.apply(origLstatSync, this, [p, ...args]);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    mode = "";
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+
+  mode = "persist";
+  store.persistOutput(Buffer.from("below-quota-write"));
+  mode = "";
+  assert.ok(persistScanFree >= seeded.length * 2, `expected unlocked dirBytes scan, saw free=${persistScanFree} held=${persistScanHeld}`);
+  assert.equal(persistScanHeld, 0, "below-quota persistOutput must not scan directory entries while holding the global mutation lock");
+
+  mode = "sweep";
+  assert.equal(store.sweepExpired(), 0);
+  mode = "";
+  assert.ok(sweepScanFree >= seeded.length, `expected unlocked sweepExpired scan, saw free=${sweepScanFree} held=${sweepScanHeld}`);
+  assert.equal(sweepScanHeld, 0, "sweepExpired with no expired entries must not scan metadata while holding the global mutation lock");
+
+  // Concurrent quota safety: if a racing writer or external truncation fills quota
+  // after the unlocked pre-scan (or if the watermark is corrupt/missing), persistOutput
+  // must fail closed inside the lock and enforce PAYLOAD_ROOT_QUOTA_BYTES.
+  const bin0 = join(dir, `${seeded[0].ref}.bin`);
+  const origWrite = fs.writeFileSync;
+  const watermarkPath = join(dir, ".quota-written");
+  fs.writeFileSync(watermarkPath, "corrupt-not-a-number\n", { mode: 0o600 });
+  fs.truncateSync(bin0, PAYLOAD_ROOT_QUOTA_BYTES);
+  assert.throws(() => store.persistOutput(Buffer.from("over-quota")), (err) => err.cause === "quota_exceeded");
+  fs.truncateSync(bin0, 6);
+  // Watermark recovers cleanly after a valid write.
+  const recovered = store.persistOutput(Buffer.from("recovered"));
+  assert.equal(Buffer.from(store.readPayload(recovered.ref, 0, 1024).data, "base64").toString(), "recovered");
+  assert.ok(typeof origWrite === "function");
+
+  // Barrier enforcement: both persistOutput and sweepExpired must still fail closed under BARRIER.
+  const meta1 = join(dir, `${seeded[1].ref}.json`);
+  const parsedMeta1 = JSON.parse(fs.readFileSync(meta1, "utf8"));
+  fs.writeFileSync(meta1, JSON.stringify({ ...parsedMeta1, expiresAt: new Date(0).toISOString() }) + "\n");
+  updateWriterControl(root, { gate: "BARRIER", handoverId: "h-payload-barrier" });
+  assert.throws(() => store.persistOutput(Buffer.from("blocked")), /store_admission_closed/);
+  assert.throws(() => store.sweepExpired(), /store_admission_closed/);
+  assert.equal(fs.existsSync(meta1), true, "barrier must prevent sweepExpired from unlinking files");
 });

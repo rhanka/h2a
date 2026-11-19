@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { withWriterMutation } from "../handover/mutation.js";
 import {
   appendFileSync,
-  openSync, closeSync, fsyncSync,
+  openSync, closeSync, fstatSync, fsyncSync, readSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -511,13 +511,176 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }));
   }
 
+  // Derived append-only lookup cache for `instances.jsonl` when no on-disk
+  // launch index exists. Validated by (dev, ino, size, mtimeNs, ctimeNs) plus
+  // head/tail byte anchors; true appends read only the new byte tail, while
+  // replacement, truncation, or in-place rewrites (including same-inode grows)
+  // invalidate and rebuild from `listInstances()`.
+  const ANCHOR_BYTES = 128;
+  type InstanceIndexCache = {
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+    headAnchor: Buffer;
+    tailAnchor: Buffer;
+    byId: Map<string, H2AActorRegistration>;
+  };
+  let instanceIndex: InstanceIndexCache | undefined;
+
+  function cloneInstance(reg: H2AActorRegistration): H2AActorRegistration {
+    return { ...reg, roles: [...reg.roles], scopes: [...reg.scopes] };
+  }
+
+  function normalizeInstance(reg: H2AActorRegistration): H2AActorRegistration {
+    return { ...reg, roles: toArray(reg.roles), scopes: toArray(reg.scopes) };
+  }
+
+  function readExact(fd: number, offset: number, length: number): Buffer | undefined {
+    if (length === 0) return Buffer.alloc(0);
+    const buf = Buffer.allocUnsafe(length);
+    let read = 0;
+    while (read < length) {
+      const n = readSync(fd, buf, read, length - read, offset + read);
+      if (n === 0) return undefined;
+      read += n;
+    }
+    return buf;
+  }
+
   function findInstance(id: string): H2AActorRegistration | undefined {
     const indexed = lookupLaunchRows<H2AActorRegistration>(paths.instances, "instances", launchLookupKey(id));
     if (indexed !== undefined) {
       const reg = indexed[0];
-      return reg ? { ...reg, roles: toArray(reg.roles), scopes: toArray(reg.scopes) } : undefined;
+      return reg ? normalizeInstance(reg) : undefined;
     }
-    return listInstances().find((entry) => entry.id === id);
+    const st = statSync(paths.instances, { bigint: true, throwIfNoEntry: false });
+    if (!st) {
+      instanceIndex = undefined;
+      return undefined;
+    }
+    if (instanceIndex && instanceIndex.dev === st.dev && instanceIndex.ino === st.ino) {
+      if (
+        instanceIndex.size === st.size &&
+        instanceIndex.mtimeNs === st.mtimeNs &&
+        instanceIndex.ctimeNs === st.ctimeNs
+      ) {
+        const hit = instanceIndex.byId.get(id);
+        return hit ? cloneInstance(hit) : undefined;
+      }
+      if (st.size > instanceIndex.size && instanceIndex.size > 0n) {
+        let fd: number | undefined;
+        let tailed = false;
+        try {
+          fd = openSync(paths.instances, "r");
+          const fdStat = fstatSync(fd, { bigint: true });
+          if (
+            fdStat.dev === instanceIndex.dev &&
+            fdStat.ino === instanceIndex.ino &&
+            fdStat.size > instanceIndex.size
+          ) {
+            const oldSize = Number(instanceIndex.size);
+            const newSize = Number(fdStat.size);
+            const delta = newSize - oldSize;
+            const tailAnchorLen = instanceIndex.tailAnchor.length;
+            const headAnchorLen = instanceIndex.headAnchor.length;
+            if (Number.isSafeInteger(oldSize) && Number.isSafeInteger(newSize) && delta > 0) {
+              const headCheck = readExact(fd, 0, headAnchorLen);
+              const tailWithAnchor = readExact(fd, oldSize - tailAnchorLen, tailAnchorLen + delta);
+              if (
+                headCheck &&
+                headCheck.equals(instanceIndex.headAnchor) &&
+                tailWithAnchor &&
+                tailWithAnchor.subarray(0, tailAnchorLen).equals(instanceIndex.tailAnchor) &&
+                tailWithAnchor[tailWithAnchor.length - 1] === 10
+              ) {
+                const appended = tailWithAnchor.subarray(tailAnchorLen);
+                const lines = appended.toString("utf8").split("\n");
+                for (const line of lines) {
+                  if (line.length === 0) continue;
+                  const parsed = normalizeInstance(JSON.parse(line) as H2AActorRegistration);
+                  if (!instanceIndex.byId.has(parsed.id)) {
+                    instanceIndex.byId.set(parsed.id, parsed);
+                  }
+                }
+                const nextTailLen = Math.min(ANCHOR_BYTES, newSize);
+                instanceIndex.tailAnchor = Buffer.from(
+                  tailWithAnchor.subarray(tailWithAnchor.length - nextTailLen)
+                );
+                if (nextTailLen > tailWithAnchor.length) {
+                  const fullTail = readExact(fd, newSize - nextTailLen, nextTailLen);
+                  if (fullTail) instanceIndex.tailAnchor = fullTail;
+                }
+                if (headAnchorLen < ANCHOR_BYTES) {
+                  const fullHead = readExact(fd, 0, Math.min(ANCHOR_BYTES, newSize));
+                  if (fullHead) instanceIndex.headAnchor = fullHead;
+                }
+                instanceIndex.size = fdStat.size;
+                instanceIndex.mtimeNs = fdStat.mtimeNs;
+                instanceIndex.ctimeNs = fdStat.ctimeNs;
+                tailed = true;
+              }
+            }
+          }
+        } finally {
+          if (fd !== undefined) closeSync(fd);
+        }
+        if (tailed) {
+          const hit = instanceIndex.byId.get(id);
+          return hit ? cloneInstance(hit) : undefined;
+        }
+      }
+    }
+    instanceIndex = undefined;
+    const all = listInstances();
+    const after = statSync(paths.instances, { bigint: true, throwIfNoEntry: false });
+    if (
+      after &&
+      after.dev === st.dev &&
+      after.ino === st.ino &&
+      after.size === st.size &&
+      after.mtimeNs === st.mtimeNs &&
+      after.ctimeNs === st.ctimeNs &&
+      Number.isSafeInteger(Number(after.size))
+    ) {
+      const fileSize = Number(after.size);
+      let headAnchor: Buffer | undefined;
+      let tailAnchor: Buffer | undefined;
+      if (fileSize === 0) {
+        headAnchor = Buffer.alloc(0);
+        tailAnchor = Buffer.alloc(0);
+      } else {
+        let fd: number | undefined;
+        try {
+          fd = openSync(paths.instances, "r");
+          const len = Math.min(ANCHOR_BYTES, fileSize);
+          headAnchor = readExact(fd, 0, len);
+          tailAnchor = fileSize <= ANCHOR_BYTES ? headAnchor : readExact(fd, fileSize - len, len);
+        } finally {
+          if (fd !== undefined) closeSync(fd);
+        }
+      }
+      if (headAnchor && tailAnchor && (fileSize === 0 || tailAnchor[tailAnchor.length - 1] === 10)) {
+        const byId = new Map<string, H2AActorRegistration>();
+        for (const entry of all) {
+          if (!byId.has(entry.id)) byId.set(entry.id, entry);
+        }
+        instanceIndex = {
+          dev: after.dev,
+          ino: after.ino,
+          size: after.size,
+          mtimeNs: after.mtimeNs,
+          ctimeNs: after.ctimeNs,
+          headAnchor,
+          tailAnchor,
+          byId
+        };
+        const hit = byId.get(id);
+        return hit ? cloneInstance(hit) : undefined;
+      }
+    }
+    return all.find((entry) => entry.id === id);
   }
 
   function registerInstance(reg: H2AActorRegistration): void {
