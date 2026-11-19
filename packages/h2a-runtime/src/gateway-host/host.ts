@@ -189,8 +189,22 @@ export interface LocalGatewayAppOptions {
   readonly routePlanner?: RoutePlanner;
 }
 
-/** Routed generation wires a rewrite may touch (never count_tokens). */
-const MODEL_REWRITE_PATHS = new Set(["/v1/messages", "/v1/chat/completions"]);
+/**
+ * Routed generation wires a rewrite may touch: the Anthropic Messages wire
+ * Claude Code uses (never count_tokens). The OpenAI Chat wire is left
+ * untouched: there any effort adds the `reasoning-controls` feature, which
+ * the target route may not serve (`no_route`), so a rewrite carrying its
+ * target effort could not be honoured.
+ */
+const MODEL_REWRITE_PATHS = new Set(["/v1/messages"]);
+
+interface RoutedRewrite {
+  readonly request: Request;
+  readonly fromModel?: string;
+  readonly toModel?: string;
+  /** Log line (models and efforts only), emitted once the bearer passed. */
+  readonly logLine?: string;
+}
 
 /**
  * Apply the first matching rewrite to the raw request, before the gateway
@@ -201,7 +215,7 @@ const MODEL_REWRITE_PATHS = new Set(["/v1/messages", "/v1/chat/completions"]);
 async function rewriteRequestIfMatched(
   raw: Request,
   rewrites: readonly GatewayModelRewrite[],
-): Promise<{ request: Request; fromModel?: string; toModel?: string }> {
+): Promise<RoutedRewrite> {
   if (rewrites.length === 0 || raw.method !== "POST") return { request: raw };
   let pathname: string;
   try {
@@ -227,17 +241,22 @@ async function rewriteRequestIfMatched(
   const matched = matchModelRewrite(rewrites, body as Record<string, unknown>);
   if (!matched) return { request: raw };
   const rewritten = applyModelRewrite(body as Record<string, unknown>, matched.entry);
-  process.stdout.write(
-    `[gateway-host] model rewrite: ${matched.fromModel} -> ${matched.entry.target.model}`
-    + ` (effort ${matched.requestedEffort ?? "none"} -> ${matched.entry.target.effort})\n`,
-  );
+  // The rewritten body has a different size: never forward a stale length.
+  const headers = new Headers(raw.headers);
+  headers.delete("content-length");
   const request = new Request(raw.url, {
     method: raw.method,
-    headers: raw.headers,
+    headers,
     body: JSON.stringify(rewritten),
     signal: raw.signal,
   });
-  return { request, fromModel: matched.fromModel, toModel: matched.entry.target.model };
+  return {
+    request,
+    fromModel: matched.fromModel,
+    toModel: matched.entry.target.model,
+    logLine: `[gateway-host] model rewrite: ${matched.fromModel} -> ${matched.entry.target.model}`
+      + ` (effort ${matched.requestedEffort ?? "none"} -> ${matched.entry.target.effort})\n`,
+  };
 }
 
 function publicSessionLedger(): SessionLedgerEntry[] {
@@ -280,10 +299,10 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   const ownerScopeRef = options.ownerScopeRef ?? llmMeshOwnerScopeRef();
   // Rewrites load once at startup (restart to change them) and fail the
   // startup when an entry names an unknown or unroutable target.
-  const configuredRewrites = options.modelRewrites ?? readLlmMeshConfig()?.modelRewrites;
-  const modelRewrites = configuredRewrites && configuredRewrites.length > 0
-    ? validateModelRewrites(configuredRewrites)
-    : [];
+  // A non-array value is refused (never silently ignored).
+  const modelRewrites = validateModelRewrites(
+    options.modelRewrites ?? readLlmMeshConfig()?.modelRewrites,
+  );
   const facade = createCliLlmMeshFacade();
   const profiles = routingProfiles(routing);
   const planner = observablePlanner(options.routePlanner ?? facade.createRoutePlanner(runtimeMesh(claudeClient), {
@@ -365,6 +384,9 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     const routed = await rewriteRequestIfMatched(c.req.raw, modelRewrites);
     const response = await gatewayPlugin.fetch(routed.request, c.env);
     if (!routed.fromModel || !routed.toModel) return response;
+    // An unauthenticated caller learns nothing and leaves no log line.
+    if (response.status === 401) return response;
+    if (routed.logLine) process.stdout.write(routed.logLine);
     const visible = new Response(response.body, response);
     visible.headers.set("x-h2a-model-rewrite", `${routed.fromModel} -> ${routed.toModel}`);
     return visible;

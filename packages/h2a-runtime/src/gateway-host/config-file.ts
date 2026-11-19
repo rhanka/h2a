@@ -118,7 +118,11 @@ function describeRewriteEntry(entry: GatewayModelRewrite): string {
 export function validateModelRewrites(
   rewrites: readonly GatewayModelRewrite[] | undefined,
 ): readonly GatewayModelRewrite[] {
-  if (!rewrites || rewrites.length === 0) return [];
+  if (rewrites === undefined || rewrites === null) return [];
+  if (!Array.isArray(rewrites)) {
+    throw new Error("invalid modelRewrites: expected an array of { match, target }");
+  }
+  if (rewrites.length === 0) return [];
   const matchBases: string[] = [];
   const seenMatches = new Set<string>();
   rewrites.forEach((entry, index) => {
@@ -155,6 +159,20 @@ export function validateModelRewrites(
         `invalid ${label}: target model "${entry.target.model}" is not routable through the gateway`,
       );
     }
+    const targetSuffix = effortSuffixOf(entry.target.model);
+    if (targetSuffix && targetSuffix !== entry.target.effort) {
+      throw new Error(
+        `invalid ${label}: target model "${entry.target.model}" carries effort "${targetSuffix}"`
+        + `, which contradicts target effort "${entry.target.effort}"`,
+      );
+    }
+    const matchSuffix = effortSuffixOf(entry.match.model);
+    if (matchSuffix && entry.match.effort !== undefined && matchSuffix !== entry.match.effort) {
+      throw new Error(
+        `invalid ${label}: match model "${entry.match.model}" carries effort "${matchSuffix}"`
+        + `, which contradicts match effort "${entry.match.effort}" (it could never match)`,
+      );
+    }
     const profile = meshProfileForModel(entry.target.model);
     if (!profile) {
       throw new Error(
@@ -173,7 +191,8 @@ export function validateModelRewrites(
           : ""),
       );
     }
-    const matchKey = `${entry.match.model}|${entry.match.effort ?? ""}`;
+    // Normalized key: `x-medium` and `x` + effort `medium` are the same match.
+    const matchKey = `${baseModelId(entry.match.model)}|${entry.match.effort ?? matchSuffix ?? ""}`;
     if (seenMatches.has(matchKey)) {
       throw new Error(`invalid ${label}: duplicate match (model + effort already rewritten)`);
     }
@@ -215,13 +234,16 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * Requested effort of an incoming gateway request body. Claude Code carries
- * the effort in the model id suffix (launch alias such as
- * `claude-opus-5-5-medium`) or in an explicit `reasoning.effort` /
- * `reasoning_effort` field; `thinking.budget_tokens` is a token ceiling and
- * never selects a rung by itself. Explicit fields win over the suffix.
+ * Requested effort of an incoming gateway request body. Claude Code sends a
+ * plain model id and carries the effort in `output_config.effort` (effort
+ * beta); other clients use `reasoning.effort` / `reasoning_effort`, and a
+ * launch alias may carry it as a model id suffix (`claude-opus-5-5-medium`).
+ * `thinking.budget_tokens` is a token ceiling and never selects a rung.
+ * Explicit fields win over the suffix, `output_config.effort` first.
  */
 export function requestedEffortOf(body: Record<string, unknown>): ModelRewriteEffort | undefined {
+  const outputConfig = asRecord(body.output_config);
+  if (isModelRewriteEffort(outputConfig?.effort)) return outputConfig.effort;
   const reasoning = asRecord(body.reasoning);
   if (isModelRewriteEffort(reasoning?.effort)) return reasoning.effort;
   if (isModelRewriteEffort(body.reasoning_effort)) return body.reasoning_effort;
@@ -255,18 +277,22 @@ export function matchModelRewrite(
 
 /**
  * Rewritten body: target model plus the target effort on every effort
- * carrier the canonical ingress reads. `thinking` (budget included) is
- * preserved untouched.
+ * carrier the canonical ingress reads (`reasoning.effort`) and on the
+ * carriers the client already sent (`output_config.effort`,
+ * `reasoning_effort`), so a Claude target never keeps the original rung.
+ * `thinking` (budget included) is preserved untouched.
  */
 export function applyModelRewrite(
   body: Record<string, unknown>,
   entry: GatewayModelRewrite,
 ): Record<string, unknown> {
   const reasoning = asRecord(body.reasoning);
+  const outputConfig = asRecord(body.output_config);
   return {
     ...body,
     model: entry.target.model,
     reasoning: { ...(reasoning ?? {}), effort: entry.target.effort },
+    ...(outputConfig ? { output_config: { ...outputConfig, effort: entry.target.effort } } : {}),
     ...(typeof body.reasoning_effort === "string"
       ? { reasoning_effort: entry.target.effort }
       : {}),
@@ -308,7 +334,16 @@ export function writeLlmMeshConfig(config: LlmMeshConfig, dir?: string): void {
     ...publicConfig
   } = config;
   if (publicConfig.routing) validateLlmMeshRoutingConfig(publicConfig.routing);
-  if (publicConfig.modelRewrites) validateModelRewrites(publicConfig.modelRewrites);
+  if (publicConfig.modelRewrites !== undefined) {
+    try {
+      validateModelRewrites(publicConfig.modelRewrites);
+    } catch (error) {
+      throw new Error(
+        "llm-mesh.json modelRewrites invalid; fix or remove it before changing the config: "
+        + (error instanceof Error ? error.message : String(error)),
+      );
+    }
+  }
   writePrivateMetadata(llmMeshConfigPath(dir), publicConfig);
 }
 

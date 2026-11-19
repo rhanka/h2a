@@ -191,3 +191,18 @@ describe("isolated gateway state", () => {
   });
 });
 
+
+describe("startGateway model rewrite validation", () => {
+  it("refuses an invalid modelRewrites in the parent, before any spawn", async () => {
+    vi.mocked(spawn).mockClear();
+    await expect(startGateway({
+      port: 32111,
+      logFile: join(SCRATCH, "rewrite.log"),
+      modelRewrites: [{
+        match: { model: "claude-opus-5-5" },
+        target: { model: "muse-inconnu-9.9", effort: "max" },
+      }],
+    }, { stateDir: join(SCRATCH, "rewrite-state") })).rejects.toThrow(/modelRewrites\[0\].*muse-inconnu-9\.9/);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+});
