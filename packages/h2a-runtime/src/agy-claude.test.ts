@@ -86,6 +86,24 @@ describe("normalizeAgyEffort (low|medium|high, max→high, xhigh refused)", () =
     expect(resolveAgyModel("gemini-argon")).toBe("gemini-4-argon-high");
     expect(resolveAgyModel("gemini-argon-low")).toBe("gemini-4-argon-low");
   });
+  it("normalizes gemini-4-neon and neon aliases to canonical neon model ids", () => {
+    expect(resolveAgyModel("gemini-4-neon")).toBe("gemini-4-neon-high");
+    expect(resolveAgyModel("gemini-4-neon-high")).toBe("gemini-4-neon-high");
+    expect(resolveAgyModel("gemini-4-neon-xhigh")).toBe("gemini-4-neon-xhigh");
+    expect(resolveAgyModel("gemini-4-neon-medium")).toBe("gemini-4-neon-medium");
+    expect(resolveAgyModel("gemini-4-neon-low")).toBe("gemini-4-neon-low");
+    expect(resolveAgyModel("neon")).toBe("gemini-4-neon-high");
+    expect(resolveAgyModel("neon-high")).toBe("gemini-4-neon-high");
+    expect(resolveAgyModel("neon-low")).toBe("gemini-4-neon-low");
+    expect(buildAgentLaunchArgs({ profile: "agy", model: "gemini-4-neon-high" })).toEqual([
+      "--model",
+      "gemini-4-neon-high",
+    ]);
+    expect(buildAgentLaunchArgs({ profile: "agy", model: "gemini-4-carbon" })).toEqual([
+      "--model",
+      "gemini-4-carbon",
+    ]);
+  });
   it("preserves embedded Gemini effort suffixes when effort is omitted and lets explicit effort override", () => {
     expect(extractEmbeddedGeminiEffort("gemini-4-carbon-high")).toBe("high");
     expect(extractEmbeddedGeminiEffort("gemini-4-carbon-low")).toBe("low");

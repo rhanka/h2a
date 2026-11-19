@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 export const AGY_CLAUDE_QUOTA_CODE = "agy-claude-quota-exhausted";
 export const GEMINI_4_CARBON_MODEL = "gemini-4-carbon";
+export const GEMINI_4_NEON_HIGH_MODEL = "gemini-4-neon-high";
 export const CLAUDE_FABLE_5_2_MODEL = "claude-fable-5-2";
 export type AgyEffort = "low" | "medium" | "high";
 export class AgyEffortError extends Error {
@@ -13,6 +14,21 @@ const GEMINI_4_CARBON_RE = /^(?:gemini-(?:4-)?)?carbon(?:-(.*))?$/i;
 const GEMINI_4_ARGON_RE = /^(?:gemini-(?:4-)?)?argon(?:-(.*))?$/i;
 const LAUNCH_MODEL_ALIASES: Readonly<Record<string, string>> = {
   "muse-ember": "muse-ember-1.0",
+  "gemini-4-neon": GEMINI_4_NEON_HIGH_MODEL,
+  "gemini-4-neon-high": GEMINI_4_NEON_HIGH_MODEL,
+  "gemini-4-neon-xhigh": "gemini-4-neon-xhigh",
+  "gemini-4-neon-medium": "gemini-4-neon-medium",
+  "gemini-4-neon-low": "gemini-4-neon-low",
+  "gemini-neon": GEMINI_4_NEON_HIGH_MODEL,
+  "gemini-neon-high": GEMINI_4_NEON_HIGH_MODEL,
+  "gemini-neon-xhigh": "gemini-4-neon-xhigh",
+  "gemini-neon-medium": "gemini-4-neon-medium",
+  "gemini-neon-low": "gemini-4-neon-low",
+  neon: GEMINI_4_NEON_HIGH_MODEL,
+  "neon-high": GEMINI_4_NEON_HIGH_MODEL,
+  "neon-xhigh": "gemini-4-neon-xhigh",
+  "neon-medium": "gemini-4-neon-medium",
+  "neon-low": "gemini-4-neon-low",
   "gemini-4-argon": "gemini-4-argon-high",
   "gemini-4-argon-high": "gemini-4-argon-high",
   "gemini-4-argon-medium": "gemini-4-argon-medium",

@@ -210,6 +210,8 @@ import {
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
+  resolveRestoreModelInput,
+  resolveRestoreProfileInput,
   restore as restoreLayout,
   type LegacySessionEvidence,
   type RestoreOptions,
@@ -7075,6 +7077,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
+            ...(runModel !== undefined ? { model: runModel } : {}),
             ...(gatewayMode !== "auto" || pinnedLaunch?.gatewayProvenance === "explicit"
               ? { gatewayMode: launchGatewayMode, gatewayProvenance: "explicit" as const }
               : {}),
@@ -10235,6 +10238,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force le mode direct pour les sessions relancées; les sessions vivantes sont seulement rattachées et gardent leur posture",
     )
     .option("--no-gw", "alias de --no-llm-gateway")
+    .option(
+      "--profile <name>",
+      "relance les sessions locales claude/codex avec un autre profil CLI (ex: agy) en conservant nom, workspace et slot; les sessions vivantes restent seulement rattachées",
+    )
+    .option(
+      "--model <model>",
+      "modèle explicite pour les sessions relancées (ex: gemini-4-neon-high, gemini-4-carbon); avec --profile agy sans --model: gemini-4-neon-high par défaut (build/conductor) et gemini-4-carbon pour les sessions design",
+    )
     .action(
       async (
         group: string | undefined,
@@ -10245,6 +10256,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
+          profile?: string;
+          model?: string;
         },
       ) => {
         const norm = (s: string) =>
@@ -10274,6 +10287,34 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         if (forceGateway) restoreOpts.forceGateway = forceGateway;
+
+        try {
+          if (opts.profile !== undefined) {
+            restoreOpts.profile = resolveRestoreProfileInput(opts.profile);
+          }
+          if (opts.model !== undefined) {
+            restoreOpts.model = resolveRestoreModelInput(
+              opts.model,
+              restoreOpts.profile,
+            );
+          }
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+        if (
+          forceGateway === "gateway" &&
+          restoreOpts.profile !== undefined &&
+          !profileUsesLlmMeshGateway(restoreOpts.profile)
+        ) {
+          process.stderr.write(
+            `[h2a] --llm-gateway/--gw is unsupported with --profile ${restoreOpts.profile}; ` +
+              `${restoreOpts.profile} runs direct and does not consume the Anthropic-compatible gateway.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
 
         const centralMcp = await prepareCentralMcpForRestore({ root: process.cwd() });
         if (centralMcp?.status === "degraded") {
