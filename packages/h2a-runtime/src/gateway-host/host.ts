@@ -13,6 +13,7 @@ import {
   OpenAIAdapter,
   createLlmMesh,
   createProviderRegistry,
+  resolveRequestedTargets,
   type RoutePlanInput,
   type RoutePlanner,
   type VerifiedRoutingSubject,
@@ -63,6 +64,19 @@ import {
   sessionCount,
 } from "./sessions.js";
 import { sweepOrphanSandboxes } from "../claude-code-cli-lifecycle.js";
+import {
+  createObservedUpstreamFetch,
+  createRequestTrace,
+  extractSanitizedThrownError,
+  formatGatewayRequestLogLine,
+  INFERENCE_ROUTES,
+  parseRetryAfterHeaderSeconds,
+  RateLimitCooldownTracker,
+  remapRateLimited503Response,
+  requestTraceStorage,
+  type GatewayRequestLogEntry,
+  type SanitizedUpstreamError,
+} from "./request-log.js";
 
 /** Pending upstream U3: legacy config ports are inert on the planner-routed path. */
 const legacyPortReached = (): never => { throw new Error("Inert legacy gateway port reached (pending upstream U3)"); };
@@ -79,12 +93,15 @@ const routingConfigFromEnvironment = (): LlmMeshRoutingConfig | undefined => {
   return raw ? parseLlmMeshRoutingConfig(raw) : undefined;
 };
 
-const runtimeMesh = (claudeClient: AnthropicAdapterClient) => createLlmMesh({
+const runtimeMesh = (
+  claudeClient: AnthropicAdapterClient,
+  upstreamFetch: typeof fetch,
+) => createLlmMesh({
   registry: createProviderRegistry([
-    new OpenAIAdapter({ client: new CodexRuntimeClient() }),
-    new GeminiAdapter({ client: new CloudCodeRuntimeClient() }),
-    new MistralAdapter({ client: new MistralRuntimeClient() }),
-    new MuseAdapter({ client: new MuseRuntimeClient() }),
+    new OpenAIAdapter({ client: new CodexRuntimeClient({ fetch: upstreamFetch }) }),
+    new GeminiAdapter({ client: new CloudCodeRuntimeClient(upstreamFetch) }),
+    new MistralAdapter({ client: new MistralRuntimeClient({ fetch: upstreamFetch }) }),
+    new MuseAdapter({ client: new MuseRuntimeClient({ fetch: upstreamFetch }) }),
     new AnthropicAdapter({ client: claudeClient }),
   ]),
 });
@@ -150,17 +167,154 @@ export function argonEffortOverride(
   ];
 }
 
+function extractPlanErrorTrace(error: unknown): {
+  readonly code?: string;
+  readonly diagnostics?: readonly { readonly code?: string; readonly transport?: string }[];
+} {
+  if (!error || typeof error !== "object") return {};
+  const rec = error as Record<string, unknown>;
+  const code = typeof rec.code === "string" ? rec.code : undefined;
+  const rawList = Array.isArray(rec.diagnostics)
+    ? rec.diagnostics
+    : rec.diagnostic && typeof rec.diagnostic === "object"
+      ? [rec.diagnostic]
+      : [];
+  const diagnostics: { readonly code?: string; readonly transport?: string }[] = [];
+  for (const item of rawList) {
+    if (!item || typeof item !== "object") continue;
+    const d = item as Record<string, unknown>;
+    const dCode = typeof d.code === "string" ? d.code : undefined;
+    const dTransport = typeof d.transportProviderId === "string" ? d.transportProviderId : undefined;
+    if (dCode || dTransport) {
+      diagnostics.push({
+        ...(dCode ? { code: dCode } : {}),
+        ...(dTransport ? { transport: dTransport } : {}),
+      });
+    }
+  }
+  return {
+    ...(code ? { code } : {}),
+    ...(diagnostics.length > 0 ? { diagnostics } : {}),
+  };
+}
+
 const observablePlanner = (delegate: RoutePlanner): RoutePlanner => ({
   ...(delegate.listModels
     ? { listModels: (subject) => delegate.listModels!(subject) }
     : {}),
   async plan(subject: VerifiedRoutingSubject, input: RoutePlanInput) {
-    const plan = await delegate.plan(subject, input);
-    const session = lookupSessionById(subject.principalRef);
-    if (session) recordRoutePlan(session, input, plan);
-    return plan;
+    const trace = requestTraceStorage.getStore();
+    if (trace && !trace.requestedModel) {
+      trace.requestedModel = input.requestedModel;
+    }
+    try {
+      const plan = await delegate.plan(subject, input);
+      const session = lookupSessionById(subject.principalRef);
+      if (session) recordRoutePlan(session, input, plan);
+      if (trace) {
+        trace.negativeCacheTtlMs = plan.policy.negativeCacheTtlMs;
+        for (const diag of plan.diagnostics) {
+          const entry = {
+            candidateRef: diag.candidateRef,
+            provider: diag.actualProviderId,
+            model: diag.actualModelId,
+            transport: diag.actualTransportProviderId,
+            accountId: diag.diagnosticAccountRef,
+          };
+          trace.plannedByCandidate.set(diag.candidateRef, entry);
+          if (!trace.resolved) trace.resolved = entry;
+        }
+      }
+      return plan;
+    } catch (error) {
+      if (trace) {
+        trace.planError = extractPlanErrorTrace(error);
+      }
+      throw error;
+    }
   },
-  prepareAttempt: (...args) => delegate.prepareAttempt(...args),
+  async prepareAttempt(subject, planRef, candidateRef, requestId, attemptIndex) {
+    const trace = requestTraceStorage.getStore();
+    const diag = trace?.plannedByCandidate.get(candidateRef);
+    if (trace && diag) trace.resolved = diag;
+    const attempt = await delegate.prepareAttempt(
+      subject,
+      planRef,
+      candidateRef,
+      requestId,
+      attemptIndex,
+    );
+    if (!trace) return attempt;
+
+    const recordAttemptOutcome = (outcome: string, retryAfterMs?: number): void => {
+      const target = diag ?? trace.resolved;
+      const retryAfterSeconds = typeof retryAfterMs === "number" && retryAfterMs > 0
+        ? Math.ceil(retryAfterMs / 1000)
+        : undefined;
+      trace.attempts.push({
+        provider: target?.provider ?? "unknown",
+        model: target?.model ?? "unknown",
+        transport: target?.transport ?? "unknown",
+        accountId: target?.accountId ?? "unknown",
+        outcome,
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      });
+    };
+
+    const noteThrownIfUnobserved = (beforeCount: number, error: unknown): void => {
+      if (trace.upstreamFailures.length > beforeCount) return;
+      const sanitized = extractSanitizedThrownError(error);
+      if (sanitized) trace.upstreamFailures.push(sanitized);
+    };
+
+    return {
+      ...attempt,
+      async generate(request) {
+        const beforeCount = trace.upstreamFailures.length;
+        try {
+          return await attempt.generate(request);
+        } catch (error) {
+          noteThrownIfUnobserved(beforeCount, error);
+          throw error;
+        }
+      },
+      async stream(request) {
+        const beforeCount = trace.upstreamFailures.length;
+        let iterable: Awaited<ReturnType<typeof attempt.stream>>;
+        try {
+          iterable = await attempt.stream(request);
+        } catch (error) {
+          noteThrownIfUnobserved(beforeCount, error);
+          throw error;
+        }
+        return (async function* () {
+          try {
+            for await (const event of iterable) {
+              if (event && typeof event === "object" && (event as { type?: unknown }).type === "error") {
+                noteThrownIfUnobserved(beforeCount, (event as { data?: unknown }).data);
+              }
+              yield event;
+            }
+          } catch (error) {
+            noteThrownIfUnobserved(beforeCount, error);
+            throw error;
+          }
+        })();
+      },
+      async recordOutcome(classification, usage) {
+        recordAttemptOutcome(classification.reason, classification.retryAfterMs);
+        return attempt.recordOutcome(classification, usage);
+      },
+      async complete(usage) {
+        recordAttemptOutcome("success");
+        return attempt.complete(usage);
+      },
+      async releaseCancelled() {
+        recordAttemptOutcome("cancelled");
+        return attempt.releaseCancelled();
+      },
+    };
+  },
   describeAffinity: (...args) => delegate.describeAffinity(...args),
   promoteAffinity: (...args) => delegate.promoteAffinity(...args),
   rebindAffinity: (...args) => delegate.rebindAffinity(...args),
@@ -187,6 +341,10 @@ export interface LocalGatewayAppOptions {
    * composes the facade planner over the real provider registry.
    */
   readonly routePlanner?: RoutePlanner;
+  /** Optional upstream fetch override (test seam); wrapped with sanitized observer. */
+  readonly upstreamFetch?: typeof fetch;
+  /** Optional structured log sink (test seam); defaults to process.stdout.write. */
+  readonly writeLog?: (line: string) => void;
 }
 
 /**
@@ -282,12 +440,67 @@ function publicSessionLedger(): SessionLedgerEntry[] {
   return [...routed, ...idle].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+async function readRequestedModelFromRaw(raw: Request, pathname: string): Promise<string | undefined> {
+  if (raw.method !== "POST") return undefined;
+  if (!INFERENCE_ROUTES.has(pathname) && pathname !== "/v1/messages/count_tokens") return undefined;
+  try {
+    const text = await raw.clone().text();
+    if (!text) return undefined;
+    const parsed = JSON.parse(text) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const model = (parsed as Record<string, unknown>).model;
+    return typeof model === "string" && model.trim() ? model.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export class GatewayAlreadyRunningError extends Error {
+  readonly code = "EADDRINUSE" as const;
+  readonly port: number;
+  readonly existingPid?: number;
+
+  constructor(port: number, existingPid?: number) {
+    super(
+      `Gateway is already running on 127.0.0.1:${port}` +
+        (existingPid ? ` (pid ${existingPid})` : ""),
+    );
+    this.name = "GatewayAlreadyRunningError";
+    this.port = port;
+    if (existingPid !== undefined) this.existingPid = existingPid;
+  }
+}
+
+async function probeLocalGatewayOnPort(
+  port: number,
+  timeoutMs = 1_500,
+): Promise<{ readonly running: true; readonly pid?: number } | { readonly running: false }> {
+  const baseUrl = `http://127.0.0.1:${port}`;
+  try {
+    let resp = await fetch(`${baseUrl}/readyz`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (resp.status === 404) {
+      resp = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    }
+    if (!resp.ok) return { running: false };
+    const rawPid = resp.headers.get("x-h2a-gateway-pid");
+    const parsedPid = rawPid ? Number.parseInt(rawPid, 10) : Number.NaN;
+    return Number.isInteger(parsedPid) && parsedPid > 0
+      ? { running: true, pid: parsedPid }
+      : { running: true };
+  } catch {
+    return { running: false };
+  }
+}
+
 export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: Hono; ready: Promise<void> } {
   let composed = false;
   const readiness = { async isReady() { return composed; } };
   // Claude seat like every other seat: an explicit override wins (test seam),
   // otherwise compose the PATH-resolved seat unconditionally.
   const claudeClient = options.claudeClient ?? createClaudeSeatClient();
+  const upstreamFetch = createObservedUpstreamFetch(options.upstreamFetch ?? fetch);
+  const writeLog = options.writeLog ?? ((line: string) => { process.stdout.write(line); });
+  const rateLimitTracker = new RateLimitCooldownTracker();
   const routing = options.routing ?? routingConfigFromEnvironment();
   const currentRouting = (): LlmMeshRoutingConfig | undefined => {
     if (options.routing) return options.routing;
@@ -305,10 +518,13 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   );
   const facade = createCliLlmMeshFacade();
   const profiles = routingProfiles(routing);
-  const planner = observablePlanner(options.routePlanner ?? facade.createRoutePlanner(runtimeMesh(claudeClient), {
-    ...(routing?.council ? { council: routing.council } : {}),
-    ...(profiles ? { profiles } : {}),
-  }));
+  const planner = observablePlanner(
+    options.routePlanner ??
+      facade.createRoutePlanner(runtimeMesh(claudeClient, upstreamFetch), {
+        ...(routing?.council ? { council: routing.council } : {}),
+        ...(profiles ? { profiles } : {}),
+      }),
+  );
   const callerAuth: CallerAuthPort = {
     async verify(headers) {
       const token = bearerFromHeaders(headers);
@@ -333,6 +549,34 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
     },
   };
 
+  async function allMatchingAccountsInPersistedCooldown(
+    requestedModel: string,
+  ): Promise<boolean> {
+    if (options.routePlanner) return false;
+    try {
+      const accounts = await facade.listAccounts({ ownerScope: ownerScopeRef });
+      if (accounts.length === 0) return false;
+      const activeRouting = currentRouting();
+      const allowEquivalent = activeRouting?.policy?.allowEquivalentModels ?? false;
+      const explicitTransport = activeRouting?.explicit?.transportProviderId;
+      const resolution = resolveRequestedTargets({ requestedModel }, allowEquivalent);
+      const candidateTransports = new Set<string>();
+      if (explicitTransport) {
+        candidateTransports.add(explicitTransport);
+      } else if (resolution.kind === "known") {
+        for (const target of resolution.targets) {
+          if (typeof target.transportProviderId === "string") {
+            candidateTransports.add(target.transportProviderId);
+          }
+        }
+      }
+      if (candidateTransports.size === 0) return false;
+      const matching = accounts.filter((account) => candidateTransports.has(account.providerId));
+      return matching.length > 0 && matching.every((account) => account.status === "cooldown");
+    } catch {
+      return false;
+    }
+  }
 
   const app = new Hono();
   let gatewayPlugin: Hono | undefined;
@@ -340,6 +584,7 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   // This route also covers the interval before the composed router is mounted.
   app.get("/readyz", async (c) => {
     const ready = await readiness.isReady();
+    c.header("x-h2a-gateway-pid", String(process.pid));
     return c.json({ ready }, ready ? 200 : 503);
   });
   app.post("/v1/session", async (c) => {
@@ -381,15 +626,142 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
   // it; the served header stays exactly as llm-mesh sets it.
   app.all("*", async (c) => {
     if (!gatewayPlugin) return c.json({ error: "gateway composition incomplete" }, 503);
-    const routed = await rewriteRequestIfMatched(c.req.raw, modelRewrites);
-    const response = await gatewayPlugin.fetch(routed.request, c.env);
-    if (!routed.fromModel || !routed.toModel) return response;
-    // An unauthenticated caller learns nothing and leaves no log line.
-    if (response.status === 401) return response;
-    if (routed.logLine) process.stdout.write(routed.logLine);
-    const visible = new Response(response.body, response);
-    visible.headers.set("x-h2a-model-rewrite", `${routed.fromModel} -> ${routed.toModel}`);
-    return visible;
+    let pathname = "/";
+    try {
+      pathname = new URL(c.req.raw.url).pathname;
+    } catch {
+      pathname = c.req.path;
+    }
+    const trace = createRequestTrace(c.req.raw.method, pathname);
+    return requestTraceStorage.run(trace, async () => {
+      const routed = await rewriteRequestIfMatched(c.req.raw, modelRewrites);
+      if (routed.fromModel && routed.toModel) {
+        trace.requestedModel = routed.fromModel;
+        trace.rewrittenModel = routed.toModel;
+      } else {
+        const rawModel = await readRequestedModelFromRaw(c.req.raw, pathname);
+        if (rawModel) trace.requestedModel = rawModel;
+      }
+
+      let response = await gatewayPlugin!.fetch(routed.request, c.env);
+      const effectiveModel = routed.toModel ?? trace.requestedModel;
+      const lastAttempt = trace.attempts.at(-1);
+      let lastUpstream: SanitizedUpstreamError | undefined = trace.upstreamFailures.at(-1);
+      const allAttemptsRateLimited =
+        trace.attempts.length > 0 &&
+        trace.attempts.every((attempt) => attempt.outcome === "rate-limited");
+      const allUpstream429 =
+        trace.upstreamFailures.length > 0 &&
+        trace.upstreamFailures.every((failure) => failure.status === 429);
+      let retryAfterSeconds =
+        parseRetryAfterHeaderSeconds(response.headers.get("retry-after")) ??
+        lastUpstream?.retryAfterSeconds ??
+        lastAttempt?.retryAfterSeconds;
+
+      if (response.status >= 200 && response.status < 300) {
+        if (effectiveModel) rateLimitTracker.clear(ownerScopeRef, effectiveModel);
+        if (trace.requestedModel && trace.requestedModel !== effectiveModel) {
+          rateLimitTracker.clear(ownerScopeRef, trace.requestedModel);
+        }
+      } else if (
+        effectiveModel &&
+        (response.status === 429 || allAttemptsRateLimited || allUpstream429)
+      ) {
+        const ttlMs =
+          retryAfterSeconds !== undefined && retryAfterSeconds > 0
+            ? retryAfterSeconds * 1000
+            : Math.max(trace.negativeCacheTtlMs ?? 300_000, 60_000);
+        rateLimitTracker.record(ownerScopeRef, effectiveModel, {
+          ttlMs,
+          ...(trace.resolved?.provider ? { provider: trace.resolved.provider } : {}),
+          ...(trace.resolved?.model ? { model: trace.resolved.model } : {}),
+          ...(trace.resolved?.transport ? { transport: trace.resolved.transport } : {}),
+          ...(trace.resolved?.accountId ? { accountId: trace.resolved.accountId } : {}),
+          ...(lastUpstream ? { upstream: lastUpstream } : {}),
+        });
+      }
+
+      // h2a-side upstream-429 preservation: never mask an upstream 429 (or an
+      // active rate-limit cooldown / negative-cache suppression from a prior
+      // upstream 429) as 503 "No route available". Real route absences and
+      // reauth/reenrollment diagnostics stay 503.
+      let remappedFrom: number | undefined;
+      let resolvedProvider = trace.resolved?.provider ?? lastAttempt?.provider ?? null;
+      let resolvedModel = trace.resolved?.model ?? lastAttempt?.model ?? null;
+      let resolvedTransport = trace.resolved?.transport ?? lastAttempt?.transport ?? null;
+      let resolvedAccountId = trace.resolved?.accountId ?? lastAttempt?.accountId ?? null;
+
+      if (
+        response.status === 503 &&
+        INFERENCE_ROUTES.has(pathname) &&
+        !response.headers.has("x-sentropic-route-action")
+      ) {
+        if (allAttemptsRateLimited || allUpstream429) {
+          const remapRetry = retryAfterSeconds ?? 60;
+          remappedFrom = 503;
+          retryAfterSeconds = remapRetry;
+          response = remapRateLimited503Response(response, pathname, remapRetry);
+        } else if (trace.planError?.code === "no-route" && effectiveModel) {
+          const activeCooldown = rateLimitTracker.getActive(ownerScopeRef, effectiveModel);
+          if (activeCooldown) {
+            remappedFrom = 503;
+            retryAfterSeconds = activeCooldown.remainingSeconds;
+            resolvedProvider = resolvedProvider ?? activeCooldown.provider ?? null;
+            resolvedModel = resolvedModel ?? activeCooldown.model ?? null;
+            resolvedTransport = resolvedTransport ?? activeCooldown.transport ?? null;
+            resolvedAccountId = resolvedAccountId ?? activeCooldown.accountId ?? null;
+            lastUpstream = lastUpstream ?? activeCooldown.upstream;
+            response = remapRateLimited503Response(
+              response,
+              pathname,
+              activeCooldown.remainingSeconds,
+            );
+          } else if (await allMatchingAccountsInPersistedCooldown(effectiveModel)) {
+            remappedFrom = 503;
+            retryAfterSeconds = 60;
+            response = remapRateLimited503Response(response, pathname, 60);
+          }
+        }
+      }
+
+      const latencyMs = Math.max(0, Date.now() - trace.startedAtMs);
+      const outcome =
+        response.status >= 200 && response.status < 300
+          ? "success"
+          : lastAttempt?.outcome ?? trace.planError?.code ?? (response.status === 401 ? "unauthorized" : undefined);
+
+      const logEntry: GatewayRequestLogEntry = {
+        time: trace.time,
+        route: pathname,
+        method: trace.method,
+        requestedModel: trace.requestedModel ?? null,
+        ...(trace.rewrittenModel && response.status !== 401 ? { rewrittenModel: trace.rewrittenModel } : {}),
+        provider: resolvedProvider,
+        model: resolvedModel,
+        transport: resolvedTransport,
+        accountId: resolvedAccountId,
+        status: response.status,
+        latencyMs,
+        ...(outcome ? { outcome } : {}),
+        ...(trace.planError?.code ? { planError: trace.planError.code } : {}),
+        ...(trace.planError?.diagnostics ? { planDiagnostics: trace.planError.diagnostics } : {}),
+        ...(remappedFrom !== undefined ? { remappedFrom } : {}),
+        ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+        ...(lastUpstream ? { upstream: lastUpstream } : {}),
+        ...(trace.attempts.length > 1 || (trace.attempts.length === 1 && response.status >= 400)
+          ? { attempts: trace.attempts }
+          : {}),
+      };
+      writeLog(formatGatewayRequestLogLine(logEntry));
+
+      if (!routed.fromModel || !routed.toModel) return response;
+      // An unauthenticated caller learns nothing and leaves no rewrite log line.
+      if (response.status === 401) return response;
+      if (routed.logLine) writeLog(routed.logLine);
+      const visible = new Response(response.body, response);
+      visible.headers.set("x-h2a-model-rewrite", `${routed.fromModel} -> ${routed.toModel}`);
+      return visible;
+    });
   });
   const ready = (async () => {
     // The Claude seat is always composed, so its startup orphan sweep
@@ -469,16 +841,89 @@ export async function startServer(
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid gateway PORT: expected 1..65535");
   const app = await createLocalGatewayApp(options);
   // Session minting is unauthenticated local control-plane traffic: loopback only.
-  return listen({ fetch: app.fetch, port, hostname: "127.0.0.1" }, () => {
-    process.stdout.write(
-      `[gateway-host] listening on :${port} — ${sessionCount()} local bearers\n`,
-    );
+  return await new Promise<ReturnType<typeof serve>>((resolveServer, rejectServer) => {
+    let settled = false;
+    let server: ReturnType<typeof serve> | undefined;
+    const onListening = () => {
+      if (settled) return;
+      settled = true;
+      if (server && typeof (server as { off?: unknown }).off === "function") {
+        (server as unknown as { off(event: string, fn: (...args: unknown[]) => void): void })
+          .off("error", onError);
+      }
+      process.stdout.write(
+        `[gateway-host] listening on :${port} — ${sessionCount()} local bearers\n`,
+      );
+      if (server !== undefined) resolveServer(server);
+    };
+    const onError = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      const err = error as NodeJS.ErrnoException;
+      if (err?.code === "EADDRINUSE") {
+        void probeLocalGatewayOnPort(port).then(
+          (probe) => {
+            if (probe.running) {
+              rejectServer(new GatewayAlreadyRunningError(port, probe.pid));
+            } else {
+              const occupied = new Error(
+                `Port 127.0.0.1:${port} is already in use by another process`,
+              ) as NodeJS.ErrnoException;
+              occupied.code = "EADDRINUSE";
+              rejectServer(occupied);
+            }
+          },
+          () => rejectServer(error),
+        );
+        return;
+      }
+      rejectServer(error);
+    };
+
+    try {
+      server = listen({ fetch: app.fetch, port, hostname: "127.0.0.1" }, onListening);
+    } catch (error) {
+      onError(error);
+      return;
+    }
+
+    if (settled) {
+      resolveServer(server);
+      return;
+    }
+
+    if (server && typeof (server as { once?: unknown }).once === "function") {
+      (server as unknown as { once(event: string, fn: (...args: unknown[]) => void): void })
+        .once("error", onError);
+    } else {
+      settled = true;
+      resolveServer(server);
+    }
   });
+}
+
+export function handleGatewayStartupError(
+  error: unknown,
+  stdout: (chunk: string) => unknown = (chunk) => process.stdout.write(chunk),
+  stderr: (chunk: string) => unknown = (chunk) => process.stderr.write(chunk),
+): number {
+  if (error instanceof GatewayAlreadyRunningError) {
+    stdout(`[gateway-host] ${error.message}; reusing running gateway and exiting cleanly\n`);
+    return 0;
+  }
+  const err = error as NodeJS.ErrnoException | undefined;
+  if (err?.code === "EADDRINUSE") {
+    stderr(`[gateway-host] ${err.message}\n`);
+    return 1;
+  }
+  stderr(
+    `[gateway-host] startup failed before bind: ${error instanceof Error ? error.message : String(error)}\n`,
+  );
+  return 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   startServer().catch((error: unknown) => {
-    process.stderr.write(`[gateway-host] startup failed before bind: ${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
+    process.exitCode = handleGatewayStartupError(error);
   });
 }
