@@ -64,3 +64,15 @@ describe("public config migration", () => {
       .not.toMatch(/must-not-survive|nor-this/);
   });
 });
+
+describe("modelRewrites persistence guard", () => {
+  it("names modelRewrites when a stored list blocks a config write", () => {
+    expect(() => writeLlmMeshConfig({
+      modelRewrites: [{
+        match: { model: "claude-opus-5-5" },
+        target: { model: "muse-inconnu-9.9", effort: "max" },
+      }],
+    }, SCRATCH)).toThrow(/^llm-mesh\.json modelRewrites invalid; fix or remove it.*modelRewrites\[0\].*muse-inconnu-9\.9/);
+    expect(existsSync(join(SCRATCH, "llm-mesh.json"))).toBe(false);
+  });
+});

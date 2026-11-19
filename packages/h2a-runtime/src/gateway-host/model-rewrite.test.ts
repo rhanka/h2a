@@ -428,3 +428,233 @@ describe("model rewrite matching and validation", () => {
     expect(validateModelRewrites(undefined)).toEqual([]);
   });
 });
+
+/**
+ * Body shaped like real Claude Code traffic (`h2a run claude --model
+ * claude-opus-5-5 --effort medium`): plain model id, the effort in
+ * `output_config.effort` (effort beta), adaptive thinking, system blocks with
+ * prompt-cache markers. Never a suffixed model id.
+ */
+function claudeCodeBody(effort: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    model: "claude-opus-5-5",
+    max_tokens: 32000,
+    stream: false,
+    thinking: { type: "adaptive" },
+    output_config: { effort },
+    system: [
+      { type: "text", text: "You are Claude Code.", cache_control: { type: "ephemeral" } },
+    ],
+    messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+    metadata: { user_id: "synthetic-user" },
+    ...extra,
+  };
+}
+
+async function postClaudeCode(
+  baseUrl: string,
+  token: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": token,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "effort-2025-11-24,interleaved-thinking-2025-05-14",
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("gateway model rewrites on real Claude Code traffic", () => {
+  it("matches output_config.effort and serves the target effort", async () => {
+    const seen: SeenBackendRequest[] = [];
+    await withGateway(
+      { modelRewrites: EMBER_REWRITE, routePlanner: fakeMusePlanner(seen), ownerScopeRef: "cli:test-owner" },
+      async (baseUrl) => {
+        const token = await mintToken(baseUrl);
+        const response = await postClaudeCode(baseUrl, token, "/v1/messages", claudeCodeBody("medium"));
+        expect(response.status).toBe(200);
+        expect(response.headers.get("x-h2a-model-rewrite"))
+          .toBe("claude-opus-5-5 -> muse-ember-1.0");
+        expect(response.headers.get("x-sentropic-served"))
+          .toBe("provider=muse; model=muse-ember-1.0; transport=muse");
+      },
+    );
+    expect(seen).toEqual([{ modelId: "muse-ember-1.0", effort: "max", toolNames: [], stream: false }]);
+  });
+
+  it("does not match another output_config.effort rung", async () => {
+    const seen: SeenBackendRequest[] = [];
+    await withGateway(
+      { modelRewrites: EMBER_REWRITE, routePlanner: fakeMusePlanner(seen), ownerScopeRef: "cli:test-owner" },
+      async (baseUrl) => {
+        const token = await mintToken(baseUrl);
+        const response = await postClaudeCode(baseUrl, token, "/v1/messages", claudeCodeBody("high"));
+        expect(response.headers.get("x-h2a-model-rewrite")).toBeNull();
+        expect(response.status).not.toBe(200);
+      },
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("never rewrites count_tokens, even for a matching body", async () => {
+    const seen: SeenBackendRequest[] = [];
+    await withGateway(
+      { modelRewrites: EMBER_REWRITE, routePlanner: fakeMusePlanner(seen), ownerScopeRef: "cli:test-owner" },
+      async (baseUrl) => {
+        const token = await mintToken(baseUrl);
+        const response = await postClaudeCode(
+          baseUrl, token, "/v1/messages/count_tokens", claudeCodeBody("medium"),
+        );
+        expect(response.headers.get("x-h2a-model-rewrite")).toBeNull();
+      },
+    );
+    expect(seen).toEqual([]);
+  });
+
+  it("logs models and efforts only, never the prompt or the bearer", async () => {
+    const writes: string[] = [];
+    const original = process.stdout.write.bind(process.stdout);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown, ...rest: unknown[]) => {
+      writes.push(String(chunk));
+      return (original as (...args: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof process.stdout.write);
+    let token = "";
+    try {
+      await withGateway(
+        { modelRewrites: EMBER_REWRITE, routePlanner: fakeMusePlanner([]), ownerScopeRef: "cli:test-owner" },
+        async (baseUrl) => {
+          token = await mintToken(baseUrl);
+          const response = await postClaudeCode(baseUrl, token, "/v1/messages", claudeCodeBody("medium"));
+          expect(response.status).toBe(200);
+        },
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    const rewriteLines = writes.filter((line) => line.includes("model rewrite"));
+    expect(rewriteLines).toEqual([
+      "[gateway-host] model rewrite: claude-opus-5-5 -> muse-ember-1.0 (effort medium -> max)\n",
+    ]);
+    expect(token).not.toBe("");
+    for (const line of writes) {
+      expect(line).not.toContain(token);
+      expect(line).not.toContain("ping");
+    }
+  });
+
+  it("neither logs nor marks a rewrite for an unauthenticated request", async () => {
+    const writes: string[] = [];
+    const original = process.stdout.write.bind(process.stdout);
+    const spy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown, ...rest: unknown[]) => {
+      writes.push(String(chunk));
+      return (original as (...args: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof process.stdout.write);
+    const seen: SeenBackendRequest[] = [];
+    try {
+      await withGateway(
+        { modelRewrites: EMBER_REWRITE, routePlanner: fakeMusePlanner(seen), ownerScopeRef: "cli:test-owner" },
+        async (baseUrl) => {
+          const response = await postClaudeCode(
+            baseUrl, "not-a-gateway-token", "/v1/messages",
+            claudeCodeBody("medium", { model: "claude-opus-5-5-medium" }),
+          );
+          expect(response.status).toBe(401);
+          expect(response.headers.get("x-h2a-model-rewrite")).toBeNull();
+        },
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(writes.filter((line) => line.includes("model rewrite"))).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it("leaves /v1/chat/completions untouched, with and without reasoning_effort", async () => {
+    const seen: SeenBackendRequest[] = [];
+    await withGateway(
+      { modelRewrites: EMBER_REWRITE, routePlanner: fakeMusePlanner(seen), ownerScopeRef: "cli:test-owner" },
+      async (baseUrl) => {
+        const token = await mintToken(baseUrl);
+        for (const body of [
+          { model: "claude-opus-5-5", reasoning_effort: "medium", messages: [{ role: "user", content: "ping" }] },
+          { model: "claude-opus-5-5-medium", messages: [{ role: "user", content: "ping" }] },
+        ]) {
+          const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+            body: JSON.stringify(body),
+          });
+          // The original Opus request reaches the planner, which has no
+          // Opus account here: never served by the rewrite target.
+          expect(response.status).not.toBe(200);
+          expect(response.headers.get("x-h2a-model-rewrite")).toBeNull();
+        }
+      },
+    );
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("model rewrite effort carriers and config guards", () => {
+  it("reads output_config.effort first and rewrites it to the target effort", () => {
+    const body = claudeCodeBody("medium");
+    const matched = matchModelRewrite(EMBER_REWRITE, body);
+    expect(matched?.entry).toEqual(EMBER_REWRITE[0]);
+    expect(matched?.requestedEffort).toBe("medium");
+    expect(matchModelRewrite(EMBER_REWRITE, claudeCodeBody("high"))).toBeUndefined();
+    const rewritten = applyModelRewrite(body, EMBER_REWRITE[0]!);
+    expect(rewritten.model).toBe("muse-ember-1.0");
+    expect(rewritten.output_config).toEqual({ effort: "max" });
+    expect(rewritten.reasoning).toEqual({ effort: "max" });
+    expect(rewritten.thinking).toEqual({ type: "adaptive" });
+  });
+
+  it("refuses a non-array modelRewrites, naming the field", async () => {
+    expect(() => validateModelRewrites({ match: {} } as never))
+      .toThrow(/modelRewrites: expected an array/);
+    expect(() => validateModelRewrites("claude-opus-5-5" as never))
+      .toThrow(/modelRewrites: expected an array/);
+    await expect(createLocalGatewayApp({
+      modelRewrites: { match: { model: "claude-opus-5-5" } } as never,
+      routePlanner: fakeMusePlanner([]),
+      ownerScopeRef: "cli:test-owner",
+    })).rejects.toThrow(/modelRewrites: expected an array/);
+  });
+
+  it("refuses a suffixed target or match that contradicts its effort", () => {
+    expect(() => validateModelRewrites([{
+      match: { model: "claude-opus-5-5" },
+      target: { model: "gemini-4-argon-medium", effort: "high" },
+    }])).toThrow(/modelRewrites\[0\].*gemini-4-argon-medium.*contradicts/);
+    expect(() => validateModelRewrites([{
+      match: { model: "claude-opus-5-5-medium", effort: "high" },
+      target: { model: "muse-ember-1.0", effort: "max" },
+    }])).toThrow(/modelRewrites\[0\].*claude-opus-5-5-medium.*contradicts/);
+  });
+
+  it("detects suffix/effort duplicates as the same match", () => {
+    expect(() => validateModelRewrites([
+      { match: { model: "claude-opus-5-5-medium" }, target: { model: "muse-ember-1.0", effort: "max" } },
+      { match: { model: "claude-opus-5-5", effort: "medium" }, target: { model: "muse-ember-1.0", effort: "max" } },
+    ])).toThrow(/modelRewrites\[1\].*duplicate/);
+  });
+
+  it("expresses the owner gateway direction (Opus -> Argon high, Fable -> Carbon high)", () => {
+    const ownerDirection: GatewayModelRewrite[] = [
+      { match: { model: "claude-opus-5-5" }, target: { model: "gemini-4-argon-high", effort: "high" } },
+      { match: { model: "claude-fable-5-2" }, target: { model: "gemini-4-carbon", effort: "high" } },
+    ];
+    expect(validateModelRewrites(ownerDirection)).toEqual(ownerDirection);
+    for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+      const opus = matchModelRewrite(ownerDirection, claudeCodeBody(effort));
+      expect(opus?.entry.target).toEqual({ model: "gemini-4-argon-high", effort: "high" });
+    }
+    const fable = matchModelRewrite(ownerDirection, { ...claudeCodeBody("max"), model: "claude-fable-5-2" });
+    expect(fable?.entry.target).toEqual({ model: "gemini-4-carbon", effort: "high" });
+  });
+});
