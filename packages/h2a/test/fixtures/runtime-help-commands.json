@@ -199,7 +199,7 @@
     {
       "group": "Recover & supervise sessions (advanced):",
       "term": "restart [options] [session]",
-      "description": "Restart one live managed native-PTY CLI, or every live managed native CLI with --all. --gw requires the explicit value on|off. With --relaunch-mcp alone, keep the CLI alive and submit one guarded MCP relaunch/attach instruction through the native drive backchannel."
+      "description": "Restart one live managed native-PTY CLI, or every live managed native CLI with --all. --gw requires the explicit value on|off. With --soft, keep the native terminal host and PTY (attached windows and scrollback preserved) and respawn only the CLI child inside it. With --relaunch-mcp alone, keep the CLI alive and submit one guarded MCP relaunch/attach instruction through the native drive backchannel."
     },
     {
       "group": "Recover & supervise sessions (advanced):",

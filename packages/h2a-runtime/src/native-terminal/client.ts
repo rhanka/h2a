@@ -15,10 +15,12 @@ import {
   NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS,
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
+  NATIVE_TERMINAL_SOFT_RESPAWN_REQUEST_TIMEOUT_MS,
   NativeTerminalRemoteError,
   parseNativeTerminalResponse,
   type NativeTerminalPing,
   type NativeTerminalRequest,
+  type NativeTerminalRespawnOptions,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
 import {
@@ -219,6 +221,17 @@ export class NativeTerminalClient {
       signal === undefined
         ? { id, generation, incarnation }
         : { id, generation, incarnation, signal },
+    ) as Promise<NativeTerminalSessionState>;
+  }
+
+  respawnIfIncarnation(
+    options: NativeTerminalRespawnOptions,
+    timeoutMs = NATIVE_TERMINAL_SOFT_RESPAWN_REQUEST_TIMEOUT_MS,
+  ): Promise<NativeTerminalSessionState> {
+    return this.#request(
+      "respawn-if-incarnation",
+      options,
+      timeoutMs,
     ) as Promise<NativeTerminalSessionState>;
   }
 

@@ -11,6 +11,11 @@ export const NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS = 256;
 export const NATIVE_TERMINAL_MAX_SESSIONS = 256;
 export const NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
 /**
+ * Soft child respawn may wait up to a bounded graceful-stop timeout plus
+ * SIGKILL escalation before spawning the replacement CLI inside the same PTY.
+ */
+export const NATIVE_TERMINAL_SOFT_RESPAWN_REQUEST_TIMEOUT_MS = 15_000;
+/**
  * Interactive replay reads may legitimately serialize a multi-megabyte
  * scrollback. Keep the short generic control timeout above, but give the
  * terminal-follow path its own budget before it reconnects and resumes.
@@ -57,7 +62,8 @@ export type NativeTerminalOperation =
   | "write"
   | "resize"
   | "stop"
-  | "stop-if-incarnation";
+  | "stop-if-incarnation"
+  | "respawn-if-incarnation";
 
 export type NativeTerminalRequest = Readonly<{
   version: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
@@ -89,9 +95,22 @@ export type NativeTerminalResponse =
 
 export type NativeTerminalPing = Readonly<{
   launchFence?: boolean;
+  softRespawn?: boolean;
   generation: string;
   hostPid: number;
   protocolVersion: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
+}>;
+
+export type NativeTerminalRespawnOptions = Readonly<{
+  id: string;
+  generation: string;
+  incarnation: string;
+  command: string;
+  args: ReadonlyArray<string>;
+  cwd: string;
+  env: Readonly<Record<string, string>>;
+  signal?: NativeTerminalStopSignal;
+  timeoutMs?: number;
 }>;
 
 export type NativeTerminalCreateParams = NativeTerminalCreateOptions;
@@ -187,6 +206,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "resize",
     "stop",
     "stop-if-incarnation",
+    "respawn-if-incarnation",
   ]);
   if (typeof value.operation !== "string" || !operations.has(value.operation)) {
     throw new TypeError("unknown terminal operation");
