@@ -10,6 +10,8 @@
 export interface BridgeCentralAdmissionDiagnosis {
   admitted: boolean;
   condition?: 1 | 2 | 3 | 4;
+  markerMissing?: boolean;
+  paused?: boolean;
   reason?: string;
   remediation?: string;
 }
@@ -109,6 +111,8 @@ export function diagnoseBridgeCentralAttachment(
         return {
           admitted: false,
           condition: 4,
+          markerMissing: true,
+          paused: true,
           reason: `condition 4 failed (central is paused by operator at ${pausePath}; missing central marker at ${markerPath})`,
           remediation: `resume central with: ${startCmd} (or ${statusCmd})`
         };
@@ -116,6 +120,8 @@ export function diagnoseBridgeCentralAttachment(
       return {
         admitted: false,
         condition: 4,
+        markerMissing: true,
+        paused: false,
         reason: `condition 4 failed (missing or unreadable central marker at ${markerPath})`,
         remediation: startRemedy
       };
