@@ -115,7 +115,11 @@ export function openCentralAttachment(
     sharedStore: store,
     ...(participant ? { participant } : {}),
     centralAttachment: true,
-    reclaimOnly: context.resume,
+    // Enforce reclaim-only once an identity was actually established on a prior
+    // generation. If the previous central died before identity_ready landed,
+    // participants.attach() still rebaselines ownership via context.resume while
+    // identity resolution is allowed to complete its initial mint/reclaim.
+    reclaimOnly: Boolean(context.resume && context.expectedInstance),
     expectedInstance: context.expectedInstance,
     signal: controller.signal,
     onServer(server) { mcp = server; participant?.bind(server); },

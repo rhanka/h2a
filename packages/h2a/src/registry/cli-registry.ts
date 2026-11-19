@@ -30,6 +30,7 @@ import {
   previewInstall,
   readInstallReceipt,
   rebootstrapMissingPluginLock,
+  refreshUpgradedPluginLock,
   resolveHostPluginContext,
   uninstallBridgeEntry,
   verifyPluginInstall
@@ -517,6 +518,7 @@ export function cmdHostedLock(argv: readonly string[], streams: CliStreams): num
 
 export interface BridgeServeDeps {
   memory?: MemoryProviderRegistration;
+  ensureCentral?: (paths: { runtimeBase?: string }) => Promise<unknown>;
   delegateServe: (flags: Record<string, string>, registry?: Pick<ComposeDaemonOptions, "lock" | "memory"> & { tools: ReturnType<McpServer["listTools"]> }) => Promise<number>;
 }
 
@@ -614,13 +616,48 @@ export async function cmdRegistryBridge(
   try {
     lock = readBridgeLock(lockPath, deps.memory?.entry);
   } catch (error) {
-    const errorCode = (error as { code?: string }).code ?? "missing_lock";
+    let activeError: unknown = error;
+    let errorCode = (activeError as { code?: string }).code ?? "missing_lock";
+    if (defaulted && flags["auto-upgrade"] === "true" && errorCode === "integrity_mismatch") {
+      const context = resolveHostPluginContext(host, profile, flags);
+      if (!context.error && context.pluginDir && existsSync(context.pluginDir)) {
+        try {
+          const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+          const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+          const refreshed = refreshUpgradedPluginLock({
+            host,
+            configPath: context.configPath ?? "",
+            profile,
+            pluginDir: context.pluginDir,
+            h2aEntry,
+            trackEntry,
+            ...(deps.memory?.entry ? { memoryEntry: deps.memory.entry } : {})
+          });
+          if (refreshed.refreshed) {
+            const priorLabel = refreshed.priorVersions?.join(", ") || "previous";
+            streams.stderr.write(
+              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})\n`
+            );
+            try {
+              lock = readBridgeLock(lockPath, deps.memory?.entry);
+              activeError = undefined;
+            } catch (rereadError) {
+              activeError = rereadError;
+              errorCode = (activeError as { code?: string }).code ?? "missing_lock";
+            }
+          }
+        } catch {
+          /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal */
+        }
+      }
+    }
+    if (!lock) {
     if (defaulted && errorCode === "missing_lock") {
       const context = resolveHostPluginContext(host, profile, flags);
       const effectiveConfigPath = rebootstrapConflictConfigPath ?? context.configPath;
       const quotedConfig = effectiveConfigPath ? quoteShellPath(effectiveConfigPath) : "<host-config>";
       const quotedPluginDir = context.pluginDir ? quoteShellPath(context.pluginDir) : "<plugin-dir>";
-      const strippedError = (error as Error).message.replace(/;\s*run h2a registry bootstrap install$/, "");
+      const strippedError = (activeError as Error).message.replace(/;\s*run h2a registry bootstrap install$/, "");
       const detail = rebootstrapError ? `${strippedError}; auto-rebootstrap refused: ${rebootstrapError}` : strippedError;
       const installCmd = `h2a registry bootstrap install --mechanism plugin --host ${host} --profile ${profile} --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
       const isReceiptConflict = Boolean(rebootstrapError && /duplicate mechanism/i.test(rebootstrapError));
@@ -644,7 +681,8 @@ export async function cmdRegistryBridge(
         `(${detail}); ${remedy}`
       );
     }
-    return refuse(errorCode, (error as Error).message);
+    return refuse(errorCode, (activeError as Error).message);
+    }
   }
   if (lock.host !== host || lock.profile !== profile) {
     return refuse("invalid_entry", `lock at ${lockPath} binds host=${lock.host} profile=${lock.profile}, not host=${host} profile=${profile}`);
@@ -660,7 +698,33 @@ export async function cmdRegistryBridge(
     // never an inferred server. Instance (sidecar) requests skip this
     // refusal and stay on stdio through the plain shim; the lane policy
     // admits them per connection, if at all.
-    const centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
+    let centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
+    if (
+      !centralDiagnosis.admitted &&
+      centralDiagnosis.condition === 4 &&
+      centralDiagnosis.markerMissing &&
+      !centralDiagnosis.paused &&
+      (flags["auto-open"] === "true" || flags["auto-upgrade"] === "true")
+    ) {
+      // An idle-stopped or mid-restart central leaves marker.json temporarily
+      // absent. Auto-start (or reuse via preclaim) instead of closing stdio
+      // with CONNECTION_CLOSED, while still refusing operator-paused centrals.
+      const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
+      try {
+        if (deps.ensureCentral) {
+          await deps.ensureCentral(paths);
+        } else {
+          const { ensureCentralForShim } = await import("../runtime/mcp-central-start.js");
+          await ensureCentralForShim(true, paths);
+        }
+        centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
+      } catch (autoStartError) {
+        centralDiagnosis = {
+          ...centralDiagnosis,
+          reason: `${centralDiagnosis.reason ?? "central admission failed"}; auto-start failed: ${(autoStartError as Error).message}`
+        };
+      }
+    }
     if (!centralDiagnosis.admitted) {
       // TODO(R5-CA): non-Claude adapters (gemini/codex/copilot/opencode/agents, ESC lanes).
       const adapter = (host as string) !== "claude" ? " (R5-CA owns non-Claude adapters)" : "";
@@ -728,11 +792,18 @@ export async function cmdRegistryBridge(
     } catch (error) {
       return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
     }
-    const { composeDaemonRegistry } = await import("./sentropic-daemon.js");
+    const { composeDaemonRegistryForServer } = await import("./sentropic-daemon.js");
     const root = streams.cwd?.() ?? process.cwd();
     let toolNames: string[];
     try {
-      const composed = await composeDaemonRegistry({ view: "combined", root, lock, memory: deps.memory });
+      // Preflight only verifies compiled tool membership; avoid instantiating a
+      // throwaway McpServer/LocalStore (and its consent-verification timer/log).
+      const composed = await composeDaemonRegistryForServer(
+        () => {
+          throw new Error("bridge_preflight_no_dispatch");
+        },
+        { view: "combined", root, lock, memory: deps.memory }
+      );
       toolNames = composed.toolNames();
       selectedTools = composed.tools();
     } catch (error) {
