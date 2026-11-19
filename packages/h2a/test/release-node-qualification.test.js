@@ -23,7 +23,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 
-import { m17Context } from "../../../scripts/m17-ci-evidence.mjs";
+import { m17Context, verifyProofContext } from "../../../scripts/m17-ci-evidence.mjs";
+import { bulkContext } from "../../../scripts/bulk-ci-evidence.mjs";
 import { SHARD_COUNT } from "../../../scripts/ci-node-shards.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -143,8 +144,8 @@ test("node-qualification.yml reuses the ci producer graph at the gated release S
     assert.equal(checkout.with["fetch-depth"], 0, `${id} needs the full tree the ci producers use`);
     const setups = job.steps.filter((step) => String(step.uses ?? "").startsWith("actions/setup-node"));
     assert.equal(setups.length, 1, `${id} must carry exactly one setup-node`);
-    assert.equal(setups[0].with["node-version"], "${{ matrix.node }}",
-      `${id} floats the matrix link like verify; a hard pin drifts from the importing leg (owner decision pending)`);
+    assert.equal(setups[0].with["node-version"], "${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}",
+      `${id} must pin exact Node versions from inputs matching verify and ci.yml; floating matrix.node drifts across runner images`);
   }
   const m17 = wf.jobs["m17-qualification"];
   assert.equal(m17.needs, undefined, "the M17 producer has no upstream dependency beyond the SHA");
@@ -254,4 +255,95 @@ test("m17Context accepts the release workflow behind the pinned SHA and rejects 
     "an override that disagrees with the checkout must fail closed");
   // ci keeps its default contract: PR merge checkout, no override needed.
   assert.equal(m17Context(REPO_ROOT, { ...base, GITHUB_WORKFLOW: "ci", GITHUB_SHA: head }).sha, head);
+});
+
+function assertReleaseNodePins(ciWorkflow, releaseWorkflow, qualificationWorkflow) {
+  const pin22 = ciWorkflow.env?.PIN_NODE_22;
+  const pin24 = ciWorkflow.env?.PIN_NODE_24;
+  assert.match(String(pin22 ?? ""), /^22\.\d+\.\d+$/, "ci.yml must pin an exact Node 22.x.y version");
+  assert.match(String(pin24 ?? ""), /^24\.\d+\.\d+$/, "ci.yml must pin an exact Node 24.x.y version");
+
+  const qualCall = releaseWorkflow.jobs["node-qualification"];
+  assert.equal(qualCall?.with?.["pin-node-22"], pin22,
+    "release.yml must pass ci.yml's exact PIN_NODE_22 to node-qualification.yml");
+  assert.equal(qualCall?.with?.["pin-node-24"], pin24,
+    "release.yml must pass ci.yml's exact PIN_NODE_24 to node-qualification.yml");
+
+  for (const inputName of ["pin-node-22", "pin-node-24"]) {
+    const input = qualificationWorkflow.on?.workflow_call?.inputs?.[inputName];
+    assert.equal(input?.required, true, `node-qualification.yml must require ${inputName}`);
+    assert.equal(input?.type, "string", `node-qualification.yml ${inputName} must be a string input`);
+  }
+
+  const expectedQualNode = "${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}";
+  for (const id of ["m17-qualification", "bulk-qualification", "node-shard"]) {
+    const setups = (qualificationWorkflow.jobs[id]?.steps ?? [])
+      .filter((step) => String(step.uses ?? "").startsWith("actions/setup-node"));
+    assert.equal(setups.length, 1, `${id} must carry exactly one setup-node`);
+    assert.equal(setups[0].with?.["node-version"], expectedQualNode,
+      `${id} must pin exact Node versions from inputs instead of floating matrix.node (run 44602999872 drift)`);
+  }
+
+  const expectedVerifyNode = `\${{ matrix.node == '24' && '${pin24}' || '${pin22}' }}`;
+  const verifySetups = (releaseWorkflow.jobs.verify?.steps ?? [])
+    .filter((step) => String(step.uses ?? "").startsWith("actions/setup-node"));
+  assert.equal(verifySetups.length, 1, "verify must carry exactly one setup-node");
+  assert.equal(verifySetups[0].with?.["node-version"], expectedVerifyNode,
+    "verify must resolve the exact same pinned Node 22/24 versions as node-qualification and ci.yml");
+}
+
+test("release.yml and node-qualification.yml pin the exact ci.yml Node versions on every proof-bound leg", () => {
+  const ci = readWorkflow("ci.yml");
+  const release = readWorkflow("release.yml");
+  const qualification = readWorkflow("node-qualification.yml");
+  assertReleaseNodePins(ci, release, qualification);
+
+  // Negative controls: floating matrix.node, single-leg fixed version, or
+  // producer/consumer pin drift must fail closed.
+  const floatingQual = structuredClone(qualification);
+  floatingQual.jobs["node-shard"].steps.find((s) => String(s.uses ?? "").startsWith("actions/setup-node")).with["node-version"] = "${{ matrix.node }}";
+  assert.throws(() => assertReleaseNodePins(ci, release, floatingQual), /floating matrix\.node/);
+
+  const floatingVerify = structuredClone(release);
+  floatingVerify.jobs.verify.steps.find((s) => String(s.uses ?? "").startsWith("actions/setup-node")).with["node-version"] = "${{ matrix.node }}";
+  assert.throws(() => assertReleaseNodePins(ci, floatingVerify, qualification), /pinned Node 22\/24/);
+
+  const singleLegVerify = structuredClone(release);
+  singleLegVerify.jobs.verify.steps.find((s) => String(s.uses ?? "").startsWith("actions/setup-node")).with["node-version"] = ci.env.PIN_NODE_22;
+  assert.throws(() => assertReleaseNodePins(ci, singleLegVerify, qualification), /pinned Node 22\/24/);
+
+  const driftedRelease = structuredClone(release);
+  driftedRelease.jobs["node-qualification"].with["pin-node-22"] = "22.23.5";
+  assert.throws(() => assertReleaseNodePins(ci, driftedRelease, qualification), /PIN_NODE_22/);
+});
+
+test("release proof provenance rejects patch-level Node drift between producer and shard (v0.98.11-rc.2)", () => {
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+  const env = {
+    GITHUB_ACTIONS: "true",
+    GITHUB_REPOSITORY: "rhanka/h2a",
+    GITHUB_WORKFLOW: "release",
+    GITHUB_RUN_ID: "44602999872",
+    GITHUB_RUN_ATTEMPT: "1",
+    H2A_TEST_EXPECTED_SHA: head,
+  };
+  const m17 = m17Context(REPO_ROOT, env);
+  const bulk = bulkContext(REPO_ROOT, env);
+
+  // Same exact Node version passes both M17 and bulk provenance checks.
+  assert.doesNotThrow(() =>
+    verifyProofContext({ ...m17, node: "v22.23.4" }, { ...m17, node: "v22.23.4" }, "M17 proof provenance/source inputs differ"));
+  assert.doesNotThrow(() =>
+    verifyProofContext({ ...bulk, node: "v24.22.1" }, { ...bulk, node: "v24.22.1" }, "bulk proof provenance/source inputs differ"));
+
+  // Patch drift (e.g. mixed ubuntu-24.04 runner images caching v22.23.4 vs
+  // v22.23.5 or v24.22.2 vs v24.22.3) fails closed on identical source inputs.
+  assert.throws(
+    () => verifyProofContext({ ...m17, node: "v24.22.2" }, { ...m17, node: "v24.22.3" }, "M17 proof provenance/source inputs differ"),
+    /M17 proof provenance\/source inputs differ/,
+  );
+  assert.throws(
+    () => verifyProofContext({ ...bulk, node: "v22.23.4" }, { ...bulk, node: "v22.23.5" }, "bulk proof provenance/source inputs differ"),
+    /bulk proof provenance\/source inputs differ/,
+  );
 });
