@@ -96,8 +96,81 @@ export function gatewayClientSessionId(clientSessionId?: string): string {
   return supplied || `local-${randomBytes(16).toString("hex")}`;
 }
 
+function parsePidHeader(headers: Headers): number | null {
+  const raw = headers.get("x-h2a-gateway-pid");
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+type ProbeRunningGatewayResult =
+  | { readonly ok: true; readonly pid: number | null; readonly baseUrl: string }
+  | { readonly ok: false; readonly portInUse: boolean };
+
+async function probeRunningGateway(
+  port: number,
+  timeoutMs = 1_500,
+): Promise<ProbeRunningGatewayResult> {
+  if (await listenerReleased(port)) {
+    return { ok: false, portInUse: false };
+  }
+  const baseUrl = `http://localhost:${port}`;
+  try {
+    let resp = await fetch(`${baseUrl}/readyz`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (resp.status === 404) {
+      resp = await fetch(`${baseUrl}/health`, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    }
+    if (!resp.ok) return { ok: false, portInUse: true };
+    return { ok: true, pid: parsePidHeader(resp.headers), baseUrl };
+  } catch {
+    return { ok: false, portInUse: true };
+  }
+}
+
+async function mintGatewaySessionToken(
+  baseUrl: string,
+  clientSessionId: string | undefined,
+  workspaceId: string,
+): Promise<string | null> {
+  try {
+    const sessionResp = await fetch(`${baseUrl}/v1/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: gatewayClientSessionId(clientSessionId),
+        clientSessionId,
+        workspaceId,
+      }),
+    });
+    if (!sessionResp.ok) return null;
+    const session = (await sessionResp.json()) as { gatewayToken?: string };
+    return typeof session.gatewayToken === "string" && session.gatewayToken
+      ? session.gatewayToken
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function loopbackPortFromBaseUrl(baseUrl: string): number | null {
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") return null;
+    const port = Number.parseInt(parsed.port || (parsed.protocol === "https:" ? "443" : "80"), 10);
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Start the llm-gateway as a detached background process.
+ * Detects and reuses an already running healthy gateway on the target port
+ * instead of spawning a duplicate that crashes with EADDRINUSE.
  * Returns the PID, port, and a gw-token for Claude Code.
  */
 export async function startGateway(
@@ -109,6 +182,38 @@ export async function startGateway(
   validateModelRewrites(config.modelRewrites);
   const port = config.port ?? 3002;
   const stateDir = opts.stateDir;
+  const baseUrl = `http://localhost:${port}`;
+
+  // Detect an already running gateway on this port before spawning a duplicate.
+  const existing = await probeRunningGateway(port);
+  if (existing.ok) {
+    const existingToken = await mintGatewaySessionToken(
+      existing.baseUrl,
+      opts.clientSessionId,
+      process.cwd(),
+    );
+    if (!existingToken) {
+      throw new Error(
+        `Port ${port} is already in use by another process (not a healthy h2a gateway)`,
+      );
+    }
+    const livePid = existing.pid ?? readGatewayPid(stateDir) ?? 0;
+    if (livePid > 0) {
+      mkdirSync(stateDir ?? sentropicDir(), { recursive: true });
+      writeFileSync(llmMeshPidPath(stateDir), String(livePid) + "\n");
+      writePrivateMetadata(llmMeshTokenPath(stateDir), {
+        baseUrl: existing.baseUrl,
+        pid: livePid,
+      });
+    }
+    return { pid: livePid, port, gatewayToken: existingToken };
+  }
+  if (existing.portInUse) {
+    throw new Error(
+      `Port ${port} is already in use by another process (not a healthy h2a gateway)`,
+    );
+  }
+
   // An explicitly isolated state root must not inherit a live gateway's log.
   const logFile = stateDir ? llmMeshLogPath(undefined, stateDir) : llmMeshLogPath(config);
   const gatewayScript = gatewayScriptPath();
@@ -140,14 +245,15 @@ export async function startGateway(
     env: gatewayEnv,
   });
   child.unref();
-  const pid = child.pid!;
+  const spawnedPid = child.pid!;
+
+  // Wait for the gateway to be ready and prefer the live listener's PID if a
+  // concurrent start raced and won the port.
+  const readyPid = await waitForHealthInternal(baseUrl, 10_000);
+  const pid = readyPid ?? spawnedPid;
 
   // Write PID file
   writeFileSync(llmMeshPidPath(stateDir), String(pid) + "\n");
-
-  // Wait for the gateway to be ready
-  const baseUrl = `http://localhost:${port}`;
-  await waitForHealth(baseUrl, 10_000);
 
   // Acquire a session token
   const sessionResp = await fetch(`${baseUrl}/v1/session`, {
@@ -176,16 +282,16 @@ export async function startGateway(
   return { pid, port, gatewayToken };
 }
 
-export async function waitForHealth(baseUrl: string, timeoutMs: number): Promise<void> {
+async function waitForHealthInternal(baseUrl: string, timeoutMs: number): Promise<number | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
       const resp = await fetch(`${baseUrl}/readyz`, { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
-      if (resp.ok) return;
+      if (resp.ok) return parsePidHeader(resp.headers);
       if (resp.status === 404) {
         process.stderr.write("[h2a] older daemon readiness fallback: /health (no /readyz endpoint)\n");
         const legacy = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
-        if (legacy.ok) return;
+        if (legacy.ok) return parsePidHeader(legacy.headers);
       }
     } catch {
       // not ready yet
@@ -193,6 +299,10 @@ export async function waitForHealth(baseUrl: string, timeoutMs: number): Promise
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`Gateway did not become ready within ${timeoutMs}ms`);
+}
+
+export async function waitForHealth(baseUrl: string, timeoutMs: number): Promise<void> {
+  await waitForHealthInternal(baseUrl, timeoutMs);
 }
 
 /** Read the running gateway's PID. Returns null if not running. */
@@ -244,13 +354,46 @@ export async function acquireLlmMeshSessionEnv(
       baseUrl = configuredGatewayBaseUrl(dir) ?? undefined;
       pid = readGatewayPid(dir) ?? undefined;
     }
-    if (!baseUrl || !pid) return null;
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return null;
+    let pidAlive = false;
+    if (baseUrl && pid) {
+      try {
+        process.kill(pid, 0);
+        pidAlive = true;
+      } catch {
+        pidAlive = false;
+      }
     }
     const workspaceId = dir ?? process.cwd();
+    if (!pidAlive) {
+      // Recover when the PID file is stale (e.g. from an earlier duplicate
+      // start) while a healthy gateway is still listening on the loopback port.
+      const fallbackBase = baseUrl ?? configuredGatewayBaseUrl(dir) ?? undefined;
+      const port = fallbackBase ? loopbackPortFromBaseUrl(fallbackBase) : null;
+      if (!port) return null;
+      const probe = await probeRunningGateway(port);
+      if (!probe.ok) return null;
+      const gatewayToken = await mintGatewaySessionToken(
+        probe.baseUrl,
+        clientSessionId,
+        workspaceId,
+      );
+      if (!gatewayToken) return null;
+      if (probe.pid) {
+        try {
+          writeFileSync(llmMeshPidPath(dir), String(probe.pid) + "\n");
+          writePrivateMetadata(llmMeshTokenPath(dir), {
+            baseUrl: probe.baseUrl,
+            pid: probe.pid,
+          });
+        } catch {
+          // Best-effort metadata repair
+        }
+      }
+      return {
+        ANTHROPIC_BASE_URL: probe.baseUrl,
+        ANTHROPIC_AUTH_TOKEN: gatewayToken,
+      };
+    }
     const sessionResp = await fetch(`${baseUrl}/v1/session`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -264,7 +407,7 @@ export async function acquireLlmMeshSessionEnv(
     const session = (await sessionResp.json()) as { gatewayToken?: string };
     if (!session.gatewayToken) return null;
     return {
-      ANTHROPIC_BASE_URL: baseUrl,
+      ANTHROPIC_BASE_URL: baseUrl!,
       ANTHROPIC_AUTH_TOKEN: session.gatewayToken,
     };
   } catch {
