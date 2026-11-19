@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { withWriterMutation } from "../handover/mutation.js";
 import {
   appendFileSync,
-  openSync, closeSync, fsyncSync,
+  openSync, closeSync, fstatSync, fsyncSync, readSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -511,13 +511,121 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }));
   }
 
+  // Derived append-only lookup cache for `instances.jsonl` when no on-disk
+  // launch index exists. Validated by (dev, ino, size, mtimeNs, ctimeNs);
+  // appends read only the new byte tail, while replacement/truncation/rewrite
+  // invalidates and rebuilds from `listInstances()`.
+  type InstanceIndexCache = {
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+    byId: Map<string, H2AActorRegistration>;
+  };
+  let instanceIndex: InstanceIndexCache | undefined;
+
+  function cloneInstance(reg: H2AActorRegistration): H2AActorRegistration {
+    return { ...reg, roles: [...reg.roles], scopes: [...reg.scopes] };
+  }
+
+  function normalizeInstance(reg: H2AActorRegistration): H2AActorRegistration {
+    return { ...reg, roles: toArray(reg.roles), scopes: toArray(reg.scopes) };
+  }
+
   function findInstance(id: string): H2AActorRegistration | undefined {
     const indexed = lookupLaunchRows<H2AActorRegistration>(paths.instances, "instances", launchLookupKey(id));
     if (indexed !== undefined) {
       const reg = indexed[0];
-      return reg ? { ...reg, roles: toArray(reg.roles), scopes: toArray(reg.scopes) } : undefined;
+      return reg ? normalizeInstance(reg) : undefined;
     }
-    return listInstances().find((entry) => entry.id === id);
+    const st = statSync(paths.instances, { bigint: true, throwIfNoEntry: false });
+    if (!st) {
+      instanceIndex = undefined;
+      return undefined;
+    }
+    if (instanceIndex && instanceIndex.dev === st.dev && instanceIndex.ino === st.ino) {
+      if (
+        instanceIndex.size === st.size &&
+        instanceIndex.mtimeNs === st.mtimeNs &&
+        instanceIndex.ctimeNs === st.ctimeNs
+      ) {
+        const hit = instanceIndex.byId.get(id);
+        return hit ? cloneInstance(hit) : undefined;
+      }
+      if (st.size > instanceIndex.size) {
+        let fd: number | undefined;
+        let tailed = false;
+        try {
+          fd = openSync(paths.instances, "r");
+          const fdStat = fstatSync(fd, { bigint: true });
+          if (
+            fdStat.dev === instanceIndex.dev &&
+            fdStat.ino === instanceIndex.ino &&
+            fdStat.size > instanceIndex.size
+          ) {
+            const start = Number(instanceIndex.size);
+            const length = Number(fdStat.size - instanceIndex.size);
+            if (Number.isSafeInteger(start) && Number.isSafeInteger(length) && length > 0) {
+              const buf = Buffer.allocUnsafe(length);
+              let read = 0;
+              while (read < length) {
+                const n = readSync(fd, buf, read, length - read, start + read);
+                if (n === 0) break;
+                read += n;
+              }
+              if (read === length && buf[length - 1] === 10) {
+                const lines = buf.toString("utf8").split("\n");
+                for (const line of lines) {
+                  if (line.length === 0) continue;
+                  const parsed = normalizeInstance(JSON.parse(line) as H2AActorRegistration);
+                  if (!instanceIndex.byId.has(parsed.id)) {
+                    instanceIndex.byId.set(parsed.id, parsed);
+                  }
+                }
+                instanceIndex.size = fdStat.size;
+                instanceIndex.mtimeNs = fdStat.mtimeNs;
+                instanceIndex.ctimeNs = fdStat.ctimeNs;
+                tailed = true;
+              }
+            }
+          }
+        } finally {
+          if (fd !== undefined) closeSync(fd);
+        }
+        if (tailed) {
+          const hit = instanceIndex.byId.get(id);
+          return hit ? cloneInstance(hit) : undefined;
+        }
+      }
+    }
+    instanceIndex = undefined;
+    const all = listInstances();
+    const after = statSync(paths.instances, { bigint: true, throwIfNoEntry: false });
+    if (
+      after &&
+      after.dev === st.dev &&
+      after.ino === st.ino &&
+      after.size === st.size &&
+      after.mtimeNs === st.mtimeNs &&
+      after.ctimeNs === st.ctimeNs
+    ) {
+      const byId = new Map<string, H2AActorRegistration>();
+      for (const entry of all) {
+        if (!byId.has(entry.id)) byId.set(entry.id, entry);
+      }
+      instanceIndex = {
+        dev: after.dev,
+        ino: after.ino,
+        size: after.size,
+        mtimeNs: after.mtimeNs,
+        ctimeNs: after.ctimeNs,
+        byId
+      };
+      const hit = byId.get(id);
+      return hit ? cloneInstance(hit) : undefined;
+    }
+    return all.find((entry) => entry.id === id);
   }
 
   function registerInstance(reg: H2AActorRegistration): void {

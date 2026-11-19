@@ -124,13 +124,63 @@ function dirBytes(dir: string): number {
   // without normalizing that same directory once per file.
   const prefix = dir + sep;
   for (const entry of readdirSync(dir)) {
-    try {
-      total += statSync(prefix + entry).size;
-    } catch {
-      /* a racing unlink is not a measurement failure */
-    }
+    const info = statSync(prefix + entry, { throwIfNoEntry: false });
+    if (info) total += info.size;
   }
   return total;
+}
+
+interface FileStamp {
+  readonly dev: bigint;
+  readonly ino: bigint;
+  readonly size: bigint;
+  readonly mtimeNs: bigint;
+  readonly ctimeNs: bigint;
+}
+
+interface CachedExpiry extends FileStamp {
+  readonly expiresAt: number;
+  gen: number;
+}
+
+interface ExpiredCandidate {
+  readonly ref: string;
+  readonly path: string;
+  readonly stamp: FileStamp;
+}
+
+function sameStamp(a: FileStamp, b: FileStamp): boolean {
+  return (
+    a.dev === b.dev &&
+    a.ino === b.ino &&
+    a.size === b.size &&
+    a.mtimeNs === b.mtimeNs &&
+    a.ctimeNs === b.ctimeNs
+  );
+}
+
+function readQuotaWatermark(path: string): bigint | undefined {
+  try {
+    const raw = readFileSync(path, "utf8").trim();
+    if (!/^\d+$/.test(raw)) return undefined;
+    return BigInt(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function writeQuotaWatermark(dir: string, path: string, value: bigint): void {
+  const tmp = join(dir, `.${randomBytes(8).toString("hex")}.quota.tmp`);
+  try {
+    writeFileSync(tmp, `${value}\n`, { mode: 0o600, flag: "wx" });
+    renameSync(tmp, path);
+  } catch {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best effort cleanup */
+    }
+  }
 }
 
 /**
@@ -140,16 +190,24 @@ function dirBytes(dir: string): number {
 export function createPayloadStore(root: string, scope: string = root): PayloadStore {
   const dir = join(root, "mcp-payloads");
   const prefix = dir + sep;
+  const watermarkPath = join(dir, ".quota-written");
   let lastSweepAt = Number.NEGATIVE_INFINITY;
   // Derived parsing cache only. Every sweep checks current inode/size/times;
   // expired records are always read again before deletion. No quota or read
   // authority is cached, and a restart simply performs a cold scan.
-  let liveExpiries = new Map<string, { stamp: string; expiresAt: number }>();
+  const liveExpiries = new Map<string, CachedExpiry>();
+  let sweepGen = 0;
 
-  function metadataStamp(path: string): string | undefined {
-    const info = lstatSync(path, { bigint: true });
-    if (!info.isFile()) return undefined;
-    return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+  function statFileStamp(path: string): FileStamp | undefined {
+    const info = lstatSync(path, { bigint: true, throwIfNoEntry: false });
+    if (!info || !info.isFile()) return undefined;
+    return {
+      dev: info.dev,
+      ino: info.ino,
+      size: info.size,
+      mtimeNs: info.mtimeNs,
+      ctimeNs: info.ctimeNs
+    };
   }
 
   function ensureDir(): void {
@@ -161,115 +219,211 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     }
   }
 
-  function sweepExpired(now: number = Date.now()): number {
-    if (!existsSync(dir)) return 0;
-    let removed = 0;
-    const nextExpiries = new Map<string, { stamp: string; expiresAt: number }>();
+  function scanExpired(now: number): { exists: boolean; candidates: ExpiredCandidate[] } {
+    if (!existsSync(dir)) return { exists: false, candidates: [] };
+    const candidates: ExpiredCandidate[] = [];
+    const gen = ++sweepGen;
     for (const entry of readdirSync(dir)) {
-      if (!entry.endsWith(".json")) continue;
-      const ref = entry.slice(0, -".json".length);
-      if (!REF_RE.test(ref)) continue;
+      if (entry.length !== 69 || entry.charCodeAt(64) !== 46 || !entry.endsWith(".json")) continue;
+      const ref = entry.slice(0, 64);
+      const cached = liveExpiries.get(ref);
+      if (!cached && !REF_RE.test(ref)) continue;
       try {
-        const path = prefix + entry, stamp = metadataStamp(path);
+        const path = prefix + entry;
+        const stamp = statFileStamp(path);
         if (!stamp) continue;
-        const cached = liveExpiries.get(ref);
-        if (cached?.stamp === stamp && cached.expiresAt > now) {
-          nextExpiries.set(ref, cached);
+        if (cached && sameStamp(cached, stamp) && cached.expiresAt > now) {
+          cached.gen = gen;
           continue;
         }
         const meta = JSON.parse(readFileSync(path, "utf8")) as PayloadMeta;
         // External replacement during the read cannot authorize deletion or
         // populate a cache entry for a different generation of the metadata.
-        if (metadataStamp(path) !== stamp) continue;
+        const after = statFileStamp(path);
+        if (!after || !sameStamp(stamp, after)) continue;
         const expiresAt = Date.parse(meta.expiresAt);
         if (expiresAt <= now) {
-          try {
-            unlinkSync(metaPath(dir, ref));
-          } catch {
-            /* already gone */
-          }
-          try {
-            unlinkSync(binPath(dir, ref));
-          } catch {
-            /* already gone */
-          }
-          removed += 1;
+          candidates.push({ ref, path, stamp });
         } else if (Number.isFinite(expiresAt)) {
-          nextExpiries.set(ref, { stamp, expiresAt });
+          liveExpiries.set(ref, { ...stamp, expiresAt, gen });
         }
       } catch {
         /* a corrupt meta is left for a human sweep, never live source data */
       }
     }
-    liveExpiries = nextExpiries;
+    for (const [key, entry] of liveExpiries) {
+      if (entry.gen !== gen) liveExpiries.delete(key);
+    }
+    return { exists: true, candidates };
+  }
+
+  function reapCandidates(candidates: ExpiredCandidate[], now: number): number {
+    let removed = 0;
+    for (const candidate of candidates) {
+      try {
+        const current = statFileStamp(candidate.path);
+        if (!current) {
+          liveExpiries.delete(candidate.ref);
+          continue;
+        }
+        if (!sameStamp(candidate.stamp, current)) {
+          // Revalidate if replaced between the unlocked scan and lock entry.
+          const meta = JSON.parse(readFileSync(candidate.path, "utf8")) as PayloadMeta;
+          const after = statFileStamp(candidate.path);
+          if (!after || !sameStamp(current, after)) continue;
+          const expiresAt = Date.parse(meta.expiresAt);
+          if (!(expiresAt <= now)) continue;
+        }
+        let unlinkedMeta = false;
+        try {
+          unlinkSync(candidate.path);
+          unlinkedMeta = true;
+        } catch {
+          /* already gone */
+        }
+        try {
+          unlinkSync(binPath(dir, candidate.ref));
+        } catch {
+          /* already gone */
+        }
+        liveExpiries.delete(candidate.ref);
+        if (unlinkedMeta) removed += 1;
+      } catch {
+        /* a corrupt meta is left for a human sweep, never live source data */
+      }
+    }
     lastSweepAt = performance.now();
     return removed;
   }
 
+  function sweepExpiredLocked(now: number = Date.now()): number {
+    const scanned = scanExpired(now);
+    if (!scanned.exists) return 0;
+    return reapCandidates(scanned.candidates, now);
+  }
+
+  function sweepExpired(now: number = Date.now()): number {
+    // Perform the read-only metadata scan outside the global writer mutation
+    // lock so concurrent processes scale across CPUs; revalidate and unlink
+    // under the lock so barriers and concurrent sweepers stay exact.
+    const scanned = scanExpired(now);
+    return withWriterMutation(root, "payloads", () => {
+      if (!scanned.exists) return 0;
+      return reapCandidates(scanned.candidates, now);
+    });
+  }
+
   function persistOutput(bytes: Buffer): PayloadRecoveryRef {
-    try {
-      ensureDir();
-    } catch (err) {
-      throw new PayloadStoreError(
-        "recovery_unavailable",
-        (err as NodeJS.ErrnoException).code ?? "mkdir_failed",
-        `cannot create payload store directory: ${(err as Error).message}`
-      );
-    }
-    // Avoid reparsing every expiry record for every output in a burst.
-    // Explicit maintenance is immediate; quota pressure always reclaims
-    // expired space before refusal. Reads still enforce the TTL themselves.
-    let used = 0;
-    try {
-      const swept = performance.now() - lastSweepAt >= AUTO_SWEEP_INTERVAL_MS;
-      if (swept) sweepExpired();
-      used = dirBytes(dir);
-      if (!swept && used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
-        sweepExpired();
-        used = dirBytes(dir);
+    // Read-only pre-scan outside the global writer mutation lock. Combined
+    // with the monotonic written-bytes watermark updated under the lock,
+    // preUsed + (w1 - w0) is a proven upper bound on current directory size
+    // against concurrent writers; near quota or without a valid watermark,
+    // the critical section falls back to an exact locked dirBytes() scan.
+    let preSweep: { exists: boolean; candidates: ExpiredCandidate[] } | undefined;
+    let preW0: bigint | undefined;
+    let preUsed: number | undefined;
+    if (existsSync(dir)) {
+      if (performance.now() - lastSweepAt >= AUTO_SWEEP_INTERVAL_MS) {
+        preSweep = scanExpired(Date.now());
       }
-    } catch {
-      used = 0;
-    }
-    if (used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
-      throw new PayloadStoreError(
-        "recovery_unavailable",
-        "quota_exceeded",
-        `payload store quota exceeded for ${dir}`
-      );
-    }
-    const ref = randomBytes(32).toString("hex");
-    const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-    const now = Date.now();
-    const meta: PayloadMeta = {
-      sha256,
-      totalBytes: bytes.length,
-      createdAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + PAYLOAD_TTL_MS).toISOString(),
-      scope
-    };
-    const tmpBin = binPath(dir, `.${ref}.tmp`);
-    const tmpMeta = metaPath(dir, `.${ref}.tmp`);
-    try {
-      writeFileSync(tmpBin, bytes, { mode: 0o600, flag: "wx" });
-      writeFileSync(tmpMeta, `${JSON.stringify(meta)}\n`, { mode: 0o600, flag: "wx" });
-      renameSync(tmpBin, binPath(dir, ref));
-      renameSync(tmpMeta, metaPath(dir, ref));
-    } catch (err) {
-      for (const p of [tmpBin, tmpMeta, binPath(dir, ref), metaPath(dir, ref)]) {
+      preW0 = readQuotaWatermark(watermarkPath);
+      if (preW0 !== undefined) {
         try {
-          unlinkSync(p);
+          preUsed = dirBytes(dir);
         } catch {
-          /* best effort cleanup of a half-written record */
+          preUsed = undefined;
         }
       }
-      throw new PayloadStoreError(
-        "recovery_unavailable",
-        (err as NodeJS.ErrnoException).code ?? "write_failed",
-        `cannot persist payload: ${(err as Error).message}`
-      );
     }
-    return { ref, sha256, totalBytes: bytes.length, expiresAt: meta.expiresAt };
+
+    return withWriterMutation(root, "payloads", () => {
+      try {
+        ensureDir();
+      } catch (err) {
+        throw new PayloadStoreError(
+          "recovery_unavailable",
+          (err as NodeJS.ErrnoException).code ?? "mkdir_failed",
+          `cannot create payload store directory: ${(err as Error).message}`
+        );
+      }
+      // Avoid reparsing every expiry record for every output in a burst.
+      // Explicit maintenance is immediate; quota pressure always reclaims
+      // expired space before refusal. Reads still enforce the TTL themselves.
+      let swept = false;
+      if (preSweep) {
+        if (preSweep.exists) reapCandidates(preSweep.candidates, Date.now());
+        swept = true;
+      } else if (performance.now() - lastSweepAt >= AUTO_SWEEP_INTERVAL_MS) {
+        sweepExpiredLocked();
+        swept = true;
+      }
+
+      const w1 = readQuotaWatermark(watermarkPath);
+      let quotaVerified = false;
+      if (preW0 !== undefined && w1 !== undefined && w1 >= preW0 && preUsed !== undefined) {
+        const delta = w1 - preW0;
+        if (
+          delta <= BigInt(PAYLOAD_ROOT_QUOTA_BYTES) &&
+          preUsed + Number(delta) + bytes.length <= PAYLOAD_ROOT_QUOTA_BYTES
+        ) {
+          quotaVerified = true;
+        }
+      }
+      if (!quotaVerified) {
+        let used = 0;
+        try {
+          used = dirBytes(dir);
+          if (!swept && used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
+            sweepExpiredLocked();
+            used = dirBytes(dir);
+          }
+        } catch {
+          used = 0;
+        }
+        if (used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
+          throw new PayloadStoreError(
+            "recovery_unavailable",
+            "quota_exceeded",
+            `payload store quota exceeded for ${dir}`
+          );
+        }
+      }
+      const ref = randomBytes(32).toString("hex");
+      const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+      const now = Date.now();
+      const meta: PayloadMeta = {
+        sha256,
+        totalBytes: bytes.length,
+        createdAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + PAYLOAD_TTL_MS).toISOString(),
+        scope
+      };
+      const metaText = `${JSON.stringify(meta)}\n`;
+      const tmpBin = binPath(dir, `.${ref}.tmp`);
+      const tmpMeta = metaPath(dir, `.${ref}.tmp`);
+      try {
+        writeFileSync(tmpBin, bytes, { mode: 0o600, flag: "wx" });
+        writeFileSync(tmpMeta, metaText, { mode: 0o600, flag: "wx" });
+        renameSync(tmpBin, binPath(dir, ref));
+        renameSync(tmpMeta, metaPath(dir, ref));
+      } catch (err) {
+        for (const p of [tmpBin, tmpMeta, binPath(dir, ref), metaPath(dir, ref)]) {
+          try {
+            unlinkSync(p);
+          } catch {
+            /* best effort cleanup of a half-written record */
+          }
+        }
+        throw new PayloadStoreError(
+          "recovery_unavailable",
+          (err as NodeJS.ErrnoException).code ?? "write_failed",
+          `cannot persist payload: ${(err as Error).message}`
+        );
+      }
+      const nextWatermark = (w1 ?? 0n) + BigInt(bytes.length + Buffer.byteLength(metaText));
+      writeQuotaWatermark(dir, watermarkPath, nextWatermark);
+      return { ref, sha256, totalBytes: bytes.length, expiresAt: meta.expiresAt };
+    });
   }
 
   function readMeta(ref: string): PayloadMeta | undefined {
@@ -355,7 +509,5 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     };
   }
 
-  return { scope, readPayload,
-    persistOutput: bytes => withWriterMutation(root, 'payloads', () => persistOutput(bytes)),
-    sweepExpired: now => withWriterMutation(root, 'payloads', () => sweepExpired(now)) };
+  return { scope, readPayload, persistOutput, sweepExpired };
 }
