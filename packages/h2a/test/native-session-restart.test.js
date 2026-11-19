@@ -7,6 +7,8 @@ import test from "node:test";
 
 import {
   executeNativeRestart,
+  formatNativeRestartTable,
+  NativeHostSoftRespawnUnsupportedError,
   NativeTerminalHost,
 } from "@sentropic/h2a-runtime";
 
@@ -47,6 +49,11 @@ test("should expose the exact restart CLI grammar in runtime help", () => {
   assert.match(result.stdout, /restart \[options\] \[session\]/);
   assert.match(result.stdout, /--all/);
   assert.match(result.stdout, /--gw <on\|off>/);
+  assert.match(result.stdout, /--soft/);
+  assert.match(result.stdout, /--allow-hard/);
+  assert.match(result.stdout, /--continue/);
+  assert.match(result.stdout, /--include-self/);
+  assert.match(result.stdout, /--dry-run/);
   assert.match(result.stdout, /--relaunch-mcp <name>/);
 });
 
@@ -271,6 +278,161 @@ test("should fence an attached CLI stop and leave its native sidecar untouched",
     assert.deepEqual(ptys.get("h2a-alpha").signals, ["SIGTERM"]);
     assert.deepEqual(ptys.get("h2a-alpha.h2a").signals, []);
     assert.equal(host.state("h2a-alpha.h2a").status, "running");
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("should preserve PTY incarnation, controller lease, and scrollback across --soft restart and skip non-gateway hosts", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "h2a-restart-soft-"));
+  const spawned = [];
+  let nextPid = 75_000;
+  const spawner = (options) => {
+    const pid = nextPid++;
+    const dataHandlers = new Set();
+    const exitHandlers = new Set();
+    let exited = false;
+    const pty = {
+      pid,
+      pgid: pid,
+      cols: options.cols,
+      rows: options.rows,
+      options,
+      signals: [],
+      writes: [],
+      write(data) {
+        pty.writes.push(data);
+      },
+      resize() {},
+      kill(signal) {
+        pty.signals.push(signal);
+        queueMicrotask(() => {
+          if (exited) return;
+          exited = true;
+          for (const handler of [...exitHandlers]) handler({ exitCode: 0, signal: 15 });
+        });
+      },
+      onData(handler) {
+        dataHandlers.add(handler);
+        return { dispose: () => dataHandlers.delete(handler) };
+      },
+      onExit(handler) {
+        exitHandlers.add(handler);
+        return { dispose: () => exitHandlers.delete(handler) };
+      },
+      emitData(chunk) {
+        for (const handler of [...dataHandlers]) handler(chunk);
+      },
+    };
+    spawned.push(pty);
+    return pty;
+  };
+
+  try {
+    const host = new NativeTerminalHost({
+      generation: "soft-host-gen",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath: join(scratch, "registry.json"),
+      readLeaderStartTime: () => 456,
+    });
+    const created = host.create({
+      id: "h2a-alpha",
+      command: "claude",
+      args: ["--resume", "conv-alpha"],
+      cwd: scratch,
+      env: {},
+      cols: 100,
+      rows: 30,
+    });
+    const lease = host.acquireController("h2a-alpha", "attached-window", "human");
+    spawned[0].emitData("existing-scrollback\n");
+
+    const result = await executeNativeRestart(
+      { all: true, gateway: "on", soft: true },
+      {
+        listSessions: () => [
+          session("alpha", { profile: "claude", gatewayMode: "direct" }),
+          session("codex-worker", { profile: "codex" }),
+        ],
+        snapshot: (candidate) =>
+          candidate.id === "alpha"
+            ? {
+                state: "live",
+                generation: created.generation,
+                incarnation: created.incarnation,
+                controlled: true,
+                pid: created.pid,
+              }
+            : live(candidate.id),
+        checkGatewayModels: async () => {},
+        prepare: () => ({
+          env: {
+            ANTHROPIC_BASE_URL: "http://127.0.0.1:41234",
+            ANTHROPIC_AUTH_TOKEN: "fresh-per-session-token",
+          },
+        }),
+        softRestart: async (candidate, snapshot, _mode, prepared) => {
+          const after = await host.respawnIfIncarnation({
+            id: candidate.name,
+            generation: snapshot.generation,
+            incarnation: snapshot.incarnation,
+            command: "claude",
+            args: ["--resume", candidate.convId],
+            cwd: scratch,
+            env: prepared.env,
+          });
+          spawned[1].emitData("new-child-ready\n");
+          return after;
+        },
+        restart: () => {
+          throw new Error("soft restart must not call hard restart");
+        },
+        healthCheck: () => ({ ok: true }),
+        drive: () => "driven",
+      },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(host.state("h2a-alpha").incarnation, created.incarnation);
+    assert.equal(host.state("h2a-alpha").controllerEpoch, lease.epoch);
+    assert.notEqual(host.state("h2a-alpha").pid, created.pid);
+    assert.equal(spawned[1].options.env.ANTHROPIC_BASE_URL, "http://127.0.0.1:41234");
+    assert.equal(spawned[1].options.env.ANTHROPIC_AUTH_TOKEN, "fresh-per-session-token");
+    const replayText = host.readOutput("h2a-alpha", 0).chunks.map((c) => c.data).join("");
+    assert.match(replayText, /existing-scrollback/);
+    assert.match(replayText, /new-child-ready/);
+    host.write(lease, "still-attached\r");
+    assert.deepEqual(spawned[1].writes, ["still-attached\r"]);
+
+    const table = formatNativeRestartTable(result);
+    assert.match(table, /alpha/);
+    assert.match(table, /off → on/);
+    assert.match(table, /codex-worker/);
+    assert.match(table, /no-gateway-lever/);
+    assert.doesNotMatch(table, /fresh-per-session-token/);
+
+    // Verify named error refusal on old host
+    const refused = await executeNativeRestart(
+      { target: "alpha", soft: true },
+      {
+        listSessions: () => [session("alpha")],
+        snapshot: () => live("alpha"),
+        prepare: () => ({}),
+        softRestart: () => {
+          throw new NativeHostSoftRespawnUnsupportedError({
+            generation: "old-gen",
+            socketPath: "/run/fake/old.sock",
+          });
+        },
+        restart: () => {
+          throw new Error("must not fall back without --allow-hard");
+        },
+        drive: () => "driven",
+      },
+    );
+    assert.equal(refused.ok, false);
+    assert.equal(refused.sessions[0].failure, "host-soft-restart-unsupported");
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
