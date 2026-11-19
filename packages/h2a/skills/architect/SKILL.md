@@ -42,7 +42,7 @@ repo decides.
 
 ## Vocabulary (archi@1)
 
-| Kind | Forms (required when listed) | Exclusive test |
+| Kind | Forms (required, optional for actor) | Exclusive test |
 |---|---|---|
 | actor | human, agent, team, org | who uses, owns or operates (no role needed) |
 | system | — (container) | a product |
@@ -70,7 +70,8 @@ Every kind but actor needs `role` (≤ 400 characters); every record needs
 | providesApi | runtime, service → api | `rel` |
 | deployedAs | package → runtime, service | `edge` |
 | dependsOn | package → package | `edge` |
-| executedBy / loadedBy | package → runtime (`edge`); component / artifact → runtime (`rel`) | see left |
+| executedBy | package, component → runtime | `edge` from a package, `rel` from a component |
+| loadedBy | package, artifact → runtime | `edge` from a package, `rel` from an artifact |
 | invokes | runtime → runtime; `trigger` hook\|poll\|mcp-stdio\|command\|schedule | `edge` |
 | consumesApi | runtime, service, actor → api | `edge` |
 | accesses | runtime, service, component → store; `mode` read\|append\|write | `edge`, but `rel` for read or a single-writer store |
@@ -133,7 +134,8 @@ e_rt_cli -->|"calls · HTTP"| e_api_http
 %% @dl expanded e_sys_notes
 ```
 
-- Ids: entity `e_<a-z0-9_>`, relation and view `<a-z0-9->`; names are quoted.
+- Ids (≤ 40 characters after the prefix): entity `e_` + a letter + `[a-z0-9_]`;
+  relation and view a letter + `[a-z0-9-]`. Names are quoted.
 - A `subgraph` means `partOf` only. Other trees (`runsOn`, `managedIn`) are
   `rel` lines; a view picks its tree: `archi-composition`, `archi-source`,
   `archi-deployment` or `archi-dossier-hosts`.
