@@ -22,8 +22,17 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSy
 import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { replaceJsonEntry } from "../hosts/json-entry.js";
-import { RegistryError, type RegistryEntry } from "./descriptors.js";
 import {
+  canonicalJson,
+  digestDescriptor,
+  normalizeConfiguration,
+  RegistryError,
+  sha256Hex,
+  validateRegistryEntry,
+  type RegistryEntry
+} from "./descriptors.js";
+import {
+  BRIDGE_LOCK_FORMAT,
   defaultPluginBridgeLockPath,
   findVerifiedPluginVersionDir,
   isBridgeLockLive,
@@ -33,7 +42,8 @@ import {
   readBridgeLock,
   resolveClaudeConfigPath,
   resolveClaudeConfigRoot,
-  resolveCodexConfigRoot
+  resolveCodexConfigRoot,
+  type BridgeLock
 } from "./bridge-lock.js";
 import {
   isBridgeServer as isCodexBridgeServer,
@@ -1725,6 +1735,249 @@ export function rebootstrapMissingPluginLock(options: PluginInstallOptions): {
     trackEntry: options.trackEntry
   }).action;
   return { lockPath, lockAction };
+}
+
+function collectTrustedPluginUpgradeMetadata(
+  host: "claude" | "codex",
+  profile: string,
+  declaration: PluginDeclaration,
+  configPath?: string
+): { versions: Set<string>; cachedEntriesById: Map<string, Set<string>> } {
+  const versions = new Set<string>();
+  const cachedEntriesById = new Map<string, Set<string>>();
+  if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0) {
+    versions.add(declaration.pluginVersion);
+  }
+  const addCachedEntriesFromDir = (pluginDir: string): void => {
+    const entriesPath = join(pluginDir, "registry", "entries.v1.json");
+    if (!existsSync(entriesPath)) return;
+    try {
+      const parsed = JSON.parse(readFileSync(entriesPath, "utf8")) as { entries?: unknown };
+      if (!Array.isArray(parsed?.entries)) return;
+      for (const rawEntry of parsed.entries) {
+        if (!isPlainObject(rawEntry) || typeof rawEntry["id"] !== "string") continue;
+        try {
+          const digest = digestDescriptor(rawEntry as unknown as RegistryEntry);
+          let set = cachedEntriesById.get(rawEntry["id"]);
+          if (!set) {
+            set = new Set<string>();
+            cachedEntriesById.set(rawEntry["id"], set);
+          }
+          set.add(digest);
+        } catch {
+          /* ignore invalid cached descriptor */
+        }
+      }
+    } catch {
+      /* ignore unreadable cached entries */
+    }
+  };
+  addCachedEntriesFromDir(dirname(dirname(declaration.manifestPath)));
+  if (configPath) {
+    const receipt = readInstallReceipt(configPath);
+    if (
+      receipt &&
+      receipt["mechanism"] === "plugin" &&
+      receipt["host"] === host &&
+      (receipt["profile"] ?? "default") === profile &&
+      isPlainObject(receipt["plugin"]) &&
+      typeof receipt["plugin"]["version"] === "string" &&
+      receipt["plugin"]["version"].length > 0
+    ) {
+      versions.add(receipt["plugin"]["version"]);
+    }
+  }
+  const home = process.env.HOME?.trim();
+  if (home && isAbsolute(home)) {
+    const hostRoot = host === "claude" ? resolveClaudeConfigRoot(home) : resolveCodexConfigRoot(home);
+    const cacheBase = join(hostRoot, "plugins", "cache", "sentropic", "h2a");
+    try {
+      for (const entry of readdirSync(cacheBase)) {
+        const candidateDir = join(cacheBase, entry);
+        try {
+          if (!statSync(candidateDir).isDirectory()) continue;
+          const sibling = readPluginDeclaration(host, candidateDir, profile);
+          if (typeof sibling.pluginVersion === "string" && sibling.pluginVersion.length > 0) {
+            versions.add(sibling.pluginVersion);
+          }
+          addCachedEntriesFromDir(candidateDir);
+        } catch {
+          /* ignore unverified cache directory */
+        }
+      }
+    } catch {
+      /* cache dir absent */
+    }
+  }
+  return { versions, cachedEntriesById };
+}
+
+/**
+ * Cryptographically verified in-place refresh of a default plugin bridge lock
+ * after a global `h2a` package version upgrade (e.g. 0.98.10 → 0.98.11) when
+ * invoked via `registry-bridge serve --auto-upgrade`.
+ *
+ * Security invariant: tampered or corrupt locks MUST fail closed. This helper
+ * ONLY refreshes `lockPath` when:
+ * - the existing lock is structurally valid (`h2a.registry-bridge-lock/v1`)
+ *   and binds the exact `host` and `profile`;
+ * - the host config & receipt pass the exact same conflict guards as
+ *   `rebootstrapMissingPluginLock` (never writes host config, receipt, or
+ *   `~/.local/bin/h2a`);
+ * - every entry's `configDigest` still matches the normalized configuration;
+ * - every drifted entry digest cryptographically matches either the packed
+ *   entry with `publisher.packageVersion` set to a trusted on-disk plugin
+ *   version (verified plugin cache or plugin install receipt) or a verified
+ *   cached `registry/entries.v1.json` entry.
+ *
+ * Any tampered digest (arbitrary hash, modified config, or unknown source)
+ * returns `{ refreshed: false }` without modifying a single byte of `lockPath`.
+ */
+export function refreshUpgradedPluginLock(
+  options: PluginInstallOptions & { memoryEntry?: RegistryEntry }
+): { refreshed: boolean; lockPath: string; priorVersions?: string[] } {
+  assertRegistryHost(options.host);
+  if (options.host !== "claude" && options.host !== "codex") {
+    return { refreshed: false, lockPath: "" };
+  }
+  const profile = options.profile ?? "default";
+  const lockPath = defaultPluginBridgeLockPath(options.host, profile);
+  if (!options.pluginDir || !options.h2aEntry || !options.trackEntry || !existsSync(lockPath)) {
+    return { refreshed: false, lockPath };
+  }
+  const declaration = readPluginDeclaration(options.host, options.pluginDir, profile);
+  if (options.configPath) {
+    assertCleanHostConfigForPluginRebootstrap(options.host, options.configPath, profile);
+  }
+  if (options.host === "claude") {
+    try {
+      const secondaryClaudeConfig = join(pluginBridgeConfigBase(), "claude", "mcp.json");
+      if (!options.configPath || resolve(secondaryClaudeConfig) !== resolve(options.configPath)) {
+        assertCleanHostConfigForPluginRebootstrap("claude", secondaryClaudeConfig, profile);
+      }
+    } catch (err) {
+      if (err instanceof RegistryError) throw err;
+    }
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(lockPath, "utf8")) as unknown;
+  } catch {
+    return { refreshed: false, lockPath };
+  }
+  if (!isPlainObject(parsed) || parsed["format"] !== BRIDGE_LOCK_FORMAT) {
+    return { refreshed: false, lockPath };
+  }
+  const existing = parsed as unknown as BridgeLock;
+  if (
+    existing.lockVersion !== 1 ||
+    existing.host !== options.host ||
+    existing.profile !== profile ||
+    !Array.isArray(existing.selection) ||
+    existing.selection.length === 0 ||
+    !isPlainObject(existing.entries) ||
+    !isPlainObject(existing.compatibility)
+  ) {
+    return { refreshed: false, lockPath };
+  }
+
+  const known = new Map<string, RegistryEntry>([
+    [options.h2aEntry.id, options.h2aEntry],
+    [options.trackEntry.id, options.trackEntry],
+    ...(options.memoryEntry ? [[options.memoryEntry.id, options.memoryEntry] as const] : [])
+  ]);
+  const { versions: trustedVersions, cachedEntriesById } = collectTrustedPluginUpgradeMetadata(
+    options.host,
+    profile,
+    declaration,
+    options.configPath || undefined
+  );
+
+  const seen = new Set<string>();
+  const matchedPriorVersions = new Set<string>();
+  const refreshedEntries: BridgeLock["entries"] = {};
+  let anyDrifted = false;
+
+  for (const selected of existing.selection) {
+    if (!isPlainObject(selected) || typeof selected.id !== "string") return { refreshed: false, lockPath };
+    if (seen.has(selected.id)) return { refreshed: false, lockPath };
+    seen.add(selected.id);
+    const packed = known.get(selected.id);
+    if (!packed || selected.kind !== packed.kind || selected.entryVersion !== packed.entryVersion) {
+      return { refreshed: false, lockPath };
+    }
+    const record = existing.entries[selected.id];
+    if (!isPlainObject(record) || typeof record["digest"] !== "string" || !isPlainObject(record["config"])) {
+      return { refreshed: false, lockPath };
+    }
+    let currentDigest: string;
+    let expectedConfigDigest: string;
+    try {
+      currentDigest = validateRegistryEntry(packed).digest;
+      const normalized = normalizeConfiguration(packed, record["config"]);
+      expectedConfigDigest = sha256Hex(canonicalJson(normalized));
+    } catch {
+      return { refreshed: false, lockPath };
+    }
+    if (record["configDigest"] !== expectedConfigDigest) {
+      return { refreshed: false, lockPath };
+    }
+    if (record["digest"] !== currentDigest) {
+      let proven = false;
+      for (const candidateVersion of trustedVersions) {
+        if (candidateVersion === packed.publisher.packageVersion) continue;
+        try {
+          const priorDigest = digestDescriptor({
+            ...packed,
+            publisher: { ...packed.publisher, packageVersion: candidateVersion }
+          });
+          if (record["digest"] === priorDigest) {
+            proven = true;
+            matchedPriorVersions.add(candidateVersion);
+            break;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!proven && cachedEntriesById.get(selected.id)?.has(record["digest"])) {
+        proven = true;
+        if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0) {
+          matchedPriorVersions.add(declaration.pluginVersion);
+        }
+      }
+      if (!proven) return { refreshed: false, lockPath };
+      anyDrifted = true;
+    }
+    refreshedEntries[selected.id] = {
+      digest: currentDigest,
+      config: record["config"] as Record<string, unknown>,
+      configDigest: expectedConfigDigest
+    };
+  }
+  if (!anyDrifted || Object.keys(existing.entries).some((id) => !seen.has(id))) {
+    return { refreshed: false, lockPath };
+  }
+
+  const refreshed: BridgeLock = {
+    ...existing,
+    entries: refreshedEntries
+  };
+  mkdirSync(dirname(lockPath), { recursive: true });
+  const tmpPath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
+  writeFileSync(tmpPath, `${JSON.stringify(refreshed, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  try {
+    renameSync(tmpPath, lockPath);
+  } catch (err) {
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+  return { refreshed: true, lockPath, priorVersions: [...matchedPriorVersions] };
 }
 
 /**
