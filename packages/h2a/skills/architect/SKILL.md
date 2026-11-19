@@ -88,6 +88,22 @@ repo has `ownedBy`; any other non-actor has a repo (`managedIn` on it or an
 ancestor) or `ownedBy`. `executedBy` needs its package (or a dependency) to
 be `deployedAs` that runtime.
 
+Texts: `name` is the referent's own name, `shortName` (≤ 40) the display
+title when it differs, `role` what it does. Keep the source wording.
+
+## When a fact is missing
+
+- A required owner, operator or repo that no source states: link to one
+  actor named `unverified` (evidence `missing source: …`), keep it out of
+  every view's `draw`, and list each link as an owner question. Never pick an
+  owner.
+- A required enum the source does not state (`writerPolicy`, `access`,
+  `mode`): record the value chosen and why in the gap report.
+- A container the vocabulary cannot nest (a free zone, a host inside a host,
+  a repo inside a forge): drop the container, keep its members, carry the
+  grouping with `group`/`order`, and list it. A kind chosen only to keep a
+  nesting is listed as a compromise.
+
 ## File shape
 
 ```
