@@ -161,7 +161,7 @@ test("usage errors exit 2 and an unavailable engram exits 3 with the build hint"
   assert.match(r.stderr, /--engram-dist/);
 });
 
-// A stand-in for `engram archi check|fmt` (contract: check --json, fmt --check|--write) built on the same library.
+// A stand-in for `engram archi check <f.mmd> [--json] [--allow-gap]` and `engram archi fmt <f.mmd> [--write|--check]` built on the same library.
 function fakeEngramCli(t) {
   const bin = join(lane(t), "bin");
   mkdirSync(bin);
@@ -174,20 +174,34 @@ function fakeEngramCli(t) {
   const a = await import(${JSON.stringify(url("archi.js"))});
   const [cmd, sub, ...rest] = process.argv.slice(2);
   if (cmd === "--version") return console.log("0.0.0-test");
-  if (cmd !== "archi") process.exit(1);
-  if (sub === "--help") return console.log("Commands:\\n  check [file]\\n  fmt [file]");
-  const file = rest.find((x) => !x.startsWith("--"));
+  if (cmd !== "archi") process.exit(2);
+  if (sub === "--help") return console.log("Commands:\\n  check <f.mmd> [--json] [--allow-gap]\\n  fmt <f.mmd> [--write|--check]");
+  const [file, ...flags] = rest;
+  if (!file || file.startsWith("-")) { console.error("expected <f.mmd> before flags"); process.exit(2); }
   const text = fs.readFileSync(file, "utf8");
   if (sub === "check") {
+    const allowed = new Set(["--json", "--allow-gap"]);
+    for (const flag of flags) if (!allowed.has(flag)) { console.error("unknown flag " + flag); process.exit(2); }
     const p = m.parseArchiMermaid(text, { subjectRef: file });
-    const diagnostics = p.ok ? a.checkArchi(p.value.document, { labels: a.ARCHI_CARDS_CONTENT.labels }, p.value.manifest.language) : p.diagnostics;
-    console.log(JSON.stringify({ ok: diagnostics.length === 0, file, diagnostics }));
+    const diagnostics = p.ok ? [...a.checkArchi(p.value.document, { labels: a.ARCHI_CARDS_CONTENT.labels }, p.value.manifest.language)] : [...p.diagnostics];
+    if (p.ok && !flags.includes("--allow-gap") && /^%%\\s*@dl\\s+gap(\\s|$)/m.test(text)) {
+      diagnostics.push({ code: "archi-gap-forbidden", severity: "error", message: "@dl gap forbidden", path: "" });
+    }
+    if (flags.includes("--json")) console.log(JSON.stringify({ ok: diagnostics.length === 0, file, diagnostics }));
     process.exit(diagnostics.length ? 1 : 0);
   }
-  const f = m.formatArchiMermaid(text, { subjectRef: file });
-  if (!f.ok) process.exit(1);
-  if (rest.includes("--check")) process.exit(f.value === text ? 0 : 1);
-  if (rest.includes("--write")) fs.writeFileSync(file, f.value);
+  if (sub === "fmt") {
+    const allowed = new Set(["--write", "--check"]);
+    for (const flag of flags) if (!allowed.has(flag)) { console.error("unknown flag " + flag); process.exit(2); }
+    if (flags.includes("--write") && flags.includes("--check")) { console.error("--write and --check are mutually exclusive"); process.exit(2); }
+    const f = m.formatArchiMermaid(text, { subjectRef: file });
+    if (!f.ok) process.exit(1);
+    if (flags.includes("--check")) process.exit(f.value === text ? 0 : 1);
+    if (flags.includes("--write")) fs.writeFileSync(file, f.value);
+    else process.stdout.write(f.value);
+    process.exit(0);
+  }
+  process.exit(2);
 })();
 `);
   chmodSync(join(bin, "engram"), 0o755);
@@ -205,6 +219,14 @@ test("the engram CLI is used for check and fmt when it is on PATH", (t) => {
   assert.deepEqual(codesOf(verb, "semantic"), ["archi-edge-verb"]);
   const unformatted = checkText(t, STAGE_MUTANTS[0][2](BASE), [], env);
   assert.equal(statusOf(unformatted).canonical, "fail");
+  const rewritten = checkText(t, STAGE_MUTANTS[0][2](BASE), ["--write"], env);
+  assert.equal(rewritten.status, 0, rewritten.stdout + rewritten.stderr);
+  assert.equal(rewritten.json().written, true);
+  assert.equal(readFileSync(rewritten.file, "utf8"), BASE);
+  const gap = checkText(t, FORBIDDEN["@dl gap"](BASE), [], env);
+  assert.equal(gap.status, 1);
+  assert.equal(statusOf(gap).forbidden, "fail");
+  assert.equal(statusOf(gap).semantic, "pass");
   const cliOnly = checkText(t, BASE, ["--engram", "cli"], env);
   assert.equal(cliOnly.status, 0, cliOnly.stdout);
   assert.equal(cliOnly.json().complete, false);
@@ -230,6 +252,9 @@ test("the skill ships SKILL.md and the checker only, with a matching name", () =
   assert.equal(front[1], "architect");
   for (const trigger of ["architecture diagram", "schéma d'archi", "mermaid engram"]) assert.ok(front[2].includes(trigger), trigger);
   assert.match(skill, /DS renderer: pending/);
+  assert.ok(skill.includes("engram archi check <f.mmd> [--json] [--allow-gap]"));
+  assert.ok(skill.includes("engram archi fmt <f.mmd> [--write|--check]"));
+  assert.ok(!skill.includes("--manifest"));
 });
 
 test("the checker imports Node built-ins only and never vendors engram", () => {
