@@ -1,5 +1,5 @@
 import { r as json } from "../../../../../chunks/exports.js";
-import { i as resolveTarget, n as repoIdentity, r as repoRoot } from "../../../../../chunks/h2a-bus.js";
+import { a as resolveTarget, i as repoRoot, r as repoIdentity } from "../../../../../chunks/h2a-bus.js";
 // src/routes/api/h2a/targets/+server.ts
 var GET = async () => {
 	const root = repoRoot();

@@ -1,6 +1,6 @@
 import { r as json } from "../../../../../../chunks/exports.js";
 import { n as findAgentMemoryDecision, r as findAgentMemoryOption, t as agentMemoryDossier } from "../../../../../../chunks/agent-memory-dossier.js";
-import { i as resolveTarget, r as repoRoot, t as putEnvelope } from "../../../../../../chunks/h2a-bus.js";
+import { a as resolveTarget, i as repoRoot, n as putEnvelope } from "../../../../../../chunks/h2a-bus.js";
 // src/routes/api/dossiers/agent-memory/include/+server.ts
 /** A note longer than this is not reasoning, it is a paste accident — refuse rather than flood an inbox. */
 var NOTE_MAX = 8e3;
