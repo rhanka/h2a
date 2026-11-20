@@ -1999,7 +1999,7 @@ function redirect_response(status, location) {
 * @param {Response} response
 */
 function with_version_header(response) {
-	response.headers.set("x-sveltekit-version", "h2a-focus-2cd53b38d5454be2");
+	response.headers.set("x-sveltekit-version", "h2a-focus-d2582b3d5626ad6f");
 	return response;
 }
 /**

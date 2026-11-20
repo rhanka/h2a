@@ -1,4 +1,4 @@
-import { a as derived, c as head, h as attr, p as html } from "../../chunks/server2.js";
+import { _ as attr, a as derived, c as head, p as html } from "../../chunks/server2.js";
 // node_modules/@sentropic/design-system-tokens/dist/foundation.js
 var foundation = {
 	color: {
@@ -59,7 +59,7 @@ var foundation = {
 		fast: "120ms",
 		normal: "180ms",
 		slow: "280ms",
-		easing: "cubic-bezier(0.4, 0, 0.2, 1)"
+		easing: "cubic-bezier(0.16, 1, 0.3, 1)"
 	},
 	z: {
 		header: 50,
@@ -147,7 +147,7 @@ var foundation = {
 	transition: {
 		property: "background-color, border-color, color, box-shadow, outline-color",
 		duration: "120ms",
-		easing: "cubic-bezier(0.4, 0, 0.2, 1)"
+		easing: "cubic-bezier(0.16, 1, 0.3, 1)"
 	},
 	cursor: {
 		interactive: "pointer",
@@ -226,6 +226,80 @@ var semantic = {
 		category8: "#FF9DA7"
 	}
 };
+// node_modules/@sentropic/design-system-tokens/dist/diagramSpacing.js
+/** World units. Owner A9 is resolved: V1 (72 vertical / 96 horizontal); canvas defaults are generated. */
+var DIAGRAM_SCENE_SPACING = {
+	gapMin: 96,
+	gapMinBlock: 72,
+	gapBase: 64,
+	gapBaseBlock: 8,
+	trackSpacing: 14,
+	trackSpacingBlock: 7,
+	labelBand: 30,
+	gapMax: 240,
+	containerPadding: 16
+};
+// node_modules/@sentropic/design-system-tokens/dist/flow-colors.js
+/** Opaque shipped semantic colours; derive flow ink that survives the frozen dim opacity. */
+function rgb(text) {
+	if (/^#[0-9a-f]{3}$/i.test(text)) return [...text.slice(1)].map((c) => parseInt(c + c, 16) / 255);
+	if (/^#[0-9a-f]{6}$/i.test(text)) return [
+		1,
+		3,
+		5
+	].map((i) => parseInt(text.slice(i, i + 2), 16) / 255);
+	const values = text.match(/[-+]?\d*\.?\d+/g)?.map(Number) ?? [];
+	if (text.startsWith("oklch")) {
+		const [raw = 0, C = 0, h = 0] = values, L = raw / (text.includes("%") ? 100 : 1), a = C * Math.cos(h * Math.PI / 180), b = C * Math.sin(h * Math.PI / 180);
+		const l = (L + .3963377774 * a + .2158037573 * b) ** 3, m = (L - .1055613458 * a - .0638541728 * b) ** 3, s = (L - .0894841775 * a - 1.291485548 * b) ** 3;
+		return [
+			4.0767416621 * l - 3.3077115913 * m + .2309699292 * s,
+			-1.2684380046 * l + 2.6097574011 * m - .3413193965 * s,
+			-.0041960863 * l - .7034186147 * m + 1.707614701 * s
+		].map((v) => Math.max(0, Math.min(1, v <= .0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - .055)));
+	}
+	if (text.startsWith("hsl")) {
+		const [h = 0, S = 0, B = 0] = values, s = S / 100, l = B / 100, a = s * Math.min(l, 1 - l);
+		return [
+			0,
+			8,
+			4
+		].map((n) => {
+			const k = (n + h / 30) % 12;
+			return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+		});
+	}
+	if (text.startsWith("rgb")) return values.slice(0, 3).map((v) => v / 255);
+	return [];
+}
+var luminance = (color) => color.reduce((sum, v, i) => sum + (v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4) * [
+	.2126,
+	.7152,
+	.0722
+][i], 0);
+var mix = (a, b, alpha) => a.map((v, i) => v * alpha + b[i] * (1 - alpha));
+var ratio = (a, b) => {
+	const x = luminance(a), y = luminance(b);
+	return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+};
+function flowInk(semanticInk, semanticBackground, semanticPage) {
+	const ink = rgb(semanticInk), background = rgb(semanticBackground), page = rgb(semanticPage);
+	if (ink.length !== 3 || background.length !== 3 || page.length !== 3) return semanticInk;
+	const extreme = luminance(background) > .179 ? [
+		0,
+		0,
+		0
+	] : [
+		1,
+		1,
+		1
+	];
+	for (let amount = 100; amount >= 0; amount--) {
+		const candidate = mix(ink, extreme, amount / 100).map((v) => Math.round(v * 255) / 255);
+		if ([1, .6].every((alpha) => ratio(mix(candidate, page, alpha), mix(background, page, alpha)) >= 4.5)) return amount === 100 ? semanticInk : "#" + candidate.map((v) => Math.round(v * 255).toString(16).padStart(2, "0")).join("");
+	}
+	return "#" + extreme.map((v) => (v * 255).toString(16).padStart(2, "0")).join("");
+}
 // node_modules/@sentropic/design-system-tokens/dist/component.js
 var FALLBACK = {
 	borderWidth: {
@@ -671,6 +745,18 @@ function selectableRowOf(semantic, f) {
 		selectedTextDark: s.selectedTextDark || `color-mix(in oklch, ${primary} 70%, white)`
 	};
 }
+/**
+* Icon resolution (additive). Resolves the per-theme icon primitive into the two
+* leaves the `Icon` components consume. Defaults are the former hard-coded
+* render (stroke width 2.25, `currentColor`), so the base render is unchanged.
+*/
+function iconOf(f) {
+	const i = f.icon ?? {};
+	return {
+		strokeWidth: i.strokeWidth || "2.25",
+		color: i.color || "currentColor"
+	};
+}
 function typographyOf(f, role) {
 	const base = FALLBACK.typography[role];
 	const themed = f.typography?.[role] ?? {};
@@ -953,6 +1039,7 @@ function createComponent(semantic, foundation) {
 	const searchResolved = searchOf(foundation);
 	const toggleResolved = toggleOf(semantic, foundation);
 	const selectableRowResolved = selectableRowOf(semantic, foundation);
+	const iconResolved = iconOf(foundation);
 	return {
 		button: {
 			radius: foundation.radius.md,
@@ -1264,6 +1351,10 @@ function createComponent(semantic, foundation) {
 			composerSurface: semantic.surface.raised,
 			toolCallSurface: semantic.surface.subtle
 		},
+		icon: {
+			strokeWidth: iconResolved.strokeWidth,
+			color: iconResolved.color
+		},
 		graph: {
 			panelBackground: semantic.surface.inverse,
 			panelText: semantic.text.inverse,
@@ -1272,6 +1363,233 @@ function createComponent(semantic, foundation) {
 			community2: semantic.data.category2,
 			community3: semantic.data.category3,
 			community4: semantic.data.category4
+		},
+		diagramErd: {
+			fontFamily: "var(--st-font-mono)",
+			"width": "460px",
+			"headerHeight": "64px",
+			"rowHeight": "32px",
+			"lineHeight": "24px",
+			"padding": "12px",
+			"keyWidth": "56px",
+			"nameWidth": "170px",
+			"typeWidth": "170px",
+			"fontSize": "18px",
+			"titleFontSize": "24px",
+			"markerLength": "24px",
+			"markerHalfWidth": "8px",
+			"markerRadius": "4px",
+			"markerGap": "4px",
+			"strokeWidth": "1.5px",
+			"gapInline": "160px",
+			"gapBlock": "120px",
+			"labelWidth": "240px"
+		},
+		diagramCard: {
+			width: "460px",
+			height: "200px",
+			radius: "0",
+			borderWidth: "2px",
+			accentWidth: "8px",
+			padding: "8px",
+			headerInset: "16px",
+			iconSize: "70px",
+			iconTextGap: "6px",
+			kickerFontSize: "22px",
+			kickerFontWeight: "400",
+			kickerLineHeight: "1.3",
+			kickerLetterSpacing: "0.04em",
+			kickerTextTransform: "uppercase",
+			titleFontSize: "32px",
+			titleFontWeight: "700",
+			titleLineHeight: "1.3",
+			gap: "6px",
+			bodyFontSize: "24px",
+			bodyFontWeight: "400",
+			bodyLineHeight: "1.3",
+			bodyInsetFromBar: "14px",
+			ruleHeight: "1px",
+			ruleMargin: "4px",
+			ruleInsetStart: "16px",
+			ruleInsetEnd: "10px",
+			footerFontSize: "24px",
+			footerFontWeight: "700",
+			footerLineHeight: "1.3",
+			footerBottomInset: "9.25px",
+			toggleAllocation: "66px",
+			toggleBoxSize: "32px",
+			toggleInset: "8px",
+			foldedHeaderTextWidth: "290px",
+			rootGapInline: "var(--st-component-diagramZone-childGapInline)",
+			rootGapBlock: "var(--st-component-diagramZone-childGapBlock)",
+			proposedDashArray: "4 5",
+			fontFamily: "var(--st-font-sans)",
+			border: semantic.border.strong,
+			accent: semantic.border.strong,
+			surface: semantic.surface.raised,
+			text: semantic.text.primary,
+			secondaryText: semantic.text.secondary,
+			rule: semantic.border.subtle
+		},
+		diagramCardCompact: {
+			width: "352px",
+			height: "154px",
+			radius: "var(--st-component-diagramCard-radius)",
+			borderWidth: "var(--st-component-diagramCard-borderWidth)",
+			accentWidth: "6px",
+			padding: "6px",
+			headerInset: "12px",
+			iconSize: "52px",
+			iconTextGap: "4px",
+			kickerFontSize: "var(--st-component-diagramCard-kickerFontSize)",
+			kickerFontWeight: "var(--st-component-diagramCard-kickerFontWeight)",
+			kickerLineHeight: "var(--st-component-diagramCard-kickerLineHeight)",
+			kickerLetterSpacing: "var(--st-component-diagramCard-kickerLetterSpacing)",
+			kickerTextTransform: "var(--st-component-diagramCard-kickerTextTransform)",
+			titleFontSize: "var(--st-component-diagramCard-titleFontSize)",
+			titleFontWeight: "var(--st-component-diagramCard-titleFontWeight)",
+			titleLineHeight: "var(--st-component-diagramCard-titleLineHeight)",
+			gap: "var(--st-component-diagramCard-gap)",
+			bodyFontSize: "var(--st-component-diagramCard-bodyFontSize)",
+			bodyFontWeight: "var(--st-component-diagramCard-bodyFontWeight)",
+			bodyLineHeight: "var(--st-component-diagramCard-bodyLineHeight)",
+			bodyInsetFromBar: "var(--st-component-diagramCard-bodyInsetFromBar)",
+			ruleHeight: "var(--st-component-diagramCard-ruleHeight)",
+			ruleMargin: "var(--st-component-diagramCard-ruleMargin)",
+			ruleInsetStart: "var(--st-component-diagramCard-ruleInsetStart)",
+			ruleInsetEnd: "var(--st-component-diagramCard-ruleInsetEnd)",
+			footerFontSize: "var(--st-component-diagramCard-footerFontSize)",
+			footerFontWeight: "var(--st-component-diagramCard-footerFontWeight)",
+			footerLineHeight: "var(--st-component-diagramCard-footerLineHeight)",
+			footerBottomInset: "var(--st-component-diagramCard-footerBottomInset)",
+			toggleAllocation: "var(--st-component-diagramCard-toggleAllocation)",
+			toggleBoxSize: "var(--st-component-diagramCard-toggleBoxSize)",
+			toggleInset: "var(--st-component-diagramCard-toggleInset)",
+			foldedHeaderTextWidth: "210px",
+			proposedDashArray: "var(--st-component-diagramCard-proposedDashArray)",
+			fontFamily: "var(--st-component-diagramCard-fontFamily)",
+			border: "var(--st-component-diagramCard-border)",
+			accent: "var(--st-component-diagramCard-accent)",
+			surface: "var(--st-component-diagramCard-surface)",
+			text: "var(--st-component-diagramCard-text)",
+			secondaryText: "var(--st-component-diagramCard-secondaryText)",
+			rule: "var(--st-component-diagramCard-rule)"
+		},
+		diagramZone: {
+			toggleInset: "8px",
+			radius: "0",
+			borderWidth: "1.5px",
+			headerInset: "16px",
+			iconSize: "70px",
+			iconTextGap: "6px",
+			kickerFontSize: "var(--st-component-diagramCard-kickerFontSize)",
+			kickerFontWeight: "var(--st-component-diagramCard-kickerFontWeight)",
+			kickerLineHeight: "var(--st-component-diagramCard-kickerLineHeight)",
+			kickerLetterSpacing: "var(--st-component-diagramCard-kickerLetterSpacing)",
+			kickerTextTransform: "var(--st-component-diagramCard-kickerTextTransform)",
+			titleFontSize: "var(--st-component-diagramCard-titleFontSize)",
+			titleFontWeight: "var(--st-component-diagramCard-titleFontWeight)",
+			titleLineHeight: "var(--st-component-diagramCard-titleLineHeight)",
+			subtitleFontSize: "24px",
+			subtitleFontWeight: "400",
+			subtitleLineHeight: "1.3",
+			subtitleGap: "var(--st-component-diagramCard-gap)",
+			headerRuleGap: "4px",
+			contentInsetTop: "var(--st-component-diagramScene-containerPadding)",
+			contentInsetBottom: "var(--st-component-diagramScene-containerPadding)",
+			contentInsetInline: "var(--st-component-diagramScene-containerPadding)",
+			collapsedWidth: "460px",
+			collapsedHeight: "200px",
+			collapsedInset: "16px",
+			collapsedSubtitleMarginInline: "16px",
+			toggleAllocation: "var(--st-component-diagramCard-toggleAllocation)",
+			toggleBoxSize: "var(--st-component-diagramCard-toggleBoxSize)",
+			headerTextInset: "178px",
+			toggleTopInset: "var(--st-component-diagramZone-toggleInset)",
+			footerBottomInset: "var(--st-component-diagramCard-footerBottomInset)",
+			proposedDashArray: "4 5",
+			childGapInline: "var(--st-component-diagramScene-gapMin)",
+			childGapBlock: "var(--st-component-diagramScene-gapMinBlock)",
+			gapInlineMax: "var(--st-component-diagramScene-gapMax)",
+			gapBlockMax: "var(--st-component-diagramScene-gapMax)",
+			rowPackTargetAspect: "1.78",
+			border: semantic.border.strong,
+			surface: semantic.surface.raised,
+			surface1: semantic.surface.raised,
+			surface2: semantic.surface.subtle,
+			text: semantic.text.primary,
+			secondaryText: semantic.text.secondary,
+			rule: semantic.border.subtle
+		},
+		iconButton: {
+			smSize: "2rem",
+			mdSize: "2.25rem",
+			lgSize: "2.5rem",
+			radius: "0.375rem",
+			text: semantic.text.primary,
+			focusRing: semantic.border.interactive
+		},
+		diagramScene: {
+			containerPadding: `${DIAGRAM_SCENE_SPACING.containerPadding}px`,
+			gapMin: `${DIAGRAM_SCENE_SPACING.gapMin}px`,
+			gapMinBlock: `${DIAGRAM_SCENE_SPACING.gapMinBlock}px`,
+			gapBase: `${DIAGRAM_SCENE_SPACING.gapBase}px`,
+			gapBaseBlock: `${DIAGRAM_SCENE_SPACING.gapBaseBlock}px`,
+			trackSpacing: `${DIAGRAM_SCENE_SPACING.trackSpacing}px`,
+			trackSpacingBlock: `${DIAGRAM_SCENE_SPACING.trackSpacingBlock}px`,
+			labelBand: `${DIAGRAM_SCENE_SPACING.labelBand}px`,
+			gapMax: `${DIAGRAM_SCENE_SPACING.gapMax}px`,
+			bundleLabelMaxWidth: "320px",
+			labelPadding: "4px",
+			labelBorderWidth: "1px",
+			bundleMarkerGap: "6px",
+			edgeStroke: "#64748b",
+			labelSurface: "#ffffff",
+			labelBorder: "#cbd5e1",
+			labelText: "#172033",
+			maxDisplayScale: "0.62",
+			minReadableScale: "0.45",
+			transitionDuration: "240ms",
+			edgeLabelFontSize: "18px",
+			edgeLabelLineHeight: "22px",
+			flowStroke: flowInk(semantic.border.strong, semantic.surface.raised, semantic.surface.default),
+			flowStrokeWidth: "1.5px",
+			flowPrimaryStroke: flowInk(semantic.border.interactive, semantic.surface.raised, semantic.surface.default),
+			flowPrimaryStrokeWidth: "2.5px",
+			flowRelatedStrokeWidth: "2px",
+			flowOutlineWidth: "2px",
+			flowFocusOutline: flowInk(semantic.border.interactive, semantic.surface.raised, semantic.surface.default),
+			flowDimOpacity: "0.6",
+			flowFullOpacity: "1",
+			flowHiddenOpacity: "0",
+			flowHitStroke: "transparent",
+			flowHitWidth: "16px",
+			flowTargetMinSize: "24",
+			flowArrowPath: "M0 0L10 5L0 10Z",
+			flowArrowLength: "10",
+			flowArrowWidth: "10",
+			flowBadgeSize: "28",
+			flowBadgePaddingX: "6",
+			flowBadgeRadius: "999px",
+			flowBadgeFontSize: "16px",
+			flowBadgeLineHeight: "20px",
+			flowBadgeBackground: semantic.surface.raised,
+			flowBadgeBorder: flowInk(semantic.border.strong, semantic.surface.raised, semantic.surface.default),
+			flowBadgeText: flowInk(semantic.text.primary, semantic.surface.raised, semantic.surface.default),
+			flowFanOutMax: "4",
+			readoutMinWidth: "4ch"
+		},
+		bpmnCanvas: { minHeight: "120px" },
+		diagramIcon: {
+			viewBox: "0 0 64 64",
+			basePath: "M8 53L32 44L56 53L32 62Z",
+			faceStrokeWidth: "1.5",
+			lineStrokeWidth: "2.5",
+			baseFill: "color-mix(in srgb, var(--st-semantic-feedback-info) 18%, var(--st-semantic-surface-raised))",
+			faceFill: "color-mix(in srgb, var(--st-semantic-feedback-info) 75%, var(--st-semantic-surface-raised))",
+			faceStroke: "var(--st-semantic-feedback-info)",
+			lineStroke: "var(--st-semantic-surface-raised)",
+			lineDarkStroke: "var(--st-semantic-feedback-info)"
 		}
 	};
 }
@@ -1317,6 +1635,89 @@ function compileTheme(input, options = {}) {
 	const namespace = options.namespace ?? "st";
 	return toCssVariables(theme.tokens, selector, namespace);
 }
+// node_modules/@sentropic/design-system-themes/dist/semantic.dark.js
+/**
+* semantic.dark — dark-mode counterpart to the base semantic tokens.
+* Vit dans le package THEMES (le dark est une décision de thème, pas un token
+* core) : évite d'ajouter des exports au package tokens (lien workspace fragile).
+* Values follow the OKLCH inversion table in docs/dark-mode-spec.md.
+* status.* derives from feedback.* automatically (mirrors light-mode pattern).
+* data.category* are the Tableau-10 palette lightened ~15 L-points.
+*/
+var semanticDark = {
+	surface: {
+		default: "oklch(15% 0.012 250)",
+		subtle: "oklch(19% 0.014 250)",
+		raised: "oklch(21% 0.015 250)",
+		inverse: "oklch(96% 0.005 250)",
+		overlay: "rgb(2 4 8 / 0.66)"
+	},
+	text: {
+		primary: "oklch(96% 0.005 250)",
+		secondary: "oklch(78% 0.012 250)",
+		muted: "oklch(66% 0.018 250)",
+		inverse: "oklch(15% 0.012 250)",
+		link: "oklch(72% 0.13 242)"
+	},
+	border: {
+		subtle: "oklch(28% 0.014 250)",
+		strong: "oklch(42% 0.016 250)",
+		interactive: "oklch(72% 0.13 242)"
+	},
+	action: {
+		primary: "oklch(62% 0.15 242)",
+		primaryHover: "oklch(70% 0.15 242)",
+		primaryText: "oklch(17% 0.012 250)",
+		secondary: "oklch(24% 0.015 250)",
+		secondaryHover: "oklch(28% 0.014 250)",
+		secondaryText: "oklch(96% 0.005 250)",
+		danger: "oklch(64% 0.19 25)"
+	},
+	feedback: {
+		success: "oklch(70% 0.17 150)",
+		warning: "oklch(76% 0.15 75)",
+		error: "oklch(64% 0.19 25)",
+		info: "oklch(68% 0.15 250)"
+	},
+	status: {
+		pending: "oklch(76% 0.15 75)",
+		processing: "oklch(68% 0.15 250)",
+		completed: "oklch(70% 0.17 150)",
+		failed: "oklch(64% 0.19 25)"
+	},
+	data: {
+		category1: "oklch(60% 0.08 242)",
+		category2: "oklch(75% 0.14 67)",
+		category3: "oklch(68% 0.16 23)",
+		category4: "oklch(73% 0.09 195)",
+		category5: "oklch(68% 0.14 148)",
+		category6: "oklch(83% 0.13 90)",
+		category7: "oklch(65% 0.10 320)",
+		category8: "oklch(78% 0.12 15)"
+	}
+};
+// node_modules/@sentropic/design-system-themes/dist/foundation.dark.js
+/**
+* foundationDark — minimal foundation overrides for dark mode.
+* Shadows recolored with higher opacity for visibility on dark backgrounds.
+* Importe le foundation de base depuis le package tokens (export existant).
+*/
+var foundationDark = {
+	...foundation,
+	shadow: {
+		subtle: "0 1px 2px rgb(0 0 0 / 0.5)",
+		medium: "0 8px 24px rgb(0 0 0 / 0.55)",
+		floating: "0 18px 45px rgb(0 0 0 / 0.6)"
+	}
+};
+// node_modules/@sentropic/design-system-themes/dist/component.dark.js
+/**
+* componentDark — dark-mode component layer.
+* Built by passing semanticDark + foundationDark into createComponent,
+* exactly like the light component is built from semantic + foundation.
+* createComponent vient du package tokens (export existant).
+*/
+var componentDark = createComponent(semanticDark, foundationDark);
 // node_modules/@sentropic/design-system-themes/dist/themes/sent-tech.js
 var sentTechTheme = {
 	id: "sent-tech",
@@ -1326,6 +1727,11 @@ var sentTechTheme = {
 		foundation,
 		semantic,
 		component
+	},
+	tokensDark: {
+		foundation: foundationDark,
+		semantic: semanticDark,
+		component: componentDark
 	}
 };
 // node_modules/@sentropic/design-system-themes/dist/themes/entropic.js
@@ -1338,6 +1744,15 @@ var entropicSemantic = {
 	}
 };
 var entropicComponent = createComponent(entropicSemantic, foundation);
+var entropicSemanticDark = {
+	...semanticDark,
+	action: {
+		...semanticDark.action,
+		primary: "oklch(62% 0.15 242.749)",
+		primaryText: semanticDark.action.primaryText
+	}
+};
+var entropicComponentDark = createComponent(entropicSemanticDark, foundationDark);
 var entropicTheme = {
 	id: "entropic",
 	label: "Entropic",
@@ -1351,6 +1766,18 @@ var entropicTheme = {
 				...entropicComponent.chat,
 				composerSurface: entropicSemantic.surface.raised,
 				toolCallSurface: entropicSemantic.surface.subtle
+			}
+		}
+	},
+	tokensDark: {
+		foundation: foundationDark,
+		semantic: entropicSemanticDark,
+		component: {
+			...entropicComponentDark,
+			chat: {
+				...entropicComponentDark.chat,
+				composerSurface: entropicSemanticDark.surface.raised,
+				toolCallSurface: entropicSemanticDark.surface.subtle
 			}
 		}
 	}

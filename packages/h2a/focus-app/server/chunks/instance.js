@@ -5,7 +5,7 @@ import { B as get_status, C as has_prerendered_path, Ct as text_encoder, D as th
 import { t as uneval$1 } from "./uneval.js";
 import { C as prerender_endpoint_methods, E as prerender_template_nonce, K as set_headers_after_response, S as prerender_actions, T as prerender_nonce, Z as capture_error, _ as load_fetch_cors, b as load_promise_not_serializable, c as client_address_unsupported, d as cookies_set_after_response, f as csp_report_only_missing_report, g as header_already_set, p as endpoint_invalid_response, q as set_headers_cookie, u as cookies_serialize_before_route, w as prerender_endpoint_not_prerenderable, x as load_response_header_not_serialized } from "./server-errors.js";
 import { i as set_env, n as explicit_public_env, r as rendered_env } from "./config.js";
-import { a as derived, u as render, y as escape_html$1 } from "./server2.js";
+import { a as derived, u as render, x as escape_html$1 } from "./server2.js";
 // .svelte-kit/generated/build/shared/error-template.js
 var error_template_default = ({ status, message }) => "<!doctype html>\n<html lang=\"en\">\n	<head>\n		<meta charset=\"utf-8\" />\n		<title>" + message + "</title>\n\n		<style>\n			body {\n				--bg: white;\n				--fg: #222;\n				--divider: #ccc;\n				background: var(--bg);\n				color: var(--fg);\n				font-family:\n					system-ui,\n					-apple-system,\n					BlinkMacSystemFont,\n					'Segoe UI',\n					Roboto,\n					Oxygen,\n					Ubuntu,\n					Cantarell,\n					'Open Sans',\n					'Helvetica Neue',\n					sans-serif;\n				display: flex;\n				align-items: center;\n				justify-content: center;\n				height: 100vh;\n				margin: 0;\n			}\n\n			.error {\n				display: flex;\n				align-items: center;\n				max-width: 32rem;\n				margin: 0 1rem;\n			}\n\n			.status {\n				font-weight: 200;\n				font-size: 3rem;\n				line-height: 1;\n				position: relative;\n				top: -0.05rem;\n			}\n\n			.message {\n				border-left: 1px solid var(--divider);\n				padding: 0 0 0 1rem;\n				margin: 0 0 0 1rem;\n				min-height: 2.5rem;\n				display: flex;\n				align-items: center;\n			}\n\n			.message h1 {\n				font-weight: 400;\n				font-size: 1em;\n				margin: 0;\n			}\n\n			@media (prefers-color-scheme: dark) {\n				body {\n					--bg: #222;\n					--fg: #ddd;\n					--divider: #666;\n				}\n			}\n		</style>\n	</head>\n	<body>\n		<div class=\"error\">\n			<span class=\"status\">" + status + "</span>\n			<div class=\"message\">\n				<h1>" + message + "</h1>\n			</div>\n		</div>\n	</body>\n</html>\n";
 // .svelte-kit/generated/build/server.js
@@ -250,7 +250,7 @@ function server_data_serializer(event, state) {
 	let promise_id = 1;
 	let max_nodes = -1;
 	const iterator = create_async_iterator();
-	const global = "__sveltekit_1si4rvd";
+	const global = "__sveltekit_o3t07w";
 	/** @param {number} index */
 	function get_replacer(index) {
 		/** @param {any} thing */
@@ -1491,7 +1491,7 @@ async function render_response({ branch, fetched, page_config, status, error = n
 			"crossorigin"
 		]);
 	}
-	const global = "__sveltekit_1si4rvd";
+	const global = "__sveltekit_o3t07w";
 	const { data, chunks } = data_serializer.get_data(csp);
 	if (page_config.ssr && page_config.csr) body += `\n\t\t\t${fetched.map((item) => serialize_data(item, resolve_opts.filterSerializedResponseHeaders, !!(state.prerendering || state.prerender_default === true))).join("\n			")}`;
 	if (page_config.csr && client) {
@@ -1515,7 +1515,7 @@ async function render_response({ branch, fetched, page_config, status, error = n
 			}
 		}
 		const blocks = [];
-		const properties = [`base: ${base_expression}`, `version: ${s("h2a-focus-2cd53b38d5454be2")}`];
+		const properties = [`base: ${base_expression}`, `version: ${s("h2a-focus-d2582b3d5626ad6f")}`];
 		if (assets) properties.push(`assets: ${s(assets)}`);
 		if (client.uses_env_dynamic_public) properties.push(`env: ${load_env_eagerly ? "null" : uneval$1(rendered_env)}`);
 		if (chunks) {

@@ -1,6 +1,7 @@
-import { a as derived, c as head, d as spread_props, f as stringify, g as clsx, h as attr, i as bind_props, n as attr_style, r as attributes, s as ensure_array_like, t as attr_class, y as escape_html } from "../../../../chunks/server2.js";
+import { _ as attr, a as derived, b as run, c as head, f as stringify, i as bind_props, n as attr_style, r as attributes, s as ensure_array_like, t as attr_class, v as clsx, x as escape_html } from "../../../../chunks/server2.js";
 import "../../../../chunks/index-server.js";
-import { a as Button, i as Card, n as Flex, o as Badge, r as Container, s as Alert, t as AppShell } from "../../../../chunks/AppShell.js";
+import { c as Badge, i as Container, o as Card, r as Flex, s as Button, t as AppShell, u as Alert } from "../../../../chunks/AppShell.js";
+import { n as Tile, r as Stack, t as ArtifactReviewHost } from "../../../../chunks/ArtifactReviewHost.js";
 // node_modules/@sentropic/design-system-svelte/dist/ProgressBar.svelte
 function ProgressBar($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
@@ -72,26 +73,6 @@ function SlideIndicator($$renderer, $$props) {
 		$$renderer.push(`<!--]--></div>`);
 	});
 }
-// node_modules/@sentropic/design-system-svelte/dist/Stack.svelte
-function Stack($$renderer, $$props) {
-	$$renderer.component(($$renderer) => {
-		let { gap, align, justify, as = "div", class: className, children, $$slots, $$events, ...rest } = $$props;
-		const classes = derived(() => ["st-stack", className].filter(Boolean).join(" "));
-		Flex($$renderer, spread_props([rest, {
-			as,
-			gap,
-			align,
-			justify,
-			direction: "column",
-			class: classes(),
-			children: ($$renderer) => {
-				children?.($$renderer);
-				$$renderer.push(`<!---->`);
-			},
-			$$slots: { default: true }
-		}]));
-	});
-}
 // node_modules/@sentropic/design-system-svelte/dist/Table.svelte
 function Table($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
@@ -153,72 +134,6 @@ function Textarea($$renderer, $$props) {
 		else $$renderer.push("<!--[-1-->");
 		$$renderer.push(`<!--]--></div>`);
 		bind_props($$props, { value });
-	});
-}
-// node_modules/@sentropic/design-system-svelte/dist/Tile.svelte
-function Tile($$renderer, $$props) {
-	$$renderer.component(($$renderer) => {
-		/** `static` (présentation), `clickable` (lien/bouton), `selectable` (case unitaire). */
-		/** Pour `clickable` : si fourni, rend un `<a>`, sinon un `<button>`. */
-		/** Pour `selectable` : état coché (bindable). */
-		/** Titre rapide (sinon utiliser le slot `children`). */
-		/** Pour `selectable` : notifié au changement d'état. */
-		let { variant = "static", href, selected = false, disabled = false, title, description, class: className, onclick, onselect, children, $$slots, $$events, ...rest } = $$props;
-		const classes = () => [
-			"st-tile",
-			`st-tile--${variant}`,
-			variant === "selectable" && selected ? "st-tile--selected" : null,
-			disabled ? "st-tile--disabled" : null,
-			className
-		].filter(Boolean).join(" ");
-		function body($$renderer) {
-			if (children) {
-				$$renderer.push("<!--[0-->");
-				children($$renderer);
-				$$renderer.push(`<!---->`);
-			} else {
-				$$renderer.push("<!--[-1-->");
-				if (title) $$renderer.push(`<!--[0--><span class="st-tile__title svelte-1vcfi3">${escape_html(title)}</span>`);
-				else $$renderer.push("<!--[-1-->");
-				$$renderer.push(`<!--]--> `);
-				if (description) $$renderer.push(`<!--[0--><span class="st-tile__description svelte-1vcfi3">${escape_html(description)}</span>`);
-				else $$renderer.push("<!--[-1-->");
-				$$renderer.push(`<!--]-->`);
-			}
-			$$renderer.push(`<!--]-->`);
-		}
-		if (variant === "clickable" && href) {
-			$$renderer.push(`<!--[0--><a${attributes({
-				...rest,
-				class: clsx(classes()),
-				href,
-				"aria-disabled": disabled
-			}, "svelte-1vcfi3")}><span class="st-tile__content svelte-1vcfi3">`);
-			body($$renderer);
-			$$renderer.push(`<!----></span></a>`);
-		} else if (variant === "clickable") {
-			$$renderer.push(`<!--[1--><button${attributes({
-				...rest,
-				type: "button",
-				class: clsx(classes()),
-				disabled
-			}, "svelte-1vcfi3")}><span class="st-tile__content svelte-1vcfi3">`);
-			body($$renderer);
-			$$renderer.push(`<!----></span></button>`);
-		} else if (variant === "selectable") {
-			$$renderer.push(`<!--[2--><label${attr_class(clsx(classes()), "svelte-1vcfi3")}><input type="checkbox" class="st-tile__input svelte-1vcfi3"${attr("checked", selected, true)}${attr("disabled", disabled, true)}/> <span class="st-tile__content svelte-1vcfi3">`);
-			body($$renderer);
-			$$renderer.push(`<!----></span></label>`);
-		} else {
-			$$renderer.push(`<!--[-1--><div${attributes({
-				...rest,
-				class: clsx(classes())
-			}, "svelte-1vcfi3")}><span class="st-tile__content svelte-1vcfi3">`);
-			body($$renderer);
-			$$renderer.push(`<!----></span></div>`);
-		}
-		$$renderer.push(`<!--]-->`);
-		bind_props($$props, { selected });
 	});
 }
 /**
@@ -305,6 +220,8 @@ function _page($$renderer, $$props) {
 		let { data } = $$props;
 		const dossier = derived(() => data.dossier);
 		const matrix = derived(() => data.matrix);
+		const artifactReview = derived(() => data.artifactReview);
+		let reviewMode = run(() => data.artifactReview.initialMode);
 		/** Jeu de réponses commité, chargé côté serveur. `null` si le fichier n'est pas atteignable. */
 		const answerSet = derived(() => data.answerSet);
 		/**
@@ -551,100 +468,23 @@ function _page($$renderer, $$props) {
 		{
 			function main($$renderer) {
 				Container($$renderer, {
-					size: "md",
+					size: artifactReview().enabled && reviewMode === "review" ? "xl" : "md",
 					padding: true,
 					children: ($$renderer) => {
-						$$renderer.push(`<main class="dossier svelte-e74176" aria-labelledby="dossier-title">`);
-						Stack($$renderer, {
-							gap: 4,
+						ArtifactReviewHost($$renderer, {
+							artifactId: "dossier:agent-memory",
+							artifactVersion: dossier().revision,
+							reviewConfig: artifactReview(),
+							agentTarget: h2aTarget,
+							onModeChange: (next) => reviewMode = next,
 							children: ($$renderer) => {
-								$$renderer.push(`<header>`);
+								$$renderer.push(`<main class="dossier svelte-e74176" aria-labelledby="dossier-title">`);
 								Stack($$renderer, {
-									gap: 2,
+									gap: 4,
 									children: ($$renderer) => {
-										Flex($$renderer, {
-											align: "center",
-											justify: "between",
-											wrap: true,
-											gap: 2,
-											children: ($$renderer) => {
-												Badge($$renderer, {
-													tone: "info",
-													children: ($$renderer) => {
-														$$renderer.push(`<!---->Dossier décisionnel`);
-													},
-													$$slots: { default: true }
-												});
-												$$renderer.push(`<!----> `);
-												if (current === 0) {
-													$$renderer.push("<!--[0-->");
-													Badge($$renderer, {
-														tone: "neutral",
-														children: ($$renderer) => {
-															$$renderer.push(`<!---->État de l’art — aucune décision`);
-														},
-														$$slots: { default: true }
-													});
-												} else {
-													$$renderer.push("<!--[-1-->");
-													Badge($$renderer, {
-														tone: "neutral",
-														children: ($$renderer) => {
-															$$renderer.push(`<!---->Décision ${escape_html(current)} / ${escape_html(decisionsTotal())}`);
-														},
-														$$slots: { default: true }
-													});
-												}
-												$$renderer.push(`<!--]-->`);
-											},
-											$$slots: { default: true }
-										});
-										$$renderer.push(`<!----> <h1 id="dossier-title">${escape_html(dossier().title)}</h1> <p>${escape_html(dossier().context)}</p> `);
-										ProgressBar($$renderer, {
-											label: "Progression du dossier",
-											value: current + 1,
-											max: slidesTotal(),
-											valueText: current === 0 ? "État de l’art" : `Décision ${current} / ${decisionsTotal()}`,
-											showValue: true
-										});
-										$$renderer.push(`<!---->`);
-									},
-									$$slots: { default: true }
-								});
-								$$renderer.push(`<!----></header> `);
-								Alert($$renderer, {
-									tone: "info",
-									title: "Support de décision neutre",
-									message: "Ce dossier ne préconise aucune option. La première carte présente l'état de l'art, ne demande rien, et liste les corrections apportées à la révision précédente ; viennent ensuite les décisions, chacune avec ses alternatives, leur comportement, leur conséquence, les faits de mécanisme qui les éclairent avec leur source, et ce que la recherche n'a PAS pu établir. Le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Les cartes marquées « nouvelle carte » découlent de vos propres réponses du premier passage, citées verbatim. Vos réponses commitées sont chargées depuis le dépôt : « Transmettre à la CLI » les remet à une session h2a live du projet, le presse-papier reste disponible en repli."
-								});
-								$$renderer.push(`<!----> `);
-								if (!answerSet()) {
-									$$renderer.push("<!--[0-->");
-									Alert($$renderer, {
-										tone: "warning",
-										title: "Jeu de réponses commité introuvable",
-										message: "Le fichier docs/decisions/2026-07-25-agent-memory-owner-answers.json n'est pas atteignable depuis ce service. Rien n'a été inventé : le dossier s'ouvre vide, et vos réponses commitées ne sont pas perdues pour autant — elles sont dans le dépôt."
-									});
-								} else if (answerOrigin() === "committed") {
-									$$renderer.push("<!--[1-->");
-									Alert($$renderer, {
-										tone: "info",
-										title: `Réponses commitées chargées (${Object.keys(committed?.state.notes ?? {}).length} note(s), ${Object.keys(committed?.state.selections ?? {}).length} sélection(s))`,
-										message: `Chargées côté serveur depuis ${answerSet().source} — aucun état de navigateur n'est nécessaire pour les voir. Vos modifications restent locales tant qu'elles ne sont pas commitées, et cette bannière vous dira si elles s'écartent du jeu commité.`
-									});
-								} else {
-									$$renderer.push("<!--[-1-->");
-									Alert($$renderer, {
-										tone: "warning",
-										title: `Brouillon local différent du jeu commité sur ${divergences().length} décision(s) : ${divergences().map((d) => d.key).join(", ")}`,
-										message: "Ce qui est affiché ci-dessous est votre brouillon local (non commité). Le jeu commité dans le dépôt, lui, est intact. Le détail des écarts est plus bas, avec le retour au jeu commité en un clic."
-									});
-								}
-								$$renderer.push(`<!--]--> <div class="swipe-viewport svelte-e74176" role="group" aria-label="Cartes du dossier : l’état de l’art puis les décisions. Faites glisser horizontalement ou utilisez les boutons."${attr_style(void 0)}><div class="swipe-track svelte-e74176"${attr_style(`transform: translateX(-${current * 100}%);`)}><section class="swipe-slide svelte-e74176"${attr("aria-hidden", current !== 0)}${attr("inert", current !== 0, true)}>`);
-								Card($$renderer, {
-									children: ($$renderer) => {
+										$$renderer.push(`<header data-anchor-id="dossier:header">`);
 										Stack($$renderer, {
-											gap: 4,
+											gap: 2,
 											children: ($$renderer) => {
 												Flex($$renderer, {
 													align: "center",
@@ -655,324 +495,165 @@ function _page($$renderer, $$props) {
 														Badge($$renderer, {
 															tone: "info",
 															children: ($$renderer) => {
-																$$renderer.push(`<!---->État de l’art`);
+																$$renderer.push(`<!---->Dossier décisionnel`);
 															},
 															$$slots: { default: true }
 														});
-														$$renderer.push(`<!----> <span>Carte 1 sur ${escape_html(slidesTotal())} — aucune décision ici</span>`);
+														$$renderer.push(`<!----> `);
+														if (current === 0) {
+															$$renderer.push("<!--[0-->");
+															Badge($$renderer, {
+																tone: "neutral",
+																children: ($$renderer) => {
+																	$$renderer.push(`<!---->État de l’art — aucune décision`);
+																},
+																$$slots: { default: true }
+															});
+														} else {
+															$$renderer.push("<!--[-1-->");
+															Badge($$renderer, {
+																tone: "neutral",
+																children: ($$renderer) => {
+																	$$renderer.push(`<!---->Décision ${escape_html(current)} / ${escape_html(decisionsTotal())}`);
+																},
+																$$slots: { default: true }
+															});
+														}
+														$$renderer.push(`<!--]-->`);
 													},
 													$$slots: { default: true }
 												});
-												$$renderer.push(`<!----> `);
-												Stack($$renderer, {
-													gap: 2,
-													children: ($$renderer) => {
-														$$renderer.push(`<h2 id="matrix-title">Matrice de comparaison</h2> <p>Dix-neuf approches du benchmark, comparées sur le stockage, la récupération, la
-                        réconciliation, le mode d’écriture, le partage multi-CLI, l’auto-hébergement/RAM, la
-                        licence et l’adéquation à la cible (agent persistant, multi-CLI, local-first). Faites
-                        défiler horizontalement pour voir toutes les colonnes.</p>`);
-													},
-													$$slots: { default: true }
-												});
-												$$renderer.push(`<!----> <div class="matrix-scroll svelte-e74176" role="presentation">`);
-												Table($$renderer, {
-													caption: matrix().caption,
-													columns: matrix().columns,
-													rows: matrix().rows
-												});
-												$$renderer.push(`<!----></div> <p class="matrix-legend svelte-e74176">${escape_html(matrix().legend)}</p> `);
-												if (dossier().corrections?.length) {
-													$$renderer.push(`<!--[0--><section aria-labelledby="corrections-title">`);
-													Stack($$renderer, {
-														gap: 2,
-														children: ($$renderer) => {
-															$$renderer.push(`<h2 id="corrections-title">Corrections à la révision précédente (${escape_html(dossier().corrections.length)})</h2> <p>La recherche de mécanismes a démenti des affirmations que la révision <strong>${escape_html(dossier().previousRevision)}</strong> présentait comme des faits. Elles sont
-                            listées ici, et les cellules concernées de la matrice ci-dessus ont été réécrites.</p> <ul class="corrections svelte-e74176"><!--[-->`);
-															const each_array = ensure_array_like(dossier().corrections);
-															for (let $$index = 0, $$length = each_array.length; $$index < $$length; $$index++) {
-																let correction = each_array[$$index];
-																$$renderer.push(`<li class="svelte-e74176">`);
-																Stack($$renderer, {
-																	gap: 1,
-																	children: ($$renderer) => {
-																		$$renderer.push(`<strong>${escape_html(correction.subject)}</strong> <p class="was-stated svelte-e74176"><em>Était affirmé :</em> ${escape_html(correction.wasStated)}</p> <p><strong>En réalité :</strong> ${escape_html(correction.actually)}</p> <p class="fact-source svelte-e74176">${escape_html(correction.source)}</p>`);
-																	},
-																	$$slots: { default: true }
-																});
-																$$renderer.push(`<!----></li>`);
-															}
-															$$renderer.push(`<!--]--></ul>`);
-														},
-														$$slots: { default: true }
-													});
-													$$renderer.push(`<!----></section>`);
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]--> `);
-												Alert($$renderer, {
-													tone: "info",
-													title: "Rien à trancher sur cette carte",
-													message: "Passez à la carte suivante pour entrer dans les décisions."
+												$$renderer.push(`<!----> <h1 id="dossier-title">${escape_html(dossier().title)}</h1> <p>${escape_html(dossier().context)}</p> `);
+												ProgressBar($$renderer, {
+													label: "Progression du dossier",
+													value: current + 1,
+													max: slidesTotal(),
+													valueText: current === 0 ? "État de l’art" : `Décision ${current} / ${decisionsTotal()}`,
+													showValue: true
 												});
 												$$renderer.push(`<!---->`);
 											},
 											$$slots: { default: true }
 										});
-									},
-									$$slots: { default: true }
-								});
-								$$renderer.push(`<!----></section> <!--[-->`);
-								const each_array_1 = ensure_array_like(dossier().decisions);
-								for (let index = 0, $$length = each_array_1.length; index < $$length; index++) {
-									let decision = each_array_1[index];
-									const slide = index + 1;
-									$$renderer.push(`<section class="swipe-slide svelte-e74176"${attr("aria-hidden", current !== slide)}${attr("inert", current !== slide, true)}>`);
-									Card($$renderer, {
-										children: ($$renderer) => {
-											Stack($$renderer, {
-												gap: 4,
-												children: ($$renderer) => {
-													Flex($$renderer, {
-														align: "center",
-														justify: "between",
-														wrap: true,
-														gap: 2,
-														children: ($$renderer) => {
-															Flex($$renderer, {
-																align: "center",
-																wrap: true,
-																gap: 2,
-																children: ($$renderer) => {
-																	Badge($$renderer, {
-																		tone: "info",
-																		children: ($$renderer) => {
-																			$$renderer.push(`<!---->${escape_html(decision.key)}`);
-																		},
-																		$$slots: { default: true }
-																	});
-																	$$renderer.push(`<!----> `);
-																	if (decision.addedInRevision) {
-																		$$renderer.push("<!--[0-->");
-																		Badge($$renderer, {
-																			tone: "neutral",
-																			size: "sm",
-																			children: ($$renderer) => {
-																				$$renderer.push(`<!---->Nouvelle carte (révision 2)`);
-																			},
-																			$$slots: { default: true }
-																		});
-																	} else $$renderer.push("<!--[-1-->");
-																	$$renderer.push(`<!--]--> `);
-																	if (divergentKeys().has(decision.key)) {
-																		$$renderer.push("<!--[0-->");
-																		Badge($$renderer, {
-																			tone: "warning",
-																			size: "sm",
-																			children: ($$renderer) => {
-																				$$renderer.push(`<!---->Brouillon ≠ jeu commité`);
-																			},
-																			$$slots: { default: true }
-																		});
-																	} else $$renderer.push("<!--[-1-->");
-																	$$renderer.push(`<!--]-->`);
-																},
-																$$slots: { default: true }
-															});
-															$$renderer.push(`<!----> <span>Décision ${escape_html(slide)} sur ${escape_html(decisionsTotal())}</span>`);
-														},
-														$$slots: { default: true }
-													});
-													$$renderer.push(`<!----> `);
-													Stack($$renderer, {
-														gap: 2,
-														children: ($$renderer) => {
-															$$renderer.push(`<h2>${escape_html(decision.question)}</h2> <p>${escape_html(decision.whyNow)}</p>`);
-														},
-														$$slots: { default: true }
-													});
-													$$renderer.push(`<!----> `);
-													if (decision.fromAnswer) {
-														$$renderer.push(`<!--[0--><section class="from-answer svelte-e74176"${attr("aria-labelledby", `from-answer-${decision.key}`)}>`);
-														Stack($$renderer, {
-															gap: 1,
-															children: ($$renderer) => {
-																$$renderer.push(`<h3${attr("id", `from-answer-${decision.key}`)}>Découle de votre réponse${escape_html(decision.parent?.length ? ` à ${decision.parent.join(" et ")}` : "")}</h3> <blockquote class="svelte-e74176">${escape_html(decision.fromAnswer)}</blockquote>`);
-															},
-															$$slots: { default: true }
-														});
-														$$renderer.push(`<!----></section>`);
-													} else $$renderer.push("<!--[-1-->");
-													$$renderer.push(`<!--]--> <section${attr("aria-labelledby", `options-${decision.key}`)}>`);
-													Stack($$renderer, {
-														gap: 2,
-														children: ($$renderer) => {
-															$$renderer.push(`<h3${attr("id", `options-${decision.key}`)}>Alternatives</h3> <p>Aucune option n’est recommandée par défaut. La sélection est facultative.</p> `);
-															Stack($$renderer, {
-																gap: 2,
-																children: ($$renderer) => {
-																	$$renderer.push(`<!--[-->`);
-																	const each_array_2 = ensure_array_like(decision.options);
-																	for (let $$index_1 = 0, $$length = each_array_2.length; $$index_1 < $$length; $$index_1++) {
-																		let option = each_array_2[$$index_1];
-																		$$renderer.push(`<div role="presentation">`);
-																		Tile($$renderer, {
-																			variant: "selectable",
-																			selected: selections[decision.key] === option.key,
-																			onselect: () => selectOption(decision.key, option.key),
-																			children: ($$renderer) => {
-																				Stack($$renderer, {
-																					gap: 2,
-																					children: ($$renderer) => {
-																						Flex($$renderer, {
-																							align: "center",
-																							justify: "between",
-																							wrap: true,
-																							gap: 2,
-																							children: ($$renderer) => {
-																								$$renderer.push(`<strong>${escape_html(option.title)}</strong> `);
-																								if (option.recommended) {
-																									$$renderer.push("<!--[0-->");
-																									Badge($$renderer, {
-																										tone: "success",
-																										size: "sm",
-																										children: ($$renderer) => {
-																											$$renderer.push(`<!---->Recommandée`);
-																										},
-																										$$slots: { default: true }
-																									});
-																								} else $$renderer.push("<!--[-1-->");
-																								$$renderer.push(`<!--]--> `);
-																								if (selections[decision.key] === option.key) {
-																									$$renderer.push("<!--[0-->");
-																									Badge($$renderer, {
-																										tone: "info",
-																										size: "sm",
-																										children: ($$renderer) => {
-																											$$renderer.push(`<!---->Sélectionnée`);
-																										},
-																										$$slots: { default: true }
-																									});
-																								} else $$renderer.push("<!--[-1-->");
-																								$$renderer.push(`<!--]-->`);
-																							},
-																							$$slots: { default: true }
-																						});
-																						$$renderer.push(`<!----> <p>${escape_html(option.behavior)}</p> <p><strong>Conséquence :</strong> ${escape_html(option.consequence)}</p>`);
-																					},
-																					$$slots: { default: true }
-																				});
-																			},
-																			$$slots: { default: true }
-																		});
-																		$$renderer.push(`<!----></div>`);
-																	}
-																	$$renderer.push(`<!--]-->`);
-																},
-																$$slots: { default: true }
-															});
-															$$renderer.push(`<!---->`);
-														},
-														$$slots: { default: true }
-													});
-													$$renderer.push(`<!----></section> `);
-													if (decision.mechanisms?.length) {
-														$$renderer.push(`<!--[0--><section${attr("aria-labelledby", `mechanisms-${decision.key}`)}>`);
-														Stack($$renderer, {
+										$$renderer.push(`<!----></header> `);
+										Alert($$renderer, {
+											tone: "info",
+											title: "Support de décision neutre",
+											message: "Ce dossier ne préconise aucune option. La première carte présente l'état de l'art, ne demande rien, et liste les corrections apportées à la révision précédente ; viennent ensuite les décisions, chacune avec ses alternatives, leur comportement, leur conséquence, les faits de mécanisme qui les éclairent avec leur source, et ce que la recherche n'a PAS pu établir. Le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Les cartes marquées « nouvelle carte » découlent de vos propres réponses du premier passage, citées verbatim. Vos réponses commitées sont chargées depuis le dépôt : « Transmettre à la CLI » les remet à une session h2a live du projet, le presse-papier reste disponible en repli."
+										});
+										$$renderer.push(`<!----> `);
+										if (!answerSet()) {
+											$$renderer.push("<!--[0-->");
+											Alert($$renderer, {
+												tone: "warning",
+												title: "Jeu de réponses commité introuvable",
+												message: "Le fichier docs/decisions/2026-07-25-agent-memory-owner-answers.json n'est pas atteignable depuis ce service. Rien n'a été inventé : le dossier s'ouvre vide, et vos réponses commitées ne sont pas perdues pour autant — elles sont dans le dépôt."
+											});
+										} else if (answerOrigin() === "committed") {
+											$$renderer.push("<!--[1-->");
+											Alert($$renderer, {
+												tone: "info",
+												title: `Réponses commitées chargées (${Object.keys(committed?.state.notes ?? {}).length} note(s), ${Object.keys(committed?.state.selections ?? {}).length} sélection(s))`,
+												message: `Chargées côté serveur depuis ${answerSet().source} — aucun état de navigateur n'est nécessaire pour les voir. Vos modifications restent locales tant qu'elles ne sont pas commitées, et cette bannière vous dira si elles s'écartent du jeu commité.`
+											});
+										} else {
+											$$renderer.push("<!--[-1-->");
+											Alert($$renderer, {
+												tone: "warning",
+												title: `Brouillon local différent du jeu commité sur ${divergences().length} décision(s) : ${divergences().map((d) => d.key).join(", ")}`,
+												message: "Ce qui est affiché ci-dessous est votre brouillon local (non commité). Le jeu commité dans le dépôt, lui, est intact. Le détail des écarts est plus bas, avec le retour au jeu commité en un clic."
+											});
+										}
+										$$renderer.push(`<!--]--> <div class="swipe-viewport svelte-e74176" role="group" aria-label="Cartes du dossier : l’état de l’art puis les décisions. Faites glisser horizontalement ou utilisez les boutons."${attr_style(void 0)}><div class="swipe-track svelte-e74176"${attr_style(`transform: translateX(-${current * 100}%);`)}><section class="swipe-slide svelte-e74176" data-anchor-id="dossier:state-of-art"${attr("aria-hidden", current !== 0)}${attr("inert", current !== 0, true)}>`);
+										Card($$renderer, {
+											children: ($$renderer) => {
+												Stack($$renderer, {
+													gap: 4,
+													children: ($$renderer) => {
+														Flex($$renderer, {
+															align: "center",
+															justify: "between",
+															wrap: true,
 															gap: 2,
 															children: ($$renderer) => {
-																$$renderer.push(`<h3${attr("id", `mechanisms-${decision.key}`)}>Comment ça marche réellement (${escape_html(decision.mechanisms.length)})</h3> <ul class="mechanisms svelte-e74176"><!--[-->`);
-																const each_array_3 = ensure_array_like(decision.mechanisms);
-																for (let $$index_2 = 0, $$length = each_array_3.length; $$index_2 < $$length; $$index_2++) {
-																	let mechanism = each_array_3[$$index_2];
-																	$$renderer.push(`<li class="svelte-e74176">`);
-																	Stack($$renderer, {
-																		gap: 1,
-																		children: ($$renderer) => {
-																			Flex($$renderer, {
-																				align: "center",
-																				wrap: true,
-																				gap: 2,
-																				children: ($$renderer) => {
-																					$$renderer.push(`<strong>${escape_html(mechanism.system)}</strong> `);
-																					if (mechanism.status === "unverified") {
-																						$$renderer.push("<!--[0-->");
-																						Badge($$renderer, {
-																							tone: "warning",
-																							size: "sm",
-																							children: ($$renderer) => {
-																								$$renderer.push(`<!---->Non vérifié`);
-																							},
-																							$$slots: { default: true }
-																						});
-																					} else $$renderer.push("<!--[-1-->");
-																					$$renderer.push(`<!--]-->`);
-																				},
-																				$$slots: { default: true }
-																			});
-																			$$renderer.push(`<!----> <p>${escape_html(mechanism.fact)}</p> <p class="fact-source svelte-e74176">${escape_html(mechanism.source)}</p>`);
-																		},
-																		$$slots: { default: true }
-																	});
-																	$$renderer.push(`<!----></li>`);
-																}
-																$$renderer.push(`<!--]--></ul>`);
-															},
-															$$slots: { default: true }
-														});
-														$$renderer.push(`<!----></section>`);
-													} else $$renderer.push("<!--[-1-->");
-													$$renderer.push(`<!--]--> `);
-													if (decision.unknowns?.length) {
-														$$renderer.push(`<!--[0--><section class="unknowns svelte-e74176"${attr("aria-labelledby", `unknowns-${decision.key}`)}>`);
-														Stack($$renderer, {
-															gap: 2,
-															children: ($$renderer) => {
-																Flex($$renderer, {
-																	align: "center",
-																	wrap: true,
-																	gap: 2,
+																Badge($$renderer, {
+																	tone: "info",
 																	children: ($$renderer) => {
-																		$$renderer.push(`<h3${attr("id", `unknowns-${decision.key}`)}>Ce que nous n’avons pas pu établir</h3> `);
-																		Badge($$renderer, {
-																			tone: "warning",
-																			size: "sm",
-																			children: ($$renderer) => {
-																				$$renderer.push(`<!---->${escape_html(decision.unknowns.length)}`);
-																			},
-																			$$slots: { default: true }
-																		});
-																		$$renderer.push(`<!---->`);
+																		$$renderer.push(`<!---->État de l’art`);
 																	},
 																	$$slots: { default: true }
 																});
-																$$renderer.push(`<!----> <ul class="svelte-e74176"><!--[-->`);
-																const each_array_4 = ensure_array_like(decision.unknowns);
-																for (let unknownIndex = 0, $$length = each_array_4.length; unknownIndex < $$length; unknownIndex++) {
-																	let unknown = each_array_4[unknownIndex];
-																	$$renderer.push(`<li class="svelte-e74176">${escape_html(unknown)}</li>`);
-																}
-																$$renderer.push(`<!--]--></ul>`);
+																$$renderer.push(`<!----> <span>Carte 1 sur ${escape_html(slidesTotal())} — aucune décision ici</span>`);
 															},
 															$$slots: { default: true }
 														});
-														$$renderer.push(`<!----></section>`);
-													} else $$renderer.push("<!--[-1-->");
-													$$renderer.push(`<!--]--> `);
-													Alert($$renderer, {
-														tone: "info",
-														title: "Critère à trancher (neutre)",
-														message: decision.recommendation
-													});
-													$$renderer.push(`<!----> <div class="note-field svelte-e74176" role="presentation">`);
-													Textarea($$renderer, {
-														label: "Votre note",
-														helperText: "Pourquoi ce choix, ce qui manque, ce qu'il faut vérifier. Enregistrée dans votre navigateur au fil de la frappe.",
-														rows: 4,
-														value: notes[decision.key] ?? "",
-														oninput: (event) => setNote(decision.key, event.currentTarget.value)
-													});
-													$$renderer.push(`<!----></div> `);
+														$$renderer.push(`<!----> `);
+														Stack($$renderer, {
+															gap: 2,
+															children: ($$renderer) => {
+																$$renderer.push(`<h2 id="matrix-title" data-anchor-id="dossier:matrix">Matrice de comparaison</h2> <p>Dix-neuf approches du benchmark, comparées sur le stockage, la récupération, la
+                        réconciliation, le mode d’écriture, le partage multi-CLI, l’auto-hébergement/RAM, la
+                        licence et l’adéquation à la cible (agent persistant, multi-CLI, local-first). Faites
+                        défiler horizontalement pour voir toutes les colonnes.</p>`);
+															},
+															$$slots: { default: true }
+														});
+														$$renderer.push(`<!----> <div class="matrix-scroll svelte-e74176" role="presentation">`);
+														Table($$renderer, {
+															caption: matrix().caption,
+															columns: matrix().columns,
+															rows: matrix().rows
+														});
+														$$renderer.push(`<!----></div> <p class="matrix-legend svelte-e74176">${escape_html(matrix().legend)}</p> `);
+														if (dossier().corrections?.length) {
+															$$renderer.push(`<!--[0--><section aria-labelledby="corrections-title" data-anchor-id="dossier:corrections">`);
+															Stack($$renderer, {
+																gap: 2,
+																children: ($$renderer) => {
+																	$$renderer.push(`<h2 id="corrections-title">Corrections à la révision précédente (${escape_html(dossier().corrections.length)})</h2> <p>La recherche de mécanismes a démenti des affirmations que la révision <strong>${escape_html(dossier().previousRevision)}</strong> présentait comme des faits. Elles sont
+                            listées ici, et les cellules concernées de la matrice ci-dessus ont été réécrites.</p> <ul class="corrections svelte-e74176"><!--[-->`);
+																	const each_array = ensure_array_like(dossier().corrections);
+																	for (let $$index = 0, $$length = each_array.length; $$index < $$length; $$index++) {
+																		let correction = each_array[$$index];
+																		$$renderer.push(`<li class="svelte-e74176">`);
+																		Stack($$renderer, {
+																			gap: 1,
+																			children: ($$renderer) => {
+																				$$renderer.push(`<strong>${escape_html(correction.subject)}</strong> <p class="was-stated svelte-e74176"><em>Était affirmé :</em> ${escape_html(correction.wasStated)}</p> <p><strong>En réalité :</strong> ${escape_html(correction.actually)}</p> <p class="fact-source svelte-e74176">${escape_html(correction.source)}</p>`);
+																			},
+																			$$slots: { default: true }
+																		});
+																		$$renderer.push(`<!----></li>`);
+																	}
+																	$$renderer.push(`<!--]--></ul>`);
+																},
+																$$slots: { default: true }
+															});
+															$$renderer.push(`<!----></section>`);
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]--> `);
+														Alert($$renderer, {
+															tone: "info",
+															title: "Rien à trancher sur cette carte",
+															message: "Passez à la carte suivante pour entrer dans les décisions."
+														});
+														$$renderer.push(`<!---->`);
+													},
+													$$slots: { default: true }
+												});
+											},
+											$$slots: { default: true }
+										});
+										$$renderer.push(`<!----></section> <!--[-->`);
+										const each_array_1 = ensure_array_like(dossier().decisions);
+										for (let index = 0, $$length = each_array_1.length; index < $$length; index++) {
+											let decision = each_array_1[index];
+											const slide = index + 1;
+											$$renderer.push(`<section class="swipe-slide svelte-e74176"${attr("data-anchor-id", `decision:${decision.key}`)}${attr("aria-hidden", current !== slide)}${attr("inert", current !== slide, true)}>`);
+											Card($$renderer, {
+												children: ($$renderer) => {
 													Stack($$renderer, {
-														gap: 2,
+														gap: 4,
 														children: ($$renderer) => {
 															Flex($$renderer, {
 																align: "center",
@@ -980,13 +661,135 @@ function _page($$renderer, $$props) {
 																wrap: true,
 																gap: 2,
 																children: ($$renderer) => {
-																	$$renderer.push(`<span class="include-hint svelte-e74176">${escape_html(hasSomethingToInclude(decision.key) ? `Votre option et votre note partent ensemble${h2aTarget ? ` vers ${h2aTarget}` : ""}.` : "Sélectionnez une option ou écrivez une note pour pouvoir la transmettre.")}</span> `);
-																	Button($$renderer, {
-																		variant: "primary",
-																		onclick: () => includeChoice(decision.key),
-																		disabled: including === decision.key || !hasSomethingToInclude(decision.key),
+																	Flex($$renderer, {
+																		align: "center",
+																		wrap: true,
+																		gap: 2,
 																		children: ($$renderer) => {
-																			$$renderer.push(`<!---->${escape_html(including === decision.key ? "Transmission…" : "Transmettre à la CLI (h2a)")}`);
+																			Badge($$renderer, {
+																				tone: "info",
+																				children: ($$renderer) => {
+																					$$renderer.push(`<!---->${escape_html(decision.key)}`);
+																				},
+																				$$slots: { default: true }
+																			});
+																			$$renderer.push(`<!----> `);
+																			if (decision.addedInRevision) {
+																				$$renderer.push("<!--[0-->");
+																				Badge($$renderer, {
+																					tone: "neutral",
+																					size: "sm",
+																					children: ($$renderer) => {
+																						$$renderer.push(`<!---->Nouvelle carte (révision 2)`);
+																					},
+																					$$slots: { default: true }
+																				});
+																			} else $$renderer.push("<!--[-1-->");
+																			$$renderer.push(`<!--]--> `);
+																			if (divergentKeys().has(decision.key)) {
+																				$$renderer.push("<!--[0-->");
+																				Badge($$renderer, {
+																					tone: "warning",
+																					size: "sm",
+																					children: ($$renderer) => {
+																						$$renderer.push(`<!---->Brouillon ≠ jeu commité`);
+																					},
+																					$$slots: { default: true }
+																				});
+																			} else $$renderer.push("<!--[-1-->");
+																			$$renderer.push(`<!--]-->`);
+																		},
+																		$$slots: { default: true }
+																	});
+																	$$renderer.push(`<!----> <span>Décision ${escape_html(slide)} sur ${escape_html(decisionsTotal())}</span>`);
+																},
+																$$slots: { default: true }
+															});
+															$$renderer.push(`<!----> <div${attr("data-anchor-id", `question:${decision.key}`)} data-commentable="">`);
+															Stack($$renderer, {
+																gap: 2,
+																children: ($$renderer) => {
+																	$$renderer.push(`<h2>${escape_html(decision.question)}</h2> <p>${escape_html(decision.whyNow)}</p>`);
+																},
+																$$slots: { default: true }
+															});
+															$$renderer.push(`<!----></div> `);
+															if (decision.fromAnswer) {
+																$$renderer.push(`<!--[0--><section class="from-answer svelte-e74176"${attr("aria-labelledby", `from-answer-${decision.key}`)}>`);
+																Stack($$renderer, {
+																	gap: 1,
+																	children: ($$renderer) => {
+																		$$renderer.push(`<h3${attr("id", `from-answer-${decision.key}`)}>Découle de votre réponse${escape_html(decision.parent?.length ? ` à ${decision.parent.join(" et ")}` : "")}</h3> <blockquote class="svelte-e74176">${escape_html(decision.fromAnswer)}</blockquote>`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!----></section>`);
+															} else $$renderer.push("<!--[-1-->");
+															$$renderer.push(`<!--]--> <section${attr("aria-labelledby", `options-${decision.key}`)}>`);
+															Stack($$renderer, {
+																gap: 2,
+																children: ($$renderer) => {
+																	$$renderer.push(`<h3${attr("id", `options-${decision.key}`)}>Alternatives</h3> <p>Aucune option n’est recommandée par défaut. La sélection est facultative.</p> `);
+																	Stack($$renderer, {
+																		gap: 2,
+																		children: ($$renderer) => {
+																			$$renderer.push(`<!--[-->`);
+																			const each_array_2 = ensure_array_like(decision.options);
+																			for (let $$index_1 = 0, $$length = each_array_2.length; $$index_1 < $$length; $$index_1++) {
+																				let option = each_array_2[$$index_1];
+																				$$renderer.push(`<div role="presentation"${attr("data-anchor-id", `option:${decision.key}:${option.key}`)}>`);
+																				Tile($$renderer, {
+																					variant: "selectable",
+																					selected: selections[decision.key] === option.key,
+																					onselect: () => selectOption(decision.key, option.key),
+																					children: ($$renderer) => {
+																						Stack($$renderer, {
+																							gap: 2,
+																							children: ($$renderer) => {
+																								Flex($$renderer, {
+																									align: "center",
+																									justify: "between",
+																									wrap: true,
+																									gap: 2,
+																									children: ($$renderer) => {
+																										$$renderer.push(`<strong>${escape_html(option.title)}</strong> `);
+																										if (option.recommended) {
+																											$$renderer.push("<!--[0-->");
+																											Badge($$renderer, {
+																												tone: "success",
+																												size: "sm",
+																												children: ($$renderer) => {
+																													$$renderer.push(`<!---->Recommandée`);
+																												},
+																												$$slots: { default: true }
+																											});
+																										} else $$renderer.push("<!--[-1-->");
+																										$$renderer.push(`<!--]--> `);
+																										if (selections[decision.key] === option.key) {
+																											$$renderer.push("<!--[0-->");
+																											Badge($$renderer, {
+																												tone: "info",
+																												size: "sm",
+																												children: ($$renderer) => {
+																													$$renderer.push(`<!---->Sélectionnée`);
+																												},
+																												$$slots: { default: true }
+																											});
+																										} else $$renderer.push("<!--[-1-->");
+																										$$renderer.push(`<!--]-->`);
+																									},
+																									$$slots: { default: true }
+																								});
+																								$$renderer.push(`<!----> <p>${escape_html(option.behavior)}</p> <p><strong>Conséquence :</strong> ${escape_html(option.consequence)}</p>`);
+																							},
+																							$$slots: { default: true }
+																						});
+																					},
+																					$$slots: { default: true }
+																				});
+																				$$renderer.push(`<!----></div>`);
+																			}
+																			$$renderer.push(`<!--]-->`);
 																		},
 																		$$slots: { default: true }
 																	});
@@ -994,212 +797,33 @@ function _page($$renderer, $$props) {
 																},
 																$$slots: { default: true }
 															});
-															$$renderer.push(`<!----> `);
-															if (includeResult[decision.key]) {
-																$$renderer.push("<!--[0-->");
-																const result = includeResult[decision.key];
-																if (result.ok && result.delivered) {
-																	$$renderer.push("<!--[0-->");
-																	Alert($$renderer, {
-																		tone: "success",
-																		title: `Transmis à ${result.target}`,
-																		message: result.note ?? ""
-																	});
-																} else if (result.ok) {
-																	$$renderer.push("<!--[1-->");
-																	Alert($$renderer, {
-																		tone: "warning",
-																		title: "Non remis — et voici ce qui le permettrait",
-																		message: result.note ?? ""
-																	});
-																} else {
-																	$$renderer.push("<!--[-1-->");
-																	Alert($$renderer, {
-																		tone: "error",
-																		title: "Échec de la transmission",
-																		message: result.error ?? "Erreur inconnue."
-																	});
-																}
-																$$renderer.push(`<!--]-->`);
-															} else $$renderer.push("<!--[-1-->");
-															$$renderer.push(`<!--]-->`);
-														},
-														$$slots: { default: true }
-													});
-													$$renderer.push(`<!----> `);
-													Stack($$renderer, {
-														gap: 2,
-														children: ($$renderer) => {
-															$$renderer.push(`<h3>Prochain travail</h3> <p>${escape_html(decision.nextWork)}</p>`);
-														},
-														$$slots: { default: true }
-													});
-													$$renderer.push(`<!---->`);
-												},
-												$$slots: { default: true }
-											});
-										},
-										$$slots: { default: true }
-									});
-									$$renderer.push(`<!----></section>`);
-								}
-								$$renderer.push(`<!--]--></div></div> `);
-								Flex($$renderer, {
-									align: "center",
-									justify: "between",
-									wrap: true,
-									gap: 3,
-									children: ($$renderer) => {
-										Button($$renderer, {
-											variant: "secondary",
-											onclick: previous,
-											disabled: current === 0,
-											"aria-label": "Carte précédente",
-											children: ($$renderer) => {
-												$$renderer.push(`<!---->Précédente`);
-											},
-											$$slots: { default: true }
-										});
-										$$renderer.push(`<!----> `);
-										SlideIndicator($$renderer, {
-											count: slidesTotal(),
-											current,
-											onChange: (index) => current = index,
-											label: "Accéder à une carte",
-											variant: "bars"
-										});
-										$$renderer.push(`<!----> `);
-										Button($$renderer, {
-											variant: "primary",
-											onclick: next,
-											disabled: current === slidesTotal() - 1,
-											"aria-label": "Carte suivante",
-											children: ($$renderer) => {
-												$$renderer.push(`<!---->Suivante`);
-											},
-											$$slots: { default: true }
-										});
-										$$renderer.push(`<!---->`);
-									},
-									$$slots: { default: true }
-								});
-								$$renderer.push(`<!----> <section aria-labelledby="handoff-title">`);
-								Stack($$renderer, {
-									gap: 3,
-									children: ($$renderer) => {
-										$$renderer.push(`<h2 id="handoff-title">Transmettre vos réponses</h2> `);
-										Stack($$renderer, {
-											gap: 2,
-											children: ($$renderer) => {
-												Flex($$renderer, {
-													align: "center",
-													justify: "between",
-													wrap: true,
-													gap: 2,
-													children: ($$renderer) => {
-														$$renderer.push(`<span class="include-hint svelte-e74176">`);
-														if (h2aTarget) {
-															$$renderer.push(`<!--[0-->Destinataire : <strong>${escape_html(h2aTarget)}</strong> `);
-															if (h2aReason === "workspace") $$renderer.push(`<!--[0-->(résolu sur le chemin du checkout)`);
-															else if (h2aReason === "emitter") $$renderer.push(`<!--[1-->(la session qui sert ce focus)`);
-															else if (h2aReason === "requested") $$renderer.push(`<!--[2-->(choisi par vous)`);
-															else if (h2aReason === "configured") $$renderer.push(`<!--[3-->(épinglé par FOCUS_H2A_TARGET)`);
-															else if (h2aReason === "sole") $$renderer.push(`<!--[4-->(seule session live)`);
-															else if (h2aReason === "name") $$renderer.push(`<!--[5-->(résolu sur le nom de session)`);
-															else $$renderer.push("<!--[-1-->");
-															$$renderer.push(`<!--]-->`);
-														} else $$renderer.push(`<!--[-1-->Aucun destinataire résolu pour l'instant.`);
-														$$renderer.push(`<!--]--></span> `);
-														Flex($$renderer, {
-															align: "center",
-															wrap: true,
-															gap: 2,
-															children: ($$renderer) => {
-																Button($$renderer, {
-																	variant: "secondary",
-																	onclick: () => showTargets = !showTargets,
+															$$renderer.push(`<!----></section> `);
+															if (decision.mechanisms?.length) {
+																$$renderer.push(`<!--[0--><section${attr("aria-labelledby", `mechanisms-${decision.key}`)}>`);
+																Stack($$renderer, {
+																	gap: 2,
 																	children: ($$renderer) => {
-																		$$renderer.push(`<!---->${escape_html(showTargets ? "Masquer les sessions" : "Changer de destinataire")}`);
-																	},
-																	$$slots: { default: true }
-																});
-																$$renderer.push(`<!----> `);
-																Button($$renderer, {
-																	variant: "secondary",
-																	onclick: refreshTargets,
-																	disabled: refreshingTargets,
-																	children: ($$renderer) => {
-																		$$renderer.push(`<!---->${escape_html(refreshingTargets ? "Actualisation…" : "Actualiser")}`);
-																	},
-																	$$slots: { default: true }
-																});
-																$$renderer.push(`<!---->`);
-															},
-															$$slots: { default: true }
-														});
-														$$renderer.push(`<!---->`);
-													},
-													$$slots: { default: true }
-												});
-												$$renderer.push(`<!----> `);
-												if (!h2aTarget && h2aRemedy) {
-													$$renderer.push("<!--[0-->");
-													Alert($$renderer, {
-														tone: "warning",
-														title: "Rien à qui remettre — pour l'instant",
-														message: h2aRemedy
-													});
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]--> `);
-												if (h2aAmbiguous) {
-													$$renderer.push("<!--[0-->");
-													Alert($$renderer, {
-														tone: "warning",
-														title: "Plusieurs sessions live répondent pour ce dépôt",
-														message: `Le destinataire retenu est ${h2aTarget}. Les autres sessions live de ce dépôt ne le recevront pas — si ce n'est pas la bonne, choisissez-la ci-dessus avant de transmettre. Les sessions peuvent vivre sur des racines h2a différentes, qui ne se voient pas entre elles.`
-													});
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]--> `);
-												if (showTargets) {
-													$$renderer.push("<!--[0-->");
-													Stack($$renderer, {
-														gap: 2,
-														children: ($$renderer) => {
-															if (h2aLive.length === 0) {
-																$$renderer.push("<!--[0-->");
-																Alert($$renderer, {
-																	tone: "warning",
-																	title: "Aucune session h2a live",
-																	message: h2aRemedy ?? "Le registre ne contient aucune session live, pour aucun projet. Ouvrez une CLI h2a, puis « Actualiser »."
-																});
-															} else {
-																$$renderer.push(`<!--[-1--><!--[-->`);
-																const each_array_5 = ensure_array_like(h2aLive);
-																for (let $$index_5 = 0, $$length = each_array_5.length; $$index_5 < $$length; $$index_5++) {
-																	let session = each_array_5[$$index_5];
-																	$$renderer.push(`<div role="presentation">`);
-																	Tile($$renderer, {
-																		variant: "selectable",
-																		selected: h2aTarget === session.instance,
-																		onselect: () => chooseTarget(session.instance),
-																		children: ($$renderer) => {
+																		$$renderer.push(`<h3${attr("id", `mechanisms-${decision.key}`)}>Comment ça marche réellement (${escape_html(decision.mechanisms.length)})</h3> <ul class="mechanisms svelte-e74176"><!--[-->`);
+																		const each_array_3 = ensure_array_like(decision.mechanisms);
+																		for (let $$index_2 = 0, $$length = each_array_3.length; $$index_2 < $$length; $$index_2++) {
+																			let mechanism = each_array_3[$$index_2];
+																			$$renderer.push(`<li class="svelte-e74176">`);
 																			Stack($$renderer, {
 																				gap: 1,
 																				children: ($$renderer) => {
 																					Flex($$renderer, {
 																						align: "center",
-																						justify: "between",
 																						wrap: true,
 																						gap: 2,
 																						children: ($$renderer) => {
-																							$$renderer.push(`<strong>${escape_html(session.name ?? session.instance)}</strong> `);
-																							if (session.matchesRepo) {
+																							$$renderer.push(`<strong>${escape_html(mechanism.system)}</strong> `);
+																							if (mechanism.status === "unverified") {
 																								$$renderer.push("<!--[0-->");
 																								Badge($$renderer, {
-																									tone: "success",
+																									tone: "warning",
 																									size: "sm",
 																									children: ($$renderer) => {
-																										$$renderer.push(`<!---->Ce dépôt`);
+																										$$renderer.push(`<!---->Non vérifié`);
 																									},
 																									$$slots: { default: true }
 																								});
@@ -1208,119 +832,174 @@ function _page($$renderer, $$props) {
 																						},
 																						$$slots: { default: true }
 																					});
-																					$$renderer.push(`<!----> <p class="fact-source svelte-e74176">${escape_html(session.instance)}</p> `);
-																					if (session.workspace) $$renderer.push(`<!--[0--><p class="fact-source svelte-e74176">${escape_html(session.workspace)}</p>`);
-																					else $$renderer.push("<!--[-1-->");
-																					$$renderer.push(`<!--]--> `);
-																					if (session.root) $$renderer.push(`<!--[0--><p class="fact-source svelte-e74176">racine h2a : ${escape_html(session.root)}</p>`);
-																					else $$renderer.push("<!--[-1-->");
-																					$$renderer.push(`<!--]-->`);
+																					$$renderer.push(`<!----> <p>${escape_html(mechanism.fact)}</p> <p class="fact-source svelte-e74176">${escape_html(mechanism.source)}</p>`);
 																				},
 																				$$slots: { default: true }
 																			});
+																			$$renderer.push(`<!----></li>`);
+																		}
+																		$$renderer.push(`<!--]--></ul>`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!----></section>`);
+															} else $$renderer.push("<!--[-1-->");
+															$$renderer.push(`<!--]--> `);
+															if (decision.unknowns?.length) {
+																$$renderer.push(`<!--[0--><section class="unknowns svelte-e74176"${attr("aria-labelledby", `unknowns-${decision.key}`)}>`);
+																Stack($$renderer, {
+																	gap: 2,
+																	children: ($$renderer) => {
+																		Flex($$renderer, {
+																			align: "center",
+																			wrap: true,
+																			gap: 2,
+																			children: ($$renderer) => {
+																				$$renderer.push(`<h3${attr("id", `unknowns-${decision.key}`)}>Ce que nous n’avons pas pu établir</h3> `);
+																				Badge($$renderer, {
+																					tone: "warning",
+																					size: "sm",
+																					children: ($$renderer) => {
+																						$$renderer.push(`<!---->${escape_html(decision.unknowns.length)}`);
+																					},
+																					$$slots: { default: true }
+																				});
+																				$$renderer.push(`<!---->`);
+																			},
+																			$$slots: { default: true }
+																		});
+																		$$renderer.push(`<!----> <ul class="svelte-e74176"><!--[-->`);
+																		const each_array_4 = ensure_array_like(decision.unknowns);
+																		for (let unknownIndex = 0, $$length = each_array_4.length; unknownIndex < $$length; unknownIndex++) {
+																			let unknown = each_array_4[unknownIndex];
+																			$$renderer.push(`<li class="svelte-e74176">${escape_html(unknown)}</li>`);
+																		}
+																		$$renderer.push(`<!--]--></ul>`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!----></section>`);
+															} else $$renderer.push("<!--[-1-->");
+															$$renderer.push(`<!--]--> `);
+															Alert($$renderer, {
+																tone: "info",
+																title: "Critère à trancher (neutre)",
+																message: decision.recommendation
+															});
+															$$renderer.push(`<!----> <div class="note-field svelte-e74176" role="presentation">`);
+															Textarea($$renderer, {
+																label: "Votre note",
+																helperText: "Pourquoi ce choix, ce qui manque, ce qu'il faut vérifier. Enregistrée dans votre navigateur au fil de la frappe.",
+																rows: 4,
+																value: notes[decision.key] ?? "",
+																oninput: (event) => setNote(decision.key, event.currentTarget.value)
+															});
+															$$renderer.push(`<!----></div> `);
+															Stack($$renderer, {
+																gap: 2,
+																children: ($$renderer) => {
+																	Flex($$renderer, {
+																		align: "center",
+																		justify: "between",
+																		wrap: true,
+																		gap: 2,
+																		children: ($$renderer) => {
+																			$$renderer.push(`<span class="include-hint svelte-e74176">${escape_html(hasSomethingToInclude(decision.key) ? `Votre option et votre note partent ensemble${h2aTarget ? ` vers ${h2aTarget}` : ""}.` : "Sélectionnez une option ou écrivez une note pour pouvoir la transmettre.")}</span> `);
+																			Button($$renderer, {
+																				variant: "primary",
+																				onclick: () => includeChoice(decision.key),
+																				disabled: including === decision.key || !hasSomethingToInclude(decision.key),
+																				children: ($$renderer) => {
+																					$$renderer.push(`<!---->${escape_html(including === decision.key ? "Transmission…" : "Transmettre à la CLI (h2a)")}`);
+																				},
+																				$$slots: { default: true }
+																			});
+																			$$renderer.push(`<!---->`);
 																		},
 																		$$slots: { default: true }
 																	});
-																	$$renderer.push(`<!----></div>`);
-																}
-																$$renderer.push(`<!--]-->`);
-															}
-															$$renderer.push(`<!--]-->`);
+																	$$renderer.push(`<!----> `);
+																	if (includeResult[decision.key]) {
+																		$$renderer.push("<!--[0-->");
+																		const result = includeResult[decision.key];
+																		if (result.ok && result.delivered) {
+																			$$renderer.push("<!--[0-->");
+																			Alert($$renderer, {
+																				tone: "success",
+																				title: `Transmis à ${result.target}`,
+																				message: result.note ?? ""
+																			});
+																		} else if (result.ok) {
+																			$$renderer.push("<!--[1-->");
+																			Alert($$renderer, {
+																				tone: "warning",
+																				title: "Non remis — et voici ce qui le permettrait",
+																				message: result.note ?? ""
+																			});
+																		} else {
+																			$$renderer.push("<!--[-1-->");
+																			Alert($$renderer, {
+																				tone: "error",
+																				title: "Échec de la transmission",
+																				message: result.error ?? "Erreur inconnue."
+																			});
+																		}
+																		$$renderer.push(`<!--]-->`);
+																	} else $$renderer.push("<!--[-1-->");
+																	$$renderer.push(`<!--]-->`);
+																},
+																$$slots: { default: true }
+															});
+															$$renderer.push(`<!----> `);
+															Stack($$renderer, {
+																gap: 2,
+																children: ($$renderer) => {
+																	$$renderer.push(`<h3>Prochain travail</h3> <p>${escape_html(decision.nextWork)}</p>`);
+																},
+																$$slots: { default: true }
+															});
+															$$renderer.push(`<!---->`);
 														},
 														$$slots: { default: true }
 													});
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]--> `);
-												Flex($$renderer, {
-													align: "center",
-													justify: "between",
-													wrap: true,
-													gap: 2,
-													children: ($$renderer) => {
-														$$renderer.push(`<span class="include-hint svelte-e74176">${escape_html(answeredCount() > 0 ? `${answeredCount()} réponse(s) partiraient en un seul envoi, options ET notes.` : "Aucune réponse à transmettre pour le moment.")}</span> `);
-														Button($$renderer, {
-															variant: "primary",
-															onclick: sendAll,
-															disabled: sendingAll || answeredCount() === 0,
-															children: ($$renderer) => {
-																$$renderer.push(`<!---->${escape_html(sendingAll ? "Transmission…" : "Transmettre toutes mes réponses à la CLI")}`);
-															},
-															$$slots: { default: true }
-														});
-														$$renderer.push(`<!---->`);
-													},
-													$$slots: { default: true }
-												});
-												$$renderer.push(`<!----> `);
-												if (sendAllResult) {
-													$$renderer.push("<!--[0-->");
-													if (sendAllResult.ok && sendAllResult.delivered) {
-														$$renderer.push("<!--[0-->");
-														Alert($$renderer, {
-															tone: "success",
-															title: `Transmis à ${sendAllResult.target}`,
-															message: sendAllResult.note ?? ""
-														});
-													} else if (sendAllResult.ok) {
-														$$renderer.push("<!--[1-->");
-														Alert($$renderer, {
-															tone: "warning",
-															title: "Non remis — et voici ce qui le permettrait",
-															message: sendAllResult.note ?? ""
-														});
-													} else {
-														$$renderer.push("<!--[-1-->");
-														Alert($$renderer, {
-															tone: "error",
-															title: "Échec de la transmission",
-															message: sendAllResult.error ?? "Erreur inconnue."
-														});
-													}
-													$$renderer.push(`<!--]-->`);
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]-->`);
-											},
-											$$slots: { default: true }
-										});
-										$$renderer.push(`<!---->`);
-									},
-									$$slots: { default: true }
-								});
-								$$renderer.push(`<!----></section> <section aria-labelledby="summary-title">`);
-								Stack($$renderer, {
-									gap: 2,
-									children: ($$renderer) => {
-										$$renderer.push(`<h2 id="summary-title">Vos notes (repli presse-papier)</h2> `);
+												},
+												$$slots: { default: true }
+											});
+											$$renderer.push(`<!----></section>`);
+										}
+										$$renderer.push(`<!--]--></div></div> `);
 										Flex($$renderer, {
 											align: "center",
 											justify: "between",
 											wrap: true,
-											gap: 2,
+											gap: 3,
 											children: ($$renderer) => {
-												$$renderer.push(`<span>${escape_html(answeredCount())} décision(s) sur ${escape_html(decisionsTotal())} annotée(s) ou sélectionnée(s).</span> `);
-												Flex($$renderer, {
-													align: "center",
-													wrap: true,
-													gap: 2,
+												Button($$renderer, {
+													variant: "secondary",
+													onclick: previous,
+													disabled: current === 0,
+													"aria-label": "Carte précédente",
 													children: ($$renderer) => {
-														Button($$renderer, {
-															variant: "secondary",
-															onclick: copySummary,
-															children: ($$renderer) => {
-																$$renderer.push(`<!---->Copier ma synthèse`);
-															},
-															$$slots: { default: true }
-														});
-														$$renderer.push(`<!----> `);
-														Button($$renderer, {
-															variant: "secondary",
-															onclick: copyAnswerSetJson,
-															children: ($$renderer) => {
-																$$renderer.push(`<!---->Copier le jeu de réponses (JSON)`);
-															},
-															$$slots: { default: true }
-														});
-														$$renderer.push(`<!---->`);
+														$$renderer.push(`<!---->Précédente`);
+													},
+													$$slots: { default: true }
+												});
+												$$renderer.push(`<!----> `);
+												SlideIndicator($$renderer, {
+													count: slidesTotal(),
+													current,
+													onChange: (index) => current = index,
+													label: "Accéder à une carte",
+													variant: "bars"
+												});
+												$$renderer.push(`<!----> `);
+												Button($$renderer, {
+													variant: "primary",
+													onclick: next,
+													disabled: current === slidesTotal() - 1,
+													"aria-label": "Carte suivante",
+													children: ($$renderer) => {
+														$$renderer.push(`<!---->Suivante`);
 													},
 													$$slots: { default: true }
 												});
@@ -1328,133 +1007,240 @@ function _page($$renderer, $$props) {
 											},
 											$$slots: { default: true }
 										});
-										$$renderer.push(`<!----> `);
-										if (exportState === "copied") {
-											$$renderer.push("<!--[0-->");
-											Alert($$renderer, {
-												tone: "success",
-												title: "Synthèse copiée",
-												message: "Vos sélections et vos notes sont dans le presse-papier, en markdown. Collez-les où vous voulez : une CLI, un ticket, un message."
-											});
-										} else if (exportState === "copied-json") {
-											$$renderer.push("<!--[1-->");
-											Alert($$renderer, {
-												tone: "success",
-												title: "Jeu de réponses copié (JSON)",
-												message: "Même forme que le jeu enregistré : il peut être commité puis rejoué tel quel dans ce dossier, sans retouche à la main."
-											});
-										} else if (exportState === "failed") {
-											$$renderer.push("<!--[2-->");
-											Alert($$renderer, {
-												tone: "error",
-												title: "Copie refusée par le navigateur",
-												message: "Le presse-papier n'est pas accessible ici. Vos notes restent enregistrées dans ce navigateur ; sélectionnez-les à la main dans les cartes."
-											});
-										} else $$renderer.push("<!--[-1-->");
-										$$renderer.push(`<!--]-->`);
-									},
-									$$slots: { default: true }
-								});
-								$$renderer.push(`<!----></section> <section aria-labelledby="replay-title">`);
-								Stack($$renderer, {
-									gap: 2,
-									children: ($$renderer) => {
-										$$renderer.push(`<h2 id="replay-title">Jeu de réponses commité</h2> `);
-										if (!answerSet()) {
-											$$renderer.push("<!--[0-->");
-											Alert($$renderer, {
-												tone: "warning",
-												title: "Jeu commité indisponible",
-												message: "Le jeu de réponses commité n'est pas atteignable depuis ce service (docs/decisions/2026-07-25-agent-memory-owner-answers.json). Rien n'a été inventé : vos réponses locales sont intactes."
-											});
-										} else {
-											$$renderer.push(`<!--[-1--><p>Jeu commité : <code>${escape_html(answerSet().source)}</code> — révision <strong>${escape_html(answerSet().revision)}</strong>${escape_html(answerSet().capturedAt ? `, capturé le ${answerSet().capturedAt}` : "")}${escape_html(answerSet().status ? ` (${answerSet().status})` : "")}. Il est chargé <strong>par défaut</strong>, côté serveur, sélections <strong>et</strong> notes, telles
-                  qu'elles ont été écrites — aucun état de navigateur n'est requis pour le voir.</p> `);
-											if (dossier().carryOver) {
-												$$renderer.push("<!--[0-->");
-												Alert($$renderer, {
-													tone: "info",
-													title: `Report depuis « ${dossier().carryOver.from} » : ${dossier().carryOver.carried.length} décisions conservées, ${dossier().carryOver.added.length} ajoutées`,
-													message: dossier().carryOver.statement
-												});
-											} else $$renderer.push("<!--[-1-->");
-											$$renderer.push(`<!--]--> `);
-											if (revisionMismatch()) {
-												$$renderer.push("<!--[0-->");
-												Alert($$renderer, {
-													tone: "warning",
-													title: "Révision différente",
-													message: `Ces réponses ont été capturées sur « ${answerSet().revision} », or ce dossier est en « ${dossier().revision} ». Ce qui retombe sur cette révision est chargé ; ce qui n'y retombe plus et ce que ce jeu ne couvre pas sont nommés ci-dessous.`
-												});
-											} else $$renderer.push("<!--[-1-->");
-											$$renderer.push(`<!--]--> `);
-											if (committedReport()) {
-												$$renderer.push("<!--[0-->");
-												if (committedReport().missingDecisions.length) {
-													$$renderer.push("<!--[0-->");
-													Alert($$renderer, {
-														tone: "error",
-														title: "Réponses non chargeables : décision disparue",
-														message: `Ces clés n'existent plus dans la révision « ${dossier().revision} » et n'ont donc pas pu être chargées : ${committedReport().missingDecisions.join(", ")}. Leurs notes sont toujours dans le jeu commité, pas dans cette page.`
-													});
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]--> `);
-												if (committedReport().staleOptions.length) {
-													$$renderer.push("<!--[0-->");
-													Alert($$renderer, {
-														tone: "warning",
-														title: "Options disparues : note chargée, sélection non",
-														message: `Ces options n'existent plus pour leur décision : ${committedReport().staleOptions.join(", ")}. La note a été chargée, la sélection est restée vide — à vous de la reprendre.`
-													});
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]--> `);
-												if (committedReport().unanswered.length) {
-													$$renderer.push("<!--[0-->");
-													Alert($$renderer, {
-														tone: "info",
-														title: `${committedReport().unanswered.length} décision(s) sans réponse dans ce jeu`,
-														message: `Ce jeu commité ne couvre pas : ${committedReport().unanswered.join(", ")}. Ce ne sont pas des réponses perdues — ce sont les cartes ajoutées depuis, qui attendent la vôtre.`
-													});
-												} else $$renderer.push("<!--[-1-->");
-												$$renderer.push(`<!--]-->`);
-											} else $$renderer.push("<!--[-1-->");
-											$$renderer.push(`<!--]--> `);
-											if (divergences().length > 0) {
-												$$renderer.push(`<!--[0--><section aria-labelledby="divergence-title">`);
+										$$renderer.push(`<!----> <section aria-labelledby="handoff-title">`);
+										Stack($$renderer, {
+											gap: 3,
+											children: ($$renderer) => {
+												$$renderer.push(`<h2 id="handoff-title">Transmettre vos réponses</h2> `);
 												Stack($$renderer, {
 													gap: 2,
 													children: ($$renderer) => {
-														$$renderer.push(`<h3 id="divergence-title">Deux versions de vos réponses (${escape_html(divergences().length)} écart(s))</h3> <p>La page affiche votre <strong>brouillon local</strong>. Le jeu commité du dépôt dit
-                        autre chose sur ces décisions. Choisissez laquelle garder — rien n'est remplacé
-                        tant que vous n'avez pas choisi.</p> <ul class="divergences svelte-e74176"><!--[-->`);
-														const each_array_6 = ensure_array_like(divergences());
-														for (let $$index_6 = 0, $$length = each_array_6.length; $$index_6 < $$length; $$index_6++) {
-															let divergence = each_array_6[$$index_6];
-															$$renderer.push(`<li class="svelte-e74176">`);
-															Stack($$renderer, {
-																gap: 1,
-																children: ($$renderer) => {
-																	$$renderer.push(`<strong>${escape_html(divergence.key)}</strong> <p><em>Jeu commité :</em> ${escape_html(divergence.committedOption ?? "(aucune option)")} —
-                                ${escape_html(divergence.committedNote ? divergence.committedNote : "(aucune note)")}</p> <p><em>Votre brouillon (affiché) :</em> ${escape_html(divergence.draftOption ?? "(aucune option)")} —
-                                ${escape_html(divergence.draftNote ? divergence.draftNote : "(aucune note)")}</p>`);
-																},
-																$$slots: { default: true }
-															});
-															$$renderer.push(`<!----></li>`);
-														}
-														$$renderer.push(`<!--]--></ul> `);
 														Flex($$renderer, {
 															align: "center",
 															justify: "between",
 															wrap: true,
 															gap: 2,
 															children: ($$renderer) => {
-																$$renderer.push(`<span class="include-hint svelte-e74176">Garder votre brouillon ne demande aucune action : il est déjà à l'écran.</span> `);
+																$$renderer.push(`<span class="include-hint svelte-e74176">`);
+																if (h2aTarget) {
+																	$$renderer.push(`<!--[0-->Destinataire : <strong>${escape_html(h2aTarget)}</strong> `);
+																	if (h2aReason === "workspace") $$renderer.push(`<!--[0-->(résolu sur le chemin du checkout)`);
+																	else if (h2aReason === "emitter") $$renderer.push(`<!--[1-->(la session qui sert ce focus)`);
+																	else if (h2aReason === "requested") $$renderer.push(`<!--[2-->(choisi par vous)`);
+																	else if (h2aReason === "configured") $$renderer.push(`<!--[3-->(épinglé par FOCUS_H2A_TARGET)`);
+																	else if (h2aReason === "sole") $$renderer.push(`<!--[4-->(seule session live)`);
+																	else if (h2aReason === "name") $$renderer.push(`<!--[5-->(résolu sur le nom de session)`);
+																	else $$renderer.push("<!--[-1-->");
+																	$$renderer.push(`<!--]-->`);
+																} else $$renderer.push(`<!--[-1-->Aucun destinataire résolu pour l'instant.`);
+																$$renderer.push(`<!--]--></span> `);
+																Flex($$renderer, {
+																	align: "center",
+																	wrap: true,
+																	gap: 2,
+																	children: ($$renderer) => {
+																		Button($$renderer, {
+																			variant: "secondary",
+																			onclick: () => showTargets = !showTargets,
+																			children: ($$renderer) => {
+																				$$renderer.push(`<!---->${escape_html(showTargets ? "Masquer les sessions" : "Changer de destinataire")}`);
+																			},
+																			$$slots: { default: true }
+																		});
+																		$$renderer.push(`<!----> `);
+																		Button($$renderer, {
+																			variant: "secondary",
+																			onclick: refreshTargets,
+																			disabled: refreshingTargets,
+																			children: ($$renderer) => {
+																				$$renderer.push(`<!---->${escape_html(refreshingTargets ? "Actualisation…" : "Actualiser")}`);
+																			},
+																			$$slots: { default: true }
+																		});
+																		$$renderer.push(`<!---->`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!---->`);
+															},
+															$$slots: { default: true }
+														});
+														$$renderer.push(`<!----> `);
+														if (!h2aTarget && h2aRemedy) {
+															$$renderer.push("<!--[0-->");
+															Alert($$renderer, {
+																tone: "warning",
+																title: "Rien à qui remettre — pour l'instant",
+																message: h2aRemedy
+															});
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]--> `);
+														if (h2aAmbiguous) {
+															$$renderer.push("<!--[0-->");
+															Alert($$renderer, {
+																tone: "warning",
+																title: "Plusieurs sessions live répondent pour ce dépôt",
+																message: `Le destinataire retenu est ${h2aTarget}. Les autres sessions live de ce dépôt ne le recevront pas — si ce n'est pas la bonne, choisissez-la ci-dessus avant de transmettre. Les sessions peuvent vivre sur des racines h2a différentes, qui ne se voient pas entre elles.`
+															});
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]--> `);
+														if (showTargets) {
+															$$renderer.push("<!--[0-->");
+															Stack($$renderer, {
+																gap: 2,
+																children: ($$renderer) => {
+																	if (h2aLive.length === 0) {
+																		$$renderer.push("<!--[0-->");
+																		Alert($$renderer, {
+																			tone: "warning",
+																			title: "Aucune session h2a live",
+																			message: h2aRemedy ?? "Le registre ne contient aucune session live, pour aucun projet. Ouvrez une CLI h2a, puis « Actualiser »."
+																		});
+																	} else {
+																		$$renderer.push(`<!--[-1--><!--[-->`);
+																		const each_array_5 = ensure_array_like(h2aLive);
+																		for (let $$index_5 = 0, $$length = each_array_5.length; $$index_5 < $$length; $$index_5++) {
+																			let session = each_array_5[$$index_5];
+																			$$renderer.push(`<div role="presentation">`);
+																			Tile($$renderer, {
+																				variant: "selectable",
+																				selected: h2aTarget === session.instance,
+																				onselect: () => chooseTarget(session.instance),
+																				children: ($$renderer) => {
+																					Stack($$renderer, {
+																						gap: 1,
+																						children: ($$renderer) => {
+																							Flex($$renderer, {
+																								align: "center",
+																								justify: "between",
+																								wrap: true,
+																								gap: 2,
+																								children: ($$renderer) => {
+																									$$renderer.push(`<strong>${escape_html(session.name ?? session.instance)}</strong> `);
+																									if (session.matchesRepo) {
+																										$$renderer.push("<!--[0-->");
+																										Badge($$renderer, {
+																											tone: "success",
+																											size: "sm",
+																											children: ($$renderer) => {
+																												$$renderer.push(`<!---->Ce dépôt`);
+																											},
+																											$$slots: { default: true }
+																										});
+																									} else $$renderer.push("<!--[-1-->");
+																									$$renderer.push(`<!--]-->`);
+																								},
+																								$$slots: { default: true }
+																							});
+																							$$renderer.push(`<!----> <p class="fact-source svelte-e74176">${escape_html(session.instance)}</p> `);
+																							if (session.workspace) $$renderer.push(`<!--[0--><p class="fact-source svelte-e74176">${escape_html(session.workspace)}</p>`);
+																							else $$renderer.push("<!--[-1-->");
+																							$$renderer.push(`<!--]--> `);
+																							if (session.root) $$renderer.push(`<!--[0--><p class="fact-source svelte-e74176">racine h2a : ${escape_html(session.root)}</p>`);
+																							else $$renderer.push("<!--[-1-->");
+																							$$renderer.push(`<!--]-->`);
+																						},
+																						$$slots: { default: true }
+																					});
+																				},
+																				$$slots: { default: true }
+																			});
+																			$$renderer.push(`<!----></div>`);
+																		}
+																		$$renderer.push(`<!--]-->`);
+																	}
+																	$$renderer.push(`<!--]-->`);
+																},
+																$$slots: { default: true }
+															});
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]--> `);
+														Flex($$renderer, {
+															align: "center",
+															justify: "between",
+															wrap: true,
+															gap: 2,
+															children: ($$renderer) => {
+																$$renderer.push(`<span class="include-hint svelte-e74176">${escape_html(answeredCount() > 0 ? `${answeredCount()} réponse(s) partiraient en un seul envoi, options ET notes.` : "Aucune réponse à transmettre pour le moment.")}</span> `);
+																Button($$renderer, {
+																	variant: "primary",
+																	onclick: sendAll,
+																	disabled: sendingAll || answeredCount() === 0,
+																	children: ($$renderer) => {
+																		$$renderer.push(`<!---->${escape_html(sendingAll ? "Transmission…" : "Transmettre toutes mes réponses à la CLI")}`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!---->`);
+															},
+															$$slots: { default: true }
+														});
+														$$renderer.push(`<!----> `);
+														if (sendAllResult) {
+															$$renderer.push("<!--[0-->");
+															if (sendAllResult.ok && sendAllResult.delivered) {
+																$$renderer.push("<!--[0-->");
+																Alert($$renderer, {
+																	tone: "success",
+																	title: `Transmis à ${sendAllResult.target}`,
+																	message: sendAllResult.note ?? ""
+																});
+															} else if (sendAllResult.ok) {
+																$$renderer.push("<!--[1-->");
+																Alert($$renderer, {
+																	tone: "warning",
+																	title: "Non remis — et voici ce qui le permettrait",
+																	message: sendAllResult.note ?? ""
+																});
+															} else {
+																$$renderer.push("<!--[-1-->");
+																Alert($$renderer, {
+																	tone: "error",
+																	title: "Échec de la transmission",
+																	message: sendAllResult.error ?? "Erreur inconnue."
+																});
+															}
+															$$renderer.push(`<!--]-->`);
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]-->`);
+													},
+													$$slots: { default: true }
+												});
+												$$renderer.push(`<!---->`);
+											},
+											$$slots: { default: true }
+										});
+										$$renderer.push(`<!----></section> <section aria-labelledby="summary-title">`);
+										Stack($$renderer, {
+											gap: 2,
+											children: ($$renderer) => {
+												$$renderer.push(`<h2 id="summary-title">Vos notes (repli presse-papier)</h2> `);
+												Flex($$renderer, {
+													align: "center",
+													justify: "between",
+													wrap: true,
+													gap: 2,
+													children: ($$renderer) => {
+														$$renderer.push(`<span>${escape_html(answeredCount())} décision(s) sur ${escape_html(decisionsTotal())} annotée(s) ou sélectionnée(s).</span> `);
+														Flex($$renderer, {
+															align: "center",
+															wrap: true,
+															gap: 2,
+															children: ($$renderer) => {
 																Button($$renderer, {
 																	variant: "secondary",
-																	onclick: useCommitted,
+																	onclick: copySummary,
 																	children: ($$renderer) => {
-																		$$renderer.push(`<!---->Utiliser le jeu commité du dépôt`);
+																		$$renderer.push(`<!---->Copier ma synthèse`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!----> `);
+																Button($$renderer, {
+																	variant: "secondary",
+																	onclick: copyAnswerSetJson,
+																	children: ($$renderer) => {
+																		$$renderer.push(`<!---->Copier le jeu de réponses (JSON)`);
 																	},
 																	$$slots: { default: true }
 																});
@@ -1466,19 +1252,160 @@ function _page($$renderer, $$props) {
 													},
 													$$slots: { default: true }
 												});
-												$$renderer.push(`<!----></section>`);
-											} else $$renderer.push("<!--[-1-->");
-											$$renderer.push(`<!--]-->`);
-										}
-										$$renderer.push(`<!--]-->`);
+												$$renderer.push(`<!----> `);
+												if (exportState === "copied") {
+													$$renderer.push("<!--[0-->");
+													Alert($$renderer, {
+														tone: "success",
+														title: "Synthèse copiée",
+														message: "Vos sélections et vos notes sont dans le presse-papier, en markdown. Collez-les où vous voulez : une CLI, un ticket, un message."
+													});
+												} else if (exportState === "copied-json") {
+													$$renderer.push("<!--[1-->");
+													Alert($$renderer, {
+														tone: "success",
+														title: "Jeu de réponses copié (JSON)",
+														message: "Même forme que le jeu enregistré : il peut être commité puis rejoué tel quel dans ce dossier, sans retouche à la main."
+													});
+												} else if (exportState === "failed") {
+													$$renderer.push("<!--[2-->");
+													Alert($$renderer, {
+														tone: "error",
+														title: "Copie refusée par le navigateur",
+														message: "Le presse-papier n'est pas accessible ici. Vos notes restent enregistrées dans ce navigateur ; sélectionnez-les à la main dans les cartes."
+													});
+												} else $$renderer.push("<!--[-1-->");
+												$$renderer.push(`<!--]-->`);
+											},
+											$$slots: { default: true }
+										});
+										$$renderer.push(`<!----></section> <section aria-labelledby="replay-title">`);
+										Stack($$renderer, {
+											gap: 2,
+											children: ($$renderer) => {
+												$$renderer.push(`<h2 id="replay-title">Jeu de réponses commité</h2> `);
+												if (!answerSet()) {
+													$$renderer.push("<!--[0-->");
+													Alert($$renderer, {
+														tone: "warning",
+														title: "Jeu commité indisponible",
+														message: "Le jeu de réponses commité n'est pas atteignable depuis ce service (docs/decisions/2026-07-25-agent-memory-owner-answers.json). Rien n'a été inventé : vos réponses locales sont intactes."
+													});
+												} else {
+													$$renderer.push(`<!--[-1--><p>Jeu commité : <code>${escape_html(answerSet().source)}</code> — révision <strong>${escape_html(answerSet().revision)}</strong>${escape_html(answerSet().capturedAt ? `, capturé le ${answerSet().capturedAt}` : "")}${escape_html(answerSet().status ? ` (${answerSet().status})` : "")}. Il est chargé <strong>par défaut</strong>, côté serveur, sélections <strong>et</strong> notes, telles
+                  qu'elles ont été écrites — aucun état de navigateur n'est requis pour le voir.</p> `);
+													if (dossier().carryOver) {
+														$$renderer.push("<!--[0-->");
+														Alert($$renderer, {
+															tone: "info",
+															title: `Report depuis « ${dossier().carryOver.from} » : ${dossier().carryOver.carried.length} décisions conservées, ${dossier().carryOver.added.length} ajoutées`,
+															message: dossier().carryOver.statement
+														});
+													} else $$renderer.push("<!--[-1-->");
+													$$renderer.push(`<!--]--> `);
+													if (revisionMismatch()) {
+														$$renderer.push("<!--[0-->");
+														Alert($$renderer, {
+															tone: "warning",
+															title: "Révision différente",
+															message: `Ces réponses ont été capturées sur « ${answerSet().revision} », or ce dossier est en « ${dossier().revision} ». Ce qui retombe sur cette révision est chargé ; ce qui n'y retombe plus et ce que ce jeu ne couvre pas sont nommés ci-dessous.`
+														});
+													} else $$renderer.push("<!--[-1-->");
+													$$renderer.push(`<!--]--> `);
+													if (committedReport()) {
+														$$renderer.push("<!--[0-->");
+														if (committedReport().missingDecisions.length) {
+															$$renderer.push("<!--[0-->");
+															Alert($$renderer, {
+																tone: "error",
+																title: "Réponses non chargeables : décision disparue",
+																message: `Ces clés n'existent plus dans la révision « ${dossier().revision} » et n'ont donc pas pu être chargées : ${committedReport().missingDecisions.join(", ")}. Leurs notes sont toujours dans le jeu commité, pas dans cette page.`
+															});
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]--> `);
+														if (committedReport().staleOptions.length) {
+															$$renderer.push("<!--[0-->");
+															Alert($$renderer, {
+																tone: "warning",
+																title: "Options disparues : note chargée, sélection non",
+																message: `Ces options n'existent plus pour leur décision : ${committedReport().staleOptions.join(", ")}. La note a été chargée, la sélection est restée vide — à vous de la reprendre.`
+															});
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]--> `);
+														if (committedReport().unanswered.length) {
+															$$renderer.push("<!--[0-->");
+															Alert($$renderer, {
+																tone: "info",
+																title: `${committedReport().unanswered.length} décision(s) sans réponse dans ce jeu`,
+																message: `Ce jeu commité ne couvre pas : ${committedReport().unanswered.join(", ")}. Ce ne sont pas des réponses perdues — ce sont les cartes ajoutées depuis, qui attendent la vôtre.`
+															});
+														} else $$renderer.push("<!--[-1-->");
+														$$renderer.push(`<!--]-->`);
+													} else $$renderer.push("<!--[-1-->");
+													$$renderer.push(`<!--]--> `);
+													if (divergences().length > 0) {
+														$$renderer.push(`<!--[0--><section aria-labelledby="divergence-title">`);
+														Stack($$renderer, {
+															gap: 2,
+															children: ($$renderer) => {
+																$$renderer.push(`<h3 id="divergence-title">Deux versions de vos réponses (${escape_html(divergences().length)} écart(s))</h3> <p>La page affiche votre <strong>brouillon local</strong>. Le jeu commité du dépôt dit
+                        autre chose sur ces décisions. Choisissez laquelle garder — rien n'est remplacé
+                        tant que vous n'avez pas choisi.</p> <ul class="divergences svelte-e74176"><!--[-->`);
+																const each_array_6 = ensure_array_like(divergences());
+																for (let $$index_6 = 0, $$length = each_array_6.length; $$index_6 < $$length; $$index_6++) {
+																	let divergence = each_array_6[$$index_6];
+																	$$renderer.push(`<li class="svelte-e74176">`);
+																	Stack($$renderer, {
+																		gap: 1,
+																		children: ($$renderer) => {
+																			$$renderer.push(`<strong>${escape_html(divergence.key)}</strong> <p><em>Jeu commité :</em> ${escape_html(divergence.committedOption ?? "(aucune option)")} —
+                                ${escape_html(divergence.committedNote ? divergence.committedNote : "(aucune note)")}</p> <p><em>Votre brouillon (affiché) :</em> ${escape_html(divergence.draftOption ?? "(aucune option)")} —
+                                ${escape_html(divergence.draftNote ? divergence.draftNote : "(aucune note)")}</p>`);
+																		},
+																		$$slots: { default: true }
+																	});
+																	$$renderer.push(`<!----></li>`);
+																}
+																$$renderer.push(`<!--]--></ul> `);
+																Flex($$renderer, {
+																	align: "center",
+																	justify: "between",
+																	wrap: true,
+																	gap: 2,
+																	children: ($$renderer) => {
+																		$$renderer.push(`<span class="include-hint svelte-e74176">Garder votre brouillon ne demande aucune action : il est déjà à l'écran.</span> `);
+																		Button($$renderer, {
+																			variant: "secondary",
+																			onclick: useCommitted,
+																			children: ($$renderer) => {
+																				$$renderer.push(`<!---->Utiliser le jeu commité du dépôt`);
+																			},
+																			$$slots: { default: true }
+																		});
+																		$$renderer.push(`<!---->`);
+																	},
+																	$$slots: { default: true }
+																});
+																$$renderer.push(`<!---->`);
+															},
+															$$slots: { default: true }
+														});
+														$$renderer.push(`<!----></section>`);
+													} else $$renderer.push("<!--[-1-->");
+													$$renderer.push(`<!--]-->`);
+												}
+												$$renderer.push(`<!--]-->`);
+											},
+											$$slots: { default: true }
+										});
+										$$renderer.push(`<!----></section>`);
 									},
 									$$slots: { default: true }
 								});
-								$$renderer.push(`<!----></section>`);
+								$$renderer.push(`<!----></main>`);
 							},
 							$$slots: { default: true }
 						});
-						$$renderer.push(`<!----></main>`);
 					},
 					$$slots: { default: true }
 				});

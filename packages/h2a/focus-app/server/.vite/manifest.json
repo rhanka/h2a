@@ -8,18 +8,51 @@
       "_config.js"
     ]
   },
-  "_AppShell.0roNuOL1.css": {
-    "file": "_app/immutable/assets/AppShell.0roNuOL1.css",
-    "src": "_AppShell.0roNuOL1.css"
+  "_AppHeader.C6Dqcp0i.css": {
+    "file": "_app/immutable/assets/AppHeader.C6Dqcp0i.css",
+    "src": "_AppHeader.C6Dqcp0i.css"
+  },
+  "_AppHeader.js": {
+    "file": "chunks/AppHeader.js",
+    "name": "AppHeader",
+    "imports": [
+      "_server2.js",
+      "_index-server.js",
+      "_AppShell.js"
+    ],
+    "css": [
+      "_app/immutable/assets/AppHeader.C6Dqcp0i.css"
+    ]
+  },
+  "_AppShell.C-yZ0QOU.css": {
+    "file": "_app/immutable/assets/AppShell.C-yZ0QOU.css",
+    "src": "_AppShell.C-yZ0QOU.css"
   },
   "_AppShell.js": {
     "file": "chunks/AppShell.js",
     "name": "AppShell",
     "imports": [
-      "_server2.js"
+      "_server2.js",
+      "_index-server.js"
     ],
     "css": [
-      "_app/immutable/assets/AppShell.0roNuOL1.css"
+      "_app/immutable/assets/AppShell.C-yZ0QOU.css"
+    ]
+  },
+  "_ArtifactReviewHost.8F-MCY-i.css": {
+    "file": "_app/immutable/assets/ArtifactReviewHost.8F-MCY-i.css",
+    "src": "_ArtifactReviewHost.8F-MCY-i.css"
+  },
+  "_ArtifactReviewHost.js": {
+    "file": "chunks/ArtifactReviewHost.js",
+    "name": "ArtifactReviewHost",
+    "imports": [
+      "_server2.js",
+      "_AppShell.js",
+      "_index-server.js"
+    ],
+    "css": [
+      "_app/immutable/assets/ArtifactReviewHost.8F-MCY-i.css"
     ]
   },
   "_adapter-node-env.js": {
@@ -41,6 +74,10 @@
   },
   "_config.js": {
     "file": "chunks/config.js",
+    "name": "config"
+  },
+  "_config2.js": {
+    "file": "chunks/config2.js",
     "name": "config"
   },
   "_exports.js": {
@@ -84,11 +121,19 @@
       "_functions.js"
     ]
   },
+  "_page-config.js": {
+    "file": "chunks/page-config.js",
+    "name": "page-config",
+    "imports": [
+      "_config2.js"
+    ]
+  },
   "_runtime.js": {
     "file": "chunks/runtime.js",
     "name": "runtime",
     "imports": [
-      "_h2a-bus.js"
+      "_h2a-bus.js",
+      "_config2.js"
     ]
   },
   "_server-errors.js": {
@@ -226,10 +271,10 @@
     "imports": [
       "_server2.js",
       "_AppShell.js",
-      "_index-server.js"
+      "_AppHeader.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.BgWxD2Cm.css"
+      "_app/immutable/assets/_page.Bvipr0Q5.css"
     ]
   },
   "src/routes/api/actions/launch/+server.ts": {
@@ -328,6 +373,32 @@
       "_h2a-bus.js"
     ]
   },
+  "src/routes/artifact/[id]/+page.server.ts": {
+    "file": "entries/pages/artifact/_id_/_page.server.ts.js",
+    "name": "entries/pages/artifact/_id_/_page.server.ts",
+    "src": "src/routes/artifact/[id]/+page.server.ts",
+    "isEntry": true,
+    "imports": [
+      "_exports.js",
+      "_page-config.js"
+    ]
+  },
+  "src/routes/artifact/[id]/+page.svelte": {
+    "file": "entries/pages/artifact/_id_/_page.svelte.js",
+    "name": "entries/pages/artifact/_id_/_page.svelte",
+    "src": "src/routes/artifact/[id]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_server2.js",
+      "_index-server.js",
+      "_AppHeader.js",
+      "_AppShell.js",
+      "_ArtifactReviewHost.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.BCCxUSH5.css"
+    ]
+  },
   "src/routes/dossier/agent-memory/+page.server.ts": {
     "file": "entries/pages/dossier/agent-memory/_page.server.ts.js",
     "name": "entries/pages/dossier/agent-memory/_page.server.ts",
@@ -335,7 +406,8 @@
     "isEntry": true,
     "imports": [
       "_h2a-bus.js",
-      "_agent-memory-dossier.js"
+      "_agent-memory-dossier.js",
+      "_page-config.js"
     ]
   },
   "src/routes/dossier/agent-memory/+page.svelte": {
@@ -346,10 +418,11 @@
     "imports": [
       "_server2.js",
       "_index-server.js",
-      "_AppShell.js"
+      "_AppShell.js",
+      "_ArtifactReviewHost.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.C_jty5Ez.css"
+      "_app/immutable/assets/_page.DUs4vx4j.css"
     ]
   }
 }

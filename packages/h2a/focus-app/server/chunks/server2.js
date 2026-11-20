@@ -221,6 +221,13 @@ globalThis.document?.contentType;
 function lifecycle_outside_component(name) {
 	throw new Error(`https://svelte.dev/e/lifecycle_outside_component`);
 }
+/**
+* `setContext` must be called when a component first initializes, not in a subsequent effect or after an `await` expression
+* @returns {never}
+*/
+function set_context_after_init() {
+	throw new Error(`https://svelte.dev/e/set_context_after_init`);
+}
 // node_modules/svelte/src/internal/flags/index.js
 /** True if experimental.async=true */
 var async_mode_flag = false;
@@ -408,6 +415,18 @@ function set_ssr_context(v) {
 */
 function getContext(key) {
 	return get_or_init_context_map(ssr_context, "getContext").get(key);
+}
+/**
+* @template T
+* @param {any} key
+* @param {T} context
+* @returns {T}
+*/
+function setContext(key, context) {
+	const context_map = get_or_init_context_map(ssr_context, "setContext");
+	if (ssr_context.i) set_context_after_init();
+	context_map.set(key, context);
+	return context;
 }
 /**
 * @param {Function} [fn]
@@ -1513,6 +1532,6 @@ function derived(fn) {
 		return updated_value;
 	};
 }
-export { noop as _, derived as a, head as c, spread_props as d, stringify as f, clsx as g, attr as h, bind_props as i, props_id as l, getContext as m, attr_style as n, element as o, html as p, attributes as r, ensure_array_like as s, attr_class as t, render as u, run as v, escape_html as y };
+export { attr as _, derived as a, run as b, head as c, spread_props as d, stringify as f, ssr_context as g, setContext as h, bind_props as i, props_id as l, getContext as m, attr_style as n, element as o, html as p, attributes as r, ensure_array_like as s, attr_class as t, render as u, clsx as v, escape_html as x, noop as y };
 
 //# sourceMappingURL=server2.js.map
