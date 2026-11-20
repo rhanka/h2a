@@ -15,9 +15,9 @@
 import { spawnSync } from "node:child_process";
 import { sanitizeEnvJson, type MaterializedSeat } from "./cli-seat-materialization.js";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { nativePtyRequirements } from "./pty.js";
@@ -49,6 +49,161 @@ import { appendCrashLog } from "./crash-log.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
+
+function isNonWorldWritableExecutable(filePath: string): boolean {
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile() || (st.mode & 0o002) !== 0) return false;
+    accessSync(filePath, constants.X_OK);
+    const real = realpathSync(filePath);
+    const realSt = statSync(real);
+    return realSt.isFile() && (realSt.mode & 0o002) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function isSafeBinDirectory(dirPath: string, requireOwned = false): boolean {
+  if (!dirPath || !isAbsolute(dirPath)) return false;
+  try {
+    const st = statSync(dirPath);
+    if (!st.isDirectory() || (st.mode & 0o002) !== 0) return false;
+    if (requireOwned && typeof process.getuid === "function") {
+      const uid = process.getuid();
+      if (st.uid !== uid && st.uid !== 0) return false;
+    }
+    const real = realpathSync(dirPath);
+    const realSt = statSync(real);
+    if (!realSt.isDirectory() || (realSt.mode & 0o002) !== 0) return false;
+    if (requireOwned && typeof process.getuid === "function") {
+      const uid = process.getuid();
+      if (realSt.uid !== uid && realSt.uid !== 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function prefixBinDirFromInstalledPath(filePath: string): string | undefined {
+  try {
+    const real = realpathSync(filePath);
+    const match =
+      real.match(/^(.*)\/lib\/node_modules\/@sentropic\/(?:h2a|h2a-runtime)(?:\/|$)/) ??
+      real.match(/^(.*)\/h2a-managed\/\d+\/images\/[0-9a-f]{64}(?:\/|$)/);
+    return match?.[1] ? join(match[1], "bin") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasExecutableOnPath(pathValue: string | undefined, binaryName: string): boolean {
+  if (!pathValue) return false;
+  for (const rawDir of pathValue.split(delimiter)) {
+    const dir = rawDir.trim();
+    if (!dir || !isAbsolute(dir)) continue;
+    if (isNonWorldWritableExecutable(join(dir, binaryName))) return true;
+  }
+  return false;
+}
+
+export interface ResolveRunningH2aBinDirOptions {
+  argv1?: string | undefined;
+  moduleUrl?: string;
+  execPath?: string;
+  env?: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * Locate the bin directory containing the `h2a` executable corresponding to
+ * this running process (so Claude SessionStart/SessionEnd hooks and in-session
+ * `h2a` calls resolve `h2a` even when the parent daemon / MCP server runs with
+ * a narrowed PATH that omits `~/.npm-global/bin`).
+ */
+export function resolveRunningH2aBinDir(
+  options: ResolveRunningH2aBinDirOptions = {},
+): string | undefined {
+  const argv1 = options.argv1 !== undefined ? options.argv1 : process.argv[1];
+  const moduleUrl = options.moduleUrl ?? import.meta.url;
+  const execPath = options.execPath ?? process.execPath;
+  const env = options.env ?? process.env;
+
+  const candidates: Array<{ dir: string; requireOwned: boolean }> = [];
+  if (argv1 && argv1.trim().length > 0) {
+    const resolvedArgv1 = resolve(argv1);
+    if (basename(resolvedArgv1) === "h2a") {
+      candidates.push({ dir: dirname(resolvedArgv1), requireOwned: false });
+    }
+    const prefixBin = prefixBinDirFromInstalledPath(resolvedArgv1);
+    if (prefixBin) candidates.push({ dir: prefixBin, requireOwned: false });
+  }
+  try {
+    const modulePath = fileURLToPath(moduleUrl);
+    const prefixBin = prefixBinDirFromInstalledPath(modulePath);
+    if (prefixBin) candidates.push({ dir: prefixBin, requireOwned: false });
+  } catch {
+    /* ignore non-file URL */
+  }
+  if (execPath && isAbsolute(execPath)) {
+    candidates.push({ dir: dirname(execPath), requireOwned: false });
+  }
+  const h2aPrefix = env["H2A_PREFIX"]?.trim();
+  if (h2aPrefix && isAbsolute(h2aPrefix)) {
+    candidates.push({ dir: join(h2aPrefix, "bin"), requireOwned: false });
+  }
+  const npmPrefix = env["NPM_CONFIG_PREFIX"]?.trim();
+  if (npmPrefix && isAbsolute(npmPrefix)) {
+    candidates.push({ dir: join(npmPrefix, "bin"), requireOwned: false });
+  }
+  const home = env["HOME"]?.trim();
+  if (home && isAbsolute(home)) {
+    candidates.push(
+      { dir: join(home, ".local", "share", "h2a", "upgrade", "current", "bin"), requireOwned: true },
+      { dir: join(home, ".npm-global", "bin"), requireOwned: true },
+      { dir: join(home, ".local", "bin"), requireOwned: true },
+      { dir: join(home, ".local", "share", "pnpm"), requireOwned: true },
+    );
+  }
+
+  const seen = new Set<string>();
+  for (const { dir, requireOwned } of candidates) {
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    if (isSafeBinDirectory(dir, requireOwned) && isNonWorldWritableExecutable(join(dir, "h2a"))) {
+      return dir;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Ensure the child PTY environment's `PATH` can resolve `h2a` (and `node` for
+ * `#!/usr/bin/env node`) when the launcher's `PATH` lacks the installed `h2a`
+ * bin directory. Appends (never prepends) so user/test PATH entries keep
+ * precedence.
+ */
+export function ensureH2aBinOnPath(
+  env: Record<string, string>,
+  options: Omit<ResolveRunningH2aBinDirOptions, "env"> = {},
+): Record<string, string> {
+  if (hasExecutableOnPath(env["PATH"], "h2a")) return env;
+  const h2aBinDir = resolveRunningH2aBinDir({ ...options, env });
+  if (!h2aBinDir) return env;
+  const parts = (env["PATH"] ?? "").split(delimiter).filter((entry) => entry.length > 0);
+  if (!parts.includes(h2aBinDir)) {
+    parts.push(h2aBinDir);
+  }
+  env["PATH"] = parts.join(delimiter);
+  const execPath = options.execPath ?? process.execPath;
+  if (!hasExecutableOnPath(env["PATH"], "node") && execPath && isAbsolute(execPath)) {
+    const execDir = dirname(execPath);
+    if (isSafeBinDirectory(execDir) && isNonWorldWritableExecutable(join(execDir, "node")) && !parts.includes(execDir)) {
+      parts.push(execDir);
+      env["PATH"] = parts.join(delimiter);
+    }
+  }
+  return env;
+}
 
 export type SessionHostKind = "native" | "local-tmux";
 
@@ -451,6 +606,7 @@ export function startNativeSession(
   for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
+  if (!metadata.seat) ensureH2aBinOnPath(env);
   env["TERM"] = "xterm-256color";
   // The launch runtime may still be connected to an older protocol-v1 host.
   env["H2A_NATIVE_TERMINAL"] = "1";
@@ -544,6 +700,7 @@ export async function startNativeSessionSingleShot(
   for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
+  if (!metadata.seat) ensureH2aBinOnPath(env);
   env["TERM"] = "xterm-256color";
   env["H2A_NATIVE_TERMINAL"] = "1";
   env["H2A_NATIVE_PTY_SESSION"] = name;
@@ -771,6 +928,7 @@ export function softRespawnNativeSessionIfIncarnation(
   for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
+  if (!metadata.seat) ensureH2aBinOnPath(env);
   env["TERM"] = "xterm-256color";
   env["H2A_NATIVE_TERMINAL"] = "1";
   env["H2A_NATIVE_PTY_SESSION"] = name;
@@ -1076,6 +1234,7 @@ export function startNativeHeadlessSession(
   for (const [key, value] of Object.entries(seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
+  if (!seat) ensureH2aBinOnPath(env);
   env["TERM"] = "xterm-256color";
   // Same last-point scrub sentinel as the interactive native path.
   stampDirectRoutingScrub(env);
@@ -1138,6 +1297,7 @@ export function startNativeH2aSidecar(
   for (const [key, value] of Object.entries(options.seat?.mcpEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
+  if (!options.seat) ensureH2aBinOnPath(env);
   env["TERM"] = "xterm-256color";
   // Native twin of the tmux wrapper's TMUX_PANE override: the sidecar owns a
   // different PTY, so publish the main agent session as its wake target. The
