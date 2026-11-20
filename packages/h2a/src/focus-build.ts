@@ -10,7 +10,18 @@ const { assertFocusForPresentation, assertFocusDocument } =
 
 // Generated from the shared focus-kit module; the build and the renderer place DC-1 cards the same way.
 interface DiagramView { readonly kind: 'card' | 'zone'; readonly svg: string; readonly foldedSvg?: string }
-interface DiagramViewRefusal { readonly code: string; readonly slot: string; readonly entityId: string; readonly neededPx: number; readonly allocatedPx: number; readonly text?: string }
+export interface DiagramViewRefusal { readonly code: string; readonly slot: string; readonly entityId: string; readonly neededPx: number; readonly allocatedPx: number; readonly text?: string }
+export class DiagramViewRefusalError extends Error {
+  readonly sectionId: string;
+  readonly diagnostics: readonly DiagramViewRefusal[];
+  constructor(sectionId: string, diagnostics: readonly DiagramViewRefusal[]) {
+    super(`Diagram view refused (${sectionId}): ${diagnostics.map(d =>
+      `${d.code} ${d.slot} ${d.entityId} needed ${d.neededPx}px > ${d.allocatedPx}px${d.text === undefined ? '' : ` « ${d.text} »`}`).join('; ')}`);
+    this.name = 'DiagramViewRefusalError';
+    this.sectionId = sectionId;
+    this.diagnostics = diagnostics;
+  }
+}
 const { renderDiagramViews } = await import(new URL('../focus-kit/diagram-views.mjs', import.meta.url).href) as {
   renderDiagramViews: (scene: Record<string, unknown>, options?: { align?: string }) =>
     { kind: 'rendered'; views: Record<string, DiagramView> } | { kind: 'refused'; diagnostics: readonly DiagramViewRefusal[] };
@@ -18,6 +29,9 @@ const { renderDiagramViews } = await import(new URL('../focus-kit/diagram-views.
 
 const kit = new URL('../focus-kit/', import.meta.url);
 const readAsset = (name: string): string => readFileSync(new URL(name, kit), 'utf8');
+export function readFocusTemplateJson(kind: 'dossier' | 'evidence'): unknown {
+  return JSON.parse(readAsset(kind === 'evidence' ? 'dossier.evidence.template.json' : 'dossier.template.json')) as unknown;
+}
 const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
 const jsonForHtml = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -139,8 +153,7 @@ export function buildFocusDossier(input: unknown): string {
   for (const section of validated.sections) {
     if (section.kind !== 'diagram' || section.scene === undefined) continue;
     const outcome = renderDiagramViews(section.scene as Record<string, unknown>);
-    if (outcome.kind !== 'rendered') throw new Error(`Diagram view refused (${section.id}): ${outcome.diagnostics.map(d =>
-      `${d.code} ${d.slot} ${d.entityId} needed ${d.neededPx}px > ${d.allocatedPx}px${d.text === undefined ? '' : ` « ${d.text} »`}`).join('; ')}`);
+    if (outcome.kind !== 'rendered') throw new DiagramViewRefusalError(section.id, outcome.diagnostics);
     views[section.id] = outcome.views;
   }
   const renderer = readAsset('renderer.html');
@@ -154,7 +167,7 @@ export function buildFocusDossier(input: unknown): string {
 }
 
 /** Same-directory rename is the only publication point; failures preserve the old artifact. */
-function publishArtifact(output: string, content: string): void {
+export function publishFocusArtifact(output: string, content: string): void {
   const staging = mkdtempSync(join(dirname(output), '.focus-build-'));
   try {
     const pending = join(staging, 'artifact'), fd = openSync(pending, 'wx', 0o600);
@@ -181,7 +194,7 @@ export function runFocusBuildCli(args: readonly string[], streams = { stdout: pr
       if (realpathSync(args[1]) === existingOutput) throw new Error('Output must differ from the input dossier');
     }
     const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')));
-    publishArtifact(output, html);
+    publishFocusArtifact(output, html);
     streams.stdout.write(template ? `Focus template: ${output}\n` : `Focus dossier validated; portable HTML: ${output}\n`);
     return 0;
   } catch (error) {
