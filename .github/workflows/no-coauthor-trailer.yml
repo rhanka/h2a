@@ -160,4 +160,4 @@ jobs:
           TMPDIR: ${{ runner.temp }}
         run: |
           bash .githooks/test.sh
-          node --test packages/h2a/test/attribution-trailer-guard.test.js
+          node --test packages/h2a/test/trailer-guard.test.js
