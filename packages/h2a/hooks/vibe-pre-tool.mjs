@@ -12,7 +12,7 @@ function hasForbiddenAttributionTrailer(command) {
     /^\s*co-authored-by\s*:/im,
     /^\s*claude-session\s*:/im,
     /^\s*generated-by\s*:.*\b(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\b/im,
-    /generated\s+with\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+    /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
     /claude\.com\/claude-code/i,
     /claude\.ai\/code\/session_[a-z0-9_-]+/i,
     /🤖/u,
