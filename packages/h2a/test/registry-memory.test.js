@@ -86,7 +86,7 @@ test("L2: selected memory discovers and calls all six tools through the Sentropi
 test("L2: unselected memory never loads or handles calls; h2a and Track remain available", async () => scratch(async root => {
   const f = fixture();
   const plan = await composeDaemonRegistry({ view: "combined", root, lock: lockFor(false), memory: f.memory });
-  assert.equal(plan.toolNames().length, 60);
+  assert.equal(plan.toolNames().length, 62);
   assert.equal(f.loads(), 0);
   for (const name of MEMORY_NAMES) await assert.rejects(plan.dispatch(name, {}), /unknown_tool/);
   assert.equal(f.calls.length, 0);
