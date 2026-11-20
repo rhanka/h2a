@@ -60,6 +60,12 @@ function fixture(t) {
       const bytes=fs.readFileSync(process.env.FAKE_ROOT+'/dist-tarballs/sentropic-'+name+'-'+(name==='focus'?'0.5.0-rc.1':'${version}')+'.tgz');
       console.log(JSON.stringify('sha512-'+require('node:crypto').createHash('sha512').update((process.env.FAKE_BAD_INTEGRITY==='1'||(name==='focus'&&process.env.FAKE_FOCUS_BAD_INTEGRITY==='1'))?'other source tree':bytes).digest('base64')));process.exit(0);
     }
+    if(a[0]==='view'&&a[2]==='dist.tarball'){
+      const name=a[1].slice('@sentropic/'.length).split('@')[0];
+      const ver=a[1].slice(a[1].lastIndexOf('@')+1);
+      const base=(process.env.NPM_REGISTRY_URL||'http://127.0.0.1').replace(/\\/+$/,'');
+      console.log(base+'/tarballs/sentropic-'+name+'-'+ver+'.tgz');process.exit(0);
+    }
     if(a[0]==='view'&&a[2]==='dist-tags.latest'){console.log(process.env.FAKE_LATEST);process.exit(0)}
     if(a[0]==='view'&&a[2]==='version'){
       if(!fs.existsSync(process.env.FAKE_ROOT+'/published')||process.env.FAKE_VIEW_FAIL==='1')process.exit(1);
@@ -263,14 +269,34 @@ test('RC install smoke refuses install propagation lag and broken doctor; only c
   const smoke = workflow.jobs.publish.steps.find(s => s.id === 'post-publish-smoke')
   assert.ok(smoke)
   writeFileSync(join(f.root, 'published'), 'yes')
-  const registryUrl = await startMockRegistry(t, (req, res) => {
+  let registryUrl = ''
+  registryUrl = await startMockRegistry(t, (req, res) => {
+    if (req.url.startsWith('/tarballs/')) {
+      const file = req.url.slice('/tarballs/'.length)
+      const bytes = readFileSync(join(f.root, 'dist-tarballs', file))
+      if (req.method === 'HEAD') {
+        res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length), 'accept-ranges': 'bytes' })
+        res.end()
+        return
+      }
+      if (req.method === 'GET' && req.headers.range === 'bytes=0-15') {
+        const slice = bytes.subarray(0, 16)
+        res.writeHead(206, { 'content-type': 'application/octet-stream', 'content-length': String(slice.length), 'content-range': `bytes 0-${slice.length - 1}/${bytes.length}` })
+        res.end(slice)
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) })
+      res.end(bytes)
+      return
+    }
     const pkg = decodeURIComponent(req.url.slice(1))
+    const pkgName = pkg.slice('@sentropic/'.length)
     const pkgVer = pkg === '@sentropic/focus' ? '0.5.0-rc.1' : version
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({
       name: pkg,
       'dist-tags': { next: pkgVer },
-      versions: { [pkgVer]: { version: pkgVer, dist: { tarball: `http://127.0.0.1/${pkgVer}.tgz` } } },
+      versions: { [pkgVer]: { version: pkgVer, dist: { tarball: `${registryUrl}/tarballs/sentropic-${pkgName}-${pkgVer}.tgz` } } },
     }))
   })
   for (const overrides of [{ FAKE_INSTALL_FAIL: '1' }, { FAKE_DOCTOR: '{"ok":false,"unrepaired":[{"code":"broken"}]}' }, {}]) {
@@ -286,6 +312,91 @@ test('RC install smoke refuses install propagation lag and broken doctor; only c
       assert.equal(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), 'smoke-passed=true\n')
     }
   }
+})
+
+test('RC install smoke waits for tarball CDN HTTP 200 after packument is visible, and refuses attestation when tarball stays 404 or fails integrity', async t => {
+  const f = fixture(t)
+  const smoke = workflow.jobs.publish.steps.find(s => s.id === 'post-publish-smoke')
+  assert.ok(smoke)
+  writeFileSync(join(f.root, 'published'), 'yes')
+  let h2aHeadHits = 0
+  let mode = 'always-404'
+  let registryUrl = ''
+  registryUrl = await startMockRegistry(t, (req, res) => {
+    if (req.url.startsWith('/tarballs/')) {
+      const file = req.url.slice('/tarballs/'.length)
+      const bytes = readFileSync(join(f.root, 'dist-tarballs', file))
+      const isH2a = file.startsWith('sentropic-h2a-0.')
+      if (req.method === 'HEAD') {
+        if (isH2a) {
+          h2aHeadHits += 1
+          if (mode === 'always-404' || (mode === 'lag-2' && h2aHeadHits <= 2)) {
+            res.writeHead(404)
+            res.end()
+            return
+          }
+        }
+        res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length), 'accept-ranges': 'bytes' })
+        res.end()
+        return
+      }
+      if (req.method === 'GET' && req.headers.range === 'bytes=0-15') {
+        const slice = bytes.subarray(0, 16)
+        res.writeHead(206, { 'content-type': 'application/octet-stream', 'content-length': String(slice.length), 'content-range': `bytes 0-${slice.length - 1}/${bytes.length}` })
+        res.end(slice)
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) })
+      res.end(mode === 'corrupt-download' && isH2a ? Buffer.from('corrupted CDN bytes') : bytes)
+      return
+    }
+    const pkg = decodeURIComponent(req.url.slice(1))
+    const pkgName = pkg.slice('@sentropic/'.length)
+    const pkgVer = pkg === '@sentropic/focus' ? '0.5.0-rc.1' : version
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      name: pkg,
+      'dist-tags': { next: pkgVer },
+      versions: { [pkgVer]: { version: pkgVer, dist: { tarball: `${registryUrl}/tarballs/sentropic-${pkgName}-${pkgVer}.tgz` } } },
+    }))
+  })
+
+  const fastTimeoutSmoke = smoke.run.replace('--budget-seconds 1200', '--budget-seconds 1 --backoff-seconds 0.05')
+  const fastRecoverSmoke = smoke.run.replace('--budget-seconds 1200', '--budget-seconds 15 --backoff-seconds 0.05')
+  assert.notEqual(fastTimeoutSmoke, smoke.run, 'tarball budget override must apply')
+
+  // 1) Reproduces v0.98.11-rc.6: packument is 200, tarball stays 404 -> fails closed without running npm i -g.
+  rmSync(f.env.GITHUB_OUTPUT, { force: true })
+  rmSync(join(f.root, 'npm-calls'), { force: true })
+  const stuck404 = await execAsync('bash', ['-e', '-o', 'pipefail', '-c', fastTimeoutSmoke], {
+    cwd: f.root, encoding: 'utf8', env: { ...f.env, RELEASE_VERSION: version, FOCUS_RELEASE_VERSION: '0.5.0-rc.1', NPM_REGISTRY_URL: registryUrl }, timeout: 20_000,
+  })
+  assert.notEqual(stuck404.status, 0, stuck404.stdout + stuck404.stderr)
+  assert.match(stuck404.stderr, /tarball.*refusing RC attestation/s)
+  assert.throws(() => readFileSync(f.env.GITHUB_OUTPUT), /ENOENT/)
+  const callsAfter404 = readFileSync(join(f.root, 'npm-calls'), 'utf8').trim().split('\n').map(JSON.parse)
+  assert.equal(callsAfter404.some(a => a[0] === 'i'), false, 'npm i -g must not run while tarball CDN still answers 404')
+
+  // 2) Tarball lags for 2 HEAD probes then becomes 200 + 206 -> waits, installs, checks integrity, passes.
+  mode = 'lag-2'
+  h2aHeadHits = 0
+  rmSync(f.env.GITHUB_OUTPUT, { force: true })
+  const recovered = await execAsync('bash', ['-e', '-o', 'pipefail', '-c', fastRecoverSmoke], {
+    cwd: f.root, encoding: 'utf8', env: { ...f.env, RELEASE_VERSION: version, FOCUS_RELEASE_VERSION: '0.5.0-rc.1', NPM_REGISTRY_URL: registryUrl }, timeout: 20_000,
+  })
+  assert.equal(recovered.status, 0, recovered.stdout + recovered.stderr)
+  assert.ok(h2aHeadHits >= 3, 'must poll tarball HEAD until CDN serves 200')
+  assert.equal(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), 'smoke-passed=true\n')
+
+  // 3) Downloaded tarball fails dist.integrity -> fails closed immediately without attestation.
+  mode = 'corrupt-download'
+  rmSync(f.env.GITHUB_OUTPUT, { force: true })
+  const badIntegrity = await execAsync('bash', ['-e', '-o', 'pipefail', '-c', fastRecoverSmoke], {
+    cwd: f.root, encoding: 'utf8', env: { ...f.env, RELEASE_VERSION: version, FOCUS_RELEASE_VERSION: '0.5.0-rc.1', NPM_REGISTRY_URL: registryUrl }, timeout: 20_000,
+  })
+  assert.notEqual(badIntegrity.status, 0, badIntegrity.stdout + badIntegrity.stderr)
+  assert.match(badIntegrity.stderr, /dist\.integrity.*refusing RC attestation/s)
+  assert.throws(() => readFileSync(f.env.GITHUB_OUTPUT), /ENOENT/)
 })
 
 test('RC install smoke fails closed without attestation when registry visibility budget is exceeded', async t => {

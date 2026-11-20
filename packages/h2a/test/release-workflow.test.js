@@ -728,21 +728,35 @@ test('release validates exact internal versions before packing and before publis
   }
 });
 
-test('post-publish smoke waits for exact registry visibility and packument under a bounded budget before install', () => {
+test('post-publish smoke waits for exact registry visibility, packument, and tarball availability under bounded budgets before install, then verifies dist.integrity', () => {
   const publish = job('publish');
   const smoke = publish.steps.find((step) => step.id === 'post-publish-smoke');
   assert.ok(smoke, 'publish must keep the post-publish-smoke step');
   const script = String(smoke.run ?? '');
-  const waitIdx = script.indexOf('node scripts/wait-npm-visibility.mjs');
+  const waitIdx = script.indexOf('node scripts/wait-npm-visibility.mjs "${wait_args[@]}"');
+  const tarballWaitIdx = script.indexOf('node scripts/wait-npm-visibility.mjs "${tarball_wait_args[@]}"');
   const installIdx = script.indexOf('npm i -g --prefer-online "@sentropic/h2a@$RELEASE_VERSION"');
+  const integrityIdx = script.indexOf('--verify-tarball-integrity');
   const proofIdx = script.indexOf('echo "smoke-passed=true" >> "$GITHUB_OUTPUT"');
-  assert.ok(waitIdx >= 0 && installIdx > waitIdx && proofIdx > installIdx,
-    'smoke must wait for registry visibility before npm i -g and emit smoke-passed=true only after doctor passes');
+  assert.ok(
+    waitIdx >= 0 && tarballWaitIdx > waitIdx && installIdx > tarballWaitIdx && integrityIdx > installIdx && proofIdx > integrityIdx,
+    'smoke must wait for packument visibility, then tarball availability, then run npm i -g, then verify dist.integrity, and emit smoke-passed=true only after doctor passes',
+  );
   assert.match(script, /--budget-seconds 1800/);
   assert.match(script, /--check-packument/);
   assert.match(script, /--require-dist-tag next/);
+  assert.match(script, /--budget-seconds 1200/);
+  assert.match(script, /--check-tarball/);
+  assert.match(script, /--verify-tarball-integrity/);
   for (const pkg of ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/track', '@sentropic/h2a-cli', '@sentropic/focus']) {
-    assert.ok(script.includes(pkg), `RC visibility wait must cover ${pkg}`);
+    assert.ok(script.includes(pkg), `RC visibility and tarball wait must cover ${pkg}`);
   }
-  assert.match(script, /refusing RC attestation/);
+  const delaysMatch = script.match(/install_delays=\(([^)]+)\)/);
+  assert.ok(delaysMatch, 'smoke must define bounded install_delays backoff array');
+  const delays = delaysMatch[1].trim().split(/\s+/).map(Number);
+  assert.ok(delays.length >= 15, `install retry attempts must be extended to >= 15 (got ${delays.length})`);
+  const totalSleepSeconds = delays.slice(0, -1).reduce((sum, n) => sum + n, 0);
+  assert.ok(totalSleepSeconds >= 600, `install retry sleep budget must be >= 600s (got ${totalSleepSeconds}s)`);
+  const refusals = script.match(/refusing RC attestation/g) ?? [];
+  assert.ok(refusals.length >= 4, `every RC smoke failure path (visibility, tarball, install, integrity) must fail closed refusing RC attestation (found ${refusals.length})`);
 });
