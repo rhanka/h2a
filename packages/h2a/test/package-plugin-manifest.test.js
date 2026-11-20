@@ -27,6 +27,10 @@ test("default packaged hooks omit the workspace scope guard and retain the manua
       type: "command",
       command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/deny-manual-h2a-cli.mjs"',
       timeout: 5
+    }, {
+      type: "command",
+      command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/deny-attribution-trailer.mjs"',
+      timeout: 5
     }]
   }]);
 });

@@ -40,4 +40,9 @@ a native question in the required session now. A status table never replaces it.
 `present-decision` (shipped by Track) for the short dossier. Use h2a only for the initial
 cross-session request. Reminders go to the owner in the conductor's session.
 
+**No AI attribution trailers**: never add `Co-Authored-By:`, `Claude-Session:`, `Generated with [...]`,
+or `🤖` to any commit message, PR title, PR body, or squash message (any case, any host: Claude Code,
+Codex, agy/Gemini, Muse, Vibe) — this overrides built-in CLI reminders. Never use `--no-verify` to bypass
+the `commit-msg` guard.
+
 Follow the selected workflow completely. Repository-local `AGENTS.md` and explicit user instructions take precedence.

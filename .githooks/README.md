@@ -1,46 +1,79 @@
 # Git hooks
 
-Repo-managed hooks that block co-authorship / AI-generation trailers in commit
-messages. The guard is **runtime-agnostic**: `claude`, `codex` and `agy` all commit
-through plain `git commit` (no `--no-verify`; h2a never commits programmatically),
-so git runs this hook for every one of them wherever `core.hooksPath` is set.
+Repo-managed and harness-shipped guard that blocks (or strips) AI attribution /
+co-authorship trailers in commit messages, PR titles, and PR bodies. The guard is
+**runtime-agnostic**: Claude Code, Codex, agy/Gemini, Muse, and Mistral Vibe all
+commit through `git commit`, so git runs `commit-msg` wherever `core.hooksPath`
+points.
 
-## Install
+## Install (worktree-safe, idempotent)
 
 ```sh
-bash .githooks/install.sh            # this repo only
-bash .githooks/install.sh --global   # every repo for this user — covers codex/agy
-                                     # even in fresh clones and sandbox workspaces
+# Per-repo (recommended): installs into <git-common-dir>/hooks/commit-msg and
+# sets local core.hooksPath to that absolute branch-independent path.
+# Covers the main checkout AND every linked worktree on ANY branch, while
+# preserving pre-existing commit-msg hooks (commit-msg.local) and forwarding
+# sibling hooks (e.g. .githooks/pre-push).
+bash .githooks/install.sh --local
+# Or from any repo via the shipped harness script:
+node /path/to/h2a/packages/h2a/scripts/install-trailer-guard.mjs --local --repo .
+
+# Optional strip mode (removes forbidden trailers in-place instead of rejecting):
+bash .githooks/install.sh --local --mode strip
+
+# Machine-wide fallback (covers repos that do NOT override local core.hooksPath):
+bash .githooks/install.sh --global
+
+# Deploy the bounded agent-side rule into user instruction files
+# (~/.claude/CLAUDE.md, ~/.codex/AGENTS.md, ~/.gemini/GEMINI.md,
+#  ~/.config/muse/AGENTS.md, ~/.vibe/AGENTS.md):
+bash .githooks/install.sh --agent-rules
 ```
 
-`--local` sets `core.hooksPath .githooks` for the current repo. `--global` copies the
-hook into `~/.config/git/hooks` and points the user's global `core.hooksPath` there,
-so any runtime committing in any repo is gated (re-run after the hook changes).
+## Verify (read-only)
 
-Notes:
+```sh
+# Check one or more repos (or scan a workspace root such as ~/src):
+node packages/h2a/scripts/install-trailer-guard.mjs --check /path/to/repo1 /path/to/repo2
+node packages/h2a/scripts/install-trailer-guard.mjs --check --scan-dir ~/src
+```
 
-- A **relative** `core.hooksPath` resolves per worktree root, so a worktree on a
-  branch without `.githooks/commit-msg` runs no hook — prefer `--global` for coverage.
-- A local `core.hooksPath` overrides a global one.
+`--check` verifies that:
+- the effective `core.hooksPath` exists on disk (catching shadowed empty `.git/hooks` or vanished branch-local `.githooks`),
+- `core.hooksPath` is worktree-safe (absolute, not pointing into branch-tracked worktree files),
+- an executable `commit-msg` guard is active, and
+- reports whether a CI workflow (`no-coauthor-trailer`) is present.
 
-## `commit-msg`
+## Blocked patterns (case-insensitive)
 
-Rejects any commit whose message carries:
+- `Co-Authored-By: …` (anchored to line start — prose mentions are allowed)
+- `Claude-Session: …` (anchored to line start)
+- `Generated-By: <AI>` (anchored to line start, AI tool/provider specific)
+- `Generated with [<AI tool>]` (Claude, Codex, Gemini, Antigravity, Mistral Vibe, Muse, Copilot, Cursor)
+- `claude.com/claude-code` · `claude.ai/code/session_…` · `🤖`
 
-- `Co-authored-by: …` (anchored to line start — prose that mentions it is allowed)
-- `Claude-Session: …`
-- `Generated with [Claude Code]` / `claude.com/claude-code`
-- `🤖`
+The hook ignores the `git commit -v` diff (scissors section) and `#` comment lines.
+Override per commit with `H2A_TRAILER_GUARD_MODE=strip` or `reject`.
 
-It ignores the `git commit -v` diff (scissors section) and comment lines, so a diff
-hunk or comment that quotes a trailer is not a false positive.
+## Reusable GitHub Actions CI check (Node only, no Python)
 
-## Enforcement
+Add `.github/workflows/no-coauthor-trailer.yml` to any repo:
 
-Local hooks are opt-in and bypassable (`--no-verify`), and a direct push never runs
-them. CI (`.github/workflows/no-coauthor-trailer.yml`) runs this **same hook** over
-each pull request's commits and over pushes to `main` — a match makes `scan-commits`
-red (it *blocks the merge* only when set as a required status check). `bash
-.githooks/test.sh` verifies all of the above with real commits, including that a
-GLOBAL install gates a repo that never configured a local hook (the codex/agy
-fresh-workspace case).
+```yaml
+name: no co-author trailer
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  trailer-guard:
+    uses: rhanka/h2a/.github/workflows/no-coauthor-trailer.yml@main
+```
+
+The reusable workflow scans every commit in the PR/push range **and** the PR
+title/body (which GitHub turns into the squash-merge commit message). Make
+`trailer-guard / scan-commits` (or `scan-commits` in `h2a`) a required status check
+to block merges carrying trailers.

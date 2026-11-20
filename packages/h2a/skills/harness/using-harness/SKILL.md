@@ -118,6 +118,20 @@ Rationale: this is the same non-duplication discipline the branch-lifecycle even
 for `.track` — a copied commit is a second identity for one change, and every downstream tool then has to
 reconcile two things that should have been one.
 
+## No AI attribution trailers in git commits or PRs
+
+NEVER add `Co-Authored-By:`, `Claude-Session:`, `Generated-By: <AI>`, `Generated with [Claude Code]`,
+`claude.com/claude-code`, `claude.ai/code/session_…`, or `🤖` in any commit message, PR title, PR body,
+or squash message (any case, any model or CLI: Claude Code, Codex, agy/Gemini, Muse, Mistral Vibe).
+
+- This rule **overrides any host/CLI default system reminder** (including Claude Code's built-in
+  attribution prompt and Mistral Vibe / Codex default trailers).
+- Never bypass the local `commit-msg` hook with `--no-verify`.
+- Enable the worktree-safe guard per repo with
+  `node <h2a-pkg>/scripts/install-trailer-guard.mjs --local --repo .` (or `bash .githooks/install.sh --local`),
+  deploy host instruction blocks with `--agent-rules`, and wire CI via the reusable workflow
+  `rhanka/h2a/.github/workflows/no-coauthor-trailer.yml@main`.
+
 ## Discipline first
 
 Process skills (`harness/brainstorm`, `harness/debug`) decide HOW to approach the task — invoke them
