@@ -95,6 +95,20 @@ it("should append the running h2a bin dir to child PATH so SessionEnd hooks reso
       (narrowedParts.length === 4 && narrowedParts[3] === dirname(process.execPath)),
   ).toBe(true);
 
+  // Even when the active node runtime lives in a 0o777 toolcache directory (e.g.
+  // pre-cached GitHub Actions hostedtoolcache) and PATH has no `node`,
+  // ensureH2aBinOnPath still appends dirname(execPath) so `#!/usr/bin/env node` resolves.
+  const toolcacheBin = join(root, "toolcache", "bin");
+  mkdirSync(toolcacheBin, { recursive: true });
+  chmodSync(toolcacheBin, 0o777);
+  const toolcacheNode = join(toolcacheBin, "node");
+  symlinkSync(process.execPath, toolcacheNode);
+  const noNodeBin = join(root, "no-node-bin");
+  mkdirSync(noNodeBin, { recursive: true, mode: 0o755 });
+  const toolcacheEnv: Record<string, string> = { HOME: join(root, "empty-home"), PATH: noNodeBin };
+  ensureH2aBinOnPath(toolcacheEnv, { argv1: binJs, execPath: toolcacheNode });
+  expect(toolcacheEnv["PATH"]!.split(delimiter)).toEqual([noNodeBin, binDir, toolcacheBin]);
+
   const overrideBin = join(root, "override-bin");
   mkdirSync(overrideBin, { recursive: true, mode: 0o755 });
   writeFileSync(join(overrideBin, "h2a"), "#!/bin/sh\necho override\n", { mode: 0o755 });
@@ -122,6 +136,6 @@ it("should append the running h2a bin dir to child PATH so SessionEnd hooks reso
     encoding: "utf8",
     timeout: 10_000,
   });
-  expect(hookRun.status).toBe(0);
+  expect(hookRun.status, `stderr=${hookRun.stderr} PATH=${capturedEnv["PATH"]}`).toBe(0);
   expect(hookRun.stdout.trim()).toBe("hook-ok:enroll --hook claude-end");
 });

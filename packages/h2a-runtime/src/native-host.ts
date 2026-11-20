@@ -50,6 +50,17 @@ import { appendCrashLog } from "./crash-log.js";
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
 
+function isExecutableFile(filePath: string): boolean {
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile()) return false;
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isNonWorldWritableExecutable(filePath: string): boolean {
   try {
     const st = statSync(filePath);
@@ -197,7 +208,7 @@ export function ensureH2aBinOnPath(
   const execPath = options.execPath ?? process.execPath;
   if (!hasExecutableOnPath(env["PATH"], "node") && execPath && isAbsolute(execPath)) {
     const execDir = dirname(execPath);
-    if (isSafeBinDirectory(execDir) && isNonWorldWritableExecutable(join(execDir, "node")) && !parts.includes(execDir)) {
+    if (isExecutableFile(join(execDir, "node")) && !parts.includes(execDir)) {
       parts.push(execDir);
       env["PATH"] = parts.join(delimiter);
     }

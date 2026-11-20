@@ -423,6 +423,17 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   return value;
 }
 
+function isExecutableFile(filePath: string): boolean {
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile()) return false;
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isNonWorldWritableExecutable(filePath: string): boolean {
   try {
     const st = statSync(filePath);
@@ -489,7 +500,7 @@ export function ensureH2aRunEnvPath(
   let nextPath = parts.join(delimiter);
   if (!hasExecutableOnPath(nextPath, "node") && execPath && isAbsolute(execPath)) {
     const execDir = dirname(execPath);
-    if (isSafeBinDir(execDir) && isNonWorldWritableExecutable(join(execDir, "node")) && !parts.includes(execDir)) {
+    if (isExecutableFile(join(execDir, "node")) && !parts.includes(execDir)) {
       parts.push(execDir);
       nextPath = parts.join(delimiter);
     }
