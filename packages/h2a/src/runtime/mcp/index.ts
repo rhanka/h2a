@@ -40,6 +40,18 @@ export {
 } from "./agent-launch.js";
 
 export {
+  FOCUS_TEMPLATE_KINDS,
+  handleH2aFocusBuild,
+  handleH2aFocusTemplate,
+  validateFocusBuildRequest,
+  type FocusBuildRequest,
+  type FocusBuildResult,
+  type FocusRefusal,
+  type FocusTemplateKind,
+  type FocusTemplateResult
+} from "./focus.js";
+
+export {
   SessionRegistry,
   type OpenSessionRequest,
   type SessionRegistryOptions

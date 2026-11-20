@@ -33,6 +33,8 @@ test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_blockage_raise"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_session_open"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_discover_sessions"));
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_focus_build"));
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_focus_template"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("track_validate"));
 });
 
