@@ -30,13 +30,19 @@ export default defineConfig({
   // Dedupe svelte + the DS packages so a single instance is bundled (avoids duplicate Svelte runtime /
   // duplicate DS theme context) — mirrors sentropic-ui.
   resolve: {
-    dedupe: ['svelte', '@sentropic/design-system-svelte', '@sentropic/design-system-themes']
+    dedupe: [
+      'svelte',
+      '@sentropic/design-system-review-core',
+      '@sentropic/design-system-svelte',
+      '@sentropic/design-system-themes'
+    ]
   },
   // Focus is shipped inside @sentropic/h2a. Bundle UI-only dependencies so the installed CLI needs only
   // its declared @sentropic/track runtime dependency, not the app's private build toolchain.
   // @sentropic/comments (+ @sentropic/contracts) back the artifact review routes and are bundled likewise.
   ssr: {
     noExternal: [
+      '@sentropic/design-system-review-core',
       '@sentropic/design-system-svelte',
       '@sentropic/design-system-themes',
       '@sentropic/track',

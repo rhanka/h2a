@@ -1,9 +1,10 @@
 import type { PageServerLoad } from './$types';
 import { loadAgentMemoryAnswerSet } from '$lib/server/agent-memory-answers';
 import { loadAgentMemoryDossier, loadAgentMemoryMatrix } from '$lib/server/agent-memory-dossier';
+import { readArtifactReviewPageConfig } from '$lib/server/artifact-review/page-config.js';
 import { resolveTarget, repoRoot } from '$lib/server/h2a-bus';
 
-export const load: PageServerLoad = () => {
+export const load: PageServerLoad = ({ url }) => {
   // Resolved at load so the injection path can render with a real recipient instead of discovering at
   // click time that it has none. Cheap (one registry read) and it is what makes h2a the DEFAULT export
   // path rather than a button one tries and abandons.
@@ -16,6 +17,7 @@ export const load: PageServerLoad = () => {
     // when the file is unreachable — the page then says so rather than showing an empty dossier as if the
     // owner had never answered.
     answerSet: loadAgentMemoryAnswerSet(),
+    artifactReview: readArtifactReviewPageConfig(process.env, url),
     h2a: {
       target: resolution.target ?? null,
       targetRoot: resolution.targetRoot ?? null,
