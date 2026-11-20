@@ -1,32 +1,85 @@
 #!/usr/bin/env bash
-# Repo policy: commit messages must NOT carry co-authorship or AI-generation trailers.
-# Enable locally once per clone:  git config core.hooksPath .githooks
-# CI runs this exact hook over PR and main-push commits (.github/workflows/no-coauthor-trailer.yml).
+# h2a-attribution-trailer-guard: v1
+# Repo policy: commit messages must NOT carry co-authorship or AI-attribution trailers.
+# Enable worktree-safely once per repo:  bash .githooks/install.sh --local
+# Or machine-wide across all repos:      bash .githooks/install.sh --global
+# Override mode per invocation:          H2A_TRAILER_GUARD_MODE=reject|strip
 set -euo pipefail
 
 msg_file="${1:?commit-msg hook requires the commit message file path}"
+mode="${H2A_TRAILER_GUARD_MODE:-reject}"
 
 # Scan only the authored message: drop the `git commit -v` diff (from the scissors
 # line onward) and comment lines, so a diff hunk or a comment that merely quotes a
 # trailer is not a false positive.
 scan="$(sed '/^# -\{3,\} >8 -\{3,\}$/,$d' "$msg_file" | grep -v '^#' || true)"
 
-# `Co-authored-by:` and `Claude-Session:` are anchored to the start of a line — real
-# trailers always are, so prose that mentions them is allowed. The Claude-generation
-# markers are specific enough to match anywhere in the message.
-if printf '%s\n' "$scan" \
-   | grep -iEq '^[[:space:]]*co-authored-by:|^[[:space:]]*claude-session:|generated with[[:space:]]+\[?claude|claude\.com/claude-code|🤖'; then
-  {
-    echo "✗ commit blocked — co-authorship / AI-attribution trailer detected."
-    echo
-    echo "  This repo forbids these lines in commit messages:"
-    echo "    • Co-authored-by: …"
-    echo "    • Claude-Session: …"
-    echo "    • Generated with [Claude Code] / claude.com/claude-code"
-    echo "    • 🤖"
-    echo
-    echo "  Remove the offending line(s) from the commit message and try again."
-  } >&2
-  exit 1
+# `Co-Authored-By:`, `Claude-Session:`, and AI `Generated-By:` are anchored to
+# the start of a line — real trailers always are, so prose that mentions them is
+# allowed. The AI generation footers/URLs/markers are specific enough to match
+# anywhere in the authored message (case-insensitive).
+trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+with[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\.com/claude-code|claude\.ai/code/session_[a-z0-9_-]+|🤖'
+
+if printf '%s\n' "$scan" | grep -iEq "$trailer_re"; then
+  if [ "$mode" = "strip" ]; then
+    tmp_file="${msg_file}.h2a-strip.$$"
+    trap 'rm -f "$tmp_file"' EXIT
+    awk '
+      BEGIN { in_scissors = 0; n = 0; s = 0 }
+      /^# ---+ >8 ---+$/ { in_scissors = 1 }
+      in_scissors { suffix[++s] = $0; next }
+      {
+        drop = 0
+        if (substr($0, 1, 1) != "#") {
+          low = tolower($0)
+          if (low ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) drop = 1
+          else if (low ~ /^[[:space:]]*claude-session[[:space:]]*:/) drop = 1
+          else if (low ~ /^[[:space:]]*generated-by[[:space:]]*:/ && low ~ /(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)/) drop = 1
+          else if (low ~ /generated[[:space:]]+with[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
+          else if (low ~ /claude\.com\/claude-code/) drop = 1
+          else if (low ~ /claude\.ai\/code\/session_[a-z0-9_-]+/) drop = 1
+          else if (index($0, "🤖") > 0) drop = 1
+        }
+        if (drop) next
+        body[++n] = $0
+      }
+      END {
+        while (n > 0 && body[n] ~ /^[[:space:]]*$/) n--
+        for (i = 1; i <= n; i++) print body[i]
+        if (s > 0) {
+          print ""
+          for (i = 1; i <= s; i++) print suffix[i]
+        }
+      }
+    ' "$msg_file" > "$tmp_file"
+    remaining="$(sed '/^# -\{3,\} >8 -\{3,\}$/,$d' "$tmp_file" | grep -v '^#' | tr -d '[:space:]' || true)"
+    if [ -z "$remaining" ]; then
+      echo "✗ commit blocked — stripping AI attribution trailers left an empty commit message." >&2
+      exit 1
+    fi
+    mv "$tmp_file" "$msg_file"
+    trap - EXIT
+    echo "⚠ stripped AI attribution trailer(s) from commit message." >&2
+  else
+    {
+      echo "✗ commit blocked — co-authorship / AI-attribution trailer detected."
+      echo
+      echo "  This repo forbids these lines in commit messages (case-insensitive):"
+      echo "    • Co-Authored-By: …"
+      echo "    • Claude-Session: …"
+      echo "    • Generated-By: <AI>"
+      echo "    • Generated with [<AI tool>] / claude.com/claude-code / claude.ai/code/session_…"
+      echo "    • 🤖"
+      echo
+      echo "  Remove the offending line(s) from the commit message and try again."
+    } >&2
+    exit 1
+  fi
+fi
+
+# Chain any preserved local commit-msg hook.
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$hook_dir/commit-msg.local" ]; then
+  exec "$hook_dir/commit-msg.local" "$@"
 fi
 exit 0

@@ -24,6 +24,11 @@ policy is DATA in a profile. `adopt` maps a foreign repo onto that SPI so the me
    undeclared (unknown) paths, missing scope declaration.
 4. **Wire** — add a `scope-check`/`verify` step to the repo's pre-commit or CI using the profile, so the
    method is enforced, not just documented.
+5. **Attribution trailer guard** — install the worktree-safe `commit-msg` guard into `<git-common-dir>/hooks`
+   via `node <h2a-pkg>/scripts/install-trailer-guard.mjs --local --repo .` (covers every linked worktree
+   and branch) and add `.github/workflows/no-coauthor-trailer.yml` calling the reusable workflow
+   `rhanka/h2a/.github/workflows/no-coauthor-trailer.yml@main` to reject AI attribution trailers in
+   commits, PR titles, and PR bodies / squash messages.
 
 ## Principle
 
