@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const native = vi.hoisted(() => ({ operation: vi.fn(), close: vi.fn(), probe: vi.fn() }));
@@ -84,10 +84,16 @@ it("should append the running h2a bin dir to child PATH so SessionEnd hooks reso
   const derived = resolveRunningH2aBinDir({ argv1: binJs, env: { HOME: join(root, "empty-home") } });
   expect(derived).toBe(binDir);
 
-  // 2. Appends <prefix>/bin when PATH omits it, and preserves an existing h2a on PATH without shadowing.
+  // 2. Appends <prefix>/bin when PATH omits it (plus node's dir if node is outside /usr/bin:/bin),
+  //    and preserves an existing h2a on PATH without shadowing.
   const narrowed: Record<string, string> = { HOME: join(root, "empty-home"), PATH: "/usr/bin:/bin" };
   ensureH2aBinOnPath(narrowed, { argv1: binJs });
-  expect(narrowed["PATH"]!.split(delimiter)).toEqual(["/usr/bin", "/bin", binDir]);
+  const narrowedParts = narrowed["PATH"]!.split(delimiter);
+  expect(narrowedParts.slice(0, 3)).toEqual(["/usr/bin", "/bin", binDir]);
+  expect(
+    narrowedParts.length === 3 ||
+      (narrowedParts.length === 4 && narrowedParts[3] === dirname(process.execPath)),
+  ).toBe(true);
 
   const overrideBin = join(root, "override-bin");
   mkdirSync(overrideBin, { recursive: true, mode: 0o755 });
