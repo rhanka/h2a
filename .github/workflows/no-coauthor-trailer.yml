@@ -53,7 +53,7 @@ jobs:
             },
             {
               id: 'generated-with-ai',
-              pattern: /generated\s+with\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+              pattern: /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
             },
             { id: 'claude-code-url', pattern: /claude\.com\/claude-code/i },
             { id: 'claude-session-url', pattern: /claude\.ai\/code\/session_[a-z0-9_-]+/i },

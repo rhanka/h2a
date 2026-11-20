@@ -48,9 +48,9 @@ export const TRAILER_RULES = Object.freeze([
   },
   {
     id: "generated-with-ai",
-    label: "Generated with [<AI tool>]",
+    label: "Generated with/by [<AI tool>]",
     pattern:
-      /generated\s+with\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+      /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
   },
   {
     id: "claude-code-url",

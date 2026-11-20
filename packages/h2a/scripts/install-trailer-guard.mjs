@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Idempotent, worktree-safe installer & read-only verifier for the harness
- * AI attribution trailer guard.
+ * AI attribution trailer guard (repo hooks, global git fallback, agent rules,
+ * and per-CLI config guards for Codex, Muse, and Mistral Vibe).
  *
  * Solves the root causes of trailer leaks:
  *  1. Installs `commit-msg` into `<git-common-dir>/hooks/commit-msg` and sets
@@ -9,28 +10,38 @@
  *     EVERY linked worktree on ANY branch runs the guard (unlike relative
  *     `.githooks` which vanishes on older branches, and unlike empty local
  *     `.git/hooks` which silently shadows global `~/.config/git/hooks`).
- *  2. Preserves pre-existing custom `commit-msg` hooks via `commit-msg.local`
- *     chaining, and forwards any other executable hooks found in a previous
- *     repo-local `core.hooksPath` (e.g. `.githooks/pre-push`).
- *  3. Supports `--agent-rules` to idempotently write the bounded no-trailer
+ *  2. Installs a machine-wide fallback via `git config --global core.hooksPath`
+ *     (`--global`) whose `commit-msg` enforces the guard AND still chains both
+ *     `commit-msg.local` and any repo-local `<git-common-dir>/hooks/commit-msg`,
+ *     plus lightweight dispatchers for other standard Git hooks so repos
+ *     without a local `core.hooksPath` keep their `.git/hooks/*` working.
+ *  3. Supports `--cli-guards` to harden Codex (`config.toml` + `AGENTS.md`),
+ *     Muse (`settings.json` + `AGENTS.md`), and Mistral Vibe (`config.toml`
+ *     `include_commit_signature = false` + `hooks.toml` `pre_tool` guard +
+ *     `AGENTS.md`) with timestamped backups. Never auto-edits Claude's
+ *     `~/.claude/settings.json`; reports the exact recommended JSON instead.
+ *  4. Supports `--agent-rules` to idempotently write the bounded no-trailer
  *     rule into host instruction files (Claude Code, Codex, agy/Gemini, Muse, Vibe).
- *  4. Supports read-only `--check` (for s-conductor / operators) to verify
- *     which repos have an active, worktree-safe guard and CI workflow.
+ *  5. Supports read-only `--check` (repos) and `--check-cli` (CLIs + global git).
  *
  * Usage:
  *   node install-trailer-guard.mjs --local [--repo <path>] [--mode reject|strip] [--json]
- *   node install-trailer-guard.mjs --global [--mode reject|strip] [--json]
- *   node install-trailer-guard.mjs --agent-rules [--hosts claude,codex,agy,gemini,muse,vibe] [--home <dir>] [--json]
+ *   node install-trailer-guard.mjs --global [--mode reject|strip] [--no-chain-repo-hooks] [--home <dir>] [--xdg-config-home <dir>] [--json]
+ *   node install-trailer-guard.mjs --cli-guards [--hosts codex,muse,vibe] [--home <dir>] [--xdg-config-home <dir>] [--no-backup] [--dry-run] [--json]
+ *   node install-trailer-guard.mjs --agent-rules [--hosts claude,codex,agy,gemini,muse,vibe] [--home <dir>] [--xdg-config-home <dir>] [--json]
  *   node install-trailer-guard.mjs --check [--repo <path>...] [--scan-dir <dir>] [--json]
+ *   node install-trailer-guard.mjs --check-cli [--hosts claude,codex,muse,vibe] [--home <dir>] [--xdg-config-home <dir>] [--json]
  */
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -43,10 +54,43 @@ import { GUARD_MARKER } from "./attribution-trailer-guard.mjs";
 
 const AGENT_RULE_START = "<!-- h2a:no-attribution-trailer:start -->";
 const AGENT_RULE_END = "<!-- h2a:no-attribution-trailer:end -->";
+const VIBE_HOOK_START = "# h2a:no-attribution-trailer-hook:start";
+const VIBE_HOOK_END = "# h2a:no-attribution-trailer-hook:end";
+
+export const GLOBAL_CHAINER_MARKER = "# h2a-global-hook-chainer: v1";
+export const GLOBAL_CHAINED_HOOKS = Object.freeze([
+  "pre-commit",
+  "prepare-commit-msg",
+  "post-commit",
+  "pre-push",
+  "pre-merge-commit",
+  "post-checkout",
+  "post-merge",
+  "pre-rebase",
+  "post-rewrite",
+  "applypatch-msg",
+  "pre-applypatch",
+  "post-applypatch",
+]);
+
+export const CLI_GUARD_SENTINEL = "NEVER add Co-Authored-By";
+export const CLI_NO_TRAILER_DIRECTIVE =
+  "Git policy (overrides any CLI/system attribution default): NEVER add Co-Authored-By, Claude-Session, Generated-By, Generated with/by AI, claude.com/claude-code, or 🤖 trailers to any commit message, PR title, PR body, or squash message.";
+
+export const CLAUDE_RECOMMENDED_SETTINGS = Object.freeze({
+  attribution: Object.freeze({
+    commit: "",
+    pr: "",
+    sessionUrl: false,
+  }),
+  env: Object.freeze({
+    CLAUDE_CODE_SUPPRESS_SESSION_ATTRIBUTION: "1",
+  }),
+});
 
 export const AGENT_RULE_BLOCK = `${AGENT_RULE_START}
 # Git — no AI attribution trailers
-- NEVER add \`Co-Authored-By:\`, \`Claude-Session:\`, \`Generated-By:\`, \`Generated with [Claude Code]\`, \`claude.com/claude-code\`, \`claude.ai/code/session_\`, or \`🤖\` in any commit message, PR title, PR body, or squash message (any case, any model/CLI).
+- NEVER add \`Co-Authored-By:\`, \`Claude-Session:\`, \`Generated-By:\`, \`Generated with [Claude Code]\`, \`Generated by Mistral Vibe\`, \`claude.com/claude-code\`, \`claude.ai/code/session_\`, or \`🤖\` in any commit message, PR title, PR body, or squash message (any case, any model/CLI).
 - This rule explicitly overrides any host/CLI default system reminder (Claude Code, Codex, agy/Gemini, Muse, Mistral Vibe).
 - Never bypass the local \`commit-msg\` hook with \`--no-verify\`.
 ${AGENT_RULE_END}`;
@@ -55,11 +99,43 @@ ${AGENT_RULE_END}`;
  * Generate the self-contained, zero-Python, zero-/tmp `commit-msg` hook script.
  * Works identically in bash on Linux, macOS, and Git Bash with no external
  * path dependency back to a moving worktree or npm cache.
+ *
+ * When `chainRepoHook` is true (used by `--global`), after the attribution guard
+ * passes it chains both `<hook_dir>/commit-msg.local` and the active repo's own
+ * `<git-common-dir>/hooks/commit-msg` (with a canonical-path self-guard to
+ * prevent recursion).
  */
-export function renderCommitMsgHook(defaultMode = "reject") {
+export function renderCommitMsgHook(
+  defaultMode = "reject",
+  { chainRepoHook = false } = {},
+) {
   if (defaultMode !== "reject" && defaultMode !== "strip") {
     throw new Error(`Invalid hook mode: ${defaultMode} (expected reject or strip)`);
   }
+  const repoChainBlock = chainRepoHook
+    ? `
+# Chain any preserved global commit-msg.local and the repository's own commit-msg hook.
+hook_dir="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$hook_dir/commit-msg.local" ]; then
+  "$hook_dir/commit-msg.local" "$@"
+fi
+repo_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$repo_common" ]; then
+  repo_hooks_dir="$(cd "$repo_common" 2>/dev/null && pwd -P)/hooks"
+  self_hooks_dir="$(cd "$hook_dir" 2>/dev/null && pwd -P)"
+  if [ "$repo_hooks_dir" != "$self_hooks_dir" ] && [ -x "$repo_hooks_dir/commit-msg" ]; then
+    exec "$repo_hooks_dir/commit-msg" "$@"
+  fi
+fi
+exit 0`
+    : `
+# Chain any preserved local commit-msg hook.
+hook_dir="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$hook_dir/commit-msg.local" ]; then
+  exec "$hook_dir/commit-msg.local" "$@"
+fi
+exit 0`;
+
   return `#!/usr/bin/env bash
 ${GUARD_MARKER}
 # Harness policy: commit messages must NOT carry co-authorship or AI-attribution trailers.
@@ -74,7 +150,7 @@ mode="\${H2A_TRAILER_GUARD_MODE:-${defaultMode}}"
 # onward) and comment lines so quoted trailers in diffs/comments never false-positive.
 scan="$(sed '/^# -\\{3,\\} >8 -\\{3,\\}$/,$d' "$msg_file" | grep -v '^#' || true)"
 
-trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+with[[:space:]]+\\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\\.com/claude-code|claude\\.ai/code/session_[a-z0-9_-]+|🤖'
+trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+(with|by)[[:space:]]+\\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\\.com/claude-code|claude\\.ai/code/session_[a-z0-9_-]+|🤖'
 
 if printf '%s\\n' "$scan" | grep -iEq "$trailer_re"; then
   if [ "$mode" = "strip" ]; then
@@ -91,7 +167,7 @@ if printf '%s\\n' "$scan" | grep -iEq "$trailer_re"; then
           if (low ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) drop = 1
           else if (low ~ /^[[:space:]]*claude-session[[:space:]]*:/) drop = 1
           else if (low ~ /^[[:space:]]*generated-by[[:space:]]*:/ && low ~ /(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)/) drop = 1
-          else if (low ~ /generated[[:space:]]+with[[:space:]]+\\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
+          else if (low ~ /generated[[:space:]]+(with|by)[[:space:]]+\\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
           else if (low ~ /claude\\.com\\/claude-code/) drop = 1
           else if (low ~ /claude\\.ai\\/code\\/session_[a-z0-9_-]+/) drop = 1
           else if (index($0, "🤖") > 0) drop = 1
@@ -124,7 +200,7 @@ if printf '%s\\n' "$scan" | grep -iEq "$trailer_re"; then
       echo "    • Co-Authored-By: …"
       echo "    • Claude-Session: …"
       echo "    • Generated-By: <AI>"
-      echo "    • Generated with [<AI tool>] / claude.com/claude-code / claude.ai/code/session_…"
+      echo "    • Generated with/by [<AI tool>] / claude.com/claude-code / claude.ai/code/session_…"
       echo "    • 🤖"
       echo
       echo "  Remove the offending line(s) from the commit message and try again."
@@ -132,13 +208,99 @@ if printf '%s\\n' "$scan" | grep -iEq "$trailer_re"; then
     exit 1
   fi
 fi
+${repoChainBlock}
+`;
+}
 
-# Chain any preserved local commit-msg hook.
+/**
+ * Generate a lightweight global hook dispatcher that preserves stdin (for hooks
+ * like `pre-push` and `post-rewrite`) and chains `<hook>.local` + repo-local
+ * `<git-common-dir>/hooks/<hook>` when global `core.hooksPath` is active.
+ */
+export function renderGlobalChainerHook(hookName) {
+  if (!/^[a-z0-9-]+$/.test(hookName)) {
+    throw new Error(`Invalid git hook name: ${hookName}`);
+  }
+  return `#!/usr/bin/env bash
+${GLOBAL_CHAINER_MARKER}
+# Global core.hooksPath dispatcher: keeps per-repo .git/hooks/${hookName} working.
+set -euo pipefail
+
 hook_dir="$(cd "$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
-if [ -x "$hook_dir/commit-msg.local" ]; then
-  exec "$hook_dir/commit-msg.local" "$@"
+repo_hook=""
+repo_common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$repo_common" ]; then
+  repo_hooks_dir="$(cd "$repo_common" 2>/dev/null && pwd -P)/hooks"
+  self_hooks_dir="$(cd "$hook_dir" 2>/dev/null && pwd -P)"
+  if [ "$repo_hooks_dir" != "$self_hooks_dir" ] && [ -x "$repo_hooks_dir/${hookName}" ]; then
+    repo_hook="$repo_hooks_dir/${hookName}"
+  fi
+fi
+
+if [ -x "$hook_dir/${hookName}.local" ]; then
+  if [ -n "$repo_hook" ]; then
+    "$hook_dir/${hookName}.local" "$@"
+    exec "$repo_hook" "$@"
+  fi
+  exec "$hook_dir/${hookName}.local" "$@"
+fi
+if [ -n "$repo_hook" ]; then
+  exec "$repo_hook" "$@"
 fi
 exit 0
+`;
+}
+
+/**
+ * Generate a self-contained Mistral Vibe `pre_tool` hook script that blocks
+ * `git commit` and `gh pr create|edit|merge` commands carrying AI attribution
+ * trailers. Kept independent from h2a's manual-CLI guard so `h2a doctor`
+ * preserves it as a third-party hook in `~/.vibe/hooks.toml`.
+ */
+export function renderVibeTrailerGuardScript() {
+  return `#!/usr/bin/env node
+// h2a-vibe-attribution-trailer-guard: v1
+// Standalone Mistral Vibe pre_tool guard: denies git commit / gh pr commands
+// carrying AI attribution trailers (even with --no-verify). Always exits 0.
+let raw = "";
+const allow = () => { process.stdout.write('{"decision":"allow"}'); process.exit(0); };
+const timer = setTimeout(allow, 4000);
+
+function hasForbiddenAttributionTrailer(command) {
+  const targetsGitOrPr = /(?:^|[;|&\\n]\\s*)(?:(?:env\\s+(?:\\w+=(?:"[^"]*"|'[^']*'|\\S+)\\s+)*)|command\\s+|sudo\\s+(?:-\\w+\\s+)*)*(?:git\\b[^\\n;|&]*\\bcommit\\b|gh\\s+pr\\s+(?:create|edit|merge)\\b)/m.test(command);
+  if (!targetsGitOrPr) return false;
+  const expanded = command.replace(/\\\\n/g, "\\n");
+  const rules = [
+    /^\\s*co-authored-by\\s*:/im,
+    /^\\s*claude-session\\s*:/im,
+    /^\\s*generated-by\\s*:.*\\b(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\\b/im,
+    /generated\\s+(?:with|by)\\s+\\[?(?:claude(?:\\s+code)?|codex|gemini|antigravity|mistral\\s+vibe|vibe|muse|copilot|cursor)\\b/i,
+    /claude\\.com\\/claude-code/i,
+    /claude\\.ai\\/code\\/session_[a-z0-9_-]+/i,
+    /🤖/u,
+    /(?:["'\`]|^|\\n)\\s*(?:co-authored-by|claude-session)\\s*:/im,
+  ];
+  return rules.some((re) => re.test(expanded));
+}
+
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { raw += chunk; if (raw.length > 1_048_576) allow(); });
+process.stdin.on("error", allow);
+process.stdin.on("end", () => {
+  clearTimeout(timer);
+  try {
+    const payload = JSON.parse(raw);
+    const command = payload?.tool_input?.command;
+    if (typeof command !== "string" || !hasForbiddenAttributionTrailer(command)) return allow();
+    process.stderr.write("Forbidden AI attribution trailer in git commit / gh pr command refused.\\n");
+    process.stdout.write(JSON.stringify({
+      decision: "deny",
+      reason: "Remove Co-Authored-By / Claude-Session / Generated with|by attribution trailers before committing or creating a PR.",
+    }));
+  } catch {
+    allow();
+  }
+});
 `;
 }
 
@@ -158,6 +320,14 @@ function safeGit(cwd, args, extraEnv = undefined) {
   }
 }
 
+function hasAgentRuleText(content) {
+  return (
+    content.includes(AGENT_RULE_START) ||
+    content.includes(CLI_GUARD_SENTINEL) ||
+    (/co-authored-by/i.test(content) && /claude-session/i.test(content))
+  );
+}
+
 function isExecutableFile(filePath) {
   try {
     const st = statSync(filePath);
@@ -165,6 +335,38 @@ function isExecutableFile(filePath) {
   } catch {
     return false;
   }
+}
+
+function utcTimestamp() {
+  return new Date()
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "Z");
+}
+
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+
+function backupFile(filePath, timestamp) {
+  if (!existsSync(filePath)) return null;
+  const mode = statSync(filePath).mode & 0o777;
+  const backupPath = `${filePath}.bak-${timestamp}`;
+  copyFileSync(filePath, backupPath);
+  chmodSync(backupPath, mode);
+  return backupPath;
+}
+
+function writeAtomicPreserveMode(filePath, content, defaultMode = 0o644) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  const mode = existsSync(filePath) ? statSync(filePath).mode & 0o777 : defaultMode;
+  const tmp = join(
+    dirname(resolve(filePath)),
+    `.${basename(filePath)}.h2a-tmp.${process.pid}.${Date.now()}`,
+  );
+  writeFileSync(tmp, content, { encoding: "utf8", mode });
+  chmodSync(tmp, mode);
+  renameSync(tmp, filePath);
 }
 
 function writeHookIdempotent(hooksDir, hookContent) {
@@ -191,6 +393,40 @@ function writeHookIdempotent(hooksDir, hookContent) {
   writeFileSync(target, hookContent, "utf8");
   chmodSync(target, 0o755);
   return { target, changed: true, preservedLocal };
+}
+
+function writeGlobalChainerIdempotent(hooksDir, hookName) {
+  const target = join(hooksDir, hookName);
+  const localBackup = join(hooksDir, `${hookName}.local`);
+  const content = renderGlobalChainerHook(hookName);
+
+  if (existsSync(target)) {
+    const existing = readFileSync(target, "utf8");
+    const isManaged = existing.includes(GLOBAL_CHAINER_MARKER);
+    if (!isManaged) {
+      if (!isExecutableFile(target)) {
+        // Never activate or clobber a pre-existing non-executable user file.
+        return { hookName, changed: false, preservedLocal: false, skippedNonExecutable: true };
+      }
+      if (!existsSync(localBackup)) {
+        writeFileSync(localBackup, existing, "utf8");
+        chmodSync(localBackup, 0o755);
+      } else {
+        // Both <hook> and <hook>.local exist and are user-managed; do not clobber.
+        return { hookName, changed: false, preservedLocal: false, skippedCustom: true };
+      }
+      writeFileSync(target, content, "utf8");
+      chmodSync(target, 0o755);
+      return { hookName, changed: true, preservedLocal: true, skippedNonExecutable: false };
+    }
+    if (existing === content && isExecutableFile(target)) {
+      return { hookName, changed: false, preservedLocal: false, skippedNonExecutable: false };
+    }
+  }
+
+  writeFileSync(target, content, "utf8");
+  chmodSync(target, 0o755);
+  return { hookName, changed: true, preservedLocal: false, skippedNonExecutable: false };
 }
 
 /**
@@ -249,7 +485,7 @@ export function installLocal({ repo = process.cwd(), mode = "reject" } = {}) {
       : resolve(top, prevLocal)
     : null;
 
-  const hookContent = renderCommitMsgHook(mode);
+  const hookContent = renderCommitMsgHook(mode, { chainRepoHook: false });
   const writeRes = writeHookIdempotent(targetHooksDir, hookContent);
   const forwarded = forwardSiblingHooks(prevDir, targetHooksDir);
 
@@ -276,17 +512,38 @@ export function installLocal({ repo = process.cwd(), mode = "reject" } = {}) {
 
 /**
  * Install the guard globally in `${XDG_CONFIG_HOME:-$HOME/.config}/git/hooks`.
+ * By default (`chainRepoHooks = true`), `commit-msg` chains to each repo's own
+ * `<git-common-dir>/hooks/commit-msg` and sibling global dispatchers keep
+ * `.git/hooks/*` working for repos without a local `core.hooksPath`.
  */
 export function installGlobal({
   mode = "reject",
   home = homedir(),
   xdgConfigHome = process.env.XDG_CONFIG_HOME,
   gitConfigGlobal = process.env.GIT_CONFIG_GLOBAL,
+  chainRepoHooks = true,
 } = {}) {
   const configRoot = xdgConfigHome || join(home, ".config");
   const gdir = resolve(configRoot, "git", "hooks");
-  const hookContent = renderCommitMsgHook(mode);
+  const hookContent = renderCommitMsgHook(mode, { chainRepoHook: chainRepoHooks });
   const writeRes = writeHookIdempotent(gdir, hookContent);
+
+  const chainedHooks = [];
+  const preservedHooks = [];
+  const skippedNonExecutableHooks = [];
+  let chainersChanged = false;
+  if (chainRepoHooks) {
+    for (const hookName of GLOBAL_CHAINED_HOOKS) {
+      const r = writeGlobalChainerIdempotent(gdir, hookName);
+      if (r.changed) chainersChanged = true;
+      if (r.preservedLocal) preservedHooks.push(hookName);
+      if (r.skippedNonExecutable) {
+        skippedNonExecutableHooks.push(hookName);
+      } else if (!r.skippedCustom) {
+        chainedHooks.push(hookName);
+      }
+    }
+  }
 
   const env = gitConfigGlobal ? { GIT_CONFIG_GLOBAL: gitConfigGlobal } : undefined;
   const prevGlobal = safeGit(null, ["config", "--global", "--get", "core.hooksPath"], env);
@@ -301,7 +558,11 @@ export function installGlobal({
     hooksDir: gdir,
     hookPath: writeRes.target,
     mode,
-    changed: writeRes.changed || configChanged,
+    chainRepoHooks,
+    chainedHooks,
+    preservedHooks,
+    skippedNonExecutableHooks,
+    changed: writeRes.changed || chainersChanged || configChanged,
     hookChanged: writeRes.changed,
     configChanged,
     preservedLocal: writeRes.preservedLocal,
@@ -313,7 +574,7 @@ export const AGENT_INSTRUCTION_TARGETS = Object.freeze({
   codex: (home) => join(home, ".codex", "AGENTS.md"),
   agy: (home) => join(home, ".gemini", "GEMINI.md"),
   gemini: (home) => join(home, ".gemini", "GEMINI.md"),
-  muse: (home) => join(home, ".config", "muse", "AGENTS.md"),
+  muse: (home, xdgConfigHome) => join(xdgConfigHome || join(home, ".config"), "muse", "AGENTS.md"),
   vibe: (home) => join(home, ".vibe", "AGENTS.md"),
 });
 
@@ -324,6 +585,10 @@ export const AGENT_INSTRUCTION_TARGETS = Object.freeze({
 export function installAgentRules({
   hosts = ["claude", "codex", "agy", "gemini", "muse", "vibe"],
   home = homedir(),
+  xdgConfigHome = undefined,
+  dryRun = false,
+  backup = false,
+  timestamp = utcTimestamp(),
 } = {}) {
   const seenPaths = new Set();
   const results = [];
@@ -333,13 +598,12 @@ export function installAgentRules({
     if (!resolver) {
       throw new Error(`Unsupported host for agent rules: ${host}`);
     }
-    const target = resolve(resolver(home));
+    const target = resolve(resolver(home, xdgConfigHome));
     if (seenPaths.has(target)) {
       results.push({ host, path: target, changed: false, sharedWithPrevious: true });
       continue;
     }
     seenPaths.add(target);
-    mkdirSync(dirname(target), { recursive: true });
     const existing = existsSync(target) ? readFileSync(target, "utf8") : "";
     let next;
     const startIdx = existing.indexOf(AGENT_RULE_START);
@@ -360,13 +624,615 @@ export function installAgentRules({
       next = `${existing}${sep}${AGENT_RULE_BLOCK}\n`;
     }
     const changed = next !== existing;
-    if (changed) {
-      writeFileSync(target, next, "utf8");
+    let backupPath = null;
+    if (changed && !dryRun) {
+      mkdirSync(dirname(target), { recursive: true });
+      if (backup && existsSync(target)) {
+        backupPath = backupFile(target, timestamp);
+      }
+      writeAtomicPreserveMode(target, next, 0o644);
     }
-    results.push({ host, path: target, changed });
+    results.push({ host, path: target, changed, ...(backupPath ? { backupPath } : {}) });
   }
 
   return results;
+}
+
+/**
+ * Find the byte/line index of the first TOML `[table]` header, skipping
+ * multiline `"""..."""` and `'''...'''` strings.
+ */
+function findFirstTomlTableLine(lines) {
+  let inTriple = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (inTriple) {
+      if (line.includes(inTriple)) inTriple = null;
+      continue;
+    }
+    const trimmed = line.trim();
+    if (trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("[")) return i;
+    // Detect multiline string opening on a key = """... or key = '''...
+    const eqIdx = line.indexOf("=");
+    if (eqIdx !== -1) {
+      const rhs = line.slice(eqIdx + 1).trim();
+      for (const delim of ['"""', "'''"]) {
+        if (rhs.startsWith(delim)) {
+          const rest = rhs.slice(3);
+          if (!rest.includes(delim)) inTriple = delim;
+        }
+      }
+    }
+  }
+  return lines.length;
+}
+
+/**
+ * Decode a simple single-line TOML string literal (`"..."` or `'...'`).
+ */
+function decodeSimpleTomlString(raw) {
+  const s = raw.trim();
+  if (s.startsWith('"') && s.endsWith('"')) {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return s.slice(1, -1);
+    }
+  }
+  if (s.startsWith("'") && s.endsWith("'")) {
+    return s.slice(1, -1);
+  }
+  return null;
+}
+
+/**
+ * Upsert a top-level boolean key (strictly before the first `[table]` header)
+ * while preserving every other line, comment, and secret untouched.
+ */
+export function upsertTopLevelTomlBool(source, key, boolVal) {
+  const normalized = String(source ?? "").replace(/\r\n/g, "\n");
+  const lines = normalized.length === 0 ? [] : normalized.split("\n");
+  const hadTrailingNewline = normalized.length === 0 || normalized.endsWith("\n");
+  if (hadTrailingNewline && lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  const tableLine = findFirstTomlTableLine(lines);
+  const keyRe = new RegExp(`^(\\s*)${key}\\s*=\\s*([^#\\n]*?)(\\s*(?:#.*)?)$`);
+  const want = boolVal ? "true" : "false";
+
+  for (let i = 0; i < tableLine; i++) {
+    const m = lines[i].match(keyRe);
+    if (m) {
+      const currentVal = m[2].trim();
+      if (currentVal === want) {
+        return { text: source, changed: false };
+      }
+      lines[i] = `${m[1]}${key} = ${want}${m[3] || ""}`;
+      return { text: lines.join("\n") + "\n", changed: true };
+    }
+  }
+
+  const insertAt = tableLine;
+  const newLine = `${key} = ${want}`;
+  if (insertAt === 0 && lines.length > 0 && lines[0].trim().startsWith("[")) {
+    lines.splice(0, 0, newLine, "");
+  } else {
+    let pos = insertAt;
+    while (pos > 0 && lines[pos - 1].trim() === "") pos--;
+    lines.splice(pos, 0, newLine);
+  }
+  return { text: lines.join("\n") + "\n", changed: true };
+}
+
+/**
+ * Upsert a top-level string directive (e.g. Codex `developer_instructions`)
+ * before the first `[table]` header, appending cleanly if a different string
+ * value already exists and skipping if `sentinel` is already present.
+ */
+export function upsertTopLevelTomlStringDirective(
+  source,
+  key,
+  directive,
+  sentinel = CLI_GUARD_SENTINEL,
+) {
+  const normalized = String(source ?? "").replace(/\r\n/g, "\n");
+  const lines = normalized.length === 0 ? [] : normalized.split("\n");
+  const hadTrailingNewline = normalized.length === 0 || normalized.endsWith("\n");
+  if (hadTrailingNewline && lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  const tableLine = findFirstTomlTableLine(lines);
+  const keyRe = new RegExp(`^(\\s*)${key}\\s*=\\s*(.*)$`);
+
+  for (let i = 0; i < tableLine; i++) {
+    const m = lines[i].match(keyRe);
+    if (!m) continue;
+    const indent = m[1];
+    const rhs = m[2].trim();
+
+    // Handle multiline """...""" or '''...'''
+    for (const delim of ['"""', "'''"]) {
+      if (rhs.startsWith(delim)) {
+        let endIdx = i;
+        let body = rhs.slice(3);
+        const sameLineClose = body.indexOf(delim);
+        if (sameLineClose !== -1) {
+          body = body.slice(0, sameLineClose);
+        } else {
+          const collected = [body];
+          for (let j = i + 1; j < tableLine; j++) {
+            const closeAt = lines[j].indexOf(delim);
+            if (closeAt !== -1) {
+              collected.push(lines[j].slice(0, closeAt));
+              endIdx = j;
+              break;
+            }
+            collected.push(lines[j]);
+          }
+          body = collected.join("\n");
+        }
+        if (body.includes(sentinel)) return { text: source, changed: false };
+        const merged = body.trim().length > 0 ? `${body.trimEnd()}\n${directive}` : directive;
+        lines.splice(i, endIdx - i + 1, `${indent}${key} = ${JSON.stringify(merged)}`);
+        return { text: lines.join("\n") + "\n", changed: true };
+      }
+    }
+
+    // Handle single-line "..." or '...'
+    const withoutComment = rhs.replace(/\s+#.*$/, "").trim();
+    const decoded = decodeSimpleTomlString(withoutComment);
+    if (decoded !== null) {
+      if (decoded.includes(sentinel)) return { text: source, changed: false };
+      const merged = decoded.trim().length > 0 ? `${decoded.trimEnd()}\n${directive}` : directive;
+      lines[i] = `${indent}${key} = ${JSON.stringify(merged)}`;
+      return { text: lines.join("\n") + "\n", changed: true };
+    }
+  }
+
+  const newLine = `${key} = ${JSON.stringify(directive)}`;
+  if (tableLine === 0 && lines.length > 0 && lines[0].trim().startsWith("[")) {
+    lines.splice(0, 0, newLine, "");
+  } else {
+    let pos = tableLine;
+    while (pos > 0 && lines[pos - 1].trim() === "") pos--;
+    lines.splice(pos, 0, newLine);
+  }
+  return { text: lines.join("\n") + "\n", changed: true };
+}
+
+/**
+ * Upsert our managed `[[hooks]]` block into `~/.vibe/hooks.toml` without
+ * touching any other user or `h2a doctor` hooks.
+ */
+function upsertVibeHooksToml(source, commandStr) {
+  const block = [
+    VIBE_HOOK_START,
+    "[[hooks]]",
+    'name = "h2a-no-attribution-trailer"',
+    'type = "pre_tool"',
+    'match = "re:(bash|file_system\\\\.bash|process_start|process\\\\.start)"',
+    `command = ${JSON.stringify(commandStr)}`,
+    "timeout = 5",
+    "strict = false",
+    VIBE_HOOK_END,
+  ].join("\n");
+
+  const existing = String(source ?? "").replace(/\r\n/g, "\n");
+  const startIdx = existing.indexOf(VIBE_HOOK_START);
+  const endIdx = existing.indexOf(VIBE_HOOK_END);
+  let next;
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    next =
+      existing.slice(0, startIdx) +
+      block +
+      existing.slice(endIdx + VIBE_HOOK_END.length);
+  } else if (existing.trim().length === 0) {
+    next = block + "\n";
+  } else {
+    const sep = existing.endsWith("\n\n")
+      ? ""
+      : existing.endsWith("\n")
+        ? "\n"
+        : "\n\n";
+    next = `${existing}${sep}${block}\n`;
+  }
+  return { text: next, changed: next !== existing };
+}
+
+/**
+ * Install per-CLI attribution trailer guardrails (config + instruction files +
+ * Vibe native pre_tool hook) with timestamped backups.
+ *
+ * Supported targets: `codex`, `muse`, `vibe` (default: all three).
+ * If `claude` is passed, `~/.claude/settings.json` is NEVER auto-edited; the
+ * recommended JSON snippet is returned instead.
+ */
+export function installCliGuards({
+  hosts = ["codex", "muse", "vibe"],
+  home = homedir(),
+  xdgConfigHome = undefined,
+  backup = true,
+  dryRun = false,
+  nodeExecPath = process.execPath,
+} = {}) {
+  const timestamp = utcTimestamp();
+  const configRoot = xdgConfigHome || join(home, ".config");
+  const results = [];
+
+  for (const host of hosts) {
+    if (host === "vibe") {
+      const vibeDir = resolve(home, ".vibe");
+      const configPath = join(vibeDir, "config.toml");
+      const hooksTomlPath = join(vibeDir, "hooks.toml");
+      const hookScriptPath = join(vibeDir, "hooks", "h2a-no-attribution-trailer.mjs");
+      const backups = [];
+
+      const existingCfg = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+      const cfgEdit = upsertTopLevelTomlBool(existingCfg, "include_commit_signature", false);
+      if (cfgEdit.changed && !dryRun) {
+        if (backup && existsSync(configPath)) {
+          backups.push(backupFile(configPath, timestamp));
+        }
+        writeAtomicPreserveMode(configPath, cfgEdit.text, 0o600);
+      }
+
+      const scriptContent = renderVibeTrailerGuardScript();
+      const existingScript = existsSync(hookScriptPath) ? readFileSync(hookScriptPath, "utf8") : "";
+      const scriptChanged = existingScript !== scriptContent || !isExecutableFile(hookScriptPath);
+      if (scriptChanged && !dryRun) {
+        writeAtomicPreserveMode(hookScriptPath, scriptContent, 0o755);
+      }
+
+      const hookCmd = `${shellQuote(nodeExecPath)} ${shellQuote(hookScriptPath)}`;
+      const existingHooksToml = existsSync(hooksTomlPath) ? readFileSync(hooksTomlPath, "utf8") : "";
+      const hooksEdit = upsertVibeHooksToml(existingHooksToml, hookCmd);
+      if (hooksEdit.changed && !dryRun) {
+        if (backup && existsSync(hooksTomlPath)) {
+          backups.push(backupFile(hooksTomlPath, timestamp));
+        }
+        writeAtomicPreserveMode(hooksTomlPath, hooksEdit.text, 0o600);
+      }
+
+      const [ruleRes] = installAgentRules({
+        hosts: ["vibe"],
+        home,
+        xdgConfigHome,
+        dryRun,
+        backup,
+        timestamp,
+      });
+      if (ruleRes.backupPath) backups.push(ruleRes.backupPath);
+
+      results.push({
+        host: "vibe",
+        configPath,
+        configChanged: cfgEdit.changed,
+        setting: "include_commit_signature = false",
+        hookScriptPath,
+        hookScriptChanged: scriptChanged,
+        hooksTomlPath,
+        hooksTomlChanged: hooksEdit.changed,
+        rulesPath: ruleRes.path,
+        rulesChanged: ruleRes.changed,
+        changed: cfgEdit.changed || scriptChanged || hooksEdit.changed || ruleRes.changed,
+        backups,
+        dryRun,
+      });
+      continue;
+    }
+
+    if (host === "codex") {
+      const codexDir = resolve(home, ".codex");
+      const configPath = join(codexDir, "config.toml");
+      const backups = [];
+
+      const existingCfg = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+      const cfgEdit = upsertTopLevelTomlStringDirective(
+        existingCfg,
+        "developer_instructions",
+        CLI_NO_TRAILER_DIRECTIVE,
+      );
+      if (cfgEdit.changed && !dryRun) {
+        if (backup && existsSync(configPath)) {
+          backups.push(backupFile(configPath, timestamp));
+        }
+        writeAtomicPreserveMode(configPath, cfgEdit.text, 0o600);
+      }
+
+      const [ruleRes] = installAgentRules({
+        hosts: ["codex"],
+        home,
+        xdgConfigHome,
+        dryRun,
+        backup,
+        timestamp,
+      });
+      if (ruleRes.backupPath) backups.push(ruleRes.backupPath);
+
+      results.push({
+        host: "codex",
+        configPath,
+        configChanged: cfgEdit.changed,
+        setting: "developer_instructions (no-trailer directive)",
+        rulesPath: ruleRes.path,
+        rulesChanged: ruleRes.changed,
+        changed: cfgEdit.changed || ruleRes.changed,
+        backups,
+        dryRun,
+      });
+      continue;
+    }
+
+    if (host === "muse") {
+      const museDir = resolve(configRoot, "muse");
+      const configPath = join(museDir, "settings.json");
+      const backups = [];
+
+      let parsed = { schema_version: 1 };
+      let existingRaw = "";
+      if (existsSync(configPath)) {
+        existingRaw = readFileSync(configPath, "utf8");
+        parsed = JSON.parse(existingRaw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error(`Invalid JSON object in ${configPath}`);
+        }
+      }
+      const runObj =
+        parsed.run && typeof parsed.run === "object" && !Array.isArray(parsed.run)
+          ? { ...parsed.run }
+          : {};
+      const currentAppend =
+        typeof runObj.system_prompt_append === "string" ? runObj.system_prompt_append : "";
+      let configChanged = false;
+      if (!currentAppend.includes(CLI_GUARD_SENTINEL)) {
+        runObj.system_prompt_append =
+          currentAppend.trim().length > 0
+            ? `${currentAppend.trimEnd()}\n\n${CLI_NO_TRAILER_DIRECTIVE}`
+            : CLI_NO_TRAILER_DIRECTIVE;
+        const nextObj = {
+          ...(parsed.schema_version === undefined ? { schema_version: 1 } : {}),
+          ...parsed,
+          run: runObj,
+        };
+        const nextRaw = JSON.stringify(nextObj, null, 2) + "\n";
+        configChanged = nextRaw !== existingRaw;
+        if (configChanged && !dryRun) {
+          if (backup && existsSync(configPath)) {
+            backups.push(backupFile(configPath, timestamp));
+          }
+          writeAtomicPreserveMode(configPath, nextRaw, 0o600);
+        }
+      }
+
+      const [ruleRes] = installAgentRules({
+        hosts: ["muse"],
+        home,
+        xdgConfigHome,
+        dryRun,
+        backup,
+        timestamp,
+      });
+      if (ruleRes.backupPath) backups.push(ruleRes.backupPath);
+
+      results.push({
+        host: "muse",
+        configPath,
+        configChanged,
+        setting: "run.system_prompt_append (no-trailer directive)",
+        rulesPath: ruleRes.path,
+        rulesChanged: ruleRes.changed,
+        changed: configChanged || ruleRes.changed,
+        backups,
+        dryRun,
+      });
+      continue;
+    }
+
+    if (host === "claude") {
+      results.push({
+        host: "claude",
+        configPath: resolve(home, ".claude", "settings.json"),
+        configChanged: false,
+        configSkipped: true,
+        reason: "Claude settings.json is never auto-edited; apply recommendedSettings manually.",
+        recommendedSettings: CLAUDE_RECOMMENDED_SETTINGS,
+        rulesPath: resolve(home, ".claude", "CLAUDE.md"),
+        rulesChanged: false,
+        changed: false,
+        backups: [],
+        dryRun,
+      });
+      continue;
+    }
+
+    throw new Error(`Unsupported host for CLI guards: ${host}`);
+  }
+
+  return results;
+}
+
+/**
+ * Strictly read-only inspection of per-CLI guards and the machine-wide git
+ * global fallback. Never prints secrets or raw config values.
+ */
+export function checkCliGuards({
+  hosts = ["claude", "codex", "muse", "vibe"],
+  home = homedir(),
+  xdgConfigHome = undefined,
+  gitConfigGlobal = process.env.GIT_CONFIG_GLOBAL,
+} = {}) {
+  const configRoot = xdgConfigHome || join(home, ".config");
+  const env = gitConfigGlobal ? { GIT_CONFIG_GLOBAL: gitConfigGlobal } : undefined;
+  const globalHooksPath = safeGit(null, ["config", "--global", "--get", "core.hooksPath"], env);
+  let globalActive = false;
+  let globalChainsRepoHooks = false;
+  if (globalHooksPath) {
+    const commitMsgPath = join(globalHooksPath, "commit-msg");
+    if (isExecutableFile(commitMsgPath)) {
+      try {
+        const content = readFileSync(commitMsgPath, "utf8");
+        globalActive = content.includes(GUARD_MARKER);
+        globalChainsRepoHooks = content.includes("git rev-parse --git-common-dir");
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const clis = [];
+  for (const host of hosts) {
+    const reasons = [];
+    if (host === "vibe") {
+      const configPath = resolve(home, ".vibe", "config.toml");
+      const hooksTomlPath = resolve(home, ".vibe", "hooks.toml");
+      const rulesPath = resolve(home, ".vibe", "AGENTS.md");
+      let configGuarded = false;
+      if (existsSync(configPath)) {
+        const raw = readFileSync(configPath, "utf8");
+        const lines = raw.replace(/\r\n/g, "\n").split("\n");
+        const tableLine = findFirstTomlTableLine(lines);
+        const top = lines.slice(0, tableLine).join("\n");
+        configGuarded = /^\s*include_commit_signature\s*=\s*false\b/m.test(top);
+        if (!configGuarded) reasons.push("include_commit_signature is not set to false in config.toml");
+      } else {
+        reasons.push("~/.vibe/config.toml missing");
+      }
+      const hooksGuarded =
+        existsSync(hooksTomlPath) &&
+        readFileSync(hooksTomlPath, "utf8").includes('name = "h2a-no-attribution-trailer"');
+      if (!hooksGuarded) reasons.push("h2a-no-attribution-trailer pre_tool hook absent in hooks.toml");
+      const rulesGuarded =
+        existsSync(rulesPath) && hasAgentRuleText(readFileSync(rulesPath, "utf8"));
+      if (!rulesGuarded) reasons.push("no-trailer rule absent in ~/.vibe/AGENTS.md");
+      clis.push({
+        host,
+        guarded: configGuarded && rulesGuarded,
+        configGuarded,
+        hooksGuarded,
+        rulesGuarded,
+        configPath,
+        rulesPath,
+        reasons,
+      });
+      continue;
+    }
+
+    if (host === "codex") {
+      const configPath = resolve(home, ".codex", "config.toml");
+      const rulesPath = resolve(home, ".codex", "AGENTS.md");
+      let configGuarded = false;
+      if (existsSync(configPath)) {
+        const raw = readFileSync(configPath, "utf8");
+        const lines = raw.replace(/\r\n/g, "\n").split("\n");
+        const tableLine = findFirstTomlTableLine(lines);
+        const top = lines.slice(0, tableLine).join("\n");
+        configGuarded =
+          /^\s*developer_instructions\s*=/m.test(top) && top.includes(CLI_GUARD_SENTINEL);
+        if (!configGuarded) reasons.push("developer_instructions no-trailer directive absent in config.toml");
+      } else {
+        reasons.push("~/.codex/config.toml missing");
+      }
+      const rulesGuarded =
+        existsSync(rulesPath) && hasAgentRuleText(readFileSync(rulesPath, "utf8"));
+      if (!rulesGuarded) reasons.push("no-trailer rule absent in ~/.codex/AGENTS.md");
+      clis.push({
+        host,
+        guarded: configGuarded && rulesGuarded,
+        configGuarded,
+        rulesGuarded,
+        configPath,
+        rulesPath,
+        reasons,
+      });
+      continue;
+    }
+
+    if (host === "muse") {
+      const configPath = resolve(configRoot, "muse", "settings.json");
+      const rulesPath = resolve(configRoot, "muse", "AGENTS.md");
+      let configGuarded = false;
+      if (existsSync(configPath)) {
+        try {
+          const parsed = JSON.parse(readFileSync(configPath, "utf8"));
+          const append = parsed?.run?.system_prompt_append;
+          configGuarded = typeof append === "string" && append.includes(CLI_GUARD_SENTINEL);
+          if (!configGuarded) reasons.push("run.system_prompt_append no-trailer directive absent in settings.json");
+        } catch {
+          reasons.push("settings.json unreadable or invalid JSON");
+        }
+      } else {
+        reasons.push("~/.config/muse/settings.json missing");
+      }
+      const rulesGuarded =
+        existsSync(rulesPath) && hasAgentRuleText(readFileSync(rulesPath, "utf8"));
+      if (!rulesGuarded) reasons.push("no-trailer rule absent in ~/.config/muse/AGENTS.md");
+      clis.push({
+        host,
+        guarded: configGuarded && rulesGuarded,
+        configGuarded,
+        rulesGuarded,
+        configPath,
+        rulesPath,
+        reasons,
+      });
+      continue;
+    }
+
+    if (host === "claude") {
+      const configPath = resolve(home, ".claude", "settings.json");
+      const rulesPath = resolve(home, ".claude", "CLAUDE.md");
+      let configGuarded = false;
+      if (existsSync(configPath)) {
+        try {
+          const parsed = JSON.parse(readFileSync(configPath, "utf8"));
+          const attr = parsed?.attribution;
+          configGuarded = Boolean(
+            attr === false ||
+              (attr &&
+                typeof attr === "object" &&
+                attr.commit === "" &&
+                attr.pr === "" &&
+                attr.sessionUrl === false),
+          );
+          if (!configGuarded) {
+            reasons.push('attribution not disabled in ~/.claude/settings.json (recommended: {"attribution":{"commit":"","pr":"","sessionUrl":false}})');
+          }
+        } catch {
+          reasons.push("settings.json unreadable or invalid JSON");
+        }
+      } else {
+        reasons.push("~/.claude/settings.json missing");
+      }
+      const rulesGuarded =
+        existsSync(rulesPath) &&
+        /co-authored-by/i.test(readFileSync(rulesPath, "utf8")) &&
+        /claude-session/i.test(readFileSync(rulesPath, "utf8"));
+      if (!rulesGuarded) reasons.push("no-trailer rule absent in ~/.claude/CLAUDE.md");
+      clis.push({
+        host,
+        guarded: configGuarded && rulesGuarded,
+        configGuarded,
+        rulesGuarded,
+        configPath,
+        rulesPath,
+        recommendedSettings: CLAUDE_RECOMMENDED_SETTINGS,
+        reasons,
+      });
+      continue;
+    }
+
+    throw new Error(`Unsupported host for --check-cli: ${host}`);
+  }
+
+  return {
+    globalGit: {
+      active: globalActive,
+      chainsRepoHooks: globalChainsRepoHooks,
+      hooksPath: globalHooksPath ?? null,
+    },
+    clis,
+  };
 }
 
 /**
@@ -536,7 +1402,7 @@ function parseArgs(argv) {
         if (
           next !== undefined &&
           !next.startsWith("--") &&
-          ["mode", "hosts", "home", "scan-dir"].includes(key)
+          ["mode", "hosts", "home", "xdg-config-home", "scan-dir"].includes(key)
         ) {
           flags[key] = next;
           i++;
@@ -555,6 +1421,75 @@ export function runCli(argv) {
   const { positionals, flags } = parseArgs(argv);
   const json = flags.json === true;
   const mode = typeof flags.mode === "string" ? flags.mode : "reject";
+  const home = typeof flags.home === "string" ? flags.home : homedir();
+  const xdgConfigHome =
+    typeof flags["xdg-config-home"] === "string"
+      ? flags["xdg-config-home"]
+      : undefined;
+
+  if (flags["check-cli"] === true) {
+    const hosts =
+      typeof flags.hosts === "string"
+        ? flags.hosts
+            .split(",")
+            .map((h) => h.trim())
+            .filter(Boolean)
+        : undefined;
+    const res = checkCliGuards({ ...(hosts ? { hosts } : {}), home, xdgConfigHome });
+    if (json) {
+      process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    } else {
+      const g = res.globalGit;
+      process.stdout.write(
+        `${(g.active ? "ACTIVE" : "INACTIVE").padEnd(8)} git:global   chainsRepoHooks:${g.chainsRepoHooks} hooksPath:${g.hooksPath ?? "unset"}\n`,
+      );
+      for (const c of res.clis) {
+        const status = c.guarded ? "GUARDED" : "UNGUARDED";
+        const detail = c.reasons.length ? ` — ${c.reasons.join("; ")}` : "";
+        process.stdout.write(
+          `${status.padEnd(9)} ${c.host.padEnd(8)} config:${c.configGuarded} rules:${c.rulesGuarded}${c.hooksGuarded !== undefined ? ` hooks:${c.hooksGuarded}` : ""}${detail}\n`,
+        );
+      }
+    }
+    const allOk = res.globalGit.active && res.clis.every((c) => c.guarded);
+    return allOk ? 0 : 1;
+  }
+
+  if (flags["cli-guards"] === true) {
+    const hosts =
+      typeof flags.hosts === "string"
+        ? flags.hosts
+            .split(",")
+            .map((h) => h.trim())
+            .filter(Boolean)
+        : undefined;
+    const backup = flags["no-backup"] !== true;
+    const dryRun = flags["dry-run"] === true;
+    const res = installCliGuards({
+      ...(hosts ? { hosts } : {}),
+      home,
+      xdgConfigHome,
+      backup,
+      dryRun,
+    });
+    if (json) {
+      process.stdout.write(JSON.stringify(res, null, 2) + "\n");
+    } else {
+      for (const r of res) {
+        const tag = r.configSkipped
+          ? "manual "
+          : r.changed
+            ? dryRun
+              ? "would  "
+              : "updated"
+            : "ok     ";
+        process.stdout.write(
+          `${tag} ${r.host.padEnd(8)} ${r.configPath} (${r.setting ?? r.reason})\n`,
+        );
+      }
+    }
+    return 0;
+  }
 
   if (flags.check === true) {
     const targets = [
@@ -589,8 +1524,11 @@ export function runCli(argv) {
             .map((h) => h.trim())
             .filter(Boolean)
         : undefined;
-    const home = typeof flags.home === "string" ? flags.home : homedir();
-    const res = installAgentRules({ ...(hosts ? { hosts } : {}), home });
+    const res = installAgentRules({
+      ...(hosts ? { hosts } : {}),
+      home,
+      xdgConfigHome,
+    });
     if (json) {
       process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     } else {
@@ -604,12 +1542,18 @@ export function runCli(argv) {
   }
 
   if (flags.global === true) {
-    const res = installGlobal({ mode });
+    const chainRepoHooks = flags["no-chain-repo-hooks"] !== true;
+    const res = installGlobal({
+      mode,
+      home,
+      ...(xdgConfigHome !== undefined ? { xdgConfigHome } : {}),
+      chainRepoHooks,
+    });
     if (json) {
       process.stdout.write(JSON.stringify(res, null, 2) + "\n");
     } else {
       process.stdout.write(
-        `global core.hooksPath -> ${res.hooksDir} (mode: ${res.mode}, changed: ${res.changed})\n`,
+        `global core.hooksPath -> ${res.hooksDir} (mode: ${res.mode}, chainRepoHooks: ${res.chainRepoHooks}, changed: ${res.changed})\n`,
       );
     }
     return 0;
