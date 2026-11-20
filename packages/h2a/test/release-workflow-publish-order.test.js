@@ -39,7 +39,10 @@ for (const packageName of [
     const step = publishStep(packageName);
     assert.match(step, new RegExp(`npm view [^\\n]*${packageName.replace("/", "\\/")}`));
     assert.match(step, /already on registry; skipping/);
-    assert.match(step, /not visible on registry yet; retrying/);
+    assert.match(
+      step,
+      new RegExp(`node scripts/wait-npm-visibility\\.mjs --package "${packageName.replace("/", "\\/")}@\\$v" --budget-seconds 300 --warn-only`),
+    );
   });
 }
 
@@ -103,14 +106,15 @@ for (const name of ['h2a-runtime', 'h2a']) {
     // The merged publish body addresses the verify-built tarball by ./-relative
     // spec from the checkout root and re-checks its sha256 before publishing.
     const target = `./dist-tarballs/${tarball}`;
-    mkdirSync(bin); mkdirSync(join(root, 'packages', name), { recursive: true }); mkdirSync(balls, { recursive: true });
+    mkdirSync(bin); mkdirSync(join(root, 'packages', name), { recursive: true }); mkdirSync(balls, { recursive: true }); mkdirSync(join(root, 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'scripts/wait-npm-visibility.mjs'), readFileSync(new URL('../../../scripts/wait-npm-visibility.mjs', import.meta.url)));
     writeFileSync(join(balls, tarball), 'private tar sentinel');
     writeFileSync(join(balls, 'sha256sums.txt'), `${createHash('sha256').update('private tar sentinel').digest('hex')}  ${tarball}\n`);
     writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({ version: '0.98.7' }));
     const marker = join(root, 'published'), log = join(root, 'calls');
     writeFileSync(join(bin, 'npm'), '#!' + process.execPath + '\n' + `
       const fs=require('node:fs'),args=process.argv.slice(2);
-      if(args[0]==='view'&&args[2]==='version')process.exit(fs.existsSync(process.env.PROBE_PUBLISHED)?0:1);
+      if(args[0]==='view'&&args[2]==='version'){if(!fs.existsSync(process.env.PROBE_PUBLISHED))process.exit(1);console.log(args[1].slice(args[1].lastIndexOf('@')+1));process.exit(0);}
       if(args[0]==='view'&&args[2]==='dist-tags.latest'){console.log('0.99.0');process.exit(0);}
       if(args[0]!=='publish'||JSON.stringify(args.slice(1))!==JSON.stringify([process.env.PROBE_TAR,'--access','public','--tag','backfill'])||!fs.existsSync(process.env.PROBE_TAR)){console.error('wrong publication target '+JSON.stringify(args));process.exit(42);}
       fs.appendFileSync(process.env.PROBE_LOG,JSON.stringify(args)+'\\n');
