@@ -1,6 +1,6 @@
 /**
  * h2a embedded gateway model catalog — H0 mirror of the published #662
- * surface (llm-mesh 0.38.1 / llm-gateway 0.23.2).
+ * surface (llm-mesh 0.38.4 / llm-gateway 0.23.2).
  *
  * Canonical routing knowledge stays in llm-mesh; this module only names the
  * model ids `h2a run --model` accepts and normalizes readable aliases to
@@ -13,8 +13,20 @@ export const GEMINI_4_ARGON_LOW = "gemini-4-argon-low";
 export const GEMINI_4_ARGON_MEDIUM = "gemini-4-argon-medium";
 export const GEMINI_4_ARGON_HIGH = "gemini-4-argon-high";
 export const GEMINI_4_ARGON = GEMINI_4_ARGON_HIGH;
+export const GEMINI_4_NEON_LOW = "gemini-4-neon-low";
+export const GEMINI_4_NEON_MEDIUM = "gemini-4-neon-medium";
+export const GEMINI_4_NEON_HIGH = "gemini-4-neon-high";
+export const GEMINI_4_NEON_XHIGH = "gemini-4-neon-xhigh";
+export const GEMINI_4_NEON = GEMINI_4_NEON_HIGH;
+export const GEMINI_4_HYDROGEN_LOW = "gemini-4-hydrogen-low";
+export const GEMINI_4_HYDROGEN_MEDIUM = "gemini-4-hydrogen-medium";
+export const GEMINI_4_HYDROGEN_HIGH = "gemini-4-hydrogen-high";
+export const GEMINI_4_HYDROGEN_XHIGH = "gemini-4-hydrogen-xhigh";
+export const GEMINI_4_HYDROGEN = GEMINI_4_HYDROGEN_HIGH;
 export const GEMINI_4_CARBON = "gemini-4-carbon";
 export const GEMINI_3_8_FLASH = "gemini-3.8-flash";
+export const GPT_6_2_ASTRA = "gpt-6.2-astra";
+export const GPT_6_1_TERRA = "gpt-6.1-terra";
 export const CLAUDE_FABLE_5_1 = "claude-fable-5-1";
 export const CLAUDE_FABLE_5_2 = "claude-fable-5-2";
 export const MUSE_SPARK_1_3 = "muse-spark-1.3";
@@ -27,8 +39,18 @@ export const GATEWAY_MODEL_IDS = [
   GEMINI_4_ARGON_LOW,
   GEMINI_4_ARGON_MEDIUM,
   GEMINI_4_ARGON_HIGH,
+  GEMINI_4_NEON_LOW,
+  GEMINI_4_NEON_MEDIUM,
+  GEMINI_4_NEON_HIGH,
+  GEMINI_4_NEON_XHIGH,
+  GEMINI_4_HYDROGEN_LOW,
+  GEMINI_4_HYDROGEN_MEDIUM,
+  GEMINI_4_HYDROGEN_HIGH,
+  GEMINI_4_HYDROGEN_XHIGH,
   GEMINI_4_CARBON,
   GEMINI_3_8_FLASH,
+  GPT_6_2_ASTRA,
+  GPT_6_1_TERRA,
   CLAUDE_FABLE_5_1,
   CLAUDE_FABLE_5_2,
   MUSE_SPARK_1_3,
@@ -55,8 +77,18 @@ export const MODEL_LAUNCH_AVAILABILITY: Readonly<Record<GatewayModelId, ModelLau
   [GEMINI_4_ARGON_LOW]: { gatewayRoute: true },
   [GEMINI_4_ARGON_MEDIUM]: { gatewayRoute: true },
   [GEMINI_4_ARGON_HIGH]: { gatewayRoute: true },
+  [GEMINI_4_NEON_LOW]: { gatewayRoute: true },
+  [GEMINI_4_NEON_MEDIUM]: { gatewayRoute: true },
+  [GEMINI_4_NEON_HIGH]: { gatewayRoute: true },
+  [GEMINI_4_NEON_XHIGH]: { gatewayRoute: true },
+  [GEMINI_4_HYDROGEN_LOW]: { gatewayRoute: true },
+  [GEMINI_4_HYDROGEN_MEDIUM]: { gatewayRoute: true },
+  [GEMINI_4_HYDROGEN_HIGH]: { gatewayRoute: true },
+  [GEMINI_4_HYDROGEN_XHIGH]: { gatewayRoute: true },
   [GEMINI_4_CARBON]: { gatewayRoute: true },
   [GEMINI_3_8_FLASH]: { gatewayRoute: true },
+  [GPT_6_2_ASTRA]: { gatewayRoute: true },
+  [GPT_6_1_TERRA]: { gatewayRoute: true },
   [CLAUDE_FABLE_5_1]: { gatewayRoute: true },
   [CLAUDE_FABLE_5_2]: { gatewayRoute: true },
   [MUSE_SPARK_1_3]: { gatewayRoute: true },
@@ -81,6 +113,36 @@ export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
     "argon-high": GEMINI_4_ARGON_HIGH,
     "argon-medium": GEMINI_4_ARGON_MEDIUM,
     "argon-low": GEMINI_4_ARGON_LOW,
+    "gemini-4-neon": GEMINI_4_NEON_HIGH,
+    "gemini-4-neon-xhigh": GEMINI_4_NEON_XHIGH,
+    "gemini-4-neon-high": GEMINI_4_NEON_HIGH,
+    "gemini-4-neon-medium": GEMINI_4_NEON_MEDIUM,
+    "gemini-4-neon-low": GEMINI_4_NEON_LOW,
+    "gemini-neon": GEMINI_4_NEON_HIGH,
+    "gemini-neon-xhigh": GEMINI_4_NEON_XHIGH,
+    "gemini-neon-high": GEMINI_4_NEON_HIGH,
+    "gemini-neon-medium": GEMINI_4_NEON_MEDIUM,
+    "gemini-neon-low": GEMINI_4_NEON_LOW,
+    neon: GEMINI_4_NEON_HIGH,
+    "neon-xhigh": GEMINI_4_NEON_XHIGH,
+    "neon-high": GEMINI_4_NEON_HIGH,
+    "neon-medium": GEMINI_4_NEON_MEDIUM,
+    "neon-low": GEMINI_4_NEON_LOW,
+    "gemini-4-hydrogen": GEMINI_4_HYDROGEN_HIGH,
+    "gemini-4-hydrogen-xhigh": GEMINI_4_HYDROGEN_XHIGH,
+    "gemini-4-hydrogen-high": GEMINI_4_HYDROGEN_HIGH,
+    "gemini-4-hydrogen-medium": GEMINI_4_HYDROGEN_MEDIUM,
+    "gemini-4-hydrogen-low": GEMINI_4_HYDROGEN_LOW,
+    "gemini-hydrogen": GEMINI_4_HYDROGEN_HIGH,
+    "gemini-hydrogen-xhigh": GEMINI_4_HYDROGEN_XHIGH,
+    "gemini-hydrogen-high": GEMINI_4_HYDROGEN_HIGH,
+    "gemini-hydrogen-medium": GEMINI_4_HYDROGEN_MEDIUM,
+    "gemini-hydrogen-low": GEMINI_4_HYDROGEN_LOW,
+    hydrogen: GEMINI_4_HYDROGEN_HIGH,
+    "hydrogen-xhigh": GEMINI_4_HYDROGEN_XHIGH,
+    "hydrogen-high": GEMINI_4_HYDROGEN_HIGH,
+    "hydrogen-medium": GEMINI_4_HYDROGEN_MEDIUM,
+    "hydrogen-low": GEMINI_4_HYDROGEN_LOW,
     "gemini-4-carbon": GEMINI_4_CARBON,
     "gemini-4-carbon-high": GEMINI_4_CARBON,
     "gemini-4-carbon-medium": GEMINI_4_CARBON,
@@ -95,6 +157,8 @@ export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
     "gemini-3.8-flash-high": GEMINI_3_8_FLASH,
     flash: GEMINI_3_8_FLASH,
     "flash-high": GEMINI_3_8_FLASH,
+    "gpt-6.2-astra": GPT_6_2_ASTRA,
+    "gpt-6.1-terra": GPT_6_1_TERRA,
     "claude-fable-5-1": CLAUDE_FABLE_5_1,
     "claude-fable-5.1": CLAUDE_FABLE_5_1,
     "fable-5-1": CLAUDE_FABLE_5_1,
@@ -137,10 +201,10 @@ export function resolveGatewayModelAlias(
 }
 
 /**
- * Claude-family gateway mapping (spec §6.6): requested alias family →
- * cloud slot (Gemini) and Muse slot. Effort is advisory; the mesh validates
- * it against transport capability. Unmentioned legacy families keep llm-mesh's
- * own table and are absent here by design.
+ * Claude-family gateway mapping (spec §6.6, owner mapping 2026-11-18):
+ * requested alias family → cloud slot (Gemini) and Muse slot. Effort is
+ * advisory; the mesh validates it against transport capability. Unmentioned
+ * legacy families keep llm-mesh's own table and are absent here by design.
  */
 export type ClaudeGatewaySlot = {
   readonly cloud: GatewayModelId;
@@ -153,68 +217,110 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
   Record<string, ClaudeGatewaySlot>
 > = {
   "opus-5.5/base": {
-    cloud: GEMINI_4_ARGON,
-    cloudEffort: "high",
+    cloud: GEMINI_4_NEON_MEDIUM,
+    cloudEffort: "medium",
     muse: MUSE_WONDER_1_0,
     museEffort: "high",
   },
   "opus-5.5/medium": {
-    cloud: GEMINI_4_ARGON,
-    cloudEffort: "high",
+    cloud: GEMINI_4_NEON_MEDIUM,
+    cloudEffort: "medium",
     muse: MUSE_WONDER_1_0,
     museEffort: "high",
   },
   "opus-5.5/high": {
-    cloud: GEMINI_4_ARGON,
+    cloud: GEMINI_4_NEON_HIGH,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
     museEffort: "xhigh",
   },
   "opus-5.5/xhigh": {
-    cloud: GEMINI_4_ARGON,
-    cloudEffort: "high",
+    cloud: GEMINI_4_NEON_XHIGH,
+    cloudEffort: "xhigh",
     muse: MUSE_WONDER_FULL_1_0,
     museEffort: "max",
   },
   "opus-5.5/max": {
-    cloud: GEMINI_4_ARGON,
-    cloudEffort: "high",
+    cloud: GEMINI_4_NEON_XHIGH,
+    cloudEffort: "xhigh",
     muse: MUSE_WONDER_FULL_1_0,
     museEffort: "max",
   },
   "opus-5.5/low": {
-    cloud: GEMINI_3_8_FLASH,
-    cloudEffort: "high",
+    cloud: GEMINI_4_NEON_LOW,
+    cloudEffort: "low",
     muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "medium",
   },
+  "sonnet-5.5/base": {
+    cloud: GEMINI_4_HYDROGEN_MEDIUM,
+    cloudEffort: "medium",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "high",
+  },
   "sonnet-5.5/high": {
-    cloud: GEMINI_4_ARGON,
+    cloud: GEMINI_4_HYDROGEN_HIGH,
     cloudEffort: "high",
     muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "xhigh",
   },
   "sonnet-5.5/xhigh": {
-    cloud: GEMINI_4_ARGON,
-    cloudEffort: "high",
+    cloud: GEMINI_4_HYDROGEN_XHIGH,
+    cloudEffort: "xhigh",
     muse: MUSE_WONDER_1_0,
     museEffort: "max",
   },
   "sonnet-5.5/max": {
-    cloud: GEMINI_4_ARGON,
-    cloudEffort: "high",
+    cloud: GEMINI_4_HYDROGEN_XHIGH,
+    cloudEffort: "xhigh",
     muse: MUSE_WONDER_FULL_1_0,
     museEffort: "max",
   },
   "sonnet-5.5/medium": {
-    cloud: GEMINI_3_8_FLASH,
-    cloudEffort: "high",
+    cloud: GEMINI_4_HYDROGEN_MEDIUM,
+    cloudEffort: "medium",
     muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "high",
   },
   "sonnet-5.5/low": {
-    cloud: GEMINI_3_8_FLASH,
+    cloud: GEMINI_4_HYDROGEN_LOW,
+    cloudEffort: "low",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "medium",
+  },
+  "haiku-5.5/base": {
+    cloud: GEMINI_4_HYDROGEN_MEDIUM,
     cloudEffort: "medium",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "high",
+  },
+  "haiku-5.5/high": {
+    cloud: GEMINI_4_HYDROGEN_HIGH,
+    cloudEffort: "high",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "xhigh",
+  },
+  "haiku-5.5/xhigh": {
+    cloud: GEMINI_4_HYDROGEN_XHIGH,
+    cloudEffort: "xhigh",
+    muse: MUSE_WONDER_1_0,
+    museEffort: "max",
+  },
+  "haiku-5.5/max": {
+    cloud: GEMINI_4_HYDROGEN_XHIGH,
+    cloudEffort: "xhigh",
+    muse: MUSE_WONDER_FULL_1_0,
+    museEffort: "max",
+  },
+  "haiku-5.5/medium": {
+    cloud: GEMINI_4_HYDROGEN_MEDIUM,
+    cloudEffort: "medium",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "high",
+  },
+  "haiku-5.5/low": {
+    cloud: GEMINI_4_HYDROGEN_LOW,
+    cloudEffort: "low",
     muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "medium",
   },
@@ -256,13 +362,13 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
   },
   "fable-5.2/base": {
     cloud: GEMINI_4_CARBON,
-    cloudEffort: "high",
+    cloudEffort: "medium",
     muse: GEMINI_4_CARBON,
     museEffort: "max",
   },
   "fable-5.2/medium": {
     cloud: GEMINI_4_CARBON,
-    cloudEffort: "high",
+    cloudEffort: "medium",
     muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "high",
   },
@@ -286,7 +392,7 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
   },
   "fable-5.2/low": {
     cloud: GEMINI_4_CARBON,
-    cloudEffort: "high",
+    cloudEffort: "low",
     muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "medium",
   },

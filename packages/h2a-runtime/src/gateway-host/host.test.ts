@@ -286,6 +286,14 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
             "gemini-4-argon-low": {},
             "gemini-4-argon-medium": {},
             "gemini-4-argon-high": {},
+            "gemini-4-neon-low": {},
+            "gemini-4-neon-medium": {},
+            "gemini-4-neon-high": {},
+            "gemini-4-neon-xhigh": {},
+            "gemini-4-hydrogen-low": {},
+            "gemini-4-hydrogen-medium": {},
+            "gemini-4-hydrogen-high": {},
+            "gemini-4-hydrogen-xhigh": {},
           },
         }),
         { status: 200, headers: { "content-type": "application/json" } },
@@ -341,7 +349,15 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
             // match key (mirrors the upstream VERIFIED list) and the served
             // identity. The Cloud Code wire itself never carries it — see
             // the wire assertion below.
-            supportedModelIds: ["gemini-4-carbon", "gemini-4-argon", "gemini-4-argon-low"],
+            supportedModelIds: [
+              "gemini-4-carbon",
+              "gemini-4-argon",
+              "gemini-4-argon-low",
+              "gemini-4-neon",
+              "gemini-4-neon-xhigh",
+              "gemini-4-hydrogen",
+              "gemini-4-hydrogen-medium",
+            ],
             enrollmentCompletedAt: "2026-11-15T00:00:00.000Z",
             readiness: "ready" as const,
             revision: "r1",
@@ -404,10 +420,11 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
   });
 
   // Production routeInput closure shape: the same exported helper
-  // (argonEffortOverride) that host.ts wires in createGatewayHost carries a
-  // suffixed Argon's effort as target.effort. Each request here supplies no
-  // client reasoning.effort, so the override is the sole effort source.
-  const { argonEffortOverride } = await import("./host.js");
+  // (cloudCodeEffortOverride) that host.ts wires in createGatewayHost carries a
+  // suffixed Cloud Code Gemini 4 model's effort as target.effort. Each request
+  // here supplies no client reasoning.effort, so the override is the sole
+  // effort source.
+  const { cloudCodeEffortOverride } = await import("./host.js");
   const router = createGatewayRouter({
     config: {
       ...LEGACY_PORTS_INERT,
@@ -428,12 +445,12 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
     },
     routePlanner: planner,
     routeInput({ request, canonical }) {
-      const argonOverride = argonEffortOverride(
+      const effortOverride = cloudCodeEffortOverride(
         request.model,
         canonical.request.reasoning?.effort,
       );
       return {
-        ...(argonOverride ? { targetCandidatesOverride: argonOverride } : {}),
+        ...(effortOverride ? { targetCandidatesOverride: effortOverride } : {}),
       };
     },
     routeMetering: { async settleRoute() {} },
@@ -447,11 +464,15 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
   const listedIds = modelsBody.data.map((m) => m.id);
   expect(listedIds).toContain("gemini-4-carbon");
   expect(listedIds).toContain("gemini-4-argon-low");
+  expect(listedIds).toContain("gemini-4-neon-xhigh");
+  expect(listedIds).toContain("gemini-4-hydrogen-medium");
   expect(listedIds).toContain("muse-ember-1.0");
 
   for (const [requestedModel, expectedServed] of [
     ["gemini-4-carbon", "provider=gemini; model=gemini-4-carbon; transport=cloud-code"],
     ["gemini-4-argon-low", "provider=gemini; model=gemini-4-argon; transport=cloud-code"],
+    ["gemini-4-neon-xhigh", "provider=gemini; model=gemini-4-neon; transport=cloud-code"],
+    ["gemini-4-hydrogen-medium", "provider=gemini; model=gemini-4-hydrogen; transport=cloud-code"],
     ["muse-ember-1.0", "provider=muse; model=muse-ember-1.0; transport=muse"],
   ] as const) {
     const res = await router.request("http://127.0.0.1/v1/chat/completions", {
@@ -469,20 +490,29 @@ it("starts on an ephemeral loopback port (never 3002), proves /v1/models require
     expect(res.headers.get("x-sentropic-served"), requestedModel).toBe(expectedServed);
   }
 
-  // Wire proof: the Cloud Code bodies carry suffixed ids and never the bare
-  // canonical id (which 404s since 0.38.1), with the suffix effort as the
+  // Wire proof: the Cloud Code bodies carry suffixed ids (including xhigh for
+  // Neon) and never the bare canonical id, with the suffix effort as the
   // thinking level. The bare id remains only as planner match key and
   // served identity above.
   expect(wireBodies).toEqual([
     { model: "gemini-4-carbon" },
     { model: "gemini-4-argon-low", thinkingLevel: "LOW" },
+    { model: "gemini-4-neon-xhigh", thinkingLevel: "XHIGH" },
+    { model: "gemini-4-hydrogen-medium", thinkingLevel: "MEDIUM" },
   ]);
   expect(wireBodies.some((body) => body.model === "gemini-4-argon")).toBe(false);
+  expect(wireBodies.some((body) => body.model === "gemini-4-neon")).toBe(false);
+  expect(wireBodies.some((body) => body.model === "gemini-4-hydrogen")).toBe(false);
 });
 
-describe("suffixed Argon effort override", () => {
-  it("carries each suffix as target.effort for suffixed Argon ids without client effort", async () => {
-    const { argonEffortOverride, argonSuffixEffort } = await import("./host.js");
+describe("suffixed Cloud Code effort override (Argon, Neon, Hydrogen)", () => {
+  it("carries each suffix as target.effort for suffixed Argon, Neon, and Hydrogen ids without client effort", async () => {
+    const {
+      argonEffortOverride,
+      argonSuffixEffort,
+      cloudCodeEffortOverride,
+      cloudCodeSuffixTarget,
+    } = await import("./host.js");
     expect(argonSuffixEffort("gemini-4-argon-low")).toBe("low");
     expect(argonSuffixEffort("gemini-4-argon-medium")).toBe("medium");
     expect(argonSuffixEffort("gemini-4-argon-high")).toBe("high");
@@ -491,6 +521,7 @@ describe("suffixed Argon effort override", () => {
     // graceful unknown-model refusal.
     expect(argonSuffixEffort(" Gemini-4-Argon-LOW ")).toBeUndefined();
     expect(argonSuffixEffort("Gemini-4-Argon-Low")).toBeUndefined();
+    expect(cloudCodeSuffixTarget(" Gemini-4-Neon-XHIGH ")).toBeUndefined();
     expect(argonEffortOverride("gemini-4-argon-low", undefined)).toEqual([
       { providerId: "gemini", transportProviderId: "cloud-code", model: "gemini-4-argon", effort: "low" },
     ]);
@@ -500,24 +531,47 @@ describe("suffixed Argon effort override", () => {
     expect(argonEffortOverride("gemini-4-argon-high", undefined)).toEqual([
       { providerId: "gemini", transportProviderId: "cloud-code", model: "gemini-4-argon", effort: "high" },
     ]);
+    for (const model of ["gemini-4-neon", "gemini-4-hydrogen"] as const) {
+      for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+        expect(cloudCodeSuffixTarget(`${model}-${effort}`)).toEqual({ model, effort });
+        expect(cloudCodeEffortOverride(`${model}-${effort}`, undefined)).toEqual([
+          { providerId: "gemini", transportProviderId: "cloud-code", model, effort },
+        ]);
+      }
+    }
   });
 
   it("stays out when the client already supplies an effort", async () => {
-    const { argonEffortOverride } = await import("./host.js");
+    const { argonEffortOverride, cloudCodeEffortOverride } = await import("./host.js");
     expect(argonEffortOverride("gemini-4-argon-low", "high")).toBeUndefined();
     expect(argonEffortOverride("gemini-4-argon-low", "none")).toBeUndefined();
+    expect(cloudCodeEffortOverride("gemini-4-neon-xhigh", "medium")).toBeUndefined();
+    expect(cloudCodeEffortOverride("gemini-4-hydrogen-medium", "low")).toBeUndefined();
   });
 
   it("stays out for non-suffixed or unsupported ids", async () => {
-    const { argonEffortOverride, argonSuffixEffort } = await import("./host.js");
+    const {
+      argonEffortOverride,
+      argonSuffixEffort,
+      cloudCodeEffortOverride,
+      cloudCodeSuffixTarget,
+    } = await import("./host.js");
     expect(argonSuffixEffort("gemini-4-argon")).toBeUndefined();
     expect(argonSuffixEffort("gemini-4-carbon")).toBeUndefined();
     expect(argonSuffixEffort("muse-ember-1.0")).toBeUndefined();
     expect(argonSuffixEffort("argon-low")).toBeUndefined();
     expect(argonSuffixEffort("gemini-4-argon-xhigh")).toBeUndefined();
+    expect(cloudCodeSuffixTarget("gemini-4-argon-xhigh")).toBeUndefined();
+    expect(cloudCodeSuffixTarget("gemini-4-neon")).toBeUndefined();
+    expect(cloudCodeSuffixTarget("gemini-4-neon-max")).toBeUndefined();
+    expect(cloudCodeSuffixTarget("gemini-4-hydrogen")).toBeUndefined();
+    expect(cloudCodeSuffixTarget("gemini-4-hydrogen-max")).toBeUndefined();
     expect(argonEffortOverride("gemini-4-argon", undefined)).toBeUndefined();
     expect(argonEffortOverride("gemini-4-carbon", undefined)).toBeUndefined();
     expect(argonEffortOverride("muse-ember-1.0", undefined)).toBeUndefined();
     expect(argonEffortOverride("argon-low", undefined)).toBeUndefined();
+    expect(cloudCodeEffortOverride("gemini-4-argon-xhigh", undefined)).toBeUndefined();
+    expect(cloudCodeEffortOverride("gemini-4-neon", undefined)).toBeUndefined();
+    expect(cloudCodeEffortOverride("gemini-4-hydrogen", undefined)).toBeUndefined();
   });
 });

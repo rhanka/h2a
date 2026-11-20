@@ -797,7 +797,15 @@ describe("gateway host wiring regression (transient Cloud Code 429)", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url === MODELS_URL) {
         return new Response(
-          JSON.stringify({ models: { "gemini-4-argon-high": {}, "gemini-4-argon": {} } }),
+          JSON.stringify({
+            models: {
+              "gemini-4-neon-medium": {},
+              "gemini-4-neon-high": {},
+              "gemini-4-neon-xhigh": {},
+              "gemini-4-argon-high": {},
+              "gemini-4-argon": {},
+            },
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -873,6 +881,9 @@ describe("gateway host wiring regression (transient Cloud Code 429)", () => {
         }),
       });
       expect(first.status).toBe(200);
+      expect(first.headers.get("x-sentropic-served")).toBe(
+        "provider=gemini; model=gemini-4-neon; transport=cloud-code",
+      );
       expect(streamCalls).toBe(2);
 
       // Subsequent request succeeds immediately (route & account were never locked).
@@ -944,7 +955,15 @@ describe("gateway host wiring regression (transient Cloud Code 429)", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       if (url === MODELS_URL) {
         return new Response(
-          JSON.stringify({ models: { "gemini-4-argon-high": {}, "gemini-4-argon": {} } }),
+          JSON.stringify({
+            models: {
+              "gemini-4-neon-medium": {},
+              "gemini-4-neon-high": {},
+              "gemini-4-neon-xhigh": {},
+              "gemini-4-argon-high": {},
+              "gemini-4-argon": {},
+            },
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
