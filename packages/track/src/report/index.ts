@@ -86,13 +86,16 @@ export {
   type SnapshotV1,
 } from './snapshot.js'
 export {
+  OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
   OWNER_TABLE_HEADERS,
+  OWNER_TABLE_NO_DEMANDS_MESSAGE,
   auditOwnerTable,
   formatOwnerDecisionCell,
   formatOwnerEtaCell,
   formatOwnerEtaEntry,
   formatOwnerStageCell,
   formatOwnerStatusCell,
+  formatOwnerTableNoJournalMessage,
   normalizeLegacyOwnerProse,
   optionLetter,
   projectOwnerTable,

@@ -2075,4 +2075,185 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     expect(badTitleAudit.ok).toBe(false)
     expect(badTitleAudit.violations.map((v) => v.code)).toContain('invalid-decision')
   })
+
+  it('fails closed when a journal has zero owner-numbered demands, all demands archived, or orphan pending decisions, while keeping --status-table unchanged', () => {
+    const expectedNoDemandsMsg =
+      'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
+      '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
+      'enregistre et numérote les demandes avec `track demand raise` puis `track demand number <id> <n>`, ' +
+      'ou utilise `track report --status-table` pour la vue technique)'
+    const expectedAllArchivedMsg =
+      'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
+      'tableau owner vide refusé'
+
+    // (b1) Journal exists with non-demand events (0 demand.* events)
+    track.createItem({ kind: 'chore', title: 'Tâche technique sans demande owner', workspace: 'ws-empty' })
+    const eventsNoDemands = store.readAll()
+    const viewNoDemands = projectOwnerTable(fold(eventsNoDemands), eventsNoDemands, { baselineCommit: 'c1' })
+    expect(viewNoDemands.rows).toHaveLength(0)
+    expect(viewNoDemands.replyLine).toBe('')
+    const auditNoDemands = auditOwnerTable(viewNoDemands)
+    expect(auditNoDemands.ok).toBe(false)
+    expect(auditNoDemands.violations).toEqual([
+      { code: 'no-owner-demands', message: expectedNoDemandsMsg },
+    ])
+    expect(() => renderOwnerTable(viewNoDemands, 'md')).toThrow(
+      `REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}`,
+    )
+
+    for (const format of ['md', 'text', 'json'] as const) {
+      const out: string[] = []
+      const err: string[] = []
+      const code = runCli(['report', '--owner-table', '--format', format, '--commit', 'c1'], {
+        cwd: dir,
+        out: (s) => out.push(s),
+        err: (s) => err.push(s),
+      })
+      expect(code).toBe(1)
+      expect(out.join('')).toBe('')
+      expect(err.join('')).toContain(
+        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}\n`,
+      )
+      expect(out.join('') + err.join('')).not.toContain('Aucune décision en attente')
+      expect(out.join('') + err.join('')).not.toContain('Réponse : aucune décision en attente')
+    }
+
+    // --status-table stays unchanged on the same zero-demand journal
+    const statusOut: string[] = []
+    const statusErr: string[] = []
+    const statusCode = runCli(['report', '--status-table', '--format', 'md', '--commit', 'c1'], {
+      cwd: dir,
+      out: (s) => statusOut.push(s),
+      err: (s) => statusErr.push(s),
+    })
+    expect(statusCode, statusErr.join('')).toBe(0)
+    expect(statusOut.join('')).toContain('À-FAIRE')
+
+    // (b2 + c) Journal with zero owner-numbered demands AND an orphan pending structured decision
+    const itemForDec = track.createItem({ kind: 'feature', title: 'Sujet avec décision ouverte', workspace: 'ws-empty' })
+    track.createDecision({
+      decisionKind: 'commitment',
+      title: 'Quel mode retenir ?',
+      workspace: 'ws-empty',
+      targets: [itemForDec],
+      dossier: {
+        context: 'Arbitrage ouvert.',
+        qa: [],
+        options: [
+          { id: 'a', title: 'Option A', summary: 'Conséquence A' },
+          { id: 'b', title: 'Option B', summary: 'Conséquence B' },
+        ],
+        recommendation: { optionId: 'a', rationale: 'Plus simple' },
+        artifacts: [{ kind: 'rendered-view', viewRef: 'docs/dossiers/orphan.md' }],
+      },
+    })
+    const outOrphan: string[] = []
+    const errOrphan: string[] = []
+    const codeOrphan = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+      cwd: dir,
+      out: (s) => outOrphan.push(s),
+      err: (s) => errOrphan.push(s),
+    })
+    expect(codeOrphan).toBe(1)
+    expect(outOrphan.join('')).toBe('')
+    expect(errOrphan.join('')).toContain(`[no-owner-demands] ${expectedNoDemandsMsg}`)
+    expect(errOrphan.join('')).toContain('[invalid-decision] decision D1 is not referenced by any row')
+    expect(outOrphan.join('') + errOrphan.join('')).not.toContain('Aucune décision en attente')
+    expect(outOrphan.join('') + errOrphan.join('')).not.toContain('Réponse : aucune décision en attente')
+
+    // (b3) Journal where all owner-numbered demands are archived -> still refuses empty table
+    const archivedDir = mkdtempSync(join(tmpdir(), 'track-owner-all-archived-'))
+    try {
+      const archivedStore = new EventStore(join(archivedDir, '.track', 'events.jsonl'))
+      const archivedTrack = new Track(archivedStore, { by: 'test-owner-table', now: () => clock })
+      const d1 = archivedTrack.raiseDemand({
+        type: 'feature',
+        workspace: 'ws-arch',
+        raw: { text: 'Demande archivée uniquement' },
+        source: { kind: 'human' },
+      })
+      archivedTrack.numberDemand(d1, 1)
+      const goArch = archivedTrack.createDecision({
+        decisionKind: 'commitment',
+        title: 'Archiver la demande 1 ?',
+        workspace: 'ws-arch',
+        targets: [d1],
+        dossier: {
+          context: 'Clôture.',
+          qa: [],
+          options: [
+            { id: 'yes', title: 'Archiver', summary: 'Retirer de la table' },
+            { id: 'no', title: 'Garder', summary: 'Conserver' },
+          ],
+          recommendation: { optionId: 'yes', rationale: 'Terminée' },
+          artifacts: [{ kind: 'rendered-view', viewRef: 'docs/dossiers/arch-only.md' }],
+        },
+      })
+      archivedTrack.selectDecisionOption(goArch, 'yes', 'go')
+      archivedTrack.archiveDemand(d1, { decisionId: goArch, reason: 'Archivée avec accord owner' })
+
+      const archOut: string[] = []
+      const archErr: string[] = []
+      const archCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: archivedDir,
+        out: (s) => archOut.push(s),
+        err: (s) => archErr.push(s),
+      })
+      expect(archCode).toBe(1)
+      expect(archOut.join('')).toBe('')
+      expect(archErr.join('')).toContain(
+        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedAllArchivedMsg}\n`,
+      )
+      expect(archOut.join('') + archErr.join('')).not.toContain('Aucune décision en attente')
+      expect(archOut.join('') + archErr.join('')).not.toContain('Réponse : aucune décision en attente')
+    } finally {
+      rmSync(archivedDir, { recursive: true, force: true })
+    }
+
+    // (b4) Fresh `track init` directory (empty .track, 0 events) and unnumbered `demand.raised` (0 `demand.owner-numbered`)
+    const initDir = mkdtempSync(join(tmpdir(), 'track-owner-fresh-init-'))
+    try {
+      expect(runCli(['init'], { cwd: initDir, out: () => {}, err: () => {} })).toBe(0)
+      const initOut: string[] = []
+      const initErr: string[] = []
+      const initCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: initDir,
+        out: (s) => initOut.push(s),
+        err: (s) => initErr.push(s),
+      })
+      expect(initCode).toBe(1)
+      expect(initOut.join('')).toBe('')
+      expect(initErr.join('')).toContain(
+        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}\n`,
+      )
+      expect(initOut.join('') + initErr.join('')).not.toContain('Aucune décision en attente')
+      expect(initOut.join('') + initErr.join('')).not.toContain('Réponse : aucune décision en attente')
+
+      // Raising a demand without numbering it still has zero owner-numbered demands
+      const unnumberedTrack = new Track(new EventStore(join(initDir, '.track', 'events.jsonl')), {
+        by: 'test-owner-table',
+        now: () => clock,
+      })
+      unnumberedTrack.raiseDemand({
+        type: 'feature',
+        workspace: 'ws-init',
+        raw: { text: 'Demande non numérotée' },
+        source: { kind: 'human' },
+      })
+      const unnumOut: string[] = []
+      const unnumErr: string[] = []
+      const unnumCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: initDir,
+        out: (s) => unnumOut.push(s),
+        err: (s) => unnumErr.push(s),
+      })
+      expect(unnumCode).toBe(1)
+      expect(unnumOut.join('')).toBe('')
+      expect(unnumErr.join('')).toContain(`[no-owner-demands] ${expectedNoDemandsMsg}`)
+      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Aucune décision en attente')
+      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Réponse : aucune décision en attente')
+    } finally {
+      rmSync(initDir, { recursive: true, force: true })
+    }
+  })
 })
