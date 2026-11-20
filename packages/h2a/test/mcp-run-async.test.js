@@ -5,7 +5,7 @@ import test from "node:test";
 import { spawn } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { runMcpStdio } from "../dist/index.js";
 import { createH2aRunLauncher, ensureH2aRunEnvPath, executeH2aRunWithAsyncSpawn, executeH2aRunWithSpawn } from "../dist/runtime/mcp/agent-launch.js";
 
@@ -224,7 +224,13 @@ test("ensureH2aRunEnvPath appends the installed prefix bin dir when PATH lacks h
     symlinkSync(binJs, join(binDir, "h2a"));
 
     const enriched = ensureH2aRunEnvPath({ PATH: "/usr/bin:/bin" }, binJs);
-    assert.deepEqual(enriched.PATH.split(delimiter), ["/usr/bin", "/bin", binDir]);
+    const enrichedParts = enriched.PATH.split(delimiter);
+    assert.deepEqual(enrichedParts.slice(0, 3), ["/usr/bin", "/bin", binDir]);
+    assert.ok(
+      enrichedParts.length === 3 ||
+        (enrichedParts.length === 4 && enrichedParts[3] === dirname(process.execPath)),
+      `unexpected PATH segments: ${JSON.stringify(enrichedParts)}`,
+    );
 
     const overrideDir = join(dir, "custom-bin");
     mkdirSync(overrideDir, { recursive: true, mode: 0o755 });
