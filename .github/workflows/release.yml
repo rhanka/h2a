@@ -625,9 +625,40 @@ jobs:
             echo "::error::@sentropic/h2a@$RELEASE_VERSION did not become visible on the registry within the 1800s propagation budget — treating as a publication failure." >&2
             exit 1
           fi
-          # Once exact version + install packument are visible, run the real global install
-          # smoke with bounded stepped-backoff retries in case tarball CDN edges briefly lag.
-          install_delays=(10 15 20 30 30 30 30 30 30 30)
+          # Exact tarball URL CDN availability wait (sized on v0.98.11-rc.6 evidence,
+          # publish job 136591286356): the packument became visible at 22:13:36Z while
+          # the ~64.5 MB @sentropic/h2a tarball kept returning E404 until ~22:18Z
+          # (~4-5 min lag after packument; ~15-16 min total after publish; rc.4 ~14 min
+          # total). Wait up to 20 min (1200s, ~4x observed tarball-after-packument lag)
+          # with stepped backoff (10..60s) for `npm view <pkg>@<v> dist.tarball` to
+          # answer HTTP 200 on HEAD and return readable bytes on a ranged GET
+          # (bytes=0-15) before running `npm i -g`.
+          tarball_wait_args=(
+            --package "@sentropic/h2a@$RELEASE_VERSION"
+            --package "@sentropic/h2a-runtime@$RELEASE_VERSION"
+            --package "@sentropic/track@$RELEASE_VERSION"
+            --budget-seconds 1200
+            --check-tarball
+          )
+          if [[ -n "${FOCUS_RELEASE_VERSION:-}" ]]; then
+            tarball_wait_args+=(--package "@sentropic/focus@$FOCUS_RELEASE_VERSION")
+          fi
+          if [[ "$RELEASE_VERSION" == *-rc.* ]]; then
+            tarball_wait_args+=(--package "@sentropic/h2a-cli@$RELEASE_VERSION")
+          fi
+          if ! node scripts/wait-npm-visibility.mjs "${tarball_wait_args[@]}"; then
+            if [[ "$RELEASE_VERSION" == *-rc.* ]]; then
+              echo "::error::@sentropic/h2a@$RELEASE_VERSION (or an RC sibling package) tarball did not become downloadable (HEAD 200 + range GET) on npm CDN within the 1200s tarball propagation budget; RC install smoke did not complete; refusing RC attestation." >&2
+              exit 1
+            fi
+            echo "::error::@sentropic/h2a@$RELEASE_VERSION (or a runtime dependency) tarball did not become downloadable on npm CDN within the 1200s tarball propagation budget — treating as a publication failure." >&2
+            exit 1
+          fi
+          # Once exact version, install packument, and tarball CDN URLs are ready,
+          # run the real global install smoke with an extended bounded backoff retry
+          # budget (15 attempts, 615s = 10m15s sleep budget) to absorb any CDN
+          # anycast edge split-brain.
+          install_delays=(10 15 20 30 30 45 45 60 60 60 60 60 60 60 60)
           max_attempts="${#install_delays[@]}"
           installed=0
           for attempt in $(seq 1 "$max_attempts"); do
@@ -636,9 +667,11 @@ jobs:
               break
             fi
             delay="${install_delays[$((attempt - 1))]}"
-            echo "@sentropic/h2a@$RELEASE_VERSION is not installable yet; retrying in ${delay} seconds (attempt $attempt/$max_attempts)." >&2
             if [[ "$attempt" -lt "$max_attempts" ]]; then
+              echo "@sentropic/h2a@$RELEASE_VERSION is not installable yet; retrying in ${delay} seconds (attempt $attempt/$max_attempts)." >&2
               sleep "$delay"
+            else
+              echo "@sentropic/h2a@$RELEASE_VERSION is still not installable after $max_attempts attempts." >&2
             fi
           done
           if [[ "$installed" -ne 1 ]]; then
@@ -662,6 +695,16 @@ jobs:
               exit 0
             fi
             echo "::error::@sentropic/h2a@$RELEASE_VERSION is neither installable nor visible on the registry after $max_attempts attempts — treating as a publication failure." >&2
+            exit 1
+          fi
+          # Verify the downloaded tarball bytes served at `dist.tarball` match the
+          # registry's `dist.integrity` SRI digest (streamed, fail-closed on mismatch).
+          if ! node scripts/wait-npm-visibility.mjs --package "@sentropic/h2a@$RELEASE_VERSION" --verify-tarball-integrity --budget-seconds 180; then
+            if [[ "$RELEASE_VERSION" == *-rc.* ]]; then
+              echo "::error::@sentropic/h2a@$RELEASE_VERSION downloaded tarball failed dist.integrity verification; RC install smoke did not complete; refusing RC attestation." >&2
+              exit 1
+            fi
+            echo "::error::@sentropic/h2a@$RELEASE_VERSION downloaded tarball failed dist.integrity verification." >&2
             exit 1
           fi
           root="$(mktemp -d)/.h2a"
