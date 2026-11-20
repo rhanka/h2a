@@ -1138,21 +1138,91 @@ function quoteShellPathForBootstrap(p: string): string {
   return /[^A-Za-z0-9_./:@=-]/.test(p) ? `'${p.replace(/'/g, "'\\''")}'` : p;
 }
 
-function isTrustedStat(st: { uid: number; mode: number }): boolean {
-  if ((st.mode & 0o022) !== 0) return false;
+export interface UserPrivateGroupOptions {
+  uid?: number;
+  gid?: number;
+  passwdContent?: string;
+  groupContent?: string;
+}
+
+/**
+ * Return true iff `st` is owned by the current user and its group is proven to
+ * be that user's exclusive User Private Group (UPG): `st.gid` equals the user's
+ * primary GID, no other UID in `/etc/passwd` shares that primary GID, and
+ * `/etc/group` lists no other member for that GID. Fails closed on any read or
+ * parse error. Under a true UPG (standard Linux `umask 0002`), mode `0775` /
+ * `0664` has identical owner-only write semantics to `0755` / `0644`.
+ */
+export function isExclusiveUserPrivateGroup(
+  st: { uid: number; gid?: number },
+  options: UserPrivateGroupOptions = {}
+): boolean {
+  const uid = options.uid ?? (typeof process.getuid === "function" ? process.getuid() : -1);
+  const gid = options.gid ?? (typeof process.getgid === "function" ? process.getgid() : -1);
+  if (uid < 0 || gid < 0 || typeof st.gid !== "number") return false;
+  if (st.uid !== uid || st.gid !== gid) return false;
+  let passwdRaw: string;
+  let groupRaw: string;
+  try {
+    passwdRaw = options.passwdContent ?? readFileSync("/etc/passwd", "utf8");
+    groupRaw = options.groupContent ?? readFileSync("/etc/group", "utf8");
+  } catch {
+    return false;
+  }
+  let username: string | null = null;
+  let matchingUserCount = 0;
+  for (const rawLine of passwdRaw.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const fields = line.split(":");
+    if (fields.length < 4) return false;
+    const [name, , uidStr, gidStr] = fields;
+    if (!name || !/^\d+$/.test(uidStr ?? "") || !/^\d+$/.test(gidStr ?? "")) return false;
+    const entryUid = Number(uidStr);
+    const entryGid = Number(gidStr);
+    if (entryUid === uid) {
+      matchingUserCount++;
+      if (entryGid !== gid) return false;
+      username = name;
+    } else if (entryGid === gid) {
+      return false;
+    }
+  }
+  if (matchingUserCount !== 1 || !username) return false;
+  let matchingGroupCount = 0;
+  for (const rawLine of groupRaw.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const fields = line.split(":");
+    if (fields.length < 4) return false;
+    const [, , gidStr, membersStr] = fields;
+    if (!/^\d+$/.test(gidStr ?? "")) return false;
+    if (Number(gidStr) !== gid) continue;
+    matchingGroupCount++;
+    const members = (membersStr ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+    if (members.some((member) => member !== username)) return false;
+  }
+  return matchingGroupCount === 1;
+}
+
+function isTrustedStat(st: { uid: number; gid?: number; mode: number }): boolean {
+  if ((st.mode & 0o002) !== 0) return false;
   if (typeof process.getuid === "function") {
     const uid = process.getuid();
     if (st.uid !== uid && st.uid !== 0) return false;
   }
+  if ((st.mode & 0o020) !== 0) {
+    return isExclusiveUserPrivateGroup(st);
+  }
   return true;
 }
 
-function formatUntrustedReason(targetPath: string, st: { uid: number; mode: number }): string {
+function formatUntrustedReason(targetPath: string, st: { uid: number; gid?: number; mode: number }): string {
   const octalMode = (st.mode & 0o777).toString(8).padStart(4, "0");
   const uid = typeof process.getuid === "function" ? process.getuid() : st.uid;
   const quoted = quoteShellPathForBootstrap(targetPath);
   const ownerMismatch = typeof process.getuid === "function" && st.uid !== uid && st.uid !== 0;
-  const modeMismatch = (st.mode & 0o022) !== 0;
+  const modeMismatch = (st.mode & 0o002) !== 0 || ((st.mode & 0o020) !== 0 && !isExclusiveUserPrivateGroup(st));
   const remedy = ownerMismatch && modeMismatch
     ? `chown ${uid} ${quoted} && chmod go-w ${quoted}`
     : ownerMismatch
@@ -1268,7 +1338,8 @@ function isTrustedFallbackCandidate(
  * or desktop launchers that read `~/.profile` with `~/.local/bin` while `h2a`
  * was installed under `~/.npm-global/bin` or `~/.local/share/h2a/upgrade/current/bin`).
  * Accepts session `PATH` directories (including `umask 002` `0775` user-group dirs)
- * while enforcing owner and `go-w` checks on fallback prefixes outside `PATH`.
+ * and enforces owner + non-world-writable + exclusive User Private Group (or non-group-writable)
+ * checks on fallback prefixes outside `PATH`.
  */
 export function resolveH2aExecutable(
   env: NodeJS.ProcessEnv = process.env,

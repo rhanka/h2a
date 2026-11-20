@@ -3,8 +3,8 @@ import { withWriterMutation } from "../handover/mutation.js";
 import { currentIdentity, observeProcess } from "../handover/admission.js";
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { accessSync, appendFileSync, closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
@@ -423,6 +423,91 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
   return value;
 }
 
+function isExecutableFile(filePath: string): boolean {
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile()) return false;
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isNonWorldWritableExecutable(filePath: string): boolean {
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile() || (st.mode & 0o002) !== 0) return false;
+    accessSync(filePath, constants.X_OK);
+    const real = realpathSync(filePath);
+    const realSt = statSync(real);
+    return realSt.isFile() && (realSt.mode & 0o002) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function isSafeBinDir(dirPath: string): boolean {
+  if (!dirPath || !isAbsolute(dirPath)) return false;
+  try {
+    const st = statSync(dirPath);
+    if (!st.isDirectory() || (st.mode & 0o002) !== 0) return false;
+    const real = realpathSync(dirPath);
+    const realSt = statSync(real);
+    return realSt.isDirectory() && (realSt.mode & 0o002) === 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasExecutableOnPath(pathValue: string | undefined, binaryName: string): boolean {
+  if (!pathValue) return false;
+  for (const rawDir of pathValue.split(delimiter)) {
+    const dir = rawDir.trim();
+    if (!dir || !isAbsolute(dir)) continue;
+    if (isNonWorldWritableExecutable(join(dir, binaryName))) return true;
+  }
+  return false;
+}
+
+export function ensureH2aRunEnvPath(
+  baseEnv: NodeJS.ProcessEnv,
+  binPath: string,
+  execPath = process.execPath,
+): NodeJS.ProcessEnv {
+  if (hasExecutableOnPath(baseEnv.PATH, "h2a")) return baseEnv;
+  const candidates: string[] = [];
+  if (binPath && binPath.trim().length > 0) {
+    const resolvedBin = resolve(binPath);
+    if (basename(resolvedBin) === "h2a") candidates.push(dirname(resolvedBin));
+    try {
+      const real = realpathSync(resolvedBin);
+      const match =
+        real.match(/^(.*)\/lib\/node_modules\/@sentropic\/h2a(?:\/|$)/) ??
+        real.match(/^(.*)\/h2a-managed\/\d+\/images\/[0-9a-f]{64}(?:\/|$)/);
+      if (match?.[1]) candidates.push(join(match[1], "bin"));
+    } catch {
+      /* ignore */
+    }
+  }
+  if (execPath && isAbsolute(execPath)) candidates.push(dirname(execPath));
+  const h2aBinDir = candidates.find(
+    (dir) => isSafeBinDir(dir) && isNonWorldWritableExecutable(join(dir, "h2a")),
+  );
+  if (!h2aBinDir) return baseEnv;
+  const parts = (baseEnv.PATH ?? "").split(delimiter).filter((entry) => entry.length > 0);
+  if (!parts.includes(h2aBinDir)) parts.push(h2aBinDir);
+  let nextPath = parts.join(delimiter);
+  if (!hasExecutableOnPath(nextPath, "node") && execPath && isAbsolute(execPath)) {
+    const execDir = dirname(execPath);
+    if (isExecutableFile(join(execDir, "node")) && !parts.includes(execDir)) {
+      parts.push(execDir);
+      nextPath = parts.join(delimiter);
+    }
+  }
+  return { ...baseEnv, PATH: nextPath };
+}
+
 export function executeH2aRunWithSpawn(
   request: H2aRunRequest,
   spawn: (command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) =>
@@ -430,13 +515,14 @@ export function executeH2aRunWithSpawn(
 ): unknown {
   const invocation = buildH2aRunInvocation(request);
   const launchToken = request.launchAuthority?.token ?? randomUUID();
+  const spawnEnv = ensureH2aRunEnvPath(process.env, invocation.args[0] ?? "");
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     input: invocation.input,
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
-    env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+    env: { ...spawnEnv, H2A_RUN_LAUNCH_TOKEN: launchToken },
     // Readiness + paste + activity + native RPCs + cleanup. The previous 30s
     // deadline killed the owner inside the runtime's 90s readiness budget.
     timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
@@ -509,10 +595,11 @@ export async function executeH2aRunWithAsyncSpawn(
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);
   const launchToken = request.launchAuthority?.token ?? randomUUID();
+  const spawnEnv = ensureH2aRunEnvPath(environment, invocation.args[0] ?? "");
   const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const child = spawnRuntime(invocation.command, invocation.args, {
       cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
-      env: { ...environment, H2A_RUN_LAUNCH_TOKEN: launchToken },
+      env: { ...spawnEnv, H2A_RUN_LAUNCH_TOKEN: launchToken },
     });
     let stdout = "", stderr = "", timedOut = false, overflow = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;

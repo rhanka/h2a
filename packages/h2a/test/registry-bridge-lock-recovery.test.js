@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -1000,9 +1000,9 @@ test("2c: PATH resolution accepts umask 002 (0775) PATH dirs, rejects 0775 fallb
         join(wwPrefix, "lib", "node_modules", "@sentropic", "h2a"),
         wwPkgDist
       ];
-      for (const d of wwChainDirs) chmodSync(d, 0o775);
+      for (const d of wwChainDirs) chmodSync(d, 0o777);
 
-      // Outside PATH: 0775 fallback prefix must be rejected by both host-bootstrap and shim
+      // Outside PATH: world-writable 0777 fallback prefix must be rejected by both host-bootstrap and shim
       const fallbackEnv = {
         HOME: home,
         PATH: `.:./rel-bin:/usr/bin:/bin`,
@@ -1011,15 +1011,15 @@ test("2c: PATH resolution accepts umask 002 (0775) PATH dirs, rejects 0775 fallb
       };
       const hbRejected = [];
       const shimRejected = [];
-      assert.equal(hostBootstrap.resolveH2aExecutable(fallbackEnv, { rejected: hbRejected }), null, "host-bootstrap rejects 0775 fallback outside PATH");
-      assert.equal(shimModule.resolveH2aExecutable(fallbackEnv, undefined, { rejected: shimRejected }), null, "shim rejects 0775 fallback outside PATH");
+      assert.equal(hostBootstrap.resolveH2aExecutable(fallbackEnv, { rejected: hbRejected }), null, "host-bootstrap rejects 0777 fallback outside PATH");
+      assert.equal(shimModule.resolveH2aExecutable(fallbackEnv, undefined, { rejected: shimRejected }), null, "shim rejects 0777 fallback outside PATH");
       // N4-P3-1: All untrusted ancestors in the chain must be listed at once (never stopping after the first 2 via break)
       for (const d of wwChainDirs) {
-        assert.ok(hbRejected.some((r) => r.includes(`${d} has mode 0775`)), `N4-P3-1: host-bootstrap rejected list must include ${d}, got: ${hbRejected.join("; ")}`);
-        assert.ok(shimRejected.some((r) => r.includes(`${d} has mode 0775`)), `N4-P3-1: shim rejected list must include ${d}, got: ${shimRejected.join("; ")}`);
+        assert.ok(hbRejected.some((r) => r.includes(`${d} has mode 0777`)), `N4-P3-1: host-bootstrap rejected list must include ${d}, got: ${hbRejected.join("; ")}`);
+        assert.ok(shimRejected.some((r) => r.includes(`${d} has mode 0777`)), `N4-P3-1: shim rejected list must include ${d}, got: ${shimRejected.join("; ")}`);
       }
 
-      // Running the shim when fallback is 0775 outside PATH must list all rejected ancestors, mode 0775, uid, and chmod go-w
+      // Running the shim when fallback is 0777 outside PATH must list all rejected ancestors, mode 0777, uid, and chmod go-w
       const shimPath = join(PKG_ROOT, "scripts", "h2a-bridge-shim.mjs");
       const rejectedRun = spawnSync(process.execPath, [
         shimPath, "registry-bridge", "serve", "--host", "claude", "--profile", "default"
@@ -1036,13 +1036,13 @@ test("2c: PATH resolution accepts umask 002 (0775) PATH dirs, rejects 0775 fallb
       });
       assert.equal(rejectedRun.status, 2);
       assert.match(rejectedRun.stderr, /missing_executable/);
-      assert.match(rejectedRun.stderr, /0775/, `expected octal mode 0775 in shim refusal: ${rejectedRun.stderr}`);
+      assert.match(rejectedRun.stderr, /0777/, `expected octal mode 0777 in shim refusal: ${rejectedRun.stderr}`);
       assert.match(rejectedRun.stderr, /chmod go-w/, `expected chmod go-w remedy in shim refusal: ${rejectedRun.stderr}`);
       for (const d of wwChainDirs) {
         assert.ok(rejectedRun.stderr.includes(d), `N4-P3-1: shim stderr must list ancestor ${d} at once: ${rejectedRun.stderr}`);
       }
 
-      // N4-P2-2: When the ~/.npm-global chain is 0775 (umask 0002), bootstrap install --mechanism plugin and doctor --repair
+      // N4-P2-2: When the ~/.npm-global chain is untrusted (0777), bootstrap install --mechanism plugin and doctor --repair
       // must NOT stay silent: they must report `PATH fallback not linked: <reasons, chmod>` on stderr and in JSON/report output,
       // and leave ~/.local/bin/h2a unlinked.
       const unlinkedConfigPath = join(home, ".claude.json");
@@ -1056,8 +1056,8 @@ test("2c: PATH resolution accepts umask 002 (0775) PATH dirs, rejects 0775 fallb
         "registry", "bootstrap", "install", "--mechanism", "plugin",
         "--host", "claude", "--profile", "default", "--config", unlinkedConfigPath, "--plugin-dir", unlinkedPluginDir
       ], unlinkedInstallIo, {}), 0);
-      assert.ok(!existsSync(join(home, ".local", "bin", "h2a")), "N4-P2-2: ~/.local/bin/h2a must not be linked when target chain is 0775");
-      assert.match(unlinkedInstallIo.text().stderr, /PATH fallback not linked:.*0775.*chmod go-w/, `N4-P2-2: install stderr must report PATH fallback not linked: ${unlinkedInstallIo.text().stderr}`);
+      assert.ok(!existsSync(join(home, ".local", "bin", "h2a")), "N4-P2-2: ~/.local/bin/h2a must not be linked when target chain is 0777");
+      assert.match(unlinkedInstallIo.text().stderr, /PATH fallback not linked:.*0777.*chmod go-w/, `N4-P2-2: install stderr must report PATH fallback not linked: ${unlinkedInstallIo.text().stderr}`);
       const unlinkedInstallOut = JSON.parse(unlinkedInstallIo.text().stdout);
       assert.equal(unlinkedInstallOut.pathFallback?.linked, null, "N4-P2-2: install JSON output reports pathFallback.linked = null");
       assert.match(unlinkedInstallOut.pathFallback?.warning ?? "", /PATH fallback not linked:.*chmod go-w/);
@@ -1072,7 +1072,7 @@ test("2c: PATH resolution accepts umask 002 (0775) PATH dirs, rejects 0775 fallb
         runHostCommand: () => ({ ok: true }),
         now: () => new Date("2026-04-20T00:00:00.000Z")
       });
-      assert.match(doctorFallbackIo.text().stderr, /PATH fallback not linked:.*0775.*chmod go-w/, `N4-P2-2: doctor stderr must not be neutralized: ${doctorFallbackIo.text().stderr}`);
+      assert.match(doctorFallbackIo.text().stderr, /PATH fallback not linked:.*0777.*chmod go-w/, `N4-P2-2: doctor stderr must not be neutralized: ${doctorFallbackIo.text().stderr}`);
       const codexDoctorFallback = doctorFallbackReport.hosts.find((h) => h.host === "codex");
       assert.equal(codexDoctorFallback?.pathFallback?.linked, null, "N4-P2-2: doctor host report includes pathFallback");
       assert.match(codexDoctorFallback?.pathFallback?.warning ?? "", /PATH fallback not linked:.*chmod go-w/);
@@ -1081,6 +1081,7 @@ test("2c: PATH resolution accepts umask 002 (0775) PATH dirs, rejects 0775 fallb
       }
 
       // On PATH: umask 002 (0775) bin directory in PATH must be accepted by both host-bootstrap and shim, and launch h2a!
+      for (const d of wwChainDirs) chmodSync(d, 0o775);
       const onPathEnv = {
         HOME: home,
         PATH: `${wwBin}:/usr/bin:/bin`
@@ -1453,6 +1454,150 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
           return true;
         }
       );
+    });
+  });
+});
+
+test("2e: isExclusiveUserPrivateGroup admits sole-member UPG and fails closed on shared groups, foreign uid/gid, or malformed tables", async () => {
+  const hostBootstrap = await import("../dist/registry/host-bootstrap.js");
+  const shimModule = await import("../scripts/h2a-bridge-shim.mjs");
+
+  const passwdExclusive = "root:x:0:0:root:/root:/bin/bash\nalice:x:1000:1000:Alice:/home/alice:/bin/bash\nbob:x:1001:1001:Bob:/home/bob:/bin/bash\n";
+  const groupExclusiveEmpty = "root:x:0:\nalice:x:1000:\nbob:x:1001:\n";
+  const groupExclusiveSelf = "root:x:0:\nalice:x:1000:alice\nbob:x:1001:\n";
+  const groupSharedMember = "root:x:0:\nalice:x:1000:bob\nbob:x:1001:\n";
+  const passwdSharedPrimaryGid = "root:x:0:0:root:/root:/bin/bash\nalice:x:1000:1000:Alice:/home/alice:/bin/bash\nbob:x:1001:1000:Bob:/home/bob:/bin/bash\n";
+
+  for (const [label, fn] of [
+    ["host-bootstrap", hostBootstrap.isExclusiveUserPrivateGroup],
+    ["h2a-bridge-shim", shimModule.isExclusiveUserPrivateGroup]
+  ]) {
+    assert.equal(fn({ uid: 1000, gid: 1000 }, { uid: 1000, gid: 1000, passwdContent: passwdExclusive, groupContent: groupExclusiveEmpty }), true, `${label}: empty member list UPG`);
+    assert.equal(fn({ uid: 1000, gid: 1000 }, { uid: 1000, gid: 1000, passwdContent: passwdExclusive, groupContent: groupExclusiveSelf }), true, `${label}: self-only member list UPG`);
+    assert.equal(fn({ uid: 1000, gid: 1000 }, { uid: 1000, gid: 1000, passwdContent: passwdExclusive, groupContent: groupSharedMember }), false, `${label}: shared /etc/group member rejected`);
+    assert.equal(fn({ uid: 1000, gid: 1000 }, { uid: 1000, gid: 1000, passwdContent: passwdSharedPrimaryGid, groupContent: groupExclusiveEmpty }), false, `${label}: shared /etc/passwd primary gid rejected`);
+    assert.equal(fn({ uid: 0, gid: 0 }, { uid: 1000, gid: 1000, passwdContent: passwdExclusive, groupContent: groupExclusiveEmpty }), false, `${label}: root-owned path rejected for non-root user`);
+    assert.equal(fn({ uid: 1000, gid: 100 }, { uid: 1000, gid: 1000, passwdContent: passwdExclusive, groupContent: groupExclusiveEmpty }), false, `${label}: non-primary gid rejected`);
+    assert.equal(fn({ uid: 1000, gid: 1000 }, { uid: 1000, gid: 1000, passwdContent: "malformed", groupContent: groupExclusiveEmpty }), false, `${label}: malformed /etc/passwd fails closed`);
+    assert.equal(fn({ uid: 1000, gid: 1000 }, { uid: 1000, gid: 1000, passwdContent: passwdExclusive, groupContent: "malformed" }), false, `${label}: malformed /etc/group fails closed`);
+  }
+});
+
+test("2f: plain npm pack + npm install -g under umask 0002 passes registry bootstrap PATH fallback and bridge shim under UPG", async () => {
+  const hostBootstrap = await import("../dist/registry/host-bootstrap.js");
+  const shimModule = await import("../scripts/h2a-bridge-shim.mjs");
+
+  await withIsolatedHome(async (home) => {
+    await withTempDir(async (dir) => {
+      const pkgSrc = join(dir, "pkg-src");
+      const pkgDist = join(pkgSrc, "dist");
+      mkdirSync(pkgDist, { recursive: true, mode: 0o755 });
+      writeFileSync(
+        join(pkgSrc, "package.json"),
+        JSON.stringify({ name: "@sentropic/h2a", version: "0.98.11", bin: { h2a: "dist/bin.js" } }, null, 2) + "\n",
+        { mode: 0o644 }
+      );
+      writeFileSync(join(pkgDist, "bin.js"), `#!/usr/bin/env node\nprocess.stdout.write("h2a-packed-ok\\n");\n`, { mode: 0o755 });
+      chmodSync(pkgSrc, 0o755);
+      chmodSync(pkgDist, 0o755);
+      chmodSync(join(pkgDist, "bin.js"), 0o755);
+
+      const npmCache = join(dir, "npm-cache");
+      const userConfig = join(dir, "npmrc");
+      const globalConfig = join(dir, "global-npmrc");
+      mkdirSync(npmCache, { recursive: true, mode: 0o700 });
+      writeFileSync(userConfig, "");
+      writeFileSync(globalConfig, "");
+
+      const npmEnv = {
+        ...process.env,
+        HOME: home,
+        TMPDIR: dir,
+        TMP: dir,
+        TEMP: dir,
+        npm_config_cache: npmCache,
+        npm_config_userconfig: userConfig,
+        npm_config_globalconfig: globalConfig,
+        npm_config_update_notifier: "false"
+      };
+      for (const k of Object.keys(npmEnv)) {
+        if (/^npm_config_(?:umask|prefix)$/i.test(k)) delete npmEnv[k];
+      }
+
+      const prevUmask = process.umask(0o022);
+      let tarballPath;
+      try {
+        const packRes = spawnSync("npm", ["pack", "--offline", "--json", "--pack-destination", dir], {
+          cwd: pkgSrc,
+          env: npmEnv,
+          encoding: "utf8",
+          timeout: 30_000
+        });
+        assert.equal(packRes.status, 0, `npm pack failed: ${packRes.stderr}`);
+        const receipt = JSON.parse(packRes.stdout)[0];
+        tarballPath = join(dir, receipt.filename);
+      } finally {
+        process.umask(prevUmask);
+      }
+
+      const prefix = join(home, ".npm-global");
+      mkdirSync(prefix, { recursive: true, mode: 0o755 });
+      chmodSync(prefix, 0o755);
+
+      const prevInstallUmask = process.umask(0o002);
+      try {
+        const installRes = spawnSync(
+          "npm",
+          ["install", "-g", "--prefix", prefix, "--offline", "--no-audit", "--no-fund", tarballPath],
+          { cwd: dir, env: npmEnv, encoding: "utf8", timeout: 30_000 }
+        );
+        assert.equal(installRes.status, 0, `npm install -g failed: ${installRes.stderr}`);
+      } finally {
+        process.umask(prevInstallUmask);
+      }
+
+      const installedDist = join(prefix, "lib", "node_modules", "@sentropic", "h2a", "dist");
+      const installedBin = join(installedDist, "bin.js");
+      const installedCmd = join(prefix, "bin", "h2a");
+      const distSt = statSync(installedDist);
+      const binSt = statSync(installedBin);
+      assert.equal(distSt.mode & 0o777, 0o775, "reproduces npm pacote extracting dist with 0775 under umask 0002");
+      assert.equal(binSt.mode & 0o777, 0o775, "reproduces npm pacote extracting dist/bin.js with 0775 under umask 0002");
+
+      const hostHasExclusiveUpg = hostBootstrap.isExclusiveUserPrivateGroup(binSt);
+      assert.equal(shimModule.isExclusiveUserPrivateGroup(binSt), hostHasExclusiveUpg, "shim and host-bootstrap agree on host UPG status");
+
+      if (hostHasExclusiveUpg) {
+        const narrowEnv = { HOME: home, PATH: "/usr/bin:/bin" };
+        assert.equal(hostBootstrap.resolveH2aExecutable(narrowEnv), installedCmd, "host-bootstrap resolves 0775 UPG npm install -g outside PATH");
+        assert.equal(shimModule.resolveH2aExecutable(narrowEnv), installedCmd, "shim resolves 0775 UPG npm install -g outside PATH");
+
+        const configPath = join(home, ".claude.json");
+        writeFileSync(configPath, JSON.stringify({ mcpServers: {} }, null, 2));
+        const pluginDir = writeClaudePluginCache(home);
+        const io = streams();
+        assert.equal(await runCli([
+          "registry", "bootstrap", "install", "--mechanism", "plugin",
+          "--host", "claude", "--profile", "default", "--config", configPath, "--plugin-dir", pluginDir
+        ], io, {}), 0);
+        const out = JSON.parse(io.text().stdout);
+        const expectedLink = join(home, ".local", "bin", "h2a");
+        assert.equal(out.pathFallback?.linked, expectedLink, `bootstrap must link ~/.local/bin/h2a under UPG umask 0002 install, stderr: ${io.text().stderr}`);
+        assert.equal(out.pathFallback?.warning, undefined);
+        assert.equal(realpathSync(expectedLink), realpathSync(installedBin));
+      } else {
+        const rejectedNonUpg = [];
+        assert.equal(hostBootstrap.resolveH2aExecutable({ HOME: home, PATH: "/usr/bin:/bin" }, { rejected: rejectedNonUpg }), null, "non-UPG host must fail closed on 0775");
+        assert.ok(rejectedNonUpg.some((r) => r.includes("0775") && r.includes("chmod go-w")));
+        assert.equal(shimModule.resolveH2aExecutable({ HOME: home, PATH: "/usr/bin:/bin" }), null, "shim must agree on non-UPG fail-closed 0775");
+      }
+
+      // World-writable 0777 must STILL be rejected even under UPG
+      chmodSync(installedBin, 0o777);
+      const rejected = [];
+      assert.equal(hostBootstrap.resolveH2aExecutable({ HOME: home, PATH: "/usr/bin:/bin" }, { rejected }), null);
+      assert.ok(rejected.some((r) => r.includes("0777") && r.includes("chmod go-w")));
+      assert.equal(shimModule.resolveH2aExecutable({ HOME: home, PATH: "/usr/bin:/bin" }), null);
     });
   });
 });
