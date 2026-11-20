@@ -70,6 +70,7 @@ import {
   type H2aRunDelegation,
   type H2aRunExecutor
 } from "./agent-launch.js";
+import { handleH2aFocusBuild, handleH2aFocusTemplate } from "./focus.js";
 import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
 import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import { createDiscoveryPager, type DiscoveryPager } from "./discovery-pagination.js";
@@ -236,7 +237,9 @@ const IDENTITY_INDEPENDENT_TOOLS = new Set<string>([
   "h2a_blockage_list",
   "h2a_conductor",
   "h2a_loop_list",
-  "h2a_loop_status"
+  "h2a_loop_status",
+  "h2a_focus_build",
+  "h2a_focus_template"
 ]);
 
 /** A bounded typed error emitted for a guarded tool while identity is pending. */
@@ -524,6 +527,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
           );
           return result;
         }
+      case "h2a_focus_build":
+        return handleH2aFocusBuild(args, options.workspaceRoot ?? process.cwd());
+      case "h2a_focus_template":
+        return handleH2aFocusTemplate(args);
       default:
         return { error: `unknown tool: ${name}` };
     }

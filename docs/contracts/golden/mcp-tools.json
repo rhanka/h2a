@@ -20,6 +20,8 @@
   "h2a_drive_consent_revoke",
   "h2a_drive_consent_status",
   "h2a_escalate",
+  "h2a_focus_build",
+  "h2a_focus_template",
   "h2a_identity_status",
   "h2a_inbox",
   "h2a_loop_create",

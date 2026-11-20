@@ -1289,6 +1289,49 @@ export const embeddedTools = [
     }
   },
   {
+    "name": "h2a_focus_build",
+    "description": "Validate a Focus DecisionDossierDocument (or ReportDocument) JSON file and build a single portable offline HTML dossier in-process, running the same focus-kit validator, diagram renderer and atomic publisher as `h2a focus build` without shelling out to the CLI. Both input and output must be absolute paths within the MCP server startup workspace (/tmp and OS temp directories are refused, symlinks escaping the workspace are refused, output must end with .html and never overwrites non-.html files or symlinks, and output must differ from input). Returns { ok: true, output, bytes, warnings } on success, or { ok: false, error, refusals } carrying all builder refusal messages verbatim.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "input": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to an existing DecisionDossierDocument JSON file (schema: focus-kit dossier.schema.json / dossier.v2.schema.json) or ReportDocument JSON file within the MCP server startup workspace; /tmp is refused."
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to the portable .html file to write within the MCP server startup workspace; must end with .html, must differ from input, and /tmp is refused."
+        }
+      },
+      "required": [
+        "input",
+        "output"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "h2a_focus_template",
+    "description": "Return the Focus decision dossier template JSON(s) shipped in the plugin focus-kit (dossier.template.json for v1 decision dossiers, dossier.evidence.template.json for v2 embedded-evidence dossiers). Omit kind (or pass 'all') to return both templates; pass kind='dossier' or kind='evidence' for a single template. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "dossier",
+            "evidence",
+            "all"
+          ],
+          "description": "Which shipped template to return: 'dossier' (v1 dossier.template.json), 'evidence' (v2 dossier.evidence.template.json), or 'all' (both, default)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "track_report",
     "description": "Legacy deterministic backlog projection. JSON/text/Markdown outputs are compatibility reads and never invoke AI; use track_snapshot for the canonical factual contract and CLI `track report --wp --decisions` for the complete local conductor.",
     "inputSchema": {
