@@ -181,11 +181,11 @@ test("each rehearsal shares the release publish body except dry-run and the defa
       `${packageName}: the rehearsal must not probe the version-existence guard (the backfill dist-tags.latest probe stays)`,
     );
     assert.ok(
-      !dryLines.some((line) => line.startsWith("for attempt in $(seq 1 18)")),
+      !dryLines.some((line) => line.includes("wait-npm-visibility.mjs") || line.startsWith("for attempt in $(seq 1 18)")),
       `${packageName}: the rehearsal must not carry the visibility wait — --dry-run never lands`,
     );
     assert.ok(
-      !dryLines.some((line) => line === "sleep 10" || line.includes("not visible on registry")),
+      !dryLines.some((line) => line === "sleep 10" || line.includes("not visible on registry") || line.includes("--warn-only")),
       `${packageName}: the rehearsal must not sleep or warn on registry visibility`,
     );
     // Extract the publish BODY from the real step: the version line plus the
@@ -193,15 +193,15 @@ test("each rehearsal shares the release publish body except dry-run and the defa
     // right before the visibility wait. Anything else in the real step is the
     // pinned-deliberate guard/wait, not the publish body.
     const elseIdx = realLines.findIndex((line) => line === "else");
-    const forIdx = realLines.findIndex((line) => line.startsWith("for attempt in $(seq 1 18)"));
+    const waitIdx = realLines.findIndex((line) => line.startsWith("node scripts/wait-npm-visibility.mjs"));
     assert.ok(elseIdx !== -1, `${packageName}: the publish step must keep its idempotent guard (else not found)`);
-    assert.ok(forIdx !== -1, `${packageName}: the publish step must keep its visibility wait (for loop not found)`);
+    assert.ok(waitIdx !== -1, `${packageName}: the publish step must keep its visibility wait (wait-npm-visibility.mjs not found)`);
     assert.equal(
-      realLines[forIdx - 1],
+      realLines[waitIdx - 1],
       "fi",
       `${packageName}: the guard-closing fi must stand right before the visibility wait`,
     );
-    const realBody = [realLines[0], ...realLines.slice(elseIdx + 1, forIdx - 1)];
+    const realBody = [realLines[0], ...realLines.slice(elseIdx + 1, waitIdx - 1)];
     assert.equal(
       dryLines.length,
       realBody.length,
@@ -399,11 +399,11 @@ test("the rehearsal always dry-runs the verified bytes: ./ file spec and backfil
       `${packageName}: the rehearsal must not probe the version-existence guard`,
     );
     assert.ok(
-      !run.includes("seq 1 18") && !run.includes("sleep 10"),
+      !run.includes("wait-npm-visibility.mjs") && !run.includes("seq 1 18") && !run.includes("sleep 10"),
       `${packageName}: the rehearsal must not wait on registry visibility`,
     );
     assert.ok(
-      !run.includes("not visible on registry"),
+      !run.includes("not visible on registry") && !run.includes("--warn-only"),
       `${packageName}: the rehearsal must not warn on registry visibility`,
     );
     // The real publish keeps both (the rehearsal diverges here by design).
@@ -414,7 +414,7 @@ test("the rehearsal always dry-runs the verified bytes: ./ file spec and backfil
       `${packageName}: the real publish must keep its idempotent skip`,
     );
     assert.ok(
-      realRun.includes("seq 1 18") && realRun.includes("not visible on registry yet; retrying"),
+      realRun.includes("node scripts/wait-npm-visibility.mjs") && realRun.includes("--warn-only"),
       `${packageName}: the real publish must keep its visibility wait`,
     );
   }
