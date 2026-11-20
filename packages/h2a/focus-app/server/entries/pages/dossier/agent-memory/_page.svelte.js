@@ -1,6 +1,8 @@
-import { a as derived, c as head, d as spread_props, f as stringify, g as clsx, h as attr, i as bind_props, n as attr_style, r as attributes, s as ensure_array_like, t as attr_class, y as escape_html } from "../../../../chunks/server2.js";
+import { a as derived, c as head, f as stringify, g as clsx, h as attr, i as bind_props, n as attr_style, r as attributes, s as ensure_array_like, t as attr_class, y as escape_html } from "../../../../chunks/server2.js";
 import "../../../../chunks/index-server.js";
-import { a as Button, i as Card, n as Flex, o as Badge, r as Container, s as Alert, t as AppShell } from "../../../../chunks/AppShell.js";
+import { n as Card, r as Alert, t as AppShell } from "../../../../chunks/AppShell.js";
+import { i as Badge, n as Container, r as Button, t as Flex } from "../../../../chunks/Flex.js";
+import { t as Stack } from "../../../../chunks/Stack.js";
 // node_modules/@sentropic/design-system-svelte/dist/ProgressBar.svelte
 function ProgressBar($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
@@ -70,26 +72,6 @@ function SlideIndicator($$renderer, $$props) {
 			$$renderer.push(`<button type="button"${attr_class("st-slideIndicator__dot svelte-60hp0l", void 0, { "st-slideIndicator__dot--current": index === current })}${attr("aria-current", index === current ? "true" : void 0)}${attr("aria-label", `${label} ${index + 1}`)}${attr("tabindex", index === current ? 0 : -1)}></button>`);
 		}
 		$$renderer.push(`<!--]--></div>`);
-	});
-}
-// node_modules/@sentropic/design-system-svelte/dist/Stack.svelte
-function Stack($$renderer, $$props) {
-	$$renderer.component(($$renderer) => {
-		let { gap, align, justify, as = "div", class: className, children, $$slots, $$events, ...rest } = $$props;
-		const classes = derived(() => ["st-stack", className].filter(Boolean).join(" "));
-		Flex($$renderer, spread_props([rest, {
-			as,
-			gap,
-			align,
-			justify,
-			direction: "column",
-			class: classes(),
-			children: ($$renderer) => {
-				children?.($$renderer);
-				$$renderer.push(`<!---->`);
-			},
-			$$slots: { default: true }
-		}]));
 	});
 }
 // node_modules/@sentropic/design-system-svelte/dist/Table.svelte

@@ -1,6 +1,8 @@
 import { a as derived, c as head, d as spread_props, g as clsx, h as attr, i as bind_props, l as props_id, n as attr_style, r as attributes, s as ensure_array_like, t as attr_class, v as run, y as escape_html } from "../../chunks/server2.js";
-import { a as Button, c as Icon, i as Card, n as Flex, o as Badge, r as Container, s as Alert, t as AppShell } from "../../chunks/AppShell.js";
+import { i as Icon, n as Card, r as Alert, t as AppShell } from "../../chunks/AppShell.js";
 import "../../chunks/index-server.js";
+import { i as Badge, n as Container, r as Button, t as Flex } from "../../chunks/Flex.js";
+import { t as EmptyState } from "../../chunks/EmptyState.js";
 // node_modules/@lucide/svelte/dist/icons/menu.svelte
 function Menu($$renderer, $$props) {
 	$$renderer.component(($$renderer) => {
@@ -573,28 +575,6 @@ function DataTable($$renderer, $$props) {
 			sortBy,
 			page
 		});
-	});
-}
-// node_modules/@sentropic/design-system-svelte/dist/EmptyState.svelte
-function EmptyState($$renderer, $$props) {
-	$$renderer.component(($$renderer) => {
-		let { title, message, class: className, action, children, $$slots, $$events, ...rest } = $$props;
-		const classes = () => ["st-empty-state", className].filter(Boolean).join(" ");
-		$$renderer.push(`<section${attributes({
-			...rest,
-			class: clsx(classes())
-		}, "svelte-1irw8xl")}><div class="st-empty-state__content svelte-1irw8xl"><h2 class="st-empty-state__title svelte-1irw8xl">${escape_html(title)}</h2> `);
-		if (message) $$renderer.push(`<!--[0--><p class="st-empty-state__message svelte-1irw8xl">${escape_html(message)}</p>`);
-		else $$renderer.push("<!--[-1-->");
-		$$renderer.push(`<!--]--> `);
-		children?.($$renderer);
-		$$renderer.push(`<!----></div> `);
-		if (action) {
-			$$renderer.push(`<!--[0--><div class="st-empty-state__action svelte-1irw8xl">`);
-			action($$renderer);
-			$$renderer.push(`<!----></div>`);
-		} else $$renderer.push("<!--[-1-->");
-		$$renderer.push(`<!--]--></section>`);
 	});
 }
 // src/routes/+page.svelte
