@@ -5,9 +5,20 @@ import { lightTheme, darkTheme } from './themes.js';
 import Canvas from './Canvas.vue';
 import Evidence from './Evidence.vue';
 import Citation from './Citation.vue';
+import ReviewModeToggle from './review/ReviewModeToggle.vue';
+import CommentLayer from './review/CommentLayer.vue';
+import ThreadPanel from './review/ThreadPanel.vue';
+import { createCommentsAdapter } from './review/adapter.js';
+import { useReview } from './review/use-review.js';
 import { preparePresentation } from '../../../focus/src/render/presentation.ts';
 import { decisionCodes, optionCode, responseLine } from '../../../focus-interactive/src/response-line.ts';
-const props = defineProps({ document: { type: Object, required: true }, mode: { type: String, default: 'decision' } });
+const props = defineProps({
+  document: { type: Object, required: true },
+  mode: { type: String, default: 'decision' },
+  review: { type: Boolean, default: false },
+  artifactId: { type: String, default: '' },
+  apiBase: { type: String, default: '' },
+});
 const dossier = computed(() => props.document);
 const dark = ref(matchMedia('(prefers-color-scheme: dark)').matches);
 const selections = reactive(new Map());
@@ -32,13 +43,40 @@ async function copyResponse() {
   }
 }
 const steps = computed(() => [...dossier.value.amendmentTrace, ...dossier.value.sections.filter(s => s.kind === 'amendmentTrace').flatMap(s => s.steps)]);
+// Revue (UI-1) : désactivée par défaut. L'hôte active via le payload
+// (`review: true`) ou l'URL (`?review=1`) ; `?api=<base>` bascule le fake
+// en page vers les vraies routes du contrat quand le backend existe.
+const reviewParams = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const reviewEnabled = computed(() => props.review || reviewParams.get('review') === '1');
+const artifactId = computed(() => props.artifactId || dossier.value.ref || dossier.value.hash || 'artifact');
+const currentUser = { actorId: 'owner', kind: 'human', displayLabel: 'Owner', color: '#2563eb' };
+const reviewAdapter = computed(() => reviewEnabled.value
+  ? createCommentsAdapter({ artifactId: artifactId.value, baseUrl: props.apiBase || reviewParams.get('api') || '', currentUser })
+  : null);
+const review = useReview({ adapter: { listThreads: (...a) => reviewAdapter.value.listThreads(...a), create: (...a) => reviewAdapter.value.create(...a), close: (...a) => reviewAdapter.value.close(...a), reopen: (...a) => reviewAdapter.value.reopen(...a), subscribe: (...a) => reviewAdapter.value.subscribe(...a) }, currentUser, artifactId: artifactId.value });
+const reviewMode = ref('view');
+const reviewOrphans = ref(new Set());
+function onReviewModeChange(next) {
+  if (next === 'view' && reviewMode.value === 'review') {
+    const draft = document.querySelector('.st-review-composer textarea');
+    if (draft?.value?.trim() && !window.confirm('Discard the unsaved comment draft?')) return;
+  }
+  reviewMode.value = next;
+}
+async function onReviewCreate(payload) {
+  if (payload.error) { review.error.value = payload.error; return; }
+  await review.createThread(payload);
+}
+function onReviewReanchor() {
+  review.status.value = 'Select the new location in the artifact, then use Add comment. The orphaned thread stays replyable.';
+}
 function revealTerm() {
   let id;
   try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
   const term = document.getElementById(id);
   if (term && glossary.value?.contains(term)) { glossary.value.open = true; term.scrollIntoView(); }
 }
-onMounted(() => { revealTerm(); window.addEventListener('hashchange', revealTerm); });
+onMounted(() => { revealTerm(); window.addEventListener('hashchange', revealTerm); if (reviewEnabled.value) review.start(); });
 onUnmounted(() => window.removeEventListener('hashchange', revealTerm));
 </script>
 
@@ -46,16 +84,19 @@ onUnmounted(() => window.removeEventListener('hashchange', revealTerm));
   <ThemeProvider :theme="dark ? darkTheme : lightTheme">
     <div class="focus-page" :data-mode="dark ? 'dark' : 'light'" data-renderer="vue" :data-presentation="mode">
       <header class="title-band"><h1>{{ dossier.title }}</h1>
+        <ReviewModeToggle v-if="reviewEnabled" :mode="reviewMode" :open-count="review.openCount.value" :unread-count="review.unreadCount.value" @mode-change="onReviewModeChange" />
         <Button variant="ghost" size="sm" :aria-pressed="dark" @click="dark = !dark">Thème {{ dark ? 'clair' : 'sombre' }}</Button>
       </header>
-      <Container size="full"><main>
+      <p v-if="reviewEnabled && review.error.value" role="alert" class="st-review-error">{{ review.error.value }}</p>
+      <p v-if="reviewEnabled" role="status" aria-live="polite" class="st-review-status">{{ review.status.value }}</p>
+      <Container size="full"><div class="focus-review-layout"><CommentLayer :mode="reviewEnabled ? reviewMode : 'view'" :threads="review.threads.value" :current-user="currentUser" :active-thread-id="review.activeThreadId.value" :read-state="review.readState.value" :version="dossier.hash" @create="onReviewCreate" @select="review.selectThread" @orphan-change="ids => reviewOrphans = new Set(ids)"><main data-review-root>
         <div class="reading-meta"><Badge tone="info">Focus</Badge> {{ questions.length }} question(s) · {{ dossier.readability.readingBudgetMinutes }} minutes</div>
         <Card><h2>Votre demande</h2><blockquote>{{ dossier.readability.ownerRequestQuote }}</blockquote><p>{{ dossier.readability.stakes }}</p></Card>
         <aside v-if="dossier.readability.glossary?.length" aria-label="Glossaire"><details ref="glossary" class="focus-glossary">
           <summary>En mots simples ({{ dossier.readability.glossary.length }} {{ dossier.readability.glossary.length === 1 ? 'terme' : 'termes' }})</summary>
           <dl><template v-for="entry in dossier.readability.glossary" :key="entry.term"><dt :id="`glossary-${encodeURIComponent(entry.term)}`">{{ entry.term }}</dt><dd>{{ entry.definition }}</dd></template></dl>
         </details></aside>
-        <section v-for="section in sections" :id="section.id" :key="section.id" class="dossier-section">
+        <section v-for="section in sections" :id="section.id" :key="section.id" class="dossier-section" :data-anchor-id="section.id" data-commentable>
           <p v-if="section.kind === 'prose'" class="prose">{{ section.markdown }}</p>
           <template v-else-if="section.kind === 'question'">
             <h2>{{ questionHeading(section) }}</h2><p>{{ section.context }}</p>
@@ -97,7 +138,7 @@ onUnmounted(() => window.removeEventListener('hashchange', revealTerm));
           <p v-else>Rapport en lecture seule.</p>
           <details><summary>Source et version</summary><p>{{ dossier.provenance.source }} · {{ dossier.provenance.readAt }}</p><p>{{ dossier.ref }} · {{ dossier.cursor }} · {{ dossier.hash }}</p></details>
         </footer>
-      </main></Container>
+      </main></CommentLayer><ThreadPanel v-if="reviewEnabled && reviewMode === 'review'" :threads="review.threads.value" :orphaned-ids="reviewOrphans" :current-user="currentUser" :active-thread-id="review.activeThreadId.value" :read-state="review.readState.value" @select="review.selectThread" @reply="review.reply" @resolve="review.closeThread" @reopen="review.reopenThread" @reanchor="onReviewReanchor" @close="onReviewModeChange('view')" /></div></Container>
     </div>
   </ThemeProvider>
 </template>

@@ -76,6 +76,48 @@ bibliography. The Vue renderer mirrors those visible items (shared
 `response-line.ts`, `Citation.vue`, bibliography in `Evidence.vue`) so both
 parities pass on the same corpus.
 
+## Review / comments (L0, flag off by default)
+
+Artifact review per DS SPEC r3 and the frozen local API contract
+(`GET/POST /api/artifacts/:artifactId/comments`, `close`/`reopen`, SSE
+`stream`). The DS review kit (`packages/review-core`, Vue review components)
+is not published yet, so the kit is built locally under `review/` behind the
+same props/events and annotates that in each file header:
+
+- `review/review-core.js` — framework-neutral anchors (`a1:` + base64url,
+  2048-char cap D3), grouping, filters, `layoutPins`, markdown-lite.
+- `review/adapter.js` — the single `CommentsAdapter` seam. Default is an
+  in-page fake implementing exactly the frozen contract on `localStorage`
+  (reload persists), with a simulated live agent reply for `sendToAgent`.
+  Pass `?api=<base>` (or the `apiBase` prop) to switch to
+  `HttpCommentsAdapter` (fetch + `EventSource`) against the real
+  `FOCUS_ARTIFACT_REVIEW` routes of Focus Web, with no other code change.
+  Every write sends `content-type: application/json`; an error carrying
+  `error.saved: true` (stored, agent delivery failed) is shown next to the
+  stored comment and never retried. Host requirement: `renderer-vue.html`
+  ships `connect-src 'none'`, so a host enabling review against real routes
+  must widen `connect-src` to the API origin (the backend answers CORS for
+  loopback origins).
+- `review/*.vue` — Vapor `ReviewModeToggle`, `CommentLayer`, `CommentPin`,
+  `CommentComposer`, `CommentThread`, `ThreadPanel` reusing DS
+  `Button/Badge/Avatar/Textarea/Toggle/EmptyState` where they exist.
+
+Activation is host-owned and off by default: payload `review: true` or
+`?review=1`. Without it no toggle renders, no listener is attached and no
+adapter traffic occurs. State vocabulary is `open|closed` (shown
+“Resolved”), authors are `CollaborationActor`-shaped, and agent replies use
+the D1 fallback (owner id + `provenance.runId`).
+
+Tests: `node --test test/review.test.mjs` (core, adapter contract, Vapor
+compile) and `packages/h2a/focus-kit/test/review-browser.test.mjs`
+(Playwright acceptance against the fake, after rebuilding the renderer).
+`packages/h2a/focus-kit/test/review-real-browser.test.mjs` runs the same
+scenario against the packaged Focus Web server of the checkout named by
+`FOCUS_REVIEW_BACKEND_REPO` (default: this one, built with `npm run build`),
+in a throwaway h2a root with one registered live recipient; it fails, never
+skips, when the backend routes are absent.
+Timings/bundle: `node test/review-measures.mjs`.
+
 ## Scope and remaining evidence
 
 - L0 captures synthetic legacy/v2 dossiers and a validated decision used as a
