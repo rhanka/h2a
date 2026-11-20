@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-# Install the commit-msg guard. It is runtime-agnostic: claude, codex and agy all
-# commit through plain `git commit`, so git runs this hook for every one of them
-# wherever core.hooksPath is set.
+# Install or verify the worktree-safe commit-msg attribution-trailer guard.
+# Runtime-agnostic: Claude Code, Codex, agy/Gemini, Muse and Vibe all commit
+# through plain `git commit`, so git runs this hook wherever core.hooksPath points.
 #
-#   bash .githooks/install.sh            # this repo only (core.hooksPath -> .githooks)
-#   bash .githooks/install.sh --global   # every repo for this user — covers codex/agy
-#                                        # even in fresh clones / sandbox workspaces
+#   bash .githooks/install.sh                        # this repo (worktree-safe <git-common-dir>/hooks)
+#   bash .githooks/install.sh --local --mode strip   # strip trailers in-place instead of rejecting
+#   bash .githooks/install.sh --global               # every repo without a local core.hooksPath
+#   bash .githooks/install.sh --agent-rules          # write rule block to all 5 CLI instruction files
+#   bash .githooks/install.sh --check [repo...]      # read-only verification
 set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+installer="$dir/../packages/h2a/scripts/install-trailer-guard.mjs"
 
+if [ -f "$installer" ] && command -v node >/dev/null 2>&1; then
+  exec node "$installer" "$@"
+fi
+
+# Fallback when copied standalone without packages/h2a/scripts.
 case "${1:-}" in
   --global)
     gdir="${XDG_CONFIG_HOME:-$HOME/.config}/git/hooks"
@@ -17,17 +25,22 @@ case "${1:-}" in
     chmod +x "$gdir/commit-msg"
     git config --global core.hooksPath "$gdir"
     echo "global core.hooksPath -> $gdir"
-    echo "Every runtime (claude, codex, agy) in every repo now runs the commit-msg guard."
-    echo "Re-run after the hook changes to refresh the global copy."
     ;;
   ""|--local)
-    top="$(git rev-parse --show-toplevel)"
-    git -C "$top" config core.hooksPath .githooks
-    echo "repo core.hooksPath -> .githooks ($top)"
-    echo "Use --global to cover codex/agy (and every repo) machine-wide."
+    common="$(git rev-parse --git-common-dir)"
+    case "$common" in
+      /*) ;;
+      *) common="$(cd "$common" && pwd)" ;;
+    esac
+    hdir="$common/hooks"
+    mkdir -p "$hdir"
+    cp "$dir/commit-msg" "$hdir/commit-msg"
+    chmod +x "$hdir/commit-msg"
+    git config --local core.hooksPath "$hdir"
+    echo "repo core.hooksPath -> $hdir (worktree-safe)"
     ;;
   *)
-    echo "usage: install.sh [--local|--global]" >&2
+    echo "usage: install.sh [--local|--global|--agent-rules|--check] [--mode reject|strip]" >&2
     exit 2
     ;;
 esac
