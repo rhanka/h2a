@@ -127,6 +127,7 @@ export interface AuditOwnerTableOptions {
 }
 
 export type OwnerTableGateCode =
+  | 'no-owner-demands'
   | 'missing-row'
   | 'blocked-without-cause'
   | 'missing-witness'
@@ -134,6 +135,24 @@ export type OwnerTableGateCode =
   | 'invalid-decision'
   | 'internal-jargon'
   | 'banned-word'
+
+export const OWNER_TABLE_NO_DEMANDS_MESSAGE =
+  'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
+  '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
+  'enregistre et numérote les demandes avec `track demand raise` puis `track demand number <id> <n>`, ' +
+  'ou utilise `track report --status-table` pour la vue technique)'
+
+export const OWNER_TABLE_ALL_ARCHIVED_MESSAGE =
+  'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
+  'tableau owner vide refusé'
+
+export function formatOwnerTableNoJournalMessage(cwd: string): string {
+  return (
+    `REFUSED: aucun journal .track trouvé depuis ${cwd} — tableau owner refusé ` +
+    `(des demandes ou décisions owner ouvertes peuvent exister hors journal). ` +
+    `Passe --track-dir <dossier> (ou TRACK_DIR) vers le journal concerné, ou initialise un journal avec \`track init\`.`
+  )
+}
 
 export interface OwnerTableGateViolation {
   code: OwnerTableGateCode
@@ -492,6 +511,19 @@ export function auditOwnerTable(
   const { policy, notice } = resolveOwnerTablePolicy(options, view)
   const archivedSet = new Set(view.archivedNumbers)
   const seenNums = new Set<number>()
+
+  const hasNumberedRow = view.rows.some((row) => Number.isInteger(row.num) && row.num >= 1)
+  if (view.registeredNumbers.length === 0 && !hasNumberedRow) {
+    violations.push({
+      code: 'no-owner-demands',
+      message: OWNER_TABLE_NO_DEMANDS_MESSAGE,
+    })
+  } else if (view.rows.length === 0) {
+    violations.push({
+      code: 'no-owner-demands',
+      message: OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
+    })
+  }
 
   let prevTopLevelNum = 0
   let activeTitleRow: OwnerTableRow | undefined
@@ -1879,10 +1911,13 @@ export function projectOwnerTable(
     }
   }
 
+  const hasActiveNumberedRow = rows.some((row) => Number.isInteger(row.num) && row.num >= 1)
   const replyLine =
-    ownerDecisions.length === 0
-      ? 'Réponse : aucune décision en attente'
-      : `Réponse : ${ownerDecisions.map((d) => `${d.ref} ${d.recommendedLetter}`).join(' · ')}`
+    ownerDecisions.length > 0
+      ? `Réponse : ${ownerDecisions.map((d) => `${d.ref} ${d.recommendedLetter}`).join(' · ')}`
+      : hasActiveNumberedRow
+        ? 'Réponse : aucune décision en attente'
+        : ''
 
   return {
     kind: 'owner-table-report',
