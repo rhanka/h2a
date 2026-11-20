@@ -39,7 +39,7 @@ import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
 import { ownerTableText, queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
-import { auditOwnerTable } from '../report/owner-table.js'
+import { auditOwnerTable, formatOwnerTableNoJournalMessage } from '../report/owner-table.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
@@ -584,7 +584,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       case 'audit':
       case 'workspace-activity': {
         const trackDir = resolveTrackDirOrNull(resolveOpts)
-        if (trackDir === null) {
+        if (trackDir === null && cmd !== 'report') {
           io.err(
             `track: no .track resolved from ${io.cwd}. Run \`track init\` to create one ` +
               `(the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.\n`,
@@ -598,7 +598,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         }
         switch (cmd) {
           case 'report':
-            return cmdReport(rest, ctx)
+            return cmdReport(rest, ctx, trackDir === null)
           case 'snapshot':
             return cmdSnapshot(rest, ctx)
           case 'export-graph':
@@ -1334,7 +1334,7 @@ function cmdDemand(args: string[], ctx: Ctx): number {
   return 2
 }
 
-function cmdReport(args: string[], ctx: Ctx): number {
+function cmdReport(args: string[], ctx: Ctx, noTrackDir = false): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
@@ -1350,6 +1350,12 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   if (ownerTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster', 'wp', 'scope', 'since', 'until', 'period', 'sub-wp', 'lang', 'resolve', 'require-accepted'].some(k => flags[k] !== undefined)) {
     throw new DomainError('--owner-table rejects legacy conductor/filter flags')
+  }
+  if (noTrackDir && !ownerTable) {
+    io.err(
+      `track: no .track resolved from ${io.cwd}. Run \`track init\` to create one ` +
+        `(the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.\n`,
+    )
   }
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
@@ -1486,6 +1492,9 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   const reader = new TrackReader(ctx.eventsPath)
   if (ownerTable) {
+    if (noTrackDir) {
+      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd))
+    }
     const defaultPolicyPath = join(dirname(ctx.eventsPath), 'owner-report-policy.json')
     const explicitPolicyPath =
       opt(flags, 'policy') ??

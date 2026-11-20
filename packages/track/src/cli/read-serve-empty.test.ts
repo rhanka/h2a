@@ -76,4 +76,35 @@ describe('CLI reads — serve-empty when no .track resolves (rc=0, hint, no crea
     expect(code).toBe(1)
     expect(err.join('')).toMatch(/error/)
   })
+
+  it('report --owner-table with no .track fails closed (rc=1, French refusal, no empty table, no serve-empty)', () => {
+    const sub = join(root, 'unadopted-owner-table')
+    mkdirSync(sub, { recursive: true })
+    for (const format of ['md', 'text', 'json'] as const) {
+      out = []
+      err = []
+      const code = runCli(['report', '--owner-table', '--format', format], io(sub))
+      expect(code).toBe(1)
+      expect(out.join('')).toBe('')
+      expect(err.join('')).toBe(
+        `error: REFUSED: aucun journal .track trouvé depuis ${sub} — tableau owner refusé ` +
+          `(des demandes ou décisions owner ouvertes peuvent exister hors journal). ` +
+          `Passe --track-dir <dossier> (ou TRACK_DIR) vers le journal concerné, ou initialise un journal avec \`track init\`.\n`,
+      )
+      expect(err.join('')).not.toContain('Serving an empty view')
+      expect(out.join('') + err.join('')).not.toContain('Aucune décision en attente')
+      expect(out.join('') + err.join('')).not.toContain('Réponse : aucune décision en attente')
+      expect(existsSync(join(sub, '.track'))).toBe(false)
+      expect(existsSync(join(root, '.track'))).toBe(false)
+    }
+  })
+
+  it('report --status-table with no .track stays serve-empty (rc=0, hint, no create)', () => {
+    const sub = join(root, 'unadopted-status-table')
+    mkdirSync(sub, { recursive: true })
+    const code = runCli(['report', '--status-table', '--format', 'md', '--commit', 'c1'], io(sub))
+    expect(code).toBe(0)
+    expect(err.join('')).toContain('Serving an empty view')
+    expect(existsSync(join(sub, '.track'))).toBe(false)
+  })
 })
