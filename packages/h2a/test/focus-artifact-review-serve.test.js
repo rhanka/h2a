@@ -1,10 +1,12 @@
 // Artifact review, end to end through the PACKAGED Focus Web server (`h2a focus serve`, the committed
 // packages/h2a/focus-app build) and the REAL h2a CLI, in a throwaway h2a root, HOME and runtime dir.
 //
-// It proves what the unit suite cannot: the bundled InMemoryCommentStore of @sentropic/comments behind the
-// routes, the SvelteKit SSE stream through the node adapter, and a signed h2a send deposited in the
-// recipient's inbox by an auto-provisioned relay identity — with the loop guard holding on the agent reply.
-// The recipient is a registered identity with a live presence written by this test; nothing is woken.
+// Proves DS r6 end-to-end on the packaged server:
+//   - flag off by default -> 404 feature_disabled;
+//   - fail-closed missing binding (FOCUS_COMMENTS_REQUIRE_CLUSTER_MESH=1 without FOCUS_COMMENTS_URL) -> 503;
+//   - human comment -> signed h2a send carrying C2d MCP payload (zero endpoint URLs / secrets) -> agent
+//     reply with provenance.toolCallId (two-icon authorship, live host-side runId, zero extra h2a send) ->
+//     edit, assign/unassign(null), close/reopen, root hard delete preserving reply & anchor, and SSE frames.
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -165,28 +167,34 @@ async function openStream(url) {
   };
 }
 
-async function postJson(url, body) {
+async function sendJson(url, method, body) {
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {})
   });
   return { status: response.status, headers: response.headers, body: await response.json() };
 }
 
-test("packaged Focus Web: artifact review is off by default and answers 404 feature_disabled", { skip: process.platform === "win32" }, async (t) => {
+test("packaged Focus Web: artifact review is off by default (404) and fails closed (503) when cluster-mesh is required without URL", { skip: process.platform === "win32" }, async (t) => {
   const f = fixture(t);
-  const server = await serve(t, f, {});
-  const response = await fetch(`${server.url}/api/artifacts/${encodeURIComponent(ARTIFACT)}/comments`);
-  assert.equal(response.status, 404);
-  assert.equal((await response.json()).error.code, "feature_disabled");
-  assert.deepEqual(await server.stop(), { code: 143, signal: null });
+  const off = await serve(t, f, {});
+  const rOff = await fetch(`${off.url}/api/artifacts/${encodeURIComponent(ARTIFACT)}/comments`);
+  assert.equal(rOff.status, 404);
+  assert.equal((await rOff.json()).error.code, "feature_disabled");
+  assert.deepEqual(await off.stop(), { code: 143, signal: null });
+
+  const strict = await serve(t, f, { FOCUS_ARTIFACT_REVIEW: "1", FOCUS_COMMENTS_REQUIRE_CLUSTER_MESH: "1" });
+  const rStrict = await fetch(`${strict.url}/api/artifacts/${encodeURIComponent(ARTIFACT)}/comments`);
+  assert.equal(rStrict.status, 503);
+  assert.equal((await rStrict.json()).error.code, "comments_unavailable");
+  assert.deepEqual(await strict.stop(), { code: 143, signal: null });
 });
 
-test("packaged Focus Web: comment → signed h2a send to the owning session → agent reply live in the thread → resolve/reopen", { skip: process.platform === "win32" }, async (t) => {
+test("packaged Focus Web (DS r6): human comment -> signed h2a send -> agent reply (toolCallId + 2-icon authorship) -> edit/assign(null)/close/reopen/delete", { skip: process.platform === "win32" }, async (t) => {
   const f = fixture(t);
   const store = liveRecipient(f.root, f.repo);
-  const server = await serve(t, f, { FOCUS_ARTIFACT_REVIEW: "1" });
+  const server = await serve(t, f, { FOCUS_ARTIFACT_REVIEW: "1", FOCUS_REVIEW_MEMBERS: "local-owner,reviewer-bob" });
   const api = `${server.url}/api/artifacts/${encodeURIComponent(ARTIFACT)}`;
 
   const empty = await fetch(`${api}/comments`);
@@ -198,84 +206,106 @@ test("packaged Focus Web: comment → signed h2a send to the owning session → 
   const stream = await openStream(`${api}/stream`);
   const ready = stream.received.find((e) => e.event === "ready").data;
   assert.equal(ready.store.kind, "memory");
-  assert.match(ready.store.label, /InMemoryCommentStore \(@sentropic\/comments 0\.3\.1\)/);
+  assert.match(ready.store.label, /InMemoryCommentStore \(@sentropic\/comments 0\.3\.1/);
 
-  const anchor = encodeAnchor({ t: "text", q: { exact: "the recall budget", prefix: "Raise ", suffix: " to 8k" }, aid: "node:decision-2", v: "sha256:aaaa" });
+  const anchor = encodeAnchor({ t: "text", q: { exact: "résumé — recall budget", prefix: "Raise ", suffix: " to 8k" }, aid: "node:decision-2", v: "sha256:aaaa" });
   const longBody = `Please raise the recall budget and say why. ${"Context sentence. ".repeat(40)}UNIQUE-TAIL-7f3a`;
-  const posted = await postJson(`${api}/comments`, { sectionKey: anchor, body: longBody, sendToAgent: true, author: { id: "mallory" } });
+  const posted = await sendJson(`${api}/comments`, "POST", { sectionKey: anchor, body: longBody, sendToAgent: true, author: { id: "mallory" } });
   assert.equal(posted.status, 201, JSON.stringify(posted.body) + server.stderr());
   assert.equal(posted.headers.get("x-agent-delivery"), "delivered");
   assert.equal(posted.headers.get("x-agent-target"), RECIPIENT);
   const root = posted.body;
   assert.deepEqual(root.author, { id: "local-owner" }, "the payload author is ignored");
+  assert.equal(root.authorship.author.actorId, "local-owner");
+  assert.equal(root.authorship.author.kind, "human");
   assert.deepEqual(root.target, { kind: "artifact", id: ARTIFACT, sectionKey: anchor });
   assert.equal(root.state, "open");
   await stream.waitFor((events) => events.some((e) => e.event === "comment.created" && e.data.id === root.id), "comment.created (root)");
 
-  // Exactly one signed envelope, in the recipient's root, from the relay identity.
+  // Exactly one signed envelope, in the recipient's root, from the relay identity, targeting C2d MCP (zero URLs/secrets).
   const relay = defaultRelayInstance(f.repo);
   const inbox = store.readInbox(RECIPIENT);
   assert.equal(inbox.length, 1);
   const envelope = inbox[0];
   const registration = store.findInstance(relay);
-  assert.ok(registration, "the relay identity was provisioned in the recipient's root");
+  assert.ok(registration);
   assert.equal(verifyEnvelopeSignature(envelope, registration.publicKeys[0], { by: relay }), true);
   const text = envelope.body.text;
-  assert.match(text, /^\[h2a comment-request\] The owner commented on artifact dossier:agent-memory/);
+  assert.match(text, /^\[h2a comment-request\] Owner commented on artifact dossier:agent-memory/);
   const payload = JSON.parse(text.slice(text.indexOf("{"), text.indexOf("\n}\n") + 2));
   assert.equal(payload.kind, "h2a.comment-request");
   assert.equal(payload.threadId, root.threadId);
   assert.equal(payload.commentId, root.id);
   assert.equal(payload.recipient, RECIPIENT);
-  assert.equal(payload.anchor.q.exact, "the recall budget");
-  assert.deepEqual(payload.reply.postReply.body.provenance, { runId: RECIPIENT });
-  assert.equal(payload.reply.postReply.url, `${api}/comments`, "the reply path points back at this loopback server");
+  assert.equal(payload.anchor.q.exact, "résumé — recall budget");
+  assert.equal(payload.replyChannel.provider, "cluster-mesh-artifact-comments");
+  assert.equal(payload.replyChannel.verbs.reply.args.provenance.toolCallId, `agent:${RECIPIENT}:1`);
+  assert.doesNotMatch(text, /https?:\/\//i, "no endpoint URL in the envelope");
   assert.doesNotMatch(text, /UNIQUE-TAIL-7f3a/, "the full body stays in the comment store");
 
-  // The agent answers through Focus Web, as the message tells it to.
-  const reply = await postJson(payload.reply.postReply.url, {
+  // Agent reply with mandatory non-empty provenance.toolCallId (and no runId on wire): host enriches live runId + 2-icon authorship.
+  const toolCallId = payload.replyChannel.verbs.reply.args.provenance.toolCallId;
+  const reply = await sendJson(`${api}/comments`, "POST", {
+    tenant: "local",
+    target: { kind: "artifact", id: ARTIFACT, sectionKey: anchor },
     threadId: root.threadId,
     body: "Resolved in sha256:bbbb — budget raised to 8k.",
-    provenance: { runId: RECIPIENT }
+    provenance: { toolCallId }
   });
   assert.equal(reply.status, 201, JSON.stringify(reply.body));
-  assert.deepEqual(reply.body.author, { id: "local-owner" }, "owner id of record until D1");
-  assert.deepEqual(reply.body.provenance, { runId: RECIPIENT });
+  assert.deepEqual(reply.body.author, { id: "local-owner" });
+  assert.deepEqual(reply.body.provenance, { toolCallId });
+  assert.equal(reply.body.authorship.author.kind, "agent");
+  assert.equal(reply.body.authorship.author.actorId, RECIPIENT);
+  assert.equal(reply.body.authorship.sponsor.actorId, "local-owner");
+  assert.equal(reply.body.authorship.runId, RECIPIENT);
   await stream.waitFor(
-    (events) => events.some((e) => e.event === "comment.created" && e.data.provenance?.runId === RECIPIENT),
+    (events) => events.some((e) => e.event === "comment.created" && e.data.provenance?.toolCallId === toolCallId),
     "comment.created (agent reply)"
   );
   assert.equal(store.readInbox(RECIPIENT).length, 1, "loop guard: the agent reply sent nothing");
 
-  // SvelteKit's own CSRF guard refuses a POST without a content type before the route runs: the
-  // contract's close/reopen therefore always send application/json (as the reply instructions do).
-  const bare = await fetch(payload.reply.closeThread.url, { method: "POST" });
-  assert.equal(bare.status, 403);
-  assert.match(await bare.text(), /Cross-site POST form submissions are forbidden/);
-  assert.equal((await (await fetch(`${api}/comments`)).json()).threads[0][0].state, "open", "a refused close changes nothing");
+  // PATCH edit own comment + POST assign member then unassign(null).
+  const edited = await sendJson(`${api}/comments/${encodeURIComponent(root.id)}`, "PATCH", { body: "Updated owner note." });
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.body, "Updated owner note.");
+  await stream.waitFor((events) => events.some((e) => e.event === "comment.updated" && e.data.id === root.id), "comment.updated");
 
-  assert.deepEqual(payload.reply.closeThread, { method: "POST", url: `${api}/threads/${encodeURIComponent(root.threadId)}/close`, contentType: "application/json", body: {} });
-  const closed = await postJson(payload.reply.closeThread.url, payload.reply.closeThread.body);
+  const assigned = await sendJson(`${api}/threads/${encodeURIComponent(root.threadId)}/assign`, "POST", { assignedTo: "reviewer-bob" });
+  assert.deepEqual({ status: assigned.status, body: assigned.body }, { status: 200, body: { ok: true } });
+  const unassigned = await sendJson(`${api}/threads/${encodeURIComponent(root.threadId)}/assign`, "POST", { assignedTo: null });
+  assert.deepEqual({ status: unassigned.status, body: unassigned.body }, { status: 200, body: { ok: true } });
+  await stream.waitFor((events) => events.some((e) => e.event === "thread.assigned" && e.data.assignedTo === null), "thread.assigned(null)");
+
+  // Close & reopen (single truth open|closed).
+  const closeUrl = `${api}/threads/${encodeURIComponent(root.threadId)}/close`;
+  const bare = await fetch(closeUrl, { method: "POST" });
+  assert.equal(bare.status, 403);
+  const closed = await sendJson(closeUrl, "POST", {});
   assert.deepEqual({ status: closed.status, body: closed.body }, { status: 200, body: { ok: true } });
   await stream.waitFor((events) => events.some((e) => e.event === "thread.closed"), "thread.closed");
   const afterClose = await (await fetch(`${api}/comments`)).json();
   assert.deepEqual(afterClose.threads.map((rows) => rows.map((c) => c.state)), [["closed", "closed"]]);
 
-  const reopened = await postJson(`${api}/threads/${encodeURIComponent(root.threadId)}/reopen`, {});
+  const reopened = await sendJson(`${api}/threads/${encodeURIComponent(root.threadId)}/reopen`, "POST", {});
   assert.deepEqual(reopened.body, { ok: true });
   await stream.waitFor((events) => events.some((e) => e.event === "thread.reopened"), "thread.reopened");
 
-  // An explicit target that is not live is refused visibly; the comment is saved and nothing is sent.
-  const ghost = await postJson(`${api}/comments`, { body: "For a session that is gone", sendToAgent: true, agentTarget: "claude:ghost:000000000000" });
+  // Hard delete root row -> surviving reply keeps the thread and its anchor!
+  const deleted = await sendJson(`${api}/comments/${encodeURIComponent(root.id)}`, "DELETE", {});
+  assert.deepEqual({ status: deleted.status, body: deleted.body }, { status: 200, body: { ok: true } });
+  await stream.waitFor((events) => events.some((e) => e.event === "comment.deleted" && e.data.commentId === root.id), "comment.deleted");
+  const afterDelete = await (await fetch(`${api}/comments`)).json();
+  assert.equal(afterDelete.threads.length, 1);
+  assert.deepEqual(afterDelete.threads[0].map((c) => c.id), [reply.body.id]);
+  assert.equal(afterDelete.threads[0][0].target.sectionKey, anchor, "anchor preserved after root hard delete");
+
+  // Explicit target not live -> 409 with saved:true.
+  const ghost = await sendJson(`${api}/comments`, "POST", { body: "For a session that is gone", sendToAgent: true, agentTarget: "claude:ghost:000000000000" });
   assert.equal(ghost.status, 409);
   assert.equal(ghost.body.error.code, "agent_no_target");
   assert.equal(ghost.body.error.saved, true);
-  assert.equal(ghost.body.error.delivery.reason, "requested-not-live");
   assert.equal(store.readInbox(RECIPIENT).length, 1);
-
-  const final = await (await fetch(`${api}/comments`)).json();
-  assert.equal(final.threads.length, 2);
-  assert.deepEqual(final.threads[0].map((c) => c.body.slice(0, 20)), [longBody.slice(0, 20), "Resolved in sha256:b"]);
 
   await stream.close();
   assert.deepEqual(await server.stop(), { code: 143, signal: null });

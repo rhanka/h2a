@@ -251,10 +251,28 @@
       "_runtime.js"
     ]
   },
+  "src/routes/api/artifacts/[artifactId]/comments/[commentId]/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/comments/_commentId_/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/comments/_commentId_/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/comments/[commentId]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
   "src/routes/api/artifacts/[artifactId]/stream/+server.ts": {
     "file": "entries/endpoints/api/artifacts/_artifactId_/stream/_server.ts.js",
     "name": "entries/endpoints/api/artifacts/_artifactId_/stream/_server.ts",
     "src": "src/routes/api/artifacts/[artifactId]/stream/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/threads/[threadId]/assign/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/assign/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/assign/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/threads/[threadId]/assign/+server.ts",
     "isEntry": true,
     "imports": [
       "_runtime.js"

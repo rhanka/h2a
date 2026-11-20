@@ -3,25 +3,29 @@
 // Events are DERIVED FROM STORE READS, never from write intents: after every write made through this
 // server, and on a timer when the store can change behind our back (HTTP endpoint), the artifact's rows are
 // listed again and diffed against the last snapshot. A comment the store does not return is therefore never
-// announced, and an agent reply written straight into cluster-mesh still shows up (on the next poll).
+// announced, and an agent reply written straight into cluster-mesh (C2d MCP) still shows up on the next poll.
 //
 //   comment.created  data: ReviewComment
+//   comment.updated  data: ReviewComment
+//   comment.deleted  data: { artifactId, commentId, threadId }
 //   thread.closed    data: { artifactId, threadId, state: 'closed', comments: ReviewComment[] }
 //   thread.reopened  data: { artifactId, threadId, state: 'open',   comments: ReviewComment[] }
+//   thread.assigned  data: { artifactId, threadId, assignedTo: string | null, comments: ReviewComment[] }
 //   review.error     data: { artifactId, error: { code, message } }   (a failed store read, never silent)
 //
 // `publish` lets the routes add out-of-band events (agent.delivery) to the same subscribers.
 
 import { asReviewError } from './errors.js';
-import { groupThreads, threadState } from './comments-adapter.js';
+import { groupThreads, threadAssignee, threadState } from './comments-adapter.js';
 
 /** @typedef {import('./types').ReviewComment} ReviewComment */
 /** @typedef {import('./types').ReviewEvent} ReviewEvent */
 
 /**
  * @typedef {object} Snapshot
- * @property {Set<string>} ids
+ * @property {Map<string, { threadId: string, body: string, updatedAt?: string }>} rows
  * @property {Map<string, 'open' | 'closed'>} states
+ * @property {Map<string, string | null>} assignees
  */
 
 /**
@@ -37,9 +41,16 @@ import { groupThreads, threadState } from './comments-adapter.js';
  * @returns {Snapshot}
  */
 function snapshotOf(comments) {
+  const threads = groupThreads(comments);
   return {
-    ids: new Set(comments.map((comment) => comment.id)),
-    states: new Map(groupThreads(comments).map((rows) => [rows[0].threadId, threadState(rows)]))
+    rows: new Map(
+      comments.map((comment) => [
+        comment.id,
+        { threadId: comment.threadId, body: comment.body, updatedAt: comment.updatedAt }
+      ])
+    ),
+    states: new Map(threads.map((rows) => [rows[0].threadId, threadState(rows)])),
+    assignees: new Map(threads.map((rows) => [rows[0].threadId, threadAssignee(rows)]))
   };
 }
 
@@ -52,18 +63,42 @@ function snapshotOf(comments) {
 function diff(artifactId, previous, comments) {
   /** @type {ReviewEvent[]} */
   const events = [];
+  const currentIds = new Set(comments.map((comment) => comment.id));
+
   for (const comment of comments) {
-    if (!previous.ids.has(comment.id)) events.push({ event: 'comment.created', data: comment });
+    const before = previous.rows.get(comment.id);
+    if (!before) {
+      events.push({ event: 'comment.created', data: comment });
+    } else if (before.body !== comment.body) {
+      events.push({ event: 'comment.updated', data: comment });
+    }
   }
+
+  for (const [commentId, before] of previous.rows) {
+    if (!currentIds.has(commentId)) {
+      events.push({ event: 'comment.deleted', data: { artifactId, commentId, threadId: before.threadId } });
+    }
+  }
+
   for (const rows of groupThreads(comments)) {
     const threadId = rows[0].threadId;
-    const before = previous.states.get(threadId);
-    const now = threadState(rows);
-    if (before && before !== now) {
+    const beforeState = previous.states.get(threadId);
+    const nowState = threadState(rows);
+    if (beforeState && beforeState !== nowState) {
       events.push({
-        event: now === 'closed' ? 'thread.closed' : 'thread.reopened',
-        data: { artifactId, threadId, state: now, comments: rows }
+        event: nowState === 'closed' ? 'thread.closed' : 'thread.reopened',
+        data: { artifactId, threadId, state: nowState, comments: rows }
       });
+    }
+    if (previous.assignees.has(threadId)) {
+      const beforeAssignee = previous.assignees.get(threadId) ?? null;
+      const nowAssignee = threadAssignee(rows);
+      if (beforeAssignee !== nowAssignee) {
+        events.push({
+          event: 'thread.assigned',
+          data: { artifactId, threadId, assignedTo: nowAssignee, comments: rows }
+        });
+      }
     }
   }
   return events;
@@ -72,6 +107,7 @@ function diff(artifactId, previous, comments) {
 /**
  * @param {{
  *   adapter: import('./types').CommentsAdapter,
+ *   tenant: string,
  *   pollMs?: number,
  *   setIntervalImpl?: (fn: () => void, ms: number) => any,
  *   clearIntervalImpl?: (timer: any) => void
@@ -80,6 +116,7 @@ function diff(artifactId, previous, comments) {
  */
 export function createReviewEvents({
   adapter,
+  tenant,
   pollMs = 2000,
   setIntervalImpl = setInterval,
   clearIntervalImpl = clearInterval
@@ -112,7 +149,7 @@ export function createReviewEvents({
       /** @type {ReviewComment[]} */
       let comments;
       try {
-        comments = await adapter.list(artifactId);
+        comments = await adapter.list(tenant, { kind: 'artifact', id: artifactId });
       } catch (error) {
         const failure = asReviewError(error);
         dispatch(watcher, {

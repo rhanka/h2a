@@ -1,10 +1,11 @@
-// Anchors live inside the existing `sectionKey` field (DS review kit r3 §2):
-//   sectionKey = "a1:" + base64url(JSON.stringify(payload))
+// Anchors live inside the existing `sectionKey` field (DS review kit r6 §2):
+//   sectionKey = "a1:" + base64url(utf8(JSON.stringify(payload)))
 //   text:    { t:"text", q:{exact,prefix,suffix}, pos?, sel?, aid?, v }
 //   element: { t:"element", sel, aid?, v }
 //   region:  { t:"region", rect, v }
 // The server never rewrites an anchor; it decodes one only to validate it and to hand the decoded form to
-// the owning agent in the h2a send payload (r3 §4). The 2048-character cap is owner decision D3.
+// the owning agent in the h2a send payload (r6 §4). The 2048-character cap is owner decision D3 (code
+// `section_key_too_long`, maxLength 2048).
 
 export const ANCHOR_PREFIX = 'a1:';
 export const SECTION_KEY_MAX = 2048;
@@ -24,7 +25,7 @@ export function encodeAnchor(payload) {
  * Validate and decode a `sectionKey` anchor. Returns a result object instead of throwing: callers decide
  * whether a bad anchor is a 400 (a write) or a reason to send `anchor: null` (an already stored row).
  * @param {unknown} sectionKey
- * @returns {{ ok: true, anchor: Record<string, unknown> } | { ok: false, code: string, message: string }}
+ * @returns {{ ok: true, anchor: Record<string, unknown> } | { ok: false, code: string, message: string, details?: Record<string, unknown> }}
  */
 export function decodeAnchor(sectionKey) {
   if (typeof sectionKey !== 'string' || sectionKey.length === 0) {
@@ -33,8 +34,9 @@ export function decodeAnchor(sectionKey) {
   if (sectionKey.length > SECTION_KEY_MAX) {
     return {
       ok: false,
-      code: 'anchor_too_long',
-      message: `sectionKey is ${sectionKey.length} characters; the cap is ${SECTION_KEY_MAX} (decision D3). Shorten the quote context.`
+      code: 'section_key_too_long',
+      message: `sectionKey is ${sectionKey.length} characters; the cap is ${SECTION_KEY_MAX} (decision D3). Shorten the quote context.`,
+      details: { maxLength: SECTION_KEY_MAX }
     };
   }
   if (!sectionKey.startsWith(ANCHOR_PREFIX)) {
