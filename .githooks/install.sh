@@ -5,9 +5,11 @@
 #
 #   bash .githooks/install.sh                        # this repo (worktree-safe <git-common-dir>/hooks)
 #   bash .githooks/install.sh --local --mode strip   # strip trailers in-place instead of rejecting
-#   bash .githooks/install.sh --global               # every repo without a local core.hooksPath
+#   bash .githooks/install.sh --global               # every repo without a local core.hooksPath (chains repo hooks)
+#   bash .githooks/install.sh --cli-guards           # harden Codex, Muse, and Mistral Vibe configs + rules (with backups)
 #   bash .githooks/install.sh --agent-rules          # write rule block to all 5 CLI instruction files
-#   bash .githooks/install.sh --check [repo...]      # read-only verification
+#   bash .githooks/install.sh --check [repo...]      # read-only repo verification
+#   bash .githooks/install.sh --check-cli            # read-only CLI + global git verification
 set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 installer="$dir/../packages/h2a/scripts/install-trailer-guard.mjs"
