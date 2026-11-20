@@ -15,7 +15,8 @@ import { createUiRenderValidator, type UiRenderValidator } from "./validation.js
 import {
   createUiRenderResources,
   type CreateUiRenderResourcesOptions,
-  type UiRenderResources
+  type UiRenderResources,
+  type UiRenderResourceMode
 } from "./resources.js";
 import {
   createUiRenderTools,
@@ -45,6 +46,14 @@ export interface CreateUiRenderModuleOptions {
    * frame ceiling minus 16 KiB until L3.5 fixes it from host measurement.
    */
   readonly inlineLimitBytes?: number;
+  /**
+   * The resource serving mode (`auto` by default: `cdn-sri` once the SRI
+   * index carries a published version); `H2A_UI_RENDER_OFFLINE=1` forces
+   * the offline inline behaviour whatever the mode.
+   */
+  readonly mode?: UiRenderResourceMode;
+  /** A staged CDN version while `sri.version` is still `"0.0.0"`. */
+  readonly cdnVersionOverride?: string;
 }
 
 /** The composed ui:// render module served behind the MCP transports. */
@@ -64,8 +73,12 @@ export function createUiRenderModule(
 ): UiRenderModule {
   const assets = options?.assets ?? loadUiRenderAssetsSync();
   const validator = createUiRenderValidator({ assets });
-  const resourceOptions: CreateUiRenderResourcesOptions =
-    options?.env !== undefined ? { assets, env: options.env } : { assets };
+  const resourceOptions: CreateUiRenderResourcesOptions = {
+    assets,
+    ...(options?.env !== undefined ? { env: options.env } : {}),
+    ...(options?.mode !== undefined ? { mode: options.mode } : {}),
+    ...(options?.cdnVersionOverride !== undefined ? { cdnVersionOverride: options.cdnVersionOverride } : {})
+  };
   return {
     assets,
     validator,

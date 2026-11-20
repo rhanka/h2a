@@ -1,12 +1,13 @@
 {
   "format": "sentropic.ui-render-offline-measurement/v1",
-  "lot": "L3.5",
-  "note": "Offline AC-L3 measurement of the vendored DS L2 build (cc29be88). The Playwright sandbox run and every reference-host capture (Claude Desktop, VS Code, ChatGPT, Claude Code) still need real hosts and stay open.",
+  "lot": "CDN-3",
+  "note": "CDN-3 measurement of the @sentropic/design-system-elements 0.1.0 snapshot: render/v1 and BpmnCanvas/v1 serve the ~264 KiB cdn-sri shell (verified core + SRI importmap, degraded false); BarChart/DecisionDossier stay 100% inline; completeRawBytes records the retained offline bundles (H2A_UI_RENDER_OFFLINE=1). The Playwright sandbox run and every reference-host capture (Claude Desktop, VS Code, ChatGPT, Claude Code) still need real hosts and stay open.",
   "vendored": {
-    "sourceCommit": "cc29be88",
+    "sourceCommit": "cc29be886b543ffa29592afbc6b4482c104b1fb4",
+    "packageVersion": "0.1.0",
     "catalogSha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c",
     "envelopeSha256": "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e",
-    "sriSha256": "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b"
+    "sriSha256": "0979a58b9c10fc9d02189ac20d43f070a645e897e5966b5b4ddfcf93b2bc9193"
   },
   "budgets": {
     "dsRaw": 2097152,
@@ -17,15 +18,15 @@
   "resources": [
     {
       "uri": "ui://sentropic/render/v1",
-      "role": "combined-pilot-shell",
-      "rawBytes": 581,
-      "gzipBytes": 418,
+      "role": "combined-cdn-shell",
+      "rawBytes": 271564,
+      "gzipBytes": 64326,
       "withinBudgets": true,
-      "completeRawBytes": 1285795,
-      "completeGzipBytes": 331286,
-      "degraded": true,
-      "rawSha256": "5bc08eacc6e2a577490b1db2f454f93f7708fcc8d6a22082e43147032cad6697",
-      "completeSha256": "a6e9cd3dada620cdef5881371af7caea560651203c9a3b403170e634e12ebb78"
+      "completeRawBytes": 1297642,
+      "completeGzipBytes": 334439,
+      "degraded": false,
+      "rawSha256": "35ac35731851f788c38ede4a016079e96a495e11728c9f4145d6d3f8ee2765eb",
+      "completeSha256": "becdd63a84d1525325665c1fe54494660a5fdd280b2d647090643008b157bcd2"
     },
     {
       "uri": "a2ui://sentropic/catalog/v1",
@@ -42,41 +43,41 @@
     {
       "uri": "ui://sentropic/BarChart/v1",
       "role": "per-component-shell",
-      "rawBytes": 484130,
-      "gzipBytes": 87399,
+      "rawBytes": 493722,
+      "gzipBytes": 89619,
       "withinBudgets": true,
-      "completeRawBytes": 484130,
-      "completeGzipBytes": 87399,
+      "completeRawBytes": 493722,
+      "completeGzipBytes": 89619,
       "degraded": false,
-      "rawSha256": "017fb65bb8c4e21dcb14776ab487dbec94591495440cbcf8458fa62d04ca23cb",
-      "completeSha256": "017fb65bb8c4e21dcb14776ab487dbec94591495440cbcf8458fa62d04ca23cb"
+      "rawSha256": "0081baf21d62f5065fad4e2aa8c8c4c01208341ce69905f3bfb84998d218eb74",
+      "completeSha256": "0081baf21d62f5065fad4e2aa8c8c4c01208341ce69905f3bfb84998d218eb74"
     },
     {
       "uri": "ui://sentropic/BpmnCanvas/v1",
-      "role": "per-component-shell",
-      "rawBytes": 565,
-      "gzipBytes": 412,
+      "role": "per-component-cdn-shell",
+      "rawBytes": 271564,
+      "gzipBytes": 64326,
       "withinBudgets": true,
-      "completeRawBytes": 1232053,
-      "completeGzipBytes": 311259,
-      "degraded": true,
-      "rawSha256": "c8c0fdef5fb74701b49d6810c876b68763afb59b5a7a6a0d0878b21f692af597",
-      "completeSha256": "fcdd84d7528c103990996f2bfd697279a23c0d97378fabfd8c543ebdb76c7ed2"
+      "completeRawBytes": 1241645,
+      "completeGzipBytes": 313470,
+      "degraded": false,
+      "rawSha256": "35ac35731851f788c38ede4a016079e96a495e11728c9f4145d6d3f8ee2765eb",
+      "completeSha256": "8079980a34fc26b5769d9e47539581928baa493bf444c674f78f7d14397e8869"
     },
     {
       "uri": "ui://sentropic/DecisionDossier/v1",
       "role": "per-component-shell",
-      "rawBytes": 537619,
-      "gzipBytes": 107344,
+      "rawBytes": 549443,
+      "gzipBytes": 110515,
       "withinBudgets": true,
-      "completeRawBytes": 537619,
-      "completeGzipBytes": 107344,
+      "completeRawBytes": 549443,
+      "completeGzipBytes": 110515,
       "degraded": false,
-      "rawSha256": "9214be03eb6dff898c42bd84ba216a1a84b7c0b0c00da1b80c319bdeedc96784",
-      "completeSha256": "9214be03eb6dff898c42bd84ba216a1a84b7c0b0c00da1b80c319bdeedc96784"
+      "rawSha256": "da8e72ad94e9324752eca48e9f988c9b8bd186b68930608077f5363789b0c957",
+      "completeSha256": "da8e72ad94e9324752eca48e9f988c9b8bd186b68930608077f5363789b0c957"
     }
   ],
-  "coreBarChartGzip": 87399,
+  "coreBarChartGzip": 89619,
   "zeroExternalRequests": {
     "method": "static-html-verification (core/BarChart, h2a spec §10.2 item 1)",
     "scriptSrc": 0,
@@ -84,16 +85,16 @@
     "networkCallSites": 0,
     "jsdelivrOnlyInHostConfig": true,
     "dynamicImportSites": 0,
-    "dynamicImportNote": "Each complete entry bundles its transitive static and dynamic imports, including both theme chunks; modulePreload is disabled. Sandboxed DOM-free linking covers all four complete entries. Combined and BPMN resources explicitly degrade above 960 KiB; no chunk is truncated."
+    "dynamicImportNote": "Each complete inline entry bundles its transitive static and dynamic imports, including both theme closures; modulePreload is disabled. The cdn-sri shells inline only the verified core and address lazy engine/theme chunks by pinned jsDelivr URL with sha384 SRI. Combined and BPMN complete bundles exceed 960 KiB inline and stay available offline via H2A_UI_RENDER_OFFLINE=1 with a raised inline ceiling; nothing is truncated."
   },
   "inlineThreshold": {
     "inlineLimitBytes": 1032192,
-    "decision": "Envelope echo threshold unchanged; resources/read independently enforces 960 KiB on complete HTML. Combined resource directs to per-component tools; BPMN also exceeds the cap and explicitly requires non-UI text fallback. Host caps remain U-1."
+    "decision": "Envelope echo threshold unchanged; resources/read enforces the inline ceiling per mode (default 960 KiB). In cdn-sri mode every served resource fits; in forced-offline mode the combined resource directs to per-component tools and BPMN requires the non-UI text fallback unless the ceiling is raised to the DS 2 MiB budget. Host caps remain U-1."
   },
   "open": [
     "U-1: Playwright offline sandbox run and per-host resources/read caps (Claude Desktop, VS Code) — threshold to fix from host measurement",
     "U-5: Claude Code non-negotiated fallback transcript capture",
-    "U-12/U-16: pilot jsDelivr asset loading for BpmnCanvas and effective host CSP",
+    "U-12/U-16: jsDelivr asset loading for BpmnCanvas and effective host CSP (Claude Desktop + VS Code csp-report captures)",
     "U-13: ChatGPT SEP-1865 conformance report",
     "U-20: cluster-mesh MCP registration record under s-conductor (registry path PR #354 not on main)"
   ],

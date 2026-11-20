@@ -143,8 +143,14 @@ export {
 export {
   A2UI_CATALOG_RESOURCE_URI,
   UI_RENDER_RESOURCE_URI,
+  assertCdnSriVersion,
+  buildCdnShellHtml,
+  cdnBaseForVersion,
   createUiRenderResources,
+  resolveUiRenderMode,
   type CreateUiRenderResourcesOptions,
+  type ResolvedUiRenderResourceMode,
+  type UiRenderResourceMode,
   type UiRenderResources
 } from "./ui-render/resources.js";
 

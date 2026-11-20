@@ -1,12 +1,12 @@
 {
   "sourceCommit": "cc29be886b543ffa29592afbc6b4482c104b1fb4",
-  "sourceManifestSha256": "67abca02ccbf00d2a3aac7ce6fea0fdcb629895fe0b969a36fa7579964fd5458",
+  "sourceManifestSha256": "d9acc05513be84a27568f842b39ddf7bdb838c6306abab62e5fd1474716835ab",
   "bundler": "esbuild@0.27.7",
   "modulePreload": false,
   "files": {
     "render.js": {
-      "sha256": "8db6f4d55c6b14e3e97d0a28dc1520b740bf23acfcfe034687cf34c8ce4177c8",
-      "rawBytes": 1276251,
+      "sha256": "d2ffb6b6ef9fa1c40e79c11ea1ee2afb15f8fdb0780e6b36603350daee39d297",
+      "rawBytes": 1278506,
       "inputs": [
         "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js",
         "dist/browser/chunks/BpmnUpdater-C-UNbzXl.js",
@@ -20,7 +20,7 @@
         "dist/browser/chunks/dist-Co2MgHWm.js",
         "dist/browser/chunks/dist-kvAYI1vo.js",
         "dist/browser/chunks/entropic-CM5BHERN.js",
-        "dist/browser/chunks/focus-renderer-C4z8aS9F.js",
+        "dist/browser/chunks/focus-renderer-BgsZGo7n.js",
         "dist/browser/chunks/forge-B8hrW4lA.js",
         "dist/browser/chunks/layout-q0TR9-aY.js",
         "dist/browser/chunks/legend-CXdfCBh6.js",
@@ -30,7 +30,7 @@
       ]
     },
     "BarChart.js": {
-      "sha256": "ff52499ca161aaa8ed3070593ba3937ee92bccf3e752d5262f17a67e676b34f7",
+      "sha256": "dc1ca2bc4151972b9b39b7f84529e0862893c8fcd62e1676d7060be192ccf89a",
       "rawBytes": 474586,
       "inputs": [
         "dist/browser/chunks/entropic-CM5BHERN.js",
@@ -39,7 +39,7 @@
       ]
     },
     "BpmnCanvas.js": {
-      "sha256": "c3c5519e966032466a2fce65b1c7fffb753e60e8c851f2f3f410c4158e5133d8",
+      "sha256": "d9d9bb7c3bfc1878f85103a8302edd3fdb4eee89c1e723f86aec17fda2100557",
       "rawBytes": 1222509,
       "inputs": [
         "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js",
@@ -63,11 +63,11 @@
       ]
     },
     "DecisionDossier.js": {
-      "sha256": "32ebf08a416538f5d4dd91a571fd57e6c7b0af9985cff250b216ec085a9f8388",
-      "rawBytes": 528075,
+      "sha256": "f0932f16e26a91207431a69086acc68346a01935bf594b8f06e0be6952c75387",
+      "rawBytes": 530307,
       "inputs": [
         "dist/browser/chunks/entropic-CM5BHERN.js",
-        "dist/browser/chunks/focus-renderer-C4z8aS9F.js",
+        "dist/browser/chunks/focus-renderer-BgsZGo7n.js",
         "dist/browser/chunks/forge-B8hrW4lA.js",
         "dist/browser/elements.js"
       ]
