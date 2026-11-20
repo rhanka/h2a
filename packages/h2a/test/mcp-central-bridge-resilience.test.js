@@ -20,6 +20,87 @@ const SHIM_SCRIPT = fileURLToPath(new URL("../scripts/h2a-bridge-shim.mjs", impo
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function createManualClock(startMs = Date.now()) {
+  let currentMs = startMs;
+  let nextId = 1;
+  const intervals = new Map();
+  return {
+    now: () => currentMs,
+    setInterval(fn, ms) {
+      const period = Math.max(1, Number(ms) || 1);
+      const id = nextId++;
+      intervals.set(id, { fn, period, nextAt: currentMs + period });
+      return { id, unref() {} };
+    },
+    clearInterval(handle) {
+      if (handle && typeof handle === "object" && "id" in handle) {
+        intervals.delete(handle.id);
+      }
+    },
+    async advance(deltaMs) {
+      const target = currentMs + deltaMs;
+      while (true) {
+        let earliest = null;
+        for (const entry of intervals.values()) {
+          if (entry.nextAt <= target && (!earliest || entry.nextAt < earliest.nextAt)) {
+            earliest = entry;
+          }
+        }
+        if (!earliest) break;
+        currentMs = earliest.nextAt;
+        earliest.nextAt += earliest.period;
+        earliest.fn();
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      currentMs = target;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+}
+
+async function waitForCentralStatus(
+  runtimeBase,
+  predicate,
+  { timeoutMs = 20_000, pollMs = 50, describe = "central status", assertAlive } = {}
+) {
+  const deadline = Date.now() + timeoutMs;
+  let last;
+  while (Date.now() < deadline) {
+    assertAlive?.();
+    last = await centralOperator("status", { runtimeBase });
+    if (predicate(last)) return last;
+    await delay(pollMs);
+  }
+  assertAlive?.();
+  throw new Error(`timeout waiting for ${describe} (last=${JSON.stringify(last)})`);
+}
+
+async function advanceClockUntilClosed(
+  clock,
+  closedPromise,
+  { stepMs = 500, maxVirtualMs = 16_000, realTimeoutMs = 15_000 } = {}
+) {
+  let isClosed = false;
+  closedPromise.then(() => { isClosed = true; });
+  const deadline = Date.now() + realTimeoutMs;
+  let advanced = 0;
+  while (!isClosed && advanced < maxVirtualMs && Date.now() < deadline) {
+    await clock.advance(stepMs);
+    advanced += stepMs;
+    if (isClosed) return;
+    await Promise.race([closedPromise, delay(25)]);
+  }
+  if (!isClosed) {
+    const remainingMs = Math.min(5_000, Math.max(0, deadline - Date.now()));
+    await Promise.race([
+      closedPromise,
+      delay(remainingMs).then(() => {
+        throw new Error(`central did not idle-exit after advancing ${advanced}ms virtual time`);
+      })
+    ]);
+  }
+}
+
 function streams() {
   let stdout = "";
   let stderr = "";
@@ -159,9 +240,27 @@ function spawnBridge(iso, sessionId, extraEnv = {}) {
   let stderr = "";
   child.stderr.on("data", (chunk) => { stderr += String(chunk); });
   const frames = [];
+  const pending = new Map();
+  const rejectPendingOnExit = () => {
+    for (const [id, entry] of pending) {
+      pending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(new Error(`bridge exited (${child.exitCode ?? child.signalCode}) waiting for ${entry.method}: ${stderr}`));
+    }
+  };
+  child.once("exit", rejectPendingOnExit);
   const rl = createInterface({ input: child.stdout });
   rl.on("line", (line) => {
-    try { frames.push(JSON.parse(line)); } catch { /* ignore non-JSON diagnostic */ }
+    try {
+      const frame = JSON.parse(line);
+      frames.push(frame);
+      if (frame && frame.id !== undefined && pending.has(frame.id)) {
+        const entry = pending.get(frame.id);
+        pending.delete(frame.id);
+        clearTimeout(entry.timer);
+        entry.resolve(frame);
+      }
+    } catch { /* ignore non-JSON diagnostic */ }
   });
   let nextId = 0;
   return {
@@ -171,25 +270,27 @@ function spawnBridge(iso, sessionId, extraEnv = {}) {
     notify(method, params) {
       child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, ...(params !== undefined ? { params } : {}) })}\n`);
     },
-    async call(method, params, timeoutMs = 10_000) {
-      const id = ++nextId;
-      child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) })}\n`);
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const found = frames.find((f) => f.id === id);
-        if (found) return found;
-        if (child.exitCode !== null) {
-          throw new Error(`bridge exited (${child.exitCode}) waiting for ${method}: ${stderr}`);
-        }
-        await delay(25);
+    call(method, params, timeoutMs = 25_000) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return Promise.reject(new Error(`bridge exited (${child.exitCode ?? child.signalCode}) before ${method}: ${stderr}`));
       }
-      throw new Error(`timeout waiting for ${method} (id=${id}), exit=${child.exitCode}, stderr=${stderr}`);
+      const id = ++nextId;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`timeout waiting for ${method} (id=${id}), exit=${child.exitCode}, stderr=${stderr}`));
+        }, timeoutMs);
+        timer.unref?.();
+        pending.set(id, { method, resolve, reject, timer });
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) })}\n`);
+      });
     },
-    async waitIdentityReady(timeoutMs = 15_000) {
+    async waitIdentityReady(timeoutMs = 30_000) {
       const deadline = Date.now() + timeoutMs;
       let last;
       while (Date.now() < deadline) {
-        const res = await this.call("tools/call", { name: "h2a_identity_status", arguments: {} }, 5_000);
+        const remainingMs = Math.max(1_000, deadline - Date.now());
+        const res = await this.call("tools/call", { name: "h2a_identity_status", arguments: {} }, remainingMs);
         if (!res.error) {
           last = JSON.parse(res.result.content[0].text);
           if (last.state === "identity_ready") return last;
@@ -197,15 +298,26 @@ function spawnBridge(iso, sessionId, extraEnv = {}) {
             throw new Error(`identity_failed: ${JSON.stringify(last)}`);
           }
         }
-        await delay(150);
+        if (Date.now() >= deadline) break;
+        await delay(100);
       }
       throw new Error(`identity never became ready (last=${JSON.stringify(last)}, stderr=${stderr})`);
     },
     async close() {
       rl.close();
       if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGTERM");
-        await new Promise((resolve) => child.once("exit", resolve));
+        const exited = new Promise((resolve) => child.once("exit", resolve));
+        // Close stdin first so shim-bridge exits cleanly and sends DELETE to central
+        // without racing runCentralShim's 750ms SIGTERM force-exit timer.
+        try { child.stdin.end(); } catch { /* ignore */ }
+        const graceful = await Promise.race([
+          exited.then(() => true),
+          delay(5_000).then(() => false)
+        ]);
+        if (!graceful && child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGTERM");
+          await exited;
+        }
       }
     }
   };
@@ -366,7 +478,7 @@ test("registry-bridge serve --auto-open auto-starts an absent central while stil
   }
 });
 
-test("connected registry-bridge keeps central alive past idleTimeoutMs even while host is idle", { timeout: 30_000 }, async () => {
+test("connected registry-bridge keeps central alive past idleTimeoutMs even while host is idle", { timeout: 60_000 }, async () => {
   const iso = createIsolatedEnv();
   let central;
   let bridge;
@@ -379,13 +491,15 @@ test("connected registry-bridge keeps central alive past idleTimeoutMs even whil
       provisionBridgeLock({ lockPath: defaultPluginBridgeLockPath("claude", "default"), host: "claude", profile: "default" });
     });
 
+    const clock = createManualClock();
     central = await startCentralMcpServer({
       root: iso.root,
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
       idleTimeoutMs: 2_500,
-      sessionLeaseMs: 8_000
+      sessionLeaseMs: 8_000,
+      clock
     });
     assert.equal(central.kind, "started");
     let centralClosed = false;
@@ -402,21 +516,38 @@ test("connected registry-bridge keeps central alive past idleTimeoutMs even whil
     const tools = await bridge.call("tools/list", {});
     assert.ok(tools.result.tools.length > 0);
 
+    await waitForCentralStatus(
+      iso.xdgRuntime,
+      (s) => s.running === true && s.attachments === 1,
+      {
+        timeoutMs: 20_000,
+        describe: "initial bridge attachment on central",
+        assertAlive: () => {
+          assert.equal(centralClosed, false, "central closed before bridge attached");
+          assert.equal(bridge.child.exitCode, null, `bridge exited unexpectedly: ${bridge.getStderr()}`);
+        }
+      }
+    );
+
     // Stay completely idle for > idleTimeoutMs (2500ms) with zero tool calls
-    await delay(3_800);
+    await clock.advance(3_800);
+    await Promise.race([central.closed, delay(50)]);
     assert.equal(centralClosed, false, "connected bridge must keep central alive past idleTimeoutMs");
     assert.equal(bridge.child.exitCode, null, "bridge stdio must remain open");
     assert.doesNotMatch(bridge.getStderr(), /drive-consent\.full-verification/, "bridge stderr must stay free of throwaway consent-verification spam");
 
-    const status = await centralOperator("status", { runtimeBase: iso.xdgRuntime });
+    const status = await waitForCentralStatus(
+      iso.xdgRuntime,
+      (s) => s.running === true && s.attachments === 1,
+      { timeoutMs: 15_000, describe: "central alive after idle window" }
+    );
     assert.equal(status.running, true);
     assert.equal(status.attachments, 1);
 
     // Once the last bridge disconnects, central must idle-exit cleanly
     await bridge.close();
     bridge = undefined;
-    const deadline = Date.now() + 8_000;
-    while (!centralClosed && Date.now() < deadline) await delay(50);
+    await advanceClockUntilClosed(clock, central.closed);
     assert.equal(centralClosed, true, "central should idle-exit once all bridges disconnect");
     central = undefined;
   } finally {
@@ -426,7 +557,7 @@ test("connected registry-bridge keeps central alive past idleTimeoutMs even whil
   }
 });
 
-test("connected registry-bridge transparently survives central restart on a new port and generation", { timeout: 35_000 }, async () => {
+test("connected registry-bridge transparently survives central restart on a new port and generation", { timeout: 60_000 }, async () => {
   const iso = createIsolatedEnv();
   let c1;
   let c2;
@@ -440,13 +571,15 @@ test("connected registry-bridge transparently survives central restart on a new 
       provisionBridgeLock({ lockPath: defaultPluginBridgeLockPath("claude", "default"), host: "claude", profile: "default" });
     });
 
+    const c1Clock = createManualClock();
     c1 = await startCentralMcpServer({
       root: iso.root,
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
       idleTimeoutMs: 2_500,
-      sessionLeaseMs: 8_000
+      sessionLeaseMs: 8_000,
+      clock: c1Clock
     });
     assert.equal(c1.kind, "started");
 
@@ -461,19 +594,21 @@ test("connected registry-bridge transparently survives central restart on a new 
     const before = await bridge.waitIdentityReady();
 
     // Stop C1 and bring up C2 on a NEW ephemeral port and NEW generation
-    await c1.stop();
     const c1Endpoint = c1.endpoint;
     const c1Gen = c1.generation;
+    await c1.stop();
     c1 = undefined;
     assert.equal(bridge.child.exitCode, null, "bridge stdio must stay open when central stops");
 
+    const c2Clock = createManualClock();
     c2 = await startCentralMcpServer({
       root: iso.root,
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
       idleTimeoutMs: 2_500,
-      sessionLeaseMs: 8_000
+      sessionLeaseMs: 8_000,
+      clock: c2Clock
     });
     assert.equal(c2.kind, "started");
     assert.notEqual(c2.generation, c1Gen, "C2 must have a new generation");
@@ -482,17 +617,44 @@ test("connected registry-bridge transparently survives central restart on a new 
     let c2Closed = false;
     c2.closed.then(() => { c2Closed = true; });
 
-    // Do NOT send any host tool calls yet: supervision alone must reconnect and keep C2 alive past idleTimeoutMs
-    await delay(3_800);
+    // Do NOT send any host tool calls yet: supervision alone must reconnect to C2 on its new port and generation
+    const reconnected = await waitForCentralStatus(
+      iso.xdgRuntime,
+      (s) => s.running === true && s.generation === c2.generation && s.attachments === 1,
+      {
+        timeoutMs: 25_000,
+        describe: `bridge supervision reconnect to C2 (${c2.generation})`,
+        assertAlive: () => {
+          assert.equal(bridge.child.exitCode, null, `same stdio session exited during central restart: ${bridge.getStderr()}`);
+          assert.equal(c2Closed, false, "C2 closed before bridge reconnected");
+        }
+      }
+    );
+    assert.equal(reconnected.attachments, 1);
+
+    // Still with zero host tool calls, advance C2's sweep clock past idleTimeoutMs (2500ms)
+    await c2Clock.advance(3_800);
+    await Promise.race([c2.closed, delay(50)]);
     assert.equal(bridge.child.exitCode, null, "same stdio session must stay open across central restart");
     assert.equal(c2Closed, false, "reconnected idle bridge must keep new central C2 alive past idleTimeoutMs");
 
     const after = await bridge.waitIdentityReady();
     assert.equal(after.instance, before.instance, "reconnected bridge must reclaim the exact same identity");
-    const status = await centralOperator("status", { runtimeBase: iso.xdgRuntime });
+    const status = await waitForCentralStatus(
+      iso.xdgRuntime,
+      (s) => s.running === true && s.generation === c2.generation && s.attachments === 1,
+      { timeoutMs: 15_000, describe: "C2 status after identity reclaim" }
+    );
     assert.equal(status.running, true);
     assert.equal(status.generation, c2.generation);
     assert.equal(status.attachments, 1);
+
+    // Prove C2's idleTimeoutMs is armed: disconnecting the reconnected bridge lets C2 idle-exit cleanly
+    await bridge.close();
+    bridge = undefined;
+    await advanceClockUntilClosed(c2Clock, c2.closed);
+    assert.equal(c2Closed, true, "C2 should idle-exit once the reconnected bridge disconnects");
+    c2 = undefined;
   } finally {
     await bridge?.close();
     await c2?.stop();
@@ -501,7 +663,7 @@ test("connected registry-bridge transparently survives central restart on a new 
   }
 });
 
-test("connected registry-bridge completes identity cleanly when central restarts before identity_ready landed", { timeout: 30_000 }, async () => {
+test("connected registry-bridge completes identity cleanly when central restarts before identity_ready landed", { timeout: 60_000 }, async () => {
   const iso = createIsolatedEnv();
   let c1;
   let c2;
@@ -515,13 +677,15 @@ test("connected registry-bridge completes identity cleanly when central restarts
       provisionBridgeLock({ lockPath: defaultPluginBridgeLockPath("claude", "default"), host: "claude", profile: "default" });
     });
 
+    const c1Clock = createManualClock();
     c1 = await startCentralMcpServer({
       root: iso.root,
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
-      idleTimeoutMs: 5_000,
-      sessionLeaseMs: 10_000
+      idleTimeoutMs: 2_500,
+      sessionLeaseMs: 8_000,
+      clock: c1Clock
     });
     assert.equal(c1.kind, "started");
 
@@ -534,19 +698,31 @@ test("connected registry-bridge completes identity cleanly when central restarts
     assert.ok(init.result);
     bridge.notify("notifications/initialized");
 
-    // Stop C1 immediately before identity_ready is observed by the bridge
-    await delay(100);
+    // Wait for C1 attachment, then stop C1 before identity_ready is observed by the bridge
+    await waitForCentralStatus(
+      iso.xdgRuntime,
+      (s) => s.running === true && s.generation === c1.generation && s.attachments === 1,
+      {
+        timeoutMs: 20_000,
+        describe: "initial C1 attachment before early restart",
+        assertAlive: () => {
+          assert.equal(bridge.child.exitCode, null, `bridge exited before early restart: ${bridge.getStderr()}`);
+        }
+      }
+    );
     await c1.stop();
     c1 = undefined;
     assert.equal(bridge.child.exitCode, null, "bridge stdio must stay open on early central restart");
 
+    const c2Clock = createManualClock();
     c2 = await startCentralMcpServer({
       root: iso.root,
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
       idleTimeoutMs: 5_000,
-      sessionLeaseMs: 10_000
+      sessionLeaseMs: 10_000,
+      clock: c2Clock
     });
     assert.equal(c2.kind, "started");
 
