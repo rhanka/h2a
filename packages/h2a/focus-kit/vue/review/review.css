@@ -1,0 +1,47 @@
+/* Local review kit (DS SPEC r3 §3) for the Vue Vapor components in focus-kit/vue/review.
+   Never colour alone: number, check mark, dot and screen-reader text carry the state. */
+.focus-review-layout { display: flex; align-items: flex-start; gap: 1rem; }
+.focus-review-layout > .st-review-layer { flex: 1 1 auto; min-width: 0; }
+.st-review-layer { position: relative; }
+.st-review-layer ::highlight(st-review) { background: var(--st-semantic-surface-subtle); text-decoration: underline; }
+.st-review-pin { position: absolute; z-index: 3; min-width: 24px; min-height: 24px; padding: .1rem .35rem;
+  border: 1px solid var(--st-semantic-border-strong); border-radius: 999px; background: var(--st-semantic-surface-raised);
+  color: var(--st-semantic-text-primary); font: 600 .75rem/1.2 system-ui, sans-serif; cursor: pointer; transform: translate(-50%, -50%); }
+.st-review-pin.active { outline: 2px solid var(--st-semantic-border-interactive); outline-offset: 2px; }
+.st-review-pin.resolved { opacity: .55; }
+.st-review-pin:focus-visible, .st-review-thread-row:focus-visible { outline: 2px solid var(--st-semantic-border-interactive); outline-offset: 2px; }
+.st-review-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.st-review-add, .st-review-composer-pop { position: absolute; z-index: 4; }
+.st-review-composer-pop { width: min(22rem, 90vw); background: var(--st-semantic-surface-raised);
+  border: 1px solid var(--st-semantic-border-subtle); border-radius: .5rem; padding: .75rem; }
+.st-review-composer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .5rem; }
+.st-review-hint, .st-review-status { color: var(--st-semantic-text-secondary); font-size: .875rem; }
+.st-review-error { color: var(--st-semantic-text-primary); background: var(--st-semantic-surface-subtle);
+  border: 1px solid var(--st-semantic-border-strong); border-radius: .25rem; padding: .4rem .6rem; }
+.st-review-panel { flex: 0 0 24rem; width: 24rem; max-width: 100%; border: 1px solid var(--st-semantic-border-subtle);
+  border-radius: .5rem; padding: .75rem; background: var(--st-semantic-surface-default); }
+.st-review-panel-head { display: flex; align-items: center; gap: .5rem; justify-content: space-between; }
+.st-review-panel-title { margin: 0; }
+.st-review-filters { display: flex; flex-wrap: wrap; gap: .25rem; margin: .5rem 0; }
+.st-review-thread-list, .st-review-comments, .st-review-orphans ol { list-style: none; margin: 0; padding: 0; }
+.st-review-thread-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; width: 100%; text-align: left;
+  font: inherit; color: inherit; background: transparent; border: 1px solid var(--st-semantic-border-subtle);
+  border-radius: .25rem; padding: .5rem; min-height: 44px; cursor: pointer; margin-bottom: .4rem; }
+.st-review-thread-row.active { border-color: var(--st-semantic-border-interactive); background: var(--st-semantic-surface-subtle); }
+.st-review-row-quote { overflow-wrap: anywhere; }
+.st-review-thread { border-top: 1px solid var(--st-semantic-border-subtle); margin-top: .75rem; padding-top: .75rem; }
+.st-review-thread-head { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.st-review-quote { margin: 0; font-style: italic; overflow-wrap: anywhere; }
+.st-review-comment { display: flex; gap: .5rem; margin: .6rem 0; }
+.st-review-comment-main { min-width: 0; }
+.st-review-comment-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: 0; font-size: .875rem; color: var(--st-semantic-text-secondary); }
+.st-review-comment-body { overflow-wrap: anywhere; }
+.st-review-thread-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
+@media (max-width: 48rem) {
+  .focus-review-layout { display: block; }
+  .st-review-panel { position: fixed; inset: auto 0 0 0; width: auto; max-height: 70vh; overflow: auto; z-index: 5;
+    border-radius: .5rem .5rem 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .st-review-pin, .st-review-thread-row { transition: none; }
+}
