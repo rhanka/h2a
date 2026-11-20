@@ -71,7 +71,12 @@ function buildSyntheticCloudCodePlanner(fetchFn: typeof fetch): RoutePlanner {
             ownerScopeRef: "cli:test-owner",
             targetProviderId: "gemini",
             transportProviderId: "cloud-code",
-            supportedModelIds: ["gemini-4-argon", "gemini-4-carbon"],
+            supportedModelIds: [
+              "gemini-4-neon",
+              "gemini-4-hydrogen",
+              "gemini-4-argon",
+              "gemini-4-carbon",
+            ],
             enrollmentCompletedAt: "2026-11-15T00:00:00.000Z",
             readiness: "ready" as const,
             revision: "r1",
@@ -249,7 +254,7 @@ describe("structured request logging and 429 preservation", () => {
         if (String(url).includes("fetchAvailableModels")) {
           return new Response(
             JSON.stringify({
-              models: { "gemini-4-argon-high": {} },
+              models: { "gemini-4-neon-medium": {}, "gemini-4-argon-high": {} },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
@@ -352,7 +357,7 @@ describe("structured request logging and 429 preservation", () => {
       method: "POST",
       requestedModel: "claude-opus-5-5",
       provider: "gemini",
-      model: "gemini-4-argon",
+      model: "gemini-4-neon",
       transport: "cloud-code",
       accountId: "acct_cloud_redacted",
       status: 429,

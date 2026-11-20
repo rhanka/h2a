@@ -657,4 +657,18 @@ describe("model rewrite effort carriers and config guards", () => {
     const fable = matchModelRewrite(ownerDirection, { ...claudeCodeBody("max"), model: "claude-fable-5-2" });
     expect(fable?.entry.target).toEqual({ model: "gemini-4-carbon", effort: "high" });
   });
+
+  it("validates 0.38.4 catalog rewrite targets (Neon xhigh, Hydrogen, GPT-6.2 Astra, GPT-6.1 Terra)", () => {
+    const rewrites0384: GatewayModelRewrite[] = [
+      { match: { model: "claude-opus-5-5", effort: "xhigh" }, target: { model: "gemini-4-neon-xhigh", effort: "xhigh" } },
+      { match: { model: "claude-sonnet-5-5", effort: "medium" }, target: { model: "gemini-4-hydrogen-medium", effort: "medium" } },
+      { match: { model: "claude-fable-5-2", effort: "max" }, target: { model: "gpt-6.2-astra", effort: "max" } },
+      { match: { model: "claude-haiku-5-5", effort: "low" }, target: { model: "gpt-6.1-terra", effort: "low" } },
+    ];
+    expect(validateModelRewrites(rewrites0384)).toEqual(rewrites0384);
+    expect(() => validateModelRewrites([{
+      match: { model: "claude-opus-5-5" },
+      target: { model: "gemini-4-neon-xhigh", effort: "high" },
+    }])).toThrow(/modelRewrites\[0\].*gemini-4-neon-xhigh.*contradicts/);
+  });
 });
