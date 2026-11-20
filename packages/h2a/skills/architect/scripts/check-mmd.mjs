@@ -261,12 +261,12 @@ async function check(o) {
   let text;
   try { text = readFileSync(file, "utf8"); } catch (e) { return { exit: 2, error: `cannot read ${o.file}: ${e.message}` }; }
   const cli = o.engram === "lib" ? undefined : detectCli();
-  if (o.engram === "cli" && !cli) return { exit: 3, error: "engram CLI with `archi check|fmt` not found on PATH" };
+  if (o.engram === "cli" && !cli) return { exit: 3, error: "engram CLI with `engram archi check` and `engram archi fmt` not found on PATH" };
   const lib = o.engram === "cli" ? { tried: ["not used (--engram cli)"] } : await loadLib(o.engramDist);
   if (!cli && !lib.m) return { exit: 3, error: `${INSTALL_HINT}\ntried: ${lib.tried.join("; ") || "nothing found"}` };
   const before = text;
   if (o.write) {
-    if (cli) runCli(["fmt", "--write", file]);
+    if (cli) runCli(["fmt", file, "--write"]);
     else { const f = lib.m.formatArchiMermaid(text, { subjectRef: o.file }); if (f.ok && f.value !== text) writeFileSync(file, f.value); }
     text = readFileSync(file, "utf8");
   }
@@ -276,7 +276,7 @@ async function check(o) {
   put("forbidden", forbiddenTokens(text, o.file));
   const parsed = lib.m?.parseArchiMermaid(text, { subjectRef: o.file });
   if (cli) {
-    const c = runCli(["check", "--json", file]);
+    const c = runCli(["check", file, "--json"]);
     let res;
     try { res = JSON.parse(c.stdout); } catch { return { exit: 2, error: `engram archi check gave no JSON (exit ${c.status}): ${(c.stderr ?? "").trim()}` }; }
     const diags = (res.diagnostics ?? []).filter((d) => d.code !== "archi-gap-forbidden");
@@ -284,8 +284,8 @@ async function check(o) {
     put("parse", diags.filter(strict));
     if (!diags.some(strict)) {
       put("semantic", diags.filter((d) => !strict(d)));
-      const f = runCli(["fmt", "--check", file]);
-      put("canonical", f.status === 0 ? [] : [own("architect-noncanonical", `engram archi fmt --check: ${(f.stdout + f.stderr).trim()}; run with --write`, "", o.file)]);
+      const f = runCli(["fmt", file, "--check"]);
+      put("canonical", f.status === 0 ? [] : [own("architect-noncanonical", `engram archi fmt ${o.file} --check: ${(f.stdout + f.stderr).trim()}; run with --write`, "", o.file)]);
     }
   } else {
     put("parse", parsed.ok ? [] : parsed.diagnostics);

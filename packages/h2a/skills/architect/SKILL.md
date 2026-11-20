@@ -11,7 +11,7 @@ and the design system can render.
 | Owner | Delivers |
 |---|---|
 | h2a (this skill) | facts with evidence → the `.mmd` → a green check → hand-off |
-| engram | the format `engram.archi-mermaid/1`, the model, `engram archi check\|fmt`, ingestion |
+| engram | the format `engram.archi-mermaid/1`, the model, `engram archi check` and `engram archi fmt`, ingestion |
 | design system | layout, rendering, exports (SVG, draw.io, Svelte, Vue) |
 
 ## Workflow
@@ -167,7 +167,10 @@ governed pins), `semantic` (engram `checkArchi`), `profile` (relation matrix,
 required attributes, enums and lengths of the archi@1 declaration).
 Exit codes: 0 pass, 1 diagnostics, 2 usage or I/O error, 3 engram not available.
 
-It uses `engram archi check|fmt` when that CLI is on `PATH`, and the
+It uses `engram archi check <f.mmd> [--json] [--allow-gap]` and
+`engram archi fmt <f.mmd> [--write|--check]` when that CLI is on `PATH`
+(invoking `engram archi check <f.mmd> --json` without `--allow-gap`, and
+`engram archi fmt <f.mmd> --check` or `--write`), and the
 `@sentropic/engram` library for the other stages: `--engram-dist <dir>` or
 `ENGRAM_DIST`, else the copy installed with the h2a plugin, the current
 directory, or the global npm root. To build one from source:
