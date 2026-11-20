@@ -83,7 +83,7 @@
           "role": "manifest",
           "path": "registry/manifest.h2a.json",
           "mediaType": "application/json",
-          "sha256": "c317594fe30762c99a961cc6419726e4d43f1822b8a01630991d69f6bd516cf8"
+          "sha256": "955c4db242c173f980e4a6afa0e779e4e0df7e2cc8ae9f10b830a37ed57fe5df"
         }
       ],
       "mcp": {
@@ -165,7 +165,9 @@
               "h2a_loop_stop",
               "h2a_loop_list",
               "h2a_loop_status",
-              "h2a_run"
+              "h2a_run",
+              "h2a_focus_build",
+              "h2a_focus_template"
             ],
             "resources": [],
             "prompts": [],

@@ -141,6 +141,8 @@ When invoked, parse the arguments and dispatch to the matching subcommand below.
 /h2a receive                   → read this agent's inbox and react to new envelopes
 /h2a negotiate <verb> ...      → drive a negotiation lifecycle (open|offer|sign|stabilize)
 /h2a loop <verb> ...           → create/join/report/done/stop an objective loop (multi-agent relay)
+/h2a focus template [kind]     → fetch Focus decision dossier template JSON(s) via MCP (`h2a_focus_template`)
+/h2a focus build <in> <out>    → validate and build a portable Focus HTML dossier via MCP (`h2a_focus_build`)
 /h2a model "<situation>"       → propose a tailored h2a model for an org/situation
 /h2a disconnect                → cleanly close the current session
 /h2a help                      → print this command map
@@ -358,6 +360,16 @@ target in a loop that wakes it. A loop controller is not a reminder timer: its r
 5. A missing/dead agent is auto-launched only when its persisted `launch` spec is complete. `gateway:"required"` is Claude-only (Codex `auto` is effective `direct`). Wake and launch share one durable cooldown/maxRelaunches budget; human deferrals consume neither.
 6. Treat `stopped` as terminal. Do not restart or close a stopped loop unless the user explicitly creates a new loop.
 7. Print the loop id and the next concrete command/tool call for the peer.
+
+### `/h2a focus template [dossier|evidence|all]` & `/h2a focus build <dossier.json> <dossier.html>`
+
+Produce portable offline Focus owner decision dossiers **through the h2a MCP tools** — never by invoking `h2a focus build` or `h2a focus template` from Bash (the plugin hook `deny-manual-h2a-cli.mjs` blocks manual `h2a` CLI calls by design).
+
+- **Fetch templates:** call `h2a_focus_template` with `{ kind: "dossier" }` (v1 `dossier.schema.json`), `{ kind: "evidence" }` (v2 embedded-evidence `dossier.v2.schema.json`), or `{}` / `{ kind: "all" }` for both shipped focus-kit templates.
+- **Build portable HTML:** write the edited `DecisionDossierDocument` JSON inside the workspace, then call `h2a_focus_build` with `{ input: "<abs-workspace-path>/dossier.json", output: "<abs-workspace-path>/dossier.html" }`.
+  - Runs the same in-process focus-kit validator, diagram renderer and atomic publisher as `h2a focus build`.
+  - **Path policy:** both `input` and `output` must be absolute paths inside the MCP startup workspace (`/tmp` and OS temp directories are refused; symlinks escaping the workspace are refused; `output` must end with `.html`, must differ from `input`, and never overwrites a non-`.html` file or symlink).
+  - **Output:** returns `{ ok: true, output, bytes, warnings }` on success, or `{ ok: false, error, refusals }` carrying every builder refusal message verbatim; fix every refusal before presenting the dossier.
 
 ### `/h2a model "<situation>"`
 

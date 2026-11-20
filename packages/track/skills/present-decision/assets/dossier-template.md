@@ -1,8 +1,8 @@
 # Decision <subject> — <decision object>
 
 Default delivery: Focus design-system portable HTML, never a claude.ai artifact.
-Create `dossier.json` with `h2a focus template -o dossier.json`; replace every example, then
-run `h2a focus build dossier.json -o dossier.html`. Include a relevant ecosystem diagram
+Fetch the template via MCP `h2a_focus_template` (`dossier` or `evidence`), write `dossier.json` in the workspace replacing every example, then
+call MCP `h2a_focus_build` (`{ input, output }`) to produce `dossier.html`. Include a relevant ecosystem diagram
 (`ecosystem:overview`, `ecosystem:models`, `ecosystem:knowledge`, `ecosystem:interfaces`).
 Use the following as the content checklist for the document sections, not an alternative renderer.
 
