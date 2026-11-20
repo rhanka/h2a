@@ -1,5 +1,6 @@
 import { a as resolveTarget, i as repoRoot } from "../../../../chunks/h2a-bus.js";
 import { a as loadAgentMemoryMatrix, i as loadAgentMemoryDossier } from "../../../../chunks/agent-memory-dossier.js";
+import { t as readArtifactReviewPageConfig } from "../../../../chunks/page-config.js";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 // src/lib/server/agent-memory-answers.ts
@@ -55,12 +56,13 @@ function loadAgentMemoryAnswerSet() {
 	return parseAnswerSet(raw, ANSWERS_PATH);
 }
 // src/routes/dossier/agent-memory/+page.server.ts
-var load = () => {
+var load = ({ url }) => {
 	const resolution = resolveTarget(repoRoot());
 	return {
 		dossier: loadAgentMemoryDossier(),
 		matrix: loadAgentMemoryMatrix(),
 		answerSet: loadAgentMemoryAnswerSet(),
+		artifactReview: readArtifactReviewPageConfig(process.env, url),
 		h2a: {
 			target: resolution.target ?? null,
 			targetRoot: resolution.targetRoot ?? null,

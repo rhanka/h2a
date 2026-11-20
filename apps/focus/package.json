@@ -29,8 +29,9 @@
   },
   "dependencies": {
     "@sentropic/comments": "0.3.1",
-    "@sentropic/design-system-svelte": "^0.34.40",
-    "@sentropic/design-system-themes": "^0.11.0",
+    "@sentropic/design-system-review-core": "0.1.0",
+    "@sentropic/design-system-svelte": "0.43.0",
+    "@sentropic/design-system-themes": "0.15.0",
     "@sentropic/track": "file:../../packages/track"
   }
 }

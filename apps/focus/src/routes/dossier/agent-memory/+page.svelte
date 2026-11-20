@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     Alert,
     AppShell,
@@ -13,8 +13,10 @@
     Stack,
     Table,
     Textarea,
-    Tile
+    Tile,
+    type ReviewMode
   } from '@sentropic/design-system-svelte';
+  import ArtifactReviewHost from '$lib/review/ArtifactReviewHost.svelte';
   import type { PageData } from './$types';
 
   import {
@@ -28,6 +30,8 @@
   let { data }: { data: PageData } = $props();
   const dossier = $derived(data.dossier);
   const matrix = $derived(data.matrix);
+  const artifactReview = $derived(data.artifactReview);
+  let reviewMode = $state<ReviewMode>(untrack(() => data.artifactReview.initialMode));
   /** Jeu de réponses commité, chargé côté serveur. `null` si le fichier n'est pas atteignable. */
   const answerSet = $derived(data.answerSet);
 
@@ -443,10 +447,17 @@
 
 <AppShell variant="workspace">
   {#snippet main()}
-    <Container size="md" padding>
-      <main class="dossier" aria-labelledby="dossier-title">
-        <Stack gap={4}>
-          <header>
+    <Container size={artifactReview.enabled && reviewMode === 'review' ? 'xl' : 'md'} padding>
+      <ArtifactReviewHost
+        artifactId="dossier:agent-memory"
+        artifactVersion={dossier.revision}
+        reviewConfig={artifactReview}
+        agentTarget={h2aTarget}
+        onModeChange={(next) => (reviewMode = next)}
+      >
+        <main class="dossier" aria-labelledby="dossier-title">
+          <Stack gap={4}>
+            <header data-anchor-id="dossier:header">
             <Stack gap={2}>
               <Flex align="center" justify="between" wrap gap={2}>
                 <Badge tone="info">Dossier décisionnel</Badge>
@@ -521,7 +532,7 @@
               <!-- Carte 1 : l'état de l'art. On lit le paysage AVANT de trancher — la mettre en bas de
                    page rendait le dossier illisible dans l'ordre où on le parcourt. Elle ne porte
                    volontairement aucune option, aucune note, aucun choix. -->
-              <section class="swipe-slide" aria-hidden={current !== 0} inert={current !== 0}>
+              <section class="swipe-slide" data-anchor-id="dossier:state-of-art" aria-hidden={current !== 0} inert={current !== 0}>
                 <Card>
                   <Stack gap={4}>
                     <Flex align="center" justify="between" wrap gap={2}>
@@ -530,7 +541,7 @@
                     </Flex>
 
                     <Stack gap={2}>
-                      <h2 id="matrix-title">Matrice de comparaison</h2>
+                      <h2 id="matrix-title" data-anchor-id="dossier:matrix">Matrice de comparaison</h2>
                       <p>
                         Dix-neuf approches du benchmark, comparées sur le stockage, la récupération, la
                         réconciliation, le mode d’écriture, le partage multi-CLI, l’auto-hébergement/RAM, la
@@ -558,7 +569,7 @@
                          sans le dire demande au lecteur de faire confiance à une version qu'il ne peut plus
                          comparer. Chaque entrée nomme ce qui était affirmé, ce qu'il en est, et la source. -->
                     {#if dossier.corrections?.length}
-                      <section aria-labelledby="corrections-title">
+                      <section aria-labelledby="corrections-title" data-anchor-id="dossier:corrections">
                         <Stack gap={2}>
                           <h2 id="corrections-title">
                             Corrections à la révision précédente ({dossier.corrections.length})
@@ -598,7 +609,7 @@
 
               {#each dossier.decisions as decision, index (decision.key)}
                 {@const slide = index + 1}
-                <section class="swipe-slide" aria-hidden={current !== slide} inert={current !== slide}>
+                <section class="swipe-slide" data-anchor-id={`decision:${decision.key}`} aria-hidden={current !== slide} inert={current !== slide}>
                   <Card>
                     <Stack gap={4}>
                       <Flex align="center" justify="between" wrap gap={2}>
@@ -616,10 +627,12 @@
                         <span>Décision {slide} sur {decisionsTotal}</span>
                       </Flex>
 
-                      <Stack gap={2}>
-                        <h2>{decision.question}</h2>
-                        <p>{decision.whyNow}</p>
-                      </Stack>
+                      <div data-anchor-id={`question:${decision.key}`} data-commentable>
+                        <Stack gap={2}>
+                          <h2>{decision.question}</h2>
+                          <p>{decision.whyNow}</p>
+                        </Stack>
+                      </div>
 
                       <!-- Une carte de la ronde 2 doit dire d'où elle vient : la réponse du propriétaire est
                            citée VERBATIM, dans ses mots, parce que c'est le raisonnement — la reformuler
@@ -650,6 +663,7 @@
                                    son clic/tap natif et son checkbox accessible du DS. -->
                               <div
                                 role="presentation"
+                                data-anchor-id={`option:${decision.key}:${option.key}`}
                                 onpointerdown={(event) => event.stopPropagation()}
                                 onpointerup={(event) => event.stopPropagation()}
                                 onpointercancel={(event) => event.stopPropagation()}
@@ -1095,7 +1109,8 @@
             </Stack>
           </section>
         </Stack>
-      </main>
+        </main>
+      </ArtifactReviewHost>
     </Container>
   {/snippet}
 </AppShell>
