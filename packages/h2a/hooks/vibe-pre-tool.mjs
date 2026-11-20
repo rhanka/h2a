@@ -1,7 +1,26 @@
 // Vibe pre_tool: explicit allow/deny JSON, status 0; the host fails open.
+// Self-contained (copied verbatim to ~/.vibe/.h2a-install/hooks/vibe-pre-tool.mjs).
 let raw = '';
 const allow = () => { process.stdout.write('{"decision":"allow"}'); process.exit(0); };
 const timer = setTimeout(allow, 4000);
+
+function hasForbiddenAttributionTrailer(command) {
+  const targetsGitOrPr = /(?:^|[;|&\n]\s*)(?:(?:env\s+(?:\w+=(?:"[^"]*"|'[^']*'|\S+)\s+)*)|command\s+|sudo\s+(?:-\w+\s+)*)*(?:git\b[^\n;|&]*\bcommit\b|gh\s+pr\s+(?:create|edit|merge)\b)/m.test(command);
+  if (!targetsGitOrPr) return false;
+  const expanded = command.replace(/\\n/g, '\n');
+  const rules = [
+    /^\s*co-authored-by\s*:/im,
+    /^\s*claude-session\s*:/im,
+    /^\s*generated-by\s*:.*\b(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\b/im,
+    /generated\s+with\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+    /claude\.com\/claude-code/i,
+    /claude\.ai\/code\/session_[a-z0-9_-]+/i,
+    /🤖/u,
+    /(?:["'`]|^|\n)\s*(?:co-authored-by|claude-session)\s*:/im
+  ];
+  return rules.some(re => re.test(expanded));
+}
+
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => { raw += chunk; if (raw.length > 1_048_576) allow(); });
 process.stdin.on('error', allow);
@@ -11,6 +30,11 @@ process.stdin.on('end', () => {
     const payload = JSON.parse(raw);
     const command = payload?.tool_input?.command;
     if (typeof command !== 'string') return allow();
+    if (hasForbiddenAttributionTrailer(command)) {
+      process.stderr.write('Forbidden AI attribution trailer in git commit / gh pr command refused.\n');
+      process.stdout.write(JSON.stringify({ decision: 'deny', reason: 'Remove Co-Authored-By / Claude-Session / Generated with attribution trailers before committing or creating a PR.' }));
+      return;
+    }
     // Quoted arguments stay single words. Separators inside an argument are
     // data, including the benign Node expression containing "|h2a send".
     const tokens = [];
