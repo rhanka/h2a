@@ -197,6 +197,12 @@ function sameHttpOrigin(origin: string | undefined, host: string): boolean {
   }
 }
 
+export interface CentralSweepClock {
+  now(): number;
+  setInterval(fn: () => void, ms: number): ReturnType<typeof setInterval>;
+  clearInterval(handle: ReturnType<typeof setInterval>): void;
+}
+
 function createCentralApp(
   root: string,
   store: () => ReturnType<typeof createLocalStore> | undefined,
@@ -204,8 +210,13 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; pendingHandshake?: () => boolean }
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; pendingHandshake?: () => boolean; clock?: CentralSweepClock }
 ): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
+  const clock: CentralSweepClock = options.clock ?? {
+    now: () => Date.now(),
+    setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: (handle) => clearInterval(handle)
+  };
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
@@ -254,9 +265,9 @@ function createCentralApp(
   // so lockstep dilation cannot outrun first contact. Production bounds are
   // far above the floor and keep their wall-clock meaning.
   const quietTicksForIdle = Math.max(5, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
-  const sweep = setInterval(() => {
+  const sweep = clock.setInterval(() => {
     if (!ready) return;
-    const now = Date.now();
+    const now = clock.now();
     const liveTransaction = administration()?.transaction()?.value;
     const pendingAttachments = new Set(participants()?.ledger.operations().filter((op: any) => op.state !== 'completed').map((op: any) => op.attachmentId));
     for (const [id, attachment] of sessions) {
@@ -291,7 +302,7 @@ function createCentralApp(
       quietTicks = 0;
     }
   }, sweepPeriodMs);
-  sweep.unref();
+  sweep?.unref?.();
   app.use("*", async (context, next) => {
     const host = context.req.header("host");
     if (!host || !loopbackHostHeader(host) || !sameHttpOrigin(context.req.header("origin"), host)) {
@@ -388,7 +399,7 @@ function createCentralApp(
       a.resumeResults ??= new Map();
       if (a.resumeResults.has(body.resumeAttemptId)) return context.json(a.resumeResults.get(body.resumeAttemptId));
       const attachment = a.activation as Attachment;
-      attachment.transport.detachNotifications(); attachment.touched = Date.now();
+      attachment.transport.detachNotifications(); attachment.touched = clock.now();
       const reply = { ...result, sessionId: attachment.transport.sessionId,
         protocolVersion: attachment.participant.downstreamProtocol,
         notificationGap: result.notificationGap && (!a.notifications?.length || body.lastAcceptedNotificationSequence < a.notifications[0].sequence - 1),
@@ -420,7 +431,7 @@ function createCentralApp(
     if (!attachment) return context.json({ error: "unknown attachment" }, 404);
     try { if (attachment.logical) transports.admit(attachment.logical.id, Number(context.req.header('x-h2a-auth-transport-epoch'))); }
     catch { return context.json({ error: 'transport_fenced' }, 409); }
-    attachment.touched = Date.now();
+    attachment.touched = clock.now();
     // Round 2: attachment dispatch routes through the registry plan, so the
     // status read is async; the answered bytes are unchanged (raw passthrough).
     const status = await attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
@@ -517,13 +528,13 @@ function createCentralApp(
       try { await handle.ready; }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
-      attachment = created = { participant, transport, handle, touched: Date.now() };
+      attachment = created = { participant, transport, handle, touched: clock.now() };
       everAttached = true;
       attachment.logical = transports.attach(logicalId, captured ?? { id: logicalId, workspace }, () => attachment!);
       try { await protocol.connect(transport); }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
     }
-    attachment.touched = Date.now();
+    attachment.touched = clock.now();
     if (context.req.method === 'DELETE') {
       attachment.disconnected = true;
       if (attachment.logical) transports.detach(attachment.logical.id, 'dead');
@@ -571,7 +582,7 @@ function createCentralApp(
     },
     async close() {
     closing = true;
-    clearInterval(sweep);
+    clock.clearInterval(sweep);
     lag.disable();
     await Promise.all([...sessions.entries()].map(([id, attachment]) => closeAttachment(id, attachment)));
   } };
@@ -598,6 +609,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   beforeMarkerReclaimReplace?: (candidate: CentralMcpMarker) => Promise<void>;
   /** Test seam for scheduling exclusive publication after staging complete content. */
   beforeExclusiveMarkerPublish?: () => Promise<void>;
+  /** Test seam for deterministic idle-sweep and lease-expiry progression. */
+  clock?: CentralSweepClock;
 }
 
 export type StartedCentralMcpServer =
@@ -716,6 +729,7 @@ export async function startCentralMcpServer(
         maxAttachments: plan.manifest?.maxAttachments ?? 256,
         ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
         ...(registry ? { registry } : {}),
+        ...(options.clock ? { clock: options.clock } : {}),
         // Read lazily: authentication is created below, after the app, but the
         // sweep only consults this once the server is ready to serve anyway.
         pendingHandshake: () => authentication?.hasLiveChallenges() ?? false,
