@@ -38,7 +38,9 @@ node "$track_bin" report --owner-table --format md
    - Non-blocking decision: `D#`.
    - Blocking decision: `🚩 D# bloquante`, which makes the row `🔴 bloqué` with `bloqué par D#` in `À faire (qui)`.
    - Under the table: `**Décisions qui t'attendent**` with `D1…Dn` (question, options with consequence, `Reco : **<letter>** (<rationale>)`, optional `Dossier : <link>`), followed by one reply line: `` `Réponse : D1 A · D2 B` ``.
-7. **Blocking gates (`auditOwnerTable` / `renderOwnerTable` refuses on any violation):**
+7. **Blocking gates (`--owner-table` / `auditOwnerTable` / `renderOwnerTable` refuses fail-closed on any violation and never prints `Aucune décision en attente` / `Réponse : aucune décision en attente` when refused):**
+   - no `.track` journal resolves (`--owner-table` refuses with a non-zero exit instead of serving an empty view);
+   - zero owner-numbered demands (or zero active rows when all demands are archived) in the resolved journal (`no-owner-demands`);
    - a missing, duplicate, or out-of-order row `#`;
    - `🔴` without a cause in `À faire (qui)`;
    - `✅` or `🔵` without a witness (or `✅` when `stage !== 'done'`, or `⚫` without a reason);
