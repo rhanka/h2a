@@ -52,6 +52,14 @@ import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
 import { collectNativeInventory, publicationContenderObserved, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
+import {
+  RightPanelController,
+  buildRightPanelSnapshot,
+  resolveRightPanelEnabled,
+  resolveRightPanelWidth,
+  type RightPanelSnapshot,
+} from "./right-panel.js";
+import { readRemoteConfig } from "../config.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import { appendCrashLog, crashSignalName, installCrashHandlers, type CrashLogEntry } from "../crash-log.js";
@@ -461,6 +469,14 @@ export type NativeAttachStatusBarOptions = Omit<
 > & {
   readonly enabled?: boolean;
   readonly env?: NodeJS.ProcessEnv;
+};
+
+export type NativeAttachRightPanelOptions = {
+  readonly enabled?: boolean;
+  readonly width?: number;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly snapshot?: RightPanelSnapshot;
+  readonly loadSnapshot?: () => RightPanelSnapshot;
 };
 
 const STATUS_BAR_MIN_ROWS = 10;
@@ -1328,6 +1344,7 @@ export async function runAttach(
   options: {
     takeover?: boolean;
     statusBar?: boolean | NativeAttachStatusBarOptions;
+    rightPanel?: boolean | NativeAttachRightPanelOptions;
   } = {},
 ): Promise<number> {
   const stdin = runtime.stdin;
@@ -1338,6 +1355,45 @@ export async function runAttach(
     () => runtime.now(),
     options.statusBar,
   );
+  const rightPanel = ((): RightPanelController | undefined => {
+    const opt =
+      typeof options.rightPanel === "object" && options.rightPanel !== null
+        ? options.rightPanel
+        : undefined;
+    if (options.rightPanel === false || opt?.enabled === false) return undefined;
+    let config: ReturnType<typeof readRemoteConfig> | undefined;
+    try {
+      config = readRemoteConfig();
+    } catch {
+      config = undefined;
+    }
+    const enabled =
+      opt?.enabled ??
+      (options.rightPanel === true
+        ? true
+        : resolveRightPanelEnabled(opt?.env ?? process.env, config));
+    if (!enabled) return undefined;
+    const snapshot =
+      opt?.snapshot ??
+      opt?.loadSnapshot?.() ??
+      buildRightPanelSnapshot({
+        currentSessionId: id,
+        groups: [{ title: "sessions", sessions: [] }],
+        decisions: [],
+        degraded: true,
+      });
+    return new RightPanelController({
+      stdout: stdout as unknown as {
+        columns?: number;
+        rows?: number;
+        write(chunk: string): boolean;
+      },
+      snapshot,
+      width:
+        opt?.width ??
+        resolveRightPanelWidth(opt?.env ?? process.env, config),
+    });
+  })();
   let modes = new TerminalModeTracker();
   let modesSuspended = false;
   let savedReset = "";
@@ -1494,6 +1550,23 @@ export async function runAttach(
       closeActive();
       return;
     }
+    if (rightPanel) {
+      const handled = rightPanel.handleInput(chunk.toString("utf8"), {
+        cliMouseEnabled: modes.isMouseTrackingEnabled(),
+      });
+      if (handled.consumed) {
+        if (handled.actions.length > 0) sendChildResize();
+        return;
+      }
+      if (handled.forward !== undefined) {
+        const forward = Buffer.from(handled.forward, "utf8");
+        if (forward.length === 0) return;
+        pendingInput.push(forward);
+        pendingInputBytes += forward.length;
+        pumpInput();
+        return;
+      }
+    }
     if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
       restoreBarForNotice();
       stdout.write(
@@ -1515,15 +1588,19 @@ export async function runAttach(
   const sendChildResize = (): void => {
     const current = active;
     const rows = statusBar.childRows();
-    if (current && stdout.columns && rows) {
+    const cols = rightPanel
+      ? rightPanel.childCols(stdout.columns ?? 0)
+      : stdout.columns;
+    if (current && cols && rows) {
       void current.client
-        .resize(current.lease, stdout.columns, rows)
+        .resize(current.lease, cols, rows)
         .catch((error) => markTransportFailure(current, error));
     }
   };
   const resize = (): void => {
     sendChildResize();
     statusBar.onResize();
+    rightPanel?.onResize();
     saveReset();
   };
   runtime.onResize(resize);
@@ -1547,6 +1624,7 @@ export async function runAttach(
       active = { client, lease };
       transportFailure = undefined;
       await statusBar.probe(true, "attached");
+      rightPanel?.paint();
       sendChildResize();
       saveReset();
       pumpInput();
@@ -1696,6 +1774,7 @@ export async function runAttach(
           seq = chunk.seq;
         }
         statusBar.flushAfterOutputBatch();
+        if (rightPanel?.isOpen()) rightPanel.paint();
         await statusBar.probe(false);
         seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
@@ -1774,6 +1853,7 @@ export async function runAttach(
         await current.client.releaseController(current.lease).catch(() => {});
         current.client.close();
       }
+      rightPanel?.dispose();
       statusBar.dispose();
     }
   }
