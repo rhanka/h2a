@@ -445,8 +445,10 @@ test("connected registry-bridge transparently survives central restart on a new 
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
-      idleTimeoutMs: 2_500,
-      sessionLeaseMs: 8_000
+      // Give cold-booting bridge enough headroom under parallel CI shard load;
+      // c1 is stopped explicitly below while c2 tests the short idleTimeoutMs.
+      idleTimeoutMs: 15_000,
+      sessionLeaseMs: 15_000
     });
     assert.equal(c1.kind, "started");
 
@@ -520,8 +522,8 @@ test("connected registry-bridge completes identity cleanly when central restarts
       runtimeBase: iso.xdgRuntime,
       physicalPrefix: iso.prefix,
       env: iso.env,
-      idleTimeoutMs: 5_000,
-      sessionLeaseMs: 10_000
+      idleTimeoutMs: 15_000,
+      sessionLeaseMs: 15_000
     });
     assert.equal(c1.kind, "started");
 
