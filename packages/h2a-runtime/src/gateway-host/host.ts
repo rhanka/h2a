@@ -120,35 +120,114 @@ const bearerFromHeaders = (headers: Readonly<Record<string, string>>): string | 
   return headers["x-api-key"]?.trim() || undefined;
 };
 
-/** Canonical Cloud Code identity for every suffixed Argon alias. */
+/** Canonical Cloud Code identities for effort-suffixed Gemini 4 aliases. */
 export const GEMINI_4_ARGON_MODEL = "gemini-4-argon";
+export const GEMINI_4_NEON_MODEL = "gemini-4-neon";
+export const GEMINI_4_HYDROGEN_MODEL = "gemini-4-hydrogen";
+
+export type CloudCodeSuffixedModel =
+  | typeof GEMINI_4_ARGON_MODEL
+  | typeof GEMINI_4_NEON_MODEL
+  | typeof GEMINI_4_HYDROGEN_MODEL;
+
+export type CloudCodeSuffixEffort = "low" | "medium" | "high" | "xhigh";
+
+const SUFFIXED_CLOUD_CODE_TARGETS: Readonly<
+  Record<
+    string,
+    {
+      readonly model: CloudCodeSuffixedModel;
+      readonly effort: CloudCodeSuffixEffort;
+    }
+  >
+> = {
+  "gemini-4-argon-low": { model: GEMINI_4_ARGON_MODEL, effort: "low" },
+  "gemini-4-argon-medium": { model: GEMINI_4_ARGON_MODEL, effort: "medium" },
+  "gemini-4-argon-high": { model: GEMINI_4_ARGON_MODEL, effort: "high" },
+  "gemini-4-neon-low": { model: GEMINI_4_NEON_MODEL, effort: "low" },
+  "gemini-4-neon-medium": { model: GEMINI_4_NEON_MODEL, effort: "medium" },
+  "gemini-4-neon-high": { model: GEMINI_4_NEON_MODEL, effort: "high" },
+  "gemini-4-neon-xhigh": { model: GEMINI_4_NEON_MODEL, effort: "xhigh" },
+  "gemini-4-hydrogen-low": { model: GEMINI_4_HYDROGEN_MODEL, effort: "low" },
+  "gemini-4-hydrogen-medium": { model: GEMINI_4_HYDROGEN_MODEL, effort: "medium" },
+  "gemini-4-hydrogen-high": { model: GEMINI_4_HYDROGEN_MODEL, effort: "high" },
+  "gemini-4-hydrogen-xhigh": { model: GEMINI_4_HYDROGEN_MODEL, effort: "xhigh" },
+};
 
 /**
- * Effort suffix carried by a suffixed Argon requested model, if any.
- * Only the canonical `gemini-4-argon-{low,medium,high}` ids qualify: the
- * planner normalizes those to the bare canonical target with no effort, so
- * the suffix is otherwise lost before the Cloud Code wire.
+ * Canonical base model and effort carried by a suffixed Cloud Code Gemini 4
+ * requested model, if any. Only byte-exact canonical ids qualify: the planner
+ * normalizes `gemini-4-{argon,neon,hydrogen}-<effort>` to the bare canonical
+ * target with no effort, so the suffix is otherwise lost before the Cloud Code
+ * wire. Argon supports `low|medium|high`; Neon and Hydrogen also support
+ * `xhigh` (llm-mesh 0.38.4).
  */
-export function argonSuffixEffort(
+export function cloudCodeSuffixTarget(
   requestedModel: string,
-): "low" | "medium" | "high" | undefined {
+):
+  | {
+      readonly model: CloudCodeSuffixedModel;
+      readonly effort: CloudCodeSuffixEffort;
+    }
+  | undefined {
   // Byte-exact like the planner's normalizeExactModelId / isExactModelTarget:
   // a non-canonical spelling must fall through to the planner's graceful
   // unknown-model refusal, never to a targetCandidatesOverride that the
   // exact-model gate would reject with a contract error.
-  if (requestedModel === "gemini-4-argon-low") return "low";
-  if (requestedModel === "gemini-4-argon-medium") return "medium";
-  if (requestedModel === "gemini-4-argon-high") return "high";
-  return undefined;
+  return Object.hasOwn(SUFFIXED_CLOUD_CODE_TARGETS, requestedModel)
+    ? SUFFIXED_CLOUD_CODE_TARGETS[requestedModel]
+    : undefined;
 }
 
 /**
- * Planner override that carries a suffixed Argon's effort as
- * `target.effort` when the client supplied none. The directory copies only
- * `target.effort` into `reasoning.effort`, which the Cloud Code client
- * expands to the suffixed wire model; without it the wire falls back to the
- * bare canonical model (404 `model_not_found` since 0.38.1). An explicit
- * client effort owns the wire and suppresses the override.
+ * Planner override that carries a suffixed Cloud Code Gemini 4 model's effort
+ * as `target.effort` when the client supplied none. The directory copies only
+ * `target.effort` into `reasoning.effort`, which the Cloud Code client expands
+ * to the suffixed wire model (`gemini-4-{argon,neon,hydrogen}-<effort>`);
+ * without it the wire falls back to the bare canonical model (404
+ * `model_not_found`). An explicit client effort owns the wire and suppresses
+ * the override.
+ */
+export function cloudCodeEffortOverride(
+  requestedModel: string,
+  clientEffort: string | undefined,
+):
+  | readonly {
+      providerId: "gemini";
+      transportProviderId: "cloud-code";
+      model: CloudCodeSuffixedModel;
+      effort: CloudCodeSuffixEffort;
+    }[]
+  | undefined {
+  const target = cloudCodeSuffixTarget(requestedModel);
+  if (!target || clientEffort !== undefined) return undefined;
+  return [
+    {
+      providerId: "gemini",
+      transportProviderId: "cloud-code",
+      model: target.model,
+      effort: target.effort,
+    },
+  ];
+}
+
+/**
+ * Effort suffix carried by a suffixed Argon requested model, if any.
+ * Kept as a narrow helper over `cloudCodeSuffixTarget` for Argon-only callers.
+ */
+export function argonSuffixEffort(
+  requestedModel: string,
+): "low" | "medium" | "high" | undefined {
+  const target = cloudCodeSuffixTarget(requestedModel);
+  if (!target || target.model !== GEMINI_4_ARGON_MODEL || target.effort === "xhigh") {
+    return undefined;
+  }
+  return target.effort;
+}
+
+/**
+ * Planner override for suffixed Argon models (backwards-compatible wrapper
+ * over `cloudCodeEffortOverride`).
  */
 export function argonEffortOverride(
   requestedModel: string,
@@ -816,7 +895,7 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
           routeInput({ cost, request, canonical }) {
             const session = lookupSessionById(cost.principalId);
             const activeRouting = currentRouting();
-            const argonOverride = argonEffortOverride(
+            const effortOverride = cloudCodeEffortOverride(
               request.model,
               canonical.request.reasoning?.effort,
             );
@@ -826,7 +905,7 @@ export function createGatewayHost(options: LocalGatewayAppOptions = {}): { app: 
               ...(activeRouting?.policy ? { policyOverride: activeRouting.policy } : {}),
               ...(activeRouting?.activeProfile ? { policyProfile: activeRouting.activeProfile } : {}),
               ...(activeRouting?.explicit ? { explicit: activeRouting.explicit } : {}),
-              ...(argonOverride ? { targetCandidatesOverride: argonOverride } : {}),
+              ...(effortOverride ? { targetCandidatesOverride: effortOverride } : {}),
             };
           },
         });
