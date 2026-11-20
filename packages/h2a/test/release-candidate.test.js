@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { createHash } from 'node:crypto'
 import YAML from 'yaml'
+
+function execAsync(file, args, options) {
+  return new Promise((resolve) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
+      resolve({ status: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout, stderr })
+    })
+  })
+}
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url))
 const script = join(repo, 'scripts/release-candidate.mjs')
@@ -31,6 +40,7 @@ function fixture(t) {
     writeFileSync(join(root, 'dist-tarballs', `sentropic-${name}-${packageVersion(name)}.tgz`), 'verified bytes: ' + name)
   }
   writeFileSync(join(root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.6'\nconst PINNED_FOCUS_VERSION = '0.5.0'\n")
+  writeFileSync(join(root, 'scripts/wait-npm-visibility.mjs'), readFileSync(join(repo, 'scripts/wait-npm-visibility.mjs')))
   const env = { PATH: join(root, 'bin') + ':' + process.env.PATH, HOME: root,
     XDG_RUNTIME_DIR: join(root, 'run'), TMPDIR: root,
     GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/tags/v' + version,
@@ -51,7 +61,10 @@ function fixture(t) {
       console.log(JSON.stringify('sha512-'+require('node:crypto').createHash('sha512').update((process.env.FAKE_BAD_INTEGRITY==='1'||(name==='focus'&&process.env.FAKE_FOCUS_BAD_INTEGRITY==='1'))?'other source tree':bytes).digest('base64')));process.exit(0);
     }
     if(a[0]==='view'&&a[2]==='dist-tags.latest'){console.log(process.env.FAKE_LATEST);process.exit(0)}
-    if(a[0]==='view'&&a[2]==='version')process.exit(fs.existsSync(process.env.FAKE_ROOT+'/published')?0:1);
+    if(a[0]==='view'&&a[2]==='version'){
+      if(!fs.existsSync(process.env.FAKE_ROOT+'/published')||process.env.FAKE_VIEW_FAIL==='1')process.exit(1);
+      console.log(a[1].slice(a[1].lastIndexOf('@')+1));process.exit(0);
+    }
     if(a[0]==='i')process.exit(process.env.FAKE_INSTALL_FAIL==='1'?1:0);
     process.exit(79);`)
   fake('h2a', `if(process.argv[2]==='doctor')console.log(process.env.FAKE_DOCTOR||'{"ok":true}');else if(process.argv[2]!=='init')process.exit(89);`)
@@ -237,15 +250,33 @@ test('workflow always gates stable publication and attests only after the real i
   assert.equal(publish[upload].if, undefined)
 })
 
-test('RC install smoke refuses install propagation lag and broken doctor; only completion emits proof', t => {
+async function startMockRegistry(t, handler) {
+  const server = http.createServer(handler)
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const { port } = server.address()
+  return `http://127.0.0.1:${port}`
+}
+
+test('RC install smoke refuses install propagation lag and broken doctor; only completion emits proof', async t => {
   const f = fixture(t)
   const smoke = workflow.jobs.publish.steps.find(s => s.id === 'post-publish-smoke')
   assert.ok(smoke)
   writeFileSync(join(f.root, 'published'), 'yes')
+  const registryUrl = await startMockRegistry(t, (req, res) => {
+    const pkg = decodeURIComponent(req.url.slice(1))
+    const pkgVer = pkg === '@sentropic/focus' ? '0.5.0-rc.1' : version
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      name: pkg,
+      'dist-tags': { next: pkgVer },
+      versions: { [pkgVer]: { version: pkgVer, dist: { tarball: `http://127.0.0.1/${pkgVer}.tgz` } } },
+    }))
+  })
   for (const overrides of [{ FAKE_INSTALL_FAIL: '1' }, { FAKE_DOCTOR: '{"ok":false,"unrepaired":[{"code":"broken"}]}' }, {}]) {
     rmSync(f.env.GITHUB_OUTPUT, { force: true })
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', smoke.run], {
-      cwd: f.root, encoding: 'utf8', env: { ...f.env, RELEASE_VERSION: version, ...overrides },
+    const result = await execAsync('bash', ['-e', '-o', 'pipefail', '-c', smoke.run], {
+      cwd: f.root, encoding: 'utf8', env: { ...f.env, RELEASE_VERSION: version, FOCUS_RELEASE_VERSION: '0.5.0-rc.1', NPM_REGISTRY_URL: registryUrl, ...overrides }, timeout: 20_000,
     })
     if (Object.keys(overrides).length) {
       assert.notEqual(result.status, 0, result.stdout + result.stderr)
@@ -255,6 +286,27 @@ test('RC install smoke refuses install propagation lag and broken doctor; only c
       assert.equal(readFileSync(f.env.GITHUB_OUTPUT, 'utf8'), 'smoke-passed=true\n')
     }
   }
+})
+
+test('RC install smoke fails closed without attestation when registry visibility budget is exceeded', async t => {
+  const f = fixture(t)
+  const smoke = workflow.jobs.publish.steps.find(s => s.id === 'post-publish-smoke')
+  assert.ok(smoke)
+  const registryUrl = await startMockRegistry(t, (_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ 'dist-tags': {}, versions: {} }))
+  })
+  const fastSmoke = smoke.run.replace('--budget-seconds 1800', '--budget-seconds 1 --backoff-seconds 0.1')
+  assert.notEqual(fastSmoke, smoke.run, 'budget override must apply')
+  rmSync(f.env.GITHUB_OUTPUT, { force: true })
+  const result = await execAsync('bash', ['-e', '-o', 'pipefail', '-c', fastSmoke], {
+    cwd: f.root, encoding: 'utf8', env: { ...f.env, RELEASE_VERSION: version, FOCUS_RELEASE_VERSION: '0.5.0-rc.1', NPM_REGISTRY_URL: registryUrl }, timeout: 20_000,
+  })
+  assert.notEqual(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stderr, /refusing RC attestation/)
+  assert.throws(() => readFileSync(f.env.GITHUB_OUTPUT), /ENOENT/)
+  const calls = readFileSync(join(f.root, 'npm-calls'), 'utf8').trim().split('\n').map(JSON.parse)
+  assert.equal(calls.some(a => a[0] === 'i'), false, 'npm i -g must not run when visibility budget expires')
 })
 
 test('tag validation and manifest drift fail before any RC file is written; stable prepare leaves source unchanged', t => {

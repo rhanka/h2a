@@ -20,6 +20,26 @@ test('Vibe guard allows benign quoted text, denies CLI invocations, and fails op
   const malformed = spawnSync(process.execPath, [guard], { input: '{', encoding: 'utf8' });
   assert.equal(malformed.status, 0); assert.deepEqual(JSON.parse(malformed.stdout), { decision: 'allow' });
 });
+test('Vibe guard denies git commit and gh pr commands carrying AI attribution trailers', () => {
+  for (const command of [
+    'git commit -m "feat: x\\n\\nCo-Authored-By: Mistral Vibe <vibe@mistral.ai>"',
+    'git commit --no-verify -m "fix: y\\n\\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"',
+    'gh pr create --title "feat: z" --body "Done\\n\\nGenerated with [Claude Code]"'
+  ]) {
+    const r = spawnSync(process.execPath, [guard], { input: JSON.stringify({ tool_name: 'bash', tool_input: { command } }), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(JSON.parse(r.stdout).decision, 'deny', command);
+  }
+  for (const command of [
+    'git commit -m "docs: reject Co-Authored-By: trailers in commits"',
+    'git log --grep="Co-Authored-By:" -n 5',
+    'gh pr create --title "fix: guard" --body "Adds commit-msg hook"'
+  ]) {
+    const r = spawnSync(process.execPath, [guard], { input: JSON.stringify({ tool_name: 'bash', tool_input: { command } }), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { decision: 'allow' }, command);
+  }
+});
 test('Vibe lifecycle records only explicit parent null, never touches the record for forks or malformed payloads', t => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'vibe-hook-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

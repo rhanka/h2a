@@ -541,17 +541,7 @@ test("R8.2: @sentropic/track publishes the VERIFIED tarball bytes — pinned COM
     "exit 1",
     "fi",
     "fi",
-    "for attempt in $(seq 1 18); do",
-    'if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then',
-    "break",
-    "fi",
-    'if [[ "$attempt" -eq 18 ]]; then',
-    'echo "::warning::@sentropic/track@$v was published but is not visible on registry after 18 attempts — registry propagation lag; not failing the step." >&2',
-    "break",
-    "fi",
-    'echo "@sentropic/track@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2',
-    "sleep 10",
-    "done",
+    'node scripts/wait-npm-visibility.mjs --package "@sentropic/track@$v" --budget-seconds 300 --warn-only',
   ], "the track publish's failure and idempotence conditions are pinned: a workspace repack (0.98.6 TS2688), a dropped sha256 re-check, a lost backfill tag, or a silenced publish error all change this script");
 });
 
@@ -736,4 +726,23 @@ test('release validates exact internal versions before packing and before publis
     const action = script.indexOf(marker);
     assert.ok(gate >= 0 && gate < action, id + ' must reject mixed package versions before producing or publishing bytes');
   }
+});
+
+test('post-publish smoke waits for exact registry visibility and packument under a bounded budget before install', () => {
+  const publish = job('publish');
+  const smoke = publish.steps.find((step) => step.id === 'post-publish-smoke');
+  assert.ok(smoke, 'publish must keep the post-publish-smoke step');
+  const script = String(smoke.run ?? '');
+  const waitIdx = script.indexOf('node scripts/wait-npm-visibility.mjs');
+  const installIdx = script.indexOf('npm i -g --prefer-online "@sentropic/h2a@$RELEASE_VERSION"');
+  const proofIdx = script.indexOf('echo "smoke-passed=true" >> "$GITHUB_OUTPUT"');
+  assert.ok(waitIdx >= 0 && installIdx > waitIdx && proofIdx > installIdx,
+    'smoke must wait for registry visibility before npm i -g and emit smoke-passed=true only after doctor passes');
+  assert.match(script, /--budget-seconds 1800/);
+  assert.match(script, /--check-packument/);
+  assert.match(script, /--require-dist-tag next/);
+  for (const pkg of ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/track', '@sentropic/h2a-cli', '@sentropic/focus']) {
+    assert.ok(script.includes(pkg), `RC visibility wait must cover ${pkg}`);
+  }
+  assert.match(script, /refusing RC attestation/);
 });

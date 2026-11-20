@@ -1,5 +1,5 @@
 {
-  "description": "Prevents manual H2A MCP bypass.",
+  "description": "Prevents manual H2A MCP bypass and AI attribution trailers in commits/PRs.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/deny-manual-h2a-cli.mjs\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/deny-attribution-trailer.mjs\"",
             "timeout": 5
           }
         ]

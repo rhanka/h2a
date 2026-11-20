@@ -68,16 +68,9 @@ If a necessary fact, criterion or review is missing, label **Incomplete** and as
 not approval of the decision.
 
 **Default dossier output: portable Focus design-system HTML, never a claude.ai artifact.**
-Run `h2a focus template -o dossier.json`; replace the example with a `DecisionDossierDocument`,
-including the literal request, readable options and ecosystem diagrams (`source: "ecosystem:overview"`;
-also `models`, `knowledge`, `interfaces`). Then run exactly:
+Call MCP `h2a_focus_template` (`dossier` or `evidence`), write the `DecisionDossierDocument` JSON in the workspace (literal request, readable options, ecosystem diagram `source: "ecosystem:overview"`, `models`, `knowledge` or `interfaces`), then call MCP `h2a_focus_build` (`{ input, output }`).
 
-```sh
-h2a focus build dossier.json -o dossier.html
-```
-
-The builder refuses schema/readability failures before output. Deliver/link the single HTML file;
-check offline phone reading, light/dark, cards and pinch zoom. See `docs/focus/portable-dossiers.md`.
+Refusals block output verbatim. Deliver/link the single HTML file; check offline phone reading, light/dark, cards and pinch zoom. See `docs/focus/portable-dossiers.md`.
 Cards only prepare a local answer; they never record approval.
 Before asking, read `assets/native-questions.md`: use the exposed native question tool after a decision
 dossier with a diagram. If unavailable, leave consequential decisions pending. Decide-and-trace needs no ask.
@@ -100,7 +93,7 @@ Record when `.track/` exists or the owner approves tracking:
 This is the agent's human-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
 ## Embedded evidence (H1)
 
-Use checkout `focus template --evidence` then `focus build`: version 2,
+Call MCP `h2a_focus_template` (`evidence`) then `h2a_focus_build`: version 2,
 original bytes/digests, citations, separate annexes. Keep material risks primary;
 disclose consultation separately. Test offline search/download/back. DS in-canvas
 controls await H2/H3. Never rewrite renderer/geometry.
