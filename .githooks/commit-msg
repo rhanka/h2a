@@ -18,7 +18,7 @@ scan="$(sed '/^# -\{3,\} >8 -\{3,\}$/,$d' "$msg_file" | grep -v '^#' || true)"
 # the start of a line — real trailers always are, so prose that mentions them is
 # allowed. The AI generation footers/URLs/markers are specific enough to match
 # anywhere in the authored message (case-insensitive).
-trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+with[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\.com/claude-code|claude\.ai/code/session_[a-z0-9_-]+|🤖'
+trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+(with|by)[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\.com/claude-code|claude\.ai/code/session_[a-z0-9_-]+|🤖'
 
 if printf '%s\n' "$scan" | grep -iEq "$trailer_re"; then
   if [ "$mode" = "strip" ]; then
@@ -35,7 +35,7 @@ if printf '%s\n' "$scan" | grep -iEq "$trailer_re"; then
           if (low ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) drop = 1
           else if (low ~ /^[[:space:]]*claude-session[[:space:]]*:/) drop = 1
           else if (low ~ /^[[:space:]]*generated-by[[:space:]]*:/ && low ~ /(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)/) drop = 1
-          else if (low ~ /generated[[:space:]]+with[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
+          else if (low ~ /generated[[:space:]]+(with|by)[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
           else if (low ~ /claude\.com\/claude-code/) drop = 1
           else if (low ~ /claude\.ai\/code\/session_[a-z0-9_-]+/) drop = 1
           else if (index($0, "🤖") > 0) drop = 1
