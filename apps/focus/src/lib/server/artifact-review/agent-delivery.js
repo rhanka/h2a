@@ -1,103 +1,102 @@
-// sendToAgent: hand an owner comment to the artifact's owning session, whatever its CLI (DS r3 §4).
+// sendToAgent (`onCommentCreated` -> `h2a send`): hand a HUMAN comment (`!c.provenance?.toolCallId`) to
+// the artifact's owning session, whatever its CLI (DS r6 §4, Appendix C).
 //
-// Flow: the comment is already saved and read back → the owning session is resolved with the SAME ladder
-// as every other Focus delivery (`h2a-target.js`: requested, FOCUS_H2A_TARGET, emitter, workspace path,
-// name, sole) → one signed h2a message is deposited in the root that session reads. The message is a
-// pointer plus a bounded excerpt: the thread in the comment store stays the authority, and the agent is
-// told to re-read it before acting.
+// Flow: the comment is already saved and read back -> `isHumanComment(comment)` verifies `!provenance.toolCallId`
+// -> the owning session is resolved with the SAME ladder as every other Focus delivery (`h2a-target.js`)
+// -> one signed h2a message is deposited in the root that session reads.
 //
-// Replying: the published comment surface has no artifact comment verb an agent can call yet (gap G1,
-// sentropic lot C2), so the message tells the agent how to reply through this Focus Web server on
-// loopback. The reply is stored under the OWNER id with `provenance.runId` naming the agent run (r3
-// fallback until owner decision D1), and a row carrying provenance never triggers a new send (loop guard).
-//
-// Every refusal is a ReviewError the route returns to the UI: no target, several candidates, h2a missing,
-// or a failed send. Nothing is retried silently and nothing is redirected to another session.
-
-import { createHash } from 'node:crypto';
+// Security & contract (DS r6 §4, §9, Appendix C):
+//   - Payload carries ONLY: `tenant, target (id + sectionKey?), artifactId, threadId, commentId, authorship,
+//     excerpt, anchor (decoded, present on replies too), provenance?, recipient` plus C2d MCP verb hints.
+//   - NEVER carries the full body beyond the excerpt, NEVER carries an endpoint URL or credential.
+//   - The agent re-reads the thread, replies (with mandatory non-empty `provenance.toolCallId`, synthetic
+//     `agent:<sessionId>:<seq>` outside MCP), posts `"Resolved in <version|commit>"` and closes via the
+//     dedicated cluster-mesh MCP provider (C2d).
+//   - Every refusal is a ReviewError returned to the UI; nothing is retried silently or redirected.
 
 import { excerptOf } from './anchor.js';
+import { buildCollaborationActor, isHumanComment } from './comments-adapter.js';
 import { ReviewError } from './errors.js';
 
 export const COMMENT_REQUEST_KIND = 'h2a.comment-request';
 export const COMMENT_REQUEST_VERSION = 1;
-
-const AVATAR_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#ca8a04', '#4f46e5'];
+export const CLUSTER_MESH_MCP_PROVIDER = 'cluster-mesh-artifact-comments';
 
 /**
- * DS r3 §1.3 `CollaborationActor` for the owner principal. `color` is display-only and derived, never
+ * DS r6 §1.3 `CollaborationActor` for a human principal. `color` is display-only and derived, never
  * persisted.
  * @param {import('./types').ReviewOwner} owner
  * @returns {import('./types').CollaborationActor}
  */
 export function collaborationActor(owner) {
-  const digest = createHash('sha256').update(owner.id).digest();
-  return {
+  return buildCollaborationActor({
     actorId: owner.id,
     kind: 'human',
-    displayLabel: owner.displayLabel,
-    color: AVATAR_COLORS[digest[0] % AVATAR_COLORS.length]
-  };
+    displayLabel: owner.displayLabel
+  });
 }
 
 /**
- * @param {string} value
- */
-function shellQuote(value) {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-/**
- * Build the h2a message for one comment: a readable first line, the r3 §4 payload as JSON, then the reply
- * instructions. Never the full body beyond the excerpt.
+ * Build the h2a message for one human comment: a readable first line, the r6 §4 / Appendix C payload as
+ * JSON, then the C2d MCP reply/resolve instructions. Never carries the full body beyond the excerpt,
+ * never carries an endpoint URL or credential.
  *
  * @param {{
  *   comment: import('./types').ReviewComment,
  *   anchor: Record<string, unknown> | null,
  *   owner: import('./types').ReviewOwner,
- *   origin: string,
  *   recipient: string,
  *   tenant: string
  * }} input
  */
-export function buildCommentRequest({ comment, anchor, owner, origin, recipient, tenant }) {
+export function buildCommentRequest({ comment, anchor, owner, recipient, tenant }) {
   const artifactId = comment.target.id;
-  const base = `${origin}/api/artifacts/${encodeURIComponent(artifactId)}`;
-  const threadUrl = `${base}/threads/${encodeURIComponent(comment.threadId)}`;
-  const replyBody = { threadId: comment.threadId, body: '<your reply>', provenance: { runId: recipient } };
+  const authorship = comment.authorship ?? { author: collaborationActor(owner) };
+  const syntheticToolCallId = `agent:${recipient}:1`;
+  const replyArgs = {
+    tenant,
+    target: comment.target,
+    threadId: comment.threadId,
+    body: '<your reply>',
+    provenance: { toolCallId: syntheticToolCallId }
+  };
   const payload = {
     kind: COMMENT_REQUEST_KIND,
     v: COMMENT_REQUEST_VERSION,
     tenant,
+    target: comment.target,
     artifactId,
     threadId: comment.threadId,
     commentId: comment.id,
-    author: collaborationActor(owner),
+    authorship,
     excerpt: excerptOf(comment.body),
     anchor,
     ...(comment.provenance ? { provenance: comment.provenance } : {}),
     recipient,
-    reply: {
-      readThread: { method: 'GET', url: `${base}/comments` },
-      postReply: { method: 'POST', url: `${base}/comments`, contentType: 'application/json', body: replyBody },
-      closeThread: { method: 'POST', url: `${threadUrl}/close`, contentType: 'application/json', body: {} },
-      reopenThread: { method: 'POST', url: `${threadUrl}/reopen`, contentType: 'application/json', body: {} }
+    replyChannel: {
+      provider: CLUSTER_MESH_MCP_PROVIDER,
+      verbs: {
+        readThread: { verb: 'listThread', args: { tenant, threadId: comment.threadId } },
+        reply: { verb: 'reply', args: replyArgs },
+        closeThread: { verb: 'setState', args: { tenant, threadId: comment.threadId, state: 'closed' } },
+        reopenThread: { verb: 'setState', args: { tenant, threadId: comment.threadId, state: 'open' } }
+      }
     }
   };
   const lead =
-    `[h2a comment-request] The owner commented on artifact ${artifactId} (thread ${comment.threadId}): ` +
+    `[h2a comment-request] ${authorship.author.displayLabel} commented on artifact ${artifactId} (thread ${comment.threadId}): ` +
     `"${excerptOf(comment.body, 120)}"`;
   const text = [
     lead,
     '',
     JSON.stringify(payload, null, 2),
     '',
-    'Read the thread before acting (the thread is the authority, not this message):',
-    `  curl -sS ${shellQuote(`${base}/comments`)}`,
-    'Reply in the same thread (stored under the owner id; provenance.runId marks your run):',
-    `  curl -sS -X POST ${shellQuote(`${base}/comments`)} -H 'content-type: application/json' -d ${shellQuote(JSON.stringify(replyBody))}`,
-    'When the point is handled, reply "Resolved in <version|commit>" first, then close the thread:',
-    `  curl -sS -X POST ${shellQuote(`${threadUrl}/close`)} -H 'content-type: application/json' -d '{}'`
+    'Re-read the thread through your configured cluster-mesh MCP provider (C2d) before acting (the thread is the authority, not this excerpt):',
+    `  MCP listThread({ tenant: ${JSON.stringify(tenant)}, threadId: ${JSON.stringify(comment.threadId)} })`,
+    'Reply in the same thread with a non-empty provenance.toolCallId (injected by MCP; outside MCP use agent:<sessionId>:<seq>):',
+    `  MCP reply(${JSON.stringify(replyArgs)})`,
+    'When handled, reply "Resolved in <version|commit>" first, then close the thread:',
+    `  MCP setState({ tenant: ${JSON.stringify(tenant)}, threadId: ${JSON.stringify(comment.threadId)}, state: "closed" })`
   ].join('\n');
   return { text, payload };
 }
@@ -115,11 +114,24 @@ function describe(session) {
 }
 
 /**
+ * Filter a host-side `onCommentCreated` callback so only human comments (`!c.provenance?.toolCallId`)
+ * trigger downstream delivery (DS r6 §4 loop guard).
+ * @param {(comment: import('./types').ReviewComment) => unknown} handler
+ * @returns {(comment: import('./types').ReviewComment) => unknown}
+ */
+export function filterHumanComments(handler) {
+  return (comment) => {
+    if (!isHumanComment(comment)) return undefined;
+    return handler(comment);
+  };
+}
+
+/**
  * @param {{
  *   comment: import('./types').ReviewComment,
  *   anchor: Record<string, unknown> | null,
  *   owner: import('./types').ReviewOwner,
- *   origin: string,
+ *   origin?: string,
  *   tenant: string,
  *   requested?: string,
  *   resolveTarget: (input: { requested?: string }) => import('./types').TargetResolutionLike | Promise<import('./types').TargetResolutionLike>,
@@ -129,6 +141,13 @@ function describe(session) {
  */
 export async function deliverCommentToAgent(input) {
   const { comment } = input;
+  if (!isHumanComment(comment)) {
+    throw new ReviewError(
+      'loop_guard',
+      400,
+      'A comment carrying provenance.toolCallId is non-human and never triggers h2a send (loop guard).'
+    );
+  }
   const saved = `Comment ${comment.id} is saved in thread ${comment.threadId}`;
   /** @type {import('./types').TargetResolutionLike} */
   let resolution;
@@ -174,7 +193,6 @@ export async function deliverCommentToAgent(input) {
     comment,
     anchor: input.anchor,
     owner: input.owner,
-    origin: input.origin,
     recipient: target,
     tenant: input.tenant
   });
