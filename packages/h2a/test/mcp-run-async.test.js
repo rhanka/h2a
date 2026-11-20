@@ -3,11 +3,11 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { runMcpStdio } from "../dist/index.js";
-import { createH2aRunLauncher, executeH2aRunWithAsyncSpawn, executeH2aRunWithSpawn } from "../dist/runtime/mcp/agent-launch.js";
+import { createH2aRunLauncher, ensureH2aRunEnvPath, executeH2aRunWithAsyncSpawn, executeH2aRunWithSpawn } from "../dist/runtime/mcp/agent-launch.js";
 
 const request = { name: "worker", profile: "codex", workspace: process.cwd(), prompt: "one brief", background: true, gateway: "off", headless: false, h2aSidecar: true };
 
@@ -208,4 +208,30 @@ test("should finish one runtime and one brief after MCP client cancellation and 
     assert.equal(creates, 1);
     assert.deepEqual(JSON.parse(readFileSync(witness, "utf8")), [request.prompt]);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("ensureH2aRunEnvPath appends the installed prefix bin dir when PATH lacks h2a and preserves existing h2a on PATH", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mcp-run-path-"));
+  try {
+    const prefix = join(dir, ".npm-global");
+    const binDir = join(prefix, "bin");
+    const distDir = join(prefix, "lib", "node_modules", "@sentropic", "h2a", "dist");
+    mkdirSync(binDir, { recursive: true, mode: 0o755 });
+    mkdirSync(distDir, { recursive: true, mode: 0o755 });
+    const binJs = join(distDir, "bin.js");
+    writeFileSync(binJs, "#!/usr/bin/env node\n", { mode: 0o755 });
+    chmodSync(binJs, 0o755);
+    symlinkSync(binJs, join(binDir, "h2a"));
+
+    const enriched = ensureH2aRunEnvPath({ PATH: "/usr/bin:/bin" }, binJs);
+    assert.deepEqual(enriched.PATH.split(delimiter), ["/usr/bin", "/bin", binDir]);
+
+    const overrideDir = join(dir, "custom-bin");
+    mkdirSync(overrideDir, { recursive: true, mode: 0o755 });
+    writeFileSync(join(overrideDir, "h2a"), "#!/bin/sh\n", { mode: 0o755 });
+    const unchanged = ensureH2aRunEnvPath({ PATH: `${overrideDir}:/usr/bin:/bin` }, binJs);
+    assert.equal(unchanged.PATH, `${overrideDir}:/usr/bin:/bin`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
