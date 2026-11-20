@@ -84,6 +84,13 @@
       "_functions.js"
     ]
   },
+  "_runtime.js": {
+    "file": "chunks/runtime.js",
+    "name": "runtime",
+    "imports": [
+      "_h2a-bus.js"
+    ]
+  },
   "_server-errors.js": {
     "file": "chunks/server-errors.js",
     "name": "server-errors"
@@ -233,6 +240,60 @@
     "imports": [
       "_exports.js",
       "_friendly.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/comments/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/comments/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/comments/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/comments/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/comments/[commentId]/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/comments/_commentId_/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/comments/_commentId_/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/comments/[commentId]/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/stream/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/stream/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/stream/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/stream/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/threads/[threadId]/assign/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/assign/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/assign/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/threads/[threadId]/assign/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/threads/[threadId]/close/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/close/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/close/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/threads/[threadId]/close/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
+    ]
+  },
+  "src/routes/api/artifacts/[artifactId]/threads/[threadId]/reopen/+server.ts": {
+    "file": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/reopen/_server.ts.js",
+    "name": "entries/endpoints/api/artifacts/_artifactId_/threads/_threadId_/reopen/_server.ts",
+    "src": "src/routes/api/artifacts/[artifactId]/threads/[threadId]/reopen/+server.ts",
+    "isEntry": true,
+    "imports": [
+      "_runtime.js"
     ]
   },
   "src/routes/api/decisions/inject/+server.ts": {

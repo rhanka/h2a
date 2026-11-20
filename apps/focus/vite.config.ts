@@ -34,8 +34,15 @@ export default defineConfig({
   },
   // Focus is shipped inside @sentropic/h2a. Bundle UI-only dependencies so the installed CLI needs only
   // its declared @sentropic/track runtime dependency, not the app's private build toolchain.
+  // @sentropic/comments (+ @sentropic/contracts) back the artifact review routes and are bundled likewise.
   ssr: {
-    noExternal: ['@sentropic/design-system-svelte', '@sentropic/design-system-themes', '@sentropic/track']
+    noExternal: [
+      '@sentropic/design-system-svelte',
+      '@sentropic/design-system-themes',
+      '@sentropic/track',
+      '@sentropic/comments',
+      '@sentropic/contracts'
+    ]
   },
   server: {
     port: 5178,
