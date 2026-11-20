@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
@@ -19,8 +20,12 @@ import {
   DEFAULT_BACKOFF_SECONDS,
   packumentUrl,
   parsePackageSpec,
+  probeNpmDistIntegrity,
+  probeNpmDistTarball,
   probeNpmView,
   probePackument,
+  probeTarball,
+  probeTarballIntegrity,
   waitForRegistryVisibility,
 } from '../../../scripts/wait-npm-visibility.mjs';
 
@@ -293,4 +298,350 @@ process.exit(99);
   );
   assert.equal(failRun.status, 1, failRun.stdout + failRun.stderr);
   assert.match(failRun.stderr, /::error::@sentropic\/h2a@9\.9\.9-never did not become visible/);
+});
+
+test('probeNpmDistTarball and probeNpmDistIntegrity validate npm view outputs', async () => {
+  const spec = parsePackageSpec('@sentropic/h2a@0.98.11-rc.6');
+  const urlOk = await probeNpmDistTarball(spec, {
+    execFileImpl: async () => ({ stdout: 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz\n' }),
+  });
+  assert.equal(urlOk.ok, true);
+  assert.equal(urlOk.tarballUrl, 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz');
+
+  const urlBad = await probeNpmDistTarball(spec, {
+    execFileImpl: async () => ({ stdout: 'not-a-url\n' }),
+  });
+  assert.equal(urlBad.ok, false);
+
+  const sampleIntegrity = 'sha512-' + createHash('sha512').update('tarball-bytes').digest('base64');
+  const intJsonOk = await probeNpmDistIntegrity(spec, {
+    execFileImpl: async () => ({ stdout: JSON.stringify(sampleIntegrity) + '\n' }),
+  });
+  assert.equal(intJsonOk.ok, true);
+  assert.equal(intJsonOk.integrity, sampleIntegrity);
+  assert.equal(intJsonOk.algorithm, 'sha512');
+
+  const intBad = await probeNpmDistIntegrity(spec, {
+    execFileImpl: async () => ({ stdout: '"md5-not-allowed"\n' }),
+  });
+  assert.equal(intBad.ok, false);
+});
+
+test('probeTarball requires HTTP 200 on HEAD and readable bytes on ranged GET', async () => {
+  const url = 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz';
+  const calls = [];
+  const okRes = await probeTarball(url, {
+    fetchImpl: async (reqUrl, init) => {
+      calls.push({ reqUrl, method: init.method, range: init.headers?.range });
+      if (init.method === 'HEAD') {
+        return { status: 200, headers: new Headers({ 'content-type': 'application/octet-stream', 'content-length': '64610458' }) };
+      }
+      return {
+        status: 206,
+        headers: new Headers({ 'content-type': 'application/octet-stream', 'content-range': 'bytes 0-15/64610458' }),
+        arrayBuffer: async () => new Uint8Array([0x1f, 0x8b, 0x08, 0x00]).buffer,
+      };
+    },
+  });
+  assert.equal(okRes.ok, true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].method, 'HEAD');
+  assert.equal(calls[1].method, 'GET');
+  assert.equal(calls[1].range, 'bytes=0-15');
+
+  // HEAD 404 must fail immediately without issuing ranged GET (v0.98.11-rc.6 regression).
+  const head404Calls = [];
+  const head404 = await probeTarball(url, {
+    fetchImpl: async (_reqUrl, init) => {
+      head404Calls.push(init.method);
+      return { status: 404, headers: new Headers() };
+    },
+  });
+  assert.equal(head404.ok, false);
+  assert.match(head404.detail, /HEAD.*404/);
+  assert.deepEqual(head404Calls, ['HEAD']);
+
+  // HEAD 200 followed by Range GET 404 (CDN split-brain) must fail.
+  const range404 = await probeTarball(url, {
+    fetchImpl: async (_reqUrl, init) => (
+      init.method === 'HEAD'
+        ? { status: 200, headers: new Headers({ 'content-type': 'application/octet-stream' }) }
+        : { status: 404, headers: new Headers() }
+    ),
+  });
+  assert.equal(range404.ok, false);
+  assert.match(range404.detail, /404/);
+
+  // Soft-404 HTML page on HEAD 200 must fail.
+  const html200 = await probeTarball(url, {
+    fetchImpl: async () => ({ status: 200, headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }) }),
+  });
+  assert.equal(html200.ok, false);
+  assert.match(html200.detail, /text\/html/i);
+
+  // HEAD 200 with content-length: 0 must fail.
+  const zeroLen = await probeTarball(url, {
+    fetchImpl: async () => ({ status: 200, headers: new Headers({ 'content-length': '0' }) }),
+  });
+  assert.equal(zeroLen.ok, false);
+});
+
+test('probeTarballIntegrity streams bytes, passes on exact SRI match, and fails closed fatally on mismatch', async () => {
+  const url = 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz';
+  const payload = Buffer.from('verified tarball bytes for integrity check');
+  const expected = 'sha512-' + createHash('sha512').update(payload).digest('base64');
+
+  const ok = await probeTarballIntegrity(url, expected, {
+    fetchImpl: async () => ({
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/octet-stream' }),
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(payload.subarray(0, 10));
+          controller.enqueue(payload.subarray(10));
+          controller.close();
+        },
+      }),
+    }),
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.bytesDownloaded, payload.length);
+
+  const mismatch = await probeTarballIntegrity(url, expected, {
+    fetchImpl: async () => ({
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/octet-stream' }),
+      arrayBuffer: async () => Buffer.from('corrupted tarball bytes').buffer,
+    }),
+  });
+  assert.equal(mismatch.ok, false);
+  assert.equal(mismatch.fatal, true);
+  assert.match(mismatch.detail, /integrity mismatch/);
+
+  const transient404 = await probeTarballIntegrity(url, expected, {
+    fetchImpl: async () => ({ status: 404, headers: new Headers() }),
+  });
+  assert.equal(transient404.ok, false);
+  assert.equal(transient404.fatal, false);
+});
+
+test('waitForRegistryVisibility reproduces v0.98.11-rc.6: waits for tarball HTTP 200 + range GET after packument becomes visible', async () => {
+  let clockMs = 0;
+  const sleeps = [];
+  const logs = [];
+  const errs = [];
+
+  // Packument visible at 120s, tarball CDN answers 404 until 420s (+5 min lag after packument).
+  const result = await waitForRegistryVisibility({
+    packages: ['@sentropic/h2a@0.98.11-rc.6'],
+    budgetSeconds: 1200,
+    checkPackument: true,
+    checkTarball: true,
+    backoffSeconds: DEFAULT_BACKOFF_SECONDS,
+    now: () => clockMs,
+    sleep: async (ms) => {
+      sleeps.push(ms / 1000);
+      clockMs += ms;
+    },
+    probeView: async () => (clockMs >= 120_000 ? { ok: true, detail: 'ok' } : { ok: false, detail: 'E404' }),
+    probePackumentFn: async () => (
+      clockMs >= 120_000
+        ? { ok: true, tarballUrl: 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz', detail: 'ok' }
+        : { ok: false, detail: 'packument missing' }
+    ),
+    probeTarballUrlFn: async () => ({
+      ok: true,
+      tarballUrl: 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz',
+      detail: 'ok',
+    }),
+    probeTarballFn: async () => (
+      clockMs >= 420_000
+        ? { ok: true, status: 200, rangeStatus: 206, bytesRead: 16, detail: 'tarball HEAD 200 + range GET 206 ok' }
+        : { ok: false, detail: 'tarball HEAD returned HTTP 404' }
+    ),
+    log: (line) => logs.push(line),
+    err: (line) => errs.push(line),
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(result.elapsedSeconds >= 420 && result.elapsedSeconds <= 480);
+  assert.ok(errs.some((line) => line.includes('tarball HEAD returned HTTP 404')));
+  assert.ok(logs.some((line) => line.includes('(npm view + packument + tarball)')));
+});
+
+test('waitForRegistryVisibility aborts immediately on fatal dist.integrity mismatch without burning budget', async () => {
+  let clockMs = 0;
+  let sleepCalls = 0;
+  const errs = [];
+  const result = await waitForRegistryVisibility({
+    packages: ['@sentropic/h2a@0.98.11-rc.6'],
+    budgetSeconds: 180,
+    verifyTarballIntegrity: true,
+    now: () => clockMs,
+    sleep: async (ms) => {
+      sleepCalls += 1;
+      clockMs += ms;
+    },
+    probeView: async () => ({ ok: true, detail: 'ok' }),
+    probeTarballUrlFn: async () => ({
+      ok: true,
+      tarballUrl: 'https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.11-rc.6.tgz',
+      detail: 'ok',
+    }),
+    probeIntegrityFn: async () => ({
+      ok: true,
+      integrity: 'sha512-expected',
+      algorithm: 'sha512',
+      detail: 'ok',
+    }),
+    probeTarballIntegrityFn: async () => ({
+      ok: false,
+      fatal: true,
+      detail: 'tarball dist.integrity mismatch',
+    }),
+    log: () => {},
+    err: (line) => errs.push(line),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.attempts, 1);
+  assert.equal(sleepCalls, 0);
+  assert.match(errs.at(-1), /::error::.*integrity mismatch/);
+});
+
+test('wait-npm-visibility CLI verifies --check-tarball and --verify-tarball-integrity against local mock server', async (t) => {
+  const lab = mkdtempSync(join(tmpdir(), 'wait-npm-tarball-cli-'));
+  t.after(() => rmSync(lab, { recursive: true, force: true }));
+  writeFileSync(join(lab, 'package.json'), '{"type":"commonjs"}\n');
+  const bin = join(lab, 'bin');
+  mkdirSync(bin);
+  const tarballBytes = Buffer.from('\x1f\x8b\x08\x00mock-gzip-tarball-content-for-rc6');
+  const goodIntegrity = 'sha512-' + createHash('sha512').update(tarballBytes).digest('base64');
+  const badIntegrity = 'sha512-' + createHash('sha512').update('different-bytes').digest('base64');
+
+  let headHits = 0;
+  let rangeHits = 0;
+  let fullGetHits = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/tarballs/h2a-0.98.11-rc.6.tgz') {
+      if (req.method === 'HEAD') {
+        headHits += 1;
+        if (headHits < 3) {
+          res.writeHead(404);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-length': String(tarballBytes.length),
+          'accept-ranges': 'bytes',
+        });
+        res.end();
+        return;
+      }
+      if (req.method === 'GET' && req.headers.range === 'bytes=0-15') {
+        rangeHits += 1;
+        const slice = tarballBytes.subarray(0, 16);
+        res.writeHead(206, {
+          'content-type': 'application/octet-stream',
+          'content-length': String(slice.length),
+          'content-range': `bytes 0-${slice.length - 1}/${tarballBytes.length}`,
+        });
+        res.end(slice);
+        return;
+      }
+      if (req.method === 'GET') {
+        fullGetHits += 1;
+        res.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-length': String(tarballBytes.length),
+        });
+        res.end(tarballBytes);
+        return;
+      }
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const registryUrl = `http://127.0.0.1:${server.address().port}`;
+  const tarballUrl = `${registryUrl}/tarballs/h2a-0.98.11-rc.6.tgz`;
+
+  writeFileSync(
+    join(bin, 'npm'),
+    `#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[0] === 'view' && args[2] === 'version') {
+  console.log(args[1].slice(args[1].lastIndexOf('@') + 1));
+  process.exit(0);
+}
+if (args[0] === 'view' && args[2] === 'dist.tarball') {
+  console.log(${JSON.stringify(tarballUrl)});
+  process.exit(0);
+}
+if (args[0] === 'view' && args[2] === 'dist.integrity') {
+  console.log(JSON.stringify(process.env.MOCK_INTEGRITY));
+  process.exit(0);
+}
+process.exit(99);
+`,
+    { mode: 0o755 },
+  );
+
+  const tarballRun = await execAsync(
+    process.execPath,
+    [
+      SCRIPT_PATH,
+      '--package', '@sentropic/h2a@0.98.11-rc.6',
+      '--budget-seconds', '10',
+      '--backoff-seconds', '0.05',
+      '--check-tarball',
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_REGISTRY_URL: registryUrl },
+      timeout: 15_000,
+    },
+  );
+  assert.equal(tarballRun.status, 0, tarballRun.stdout + tarballRun.stderr);
+  assert.match(tarballRun.stdout, /is visible on registry \(npm view \+ tarball\)/);
+  assert.ok(headHits >= 3, 'must poll tarball HEAD until CDN stops returning 404');
+  assert.ok(rangeHits >= 1, 'must verify ranged GET after HEAD 200');
+
+  const integrityOk = await execAsync(
+    process.execPath,
+    [
+      SCRIPT_PATH,
+      '--package', '@sentropic/h2a@0.98.11-rc.6',
+      '--budget-seconds', '10',
+      '--backoff-seconds', '0.05',
+      '--verify-tarball-integrity',
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_REGISTRY_URL: registryUrl, MOCK_INTEGRITY: goodIntegrity },
+      timeout: 15_000,
+    },
+  );
+  assert.equal(integrityOk.status, 0, integrityOk.stdout + integrityOk.stderr);
+  assert.ok(fullGetHits >= 1, 'must download tarball bytes to verify dist.integrity');
+
+  const integrityFail = await execAsync(
+    process.execPath,
+    [
+      SCRIPT_PATH,
+      '--package', '@sentropic/h2a@0.98.11-rc.6',
+      '--budget-seconds', '10',
+      '--backoff-seconds', '0.05',
+      '--verify-tarball-integrity',
+    ],
+    {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_REGISTRY_URL: registryUrl, MOCK_INTEGRITY: badIntegrity },
+      timeout: 15_000,
+    },
+  );
+  assert.equal(integrityFail.status, 1, integrityFail.stdout + integrityFail.stderr);
+  assert.match(integrityFail.stderr, /integrity mismatch/);
 });
