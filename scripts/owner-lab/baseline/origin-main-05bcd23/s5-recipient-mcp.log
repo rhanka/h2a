@@ -1,0 +1,122 @@
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":0,"monotonicMs":452.236,"phase":"process_start","event":"sample","code":"0.98.7"}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":1,"monotonicMs":453.628,"phase":"mcp_serve_enter","event":"sample"}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":2,"monotonicMs":454.446,"phase":"transport_enter","event":"sample"}
+{"event":"drive-consent.full-verification","durationMs":0.1395029999999906,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":3,"monotonicMs":461.95,"phase":"identity_pending","event":"sample"}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":4,"monotonicMs":472.907,"phase":"initialize_recv","event":"sample","requestId":1,"method":"initialize"}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":5,"monotonicMs":473.818,"phase":"initialize_sent","event":"sample","requestId":1,"bytes":152}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":6,"monotonicMs":477.023,"phase":"tool_first_sent","event":"sample","requestId":2,"tool":"h2a_identity_status","bytes":336}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":7,"monotonicMs":526.32,"phase":"tool_sent","event":"sample","requestId":3,"tool":"h2a_identity_status","bytes":336}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":8,"monotonicMs":576.673,"phase":"tool_sent","event":"sample","requestId":4,"tool":"h2a_identity_status","bytes":337}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":9,"monotonicMs":627.864,"phase":"tool_sent","event":"sample","requestId":5,"tool":"h2a_identity_status","bytes":337}
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":10,"monotonicMs":678.493,"phase":"tool_sent","event":"sample","requestId":6,"tool":"h2a_identity_status","bytes":337}
+h2a mcp-serve: identity migration: codex:recipient:57d313785037 reads legacy codex:recipient; no proof of possession of a legacy key — mint net-new keys
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":11,"monotonicMs":719.981,"phase":"session_open","event":"sample"}
+h2a mcp-serve: auto-opened session for codex:recipient:57d313785037
+h2a mcp-serve: inbox-wake armed for codex:recipient:57d313785037
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":12,"monotonicMs":723.281,"phase":"identity_ready","event":"sample","code":"signing"}
+h2a mcp-serve: identity ready: codex:recipient:57d313785037 (signing available)
+h2a.mcp.phase {"v":1,"attemptId":"888db981-9a59-44bf-ba16-732700b4d42f","pid":16351,"role":"server","seq":13,"monotonicMs":730.785,"phase":"tool_sent","event":"sample","requestId":7,"tool":"h2a_identity_status","bytes":409}
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+drive[native-pty]: h2a-recipient (failed)
+h2a mcp-serve: inbox-wake: 1 new envelope(s) → drive failed
+h2a mcp-serve: received SIGTERM, shutting down gracefully
