@@ -55,6 +55,15 @@
 
 - [ ] `attention` to `cond`: the dry run of this repository's journal is the first real input; its list of `to-decide` entries is what the owner arbitrates in lot 5b.
 - [ ] `attention` to `arch`: if the tool cannot bring a fixture to `--strict` without settling a decision, stop and report which gate forces it; do not add a way around the gate.
+- [ ] `attention` to `arch`: E4 attachment (`attach-decision`) uses `item.report.decisionRefs` via `setReportStatus`, which requires an item-backed target row; attaching an E4 decision to an unpromoted pure `demand` row (no `ItemState`) cannot be expressed with existing events without modifying `events/**` or `owner-table.ts` (both forbidden here) and is therefore refused cleanly with an explicit reason.
+- [x] `BR811-EX1` (Conditional path `packages/track/src/track.ts`):
+  - **Reason**: Mechanical E1 reconstruction of an unnumbered owner-request `item` into a numbered `demand` inscribed through the `cli` transport requires an atomic facade method (`adoptItemAsDemand`) emitting `demand.raised` + `demand.owner-numbered` + `demand.qualifying-started` + `demand.agreed{itemIds:[itemId]}` under the number-uniqueness lock. Without linking the existing `itemId` in `demand.agreed`, `projectOwnerTable` (`owner-table.ts:1598-1671`) keeps the historical item in `everOwnerItemIds` as `row #0` and `--strict` keeps refusing unless an archive decision is settled (forbidden).
+  - **Impact**: Additive facade method on `Track` using only existing frozen event types (`validate` clean, zero schema/fold/reader changes).
+  - **Rollback strategy**: Revert the `adoptItemAsDemand` method in `packages/track/src/track.ts`.
+- [x] `BR811-EX2` (Commit line-count guardrail):
+  - **Reason**: Single cohesive files (`adopt/plan.ts`, `adopt/apply.ts`, `adopt/adopt.test.ts`, and the deterministic JSON fixture `legacy-like-journal-resolved-plan.json`) naturally exceed 150 lines while keeping each commit focused on one logical unit (<= 3 files per commit).
+  - **Impact**: No scope expansion; all files stay within Allowed Paths.
+  - **Rollback strategy**: Standard git revert per logical commit.
 
 ## Orchestration Mode (AI-selected)
 
