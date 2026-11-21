@@ -267,7 +267,7 @@ export type StationEvent =
     }
   | { type: "same-session"; sessionId: string }
   | { type: "switch-refused"; sessionId: string; reason: StationRefusalReason }
-  | { type: "card"; kind: StationCardKind; sessionId: string }
+  | { type: "card"; kind: StationCardKind; sessionId: string; text: string }
   | { type: "notice"; key: string }
   | { type: "input-dropped"; bytes: number; reason: "transition" | "no-session" | "closed" }
   | { type: "input-purged"; bytes: number; reason: "transition" | "queue-full" }
@@ -1181,9 +1181,9 @@ class Station {
     reason: StationRefusalReason,
     state?: NativeTerminalSessionState,
   ): "refused" {
-    this.#emit({ type: "switch-refused", sessionId, reason });
-    this.#emit({ type: "card", kind: reason, sessionId });
     const text = this.#refusalText(sessionId, reason, state);
+    this.#emit({ type: "switch-refused", sessionId, reason });
+    this.#emit({ type: "card", kind: reason, sessionId, text });
     if (reason === "controlled-elsewhere") {
       // I5: taking a session held elsewhere needs an explicit, confirmed gesture.
       this.#showCard([text], this.#t("station.card.takeoverConfirm"), () =>
@@ -1726,6 +1726,8 @@ class Station {
     try {
       // t1 — read B at its owner.
       const owner = await this.#resolveOwner(sessionId);
+      // The detach byte closes the station even in the middle of a switch.
+      if (this.#ended) return "refused";
       if (owner.state === "absent") return this.#refuse(sessionId, "absent");
       if (owner.state === "ambiguous-owner") return this.#refuse(sessionId, "ambiguous-owner");
       if (owner.state === "unknown") return this.#refuse(sessionId, "unknown-view");
@@ -1739,17 +1741,23 @@ class Station {
         if (!isHostAnswer(error)) this.#dropLink(owner.socketPath);
         return this.#refuse(sessionId, "host-silent");
       }
+      if (this.#ended) return "refused";
       if (state.status !== "running") return this.#refuse(sessionId, "ended", state);
 
       // t2 — hold B before leaving A.
       const held = await this.#hold(link, state, options.takeover === true);
+      if (this.#ended) {
+        if (held.ok) await this.#giveBack(link, held);
+        return "refused";
+      }
       if (!held.ok) return this.#refuse(sessionId, held.reason, held.state ?? state);
 
       // t3 — leave A (or discard a view that already ended on a card).
       if (fromLive !== undefined) {
-        if (!(await this.#inFlightSettled(fromLive))) {
+        const settled = await this.#inFlightSettled(fromLive);
+        if (this.#ended || !settled) {
           await this.#giveBack(link, held);
-          return this.#refuse(sessionId, "input-in-flight");
+          return this.#ended ? "refused" : this.#refuse(sessionId, "input-in-flight");
         }
         await this.#leave(fromLive);
       } else if (from !== undefined) {
@@ -1781,6 +1789,8 @@ class Station {
             await active.client.write(active.lease, FOCUS_IN).catch(() => {});
           }
         }
+        // The cursor of the panel follows the session now displayed.
+        this.#panel.selectSessionById(sessionId);
         this.#panel.focusCli();
         this.#emit({
           type: "displayed",
@@ -1821,7 +1831,7 @@ class Station {
     this.#pendingLoss = undefined;
     view.dispose();
     this.#bar = undefined;
-    this.#emit({ type: "card", kind, sessionId });
+    this.#emit({ type: "card", kind, sessionId, text });
     this.#panel.paint();
     this.#redecorate();
     void this.#refresher.maybeRefresh(true);
