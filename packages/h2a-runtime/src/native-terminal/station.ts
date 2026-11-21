@@ -1506,6 +1506,8 @@ class Station {
       // generation/incarnation/controllerEpoch.
       if (guard.socketPath === link.socketPath && this.#guardIsCurrent(guard, state)) {
         this.#guards.delete(sessionId);
+        // The lease is the active one now: it is no longer a persisted guard.
+        this.#persist(withoutCompatGuard(this.#state, sessionId));
         this.#emit({ type: "guard", action: "promoted", sessionId });
         return { ok: true, lease: guard.lease, wasGuard: true };
       }
@@ -1555,6 +1557,12 @@ class Station {
   async #giveBack(link: HostLink, held: Extract<HoldResult, { ok: true }>): Promise<void> {
     if (held.wasGuard) {
       this.#setGuard(held.lease.id, held.lease, link.socketPath);
+      this.#persist(
+        withCompatGuard(this.#state, held.lease.id, {
+          generation: held.lease.generation,
+          incarnation: held.lease.incarnation,
+        }),
+      );
       return;
     }
     try {

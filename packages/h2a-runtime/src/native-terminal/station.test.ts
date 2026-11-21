@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,12 +19,16 @@ import { createNativeStatusBar } from "./op.js";
 import { NativeTerminalRemoteError } from "./protocol.js";
 import type { RightPanelSnapshot } from "./right-panel.js";
 import type { SessionViewStatusBar } from "./session-view.js";
+import type { DraftRecoveryRecord } from "./draft-recovery-view.js";
 import {
   runStation,
+  type StationDraftOutcome,
+  type StationDraftRef,
   type StationEvent,
   type StationHostClient,
   type StationOptions,
   type StationRuntime,
+  type StationSessionDraftStatus,
   type StationStatusBar,
 } from "./station.js";
 import { STATION_STATE_FILE_NAME, readStationState } from "./station-state.js";
@@ -137,12 +141,72 @@ type FakeHostHooks = {
   beforeState?: (id: string) => void | Promise<void>;
 };
 
+/**
+ * INJ test double (r4 §3, plans 05/06): the host-side composer broker, its
+ * vault and the manual pin. It is NOT the host implementation: it only gives
+ * the station something to call and something to display. A session is either
+ * "qualified" (the test adapter: a cooperative composer) or has no adapter.
+ */
+class FakeBroker {
+  readonly host: FakeHost;
+  readonly adapters = new Map<string, "qualified">();
+  /** Composer content of each cooperative session (what the human typed). */
+  readonly composer = new Map<string, string>();
+  readonly accepted: Array<{ sessionId: string; text: string }> = [];
+  readonly deposits: Array<{ sessionId: string; text: string; outcome: string }> = [];
+  readonly status = new Map<string, StationSessionDraftStatus>();
+  readonly vault = new Map<string, Uint8Array>();
+  readonly pinCalls: Array<{ sessionId: string; incarnation: string; manualPin: boolean }> = [];
+  readonly replaceCalls: StationDraftRef[] = [];
+  readonly deleteCalls: StationDraftRef[] = [];
+  /** Automatic bytes written to a PTY: must stay empty (zero D message on PTY). */
+  readonly automaticPtyBytes: string[] = [];
+  replaceOutcome: (ref: StationDraftRef) => StationDraftOutcome | Promise<StationDraftOutcome> =
+    () => ({ ok: true });
+  deleteOutcome: (ref: StationDraftRef) => StationDraftOutcome = () => ({ ok: true });
+  quietWindowMs = 4_000;
+
+  constructor(host: FakeHost) {
+    this.host = host;
+  }
+
+  static key(ref: StationDraftRef): string {
+    return `${ref.sessionId}/${ref.applicationIncarnation}/${ref.requestId}`;
+  }
+
+  /** An automatic message (wake, drive) reaches the broker for this session. */
+  deposit(sessionId: string, text: string): string {
+    const session = this.host.sessions.get(sessionId)!;
+    const record = (outcome: string): string => {
+      this.deposits.push({ sessionId, text, outcome });
+      return outcome;
+    };
+    const refuse = (refusal: string): string => {
+      this.status.set(sessionId, { ...this.status.get(sessionId), refusal, submission: "refused" });
+      return record(refusal);
+    };
+    // P0 admission: pin, adapter, quiet human window.
+    if (session.manualPin === true) return refuse("refused-manual-pin");
+    if (!this.adapters.has(sessionId)) return refuse("refused-no-draft-adapter");
+    const at = session.lastHumanActivityAt;
+    if (at !== null && this.host.now() - at < this.quietWindowMs) return record("deferred-recent-human");
+    // P1–P6 on the cooperative composer: save D0, submit once, restore D0.
+    const d0 = this.composer.get(sessionId) ?? "";
+    this.accepted.push({ sessionId, text });
+    this.composer.set(sessionId, d0);
+    this.status.set(sessionId, { submission: "submitted" });
+    return record("submitted");
+  }
+}
+
 class FakeHost {
   readonly socketPath: string;
   generation: string;
   hostPid = 7000;
   /** INJ L2 host: the ping carries `composerBrokerVersion: 1`. */
   composerBrokerVersion: unknown;
+  /** INJ double; present only on a "new host" fixture. */
+  broker: FakeBroker | undefined;
   readonly sessions = new Map<string, FakeSession>();
   readonly clients = new Set<FakeClient>();
   hooks: FakeHostHooks = {};
@@ -192,9 +256,51 @@ class FakeClient implements StationHostClient {
   readonly held = new Map<string, NativeTerminalControllerLease>();
   closed = false;
   severed = false;
+  // INJ port: absent on a host without the broker, as on every host today.
+  setManualPin?: StationHostClient["setManualPin"];
+  draftStatus?: StationHostClient["draftStatus"];
+  readDraft?: StationHostClient["readDraft"];
+  replaceDraft?: StationHostClient["replaceDraft"];
+  deleteDraft?: StationHostClient["deleteDraft"];
 
   constructor(host: FakeHost) {
     this.host = host;
+    const broker = host.broker;
+    if (!broker) return;
+    this.setManualPin = async (request) => {
+      this.#guard();
+      broker.pinCalls.push(request);
+      const session = this.#session(request.sessionId);
+      if (request.incarnation !== session.incarnation) {
+        throw remoteError("stale terminal session incarnation");
+      }
+      // Durable before the acknowledgement, then published in the session state.
+      session.manualPin = request.manualPin;
+      return { manualPin: request.manualPin };
+    };
+    this.draftStatus = async (sessionIds) => {
+      this.#guard();
+      return Object.fromEntries(
+        sessionIds.flatMap((id) => {
+          const status = broker.status.get(id);
+          return status ? [[id, status] as const] : [];
+        }),
+      );
+    };
+    this.readDraft = async (ref) => {
+      this.#guard();
+      return broker.vault.get(FakeBroker.key(ref));
+    };
+    this.replaceDraft = async (ref) => {
+      this.#guard();
+      broker.replaceCalls.push(ref);
+      return broker.replaceOutcome(ref);
+    };
+    this.deleteDraft = async (ref) => {
+      this.#guard();
+      broker.deleteCalls.push(ref);
+      return broker.deleteOutcome(ref);
+    };
   }
 
   sever(): void {
@@ -344,6 +450,11 @@ class FakeClient implements StationHostClient {
     this.#requireLease(lease);
     session.lastHumanActivityAt = this.host.now();
     session.writes.push(data);
+    // A cooperative composer receives the human input as its draft.
+    const broker = this.host.broker;
+    if (broker?.adapters.has(lease.id)) {
+      broker.composer.set(lease.id, (broker.composer.get(lease.id) ?? "") + data);
+    }
     this.host.log.push(`write:${lease.id}`);
   }
 
@@ -612,7 +723,10 @@ class Harness {
     for (const fixture of sessions) {
       const host = this.fleet.host(fixture.host);
       host.now = () => this.now;
-      if (options.brokerProtected) host.composerBrokerVersion = 1;
+      if (options.brokerProtected) {
+        host.composerBrokerVersion = 1;
+        host.broker ??= new FakeBroker(host);
+      }
       host.add(fixture.id).emit(`${fixture.label} ready\r\n`);
     }
     mkdirSync(join(this.home, ".h2a", "presence"), { recursive: true });
@@ -770,6 +884,52 @@ class Harness {
     for (let i = 0; i < (tab - this.panelTab + count) % count; i += 1) this.stdin.type("\t");
     this.panelTab = tab;
     this.stdin.type(String(row + 1));
+  }
+
+  /** Put the panel cursor on a session row (keyboard only). */
+  selectRow(sessionId: string): void {
+    const workspaces = this.lastSnapshot().workspaces;
+    const tab = workspaces.findIndex((workspace) =>
+      workspace.sessions.some((session) => session.id === sessionId),
+    );
+    const row = workspaces[tab]!.sessions.findIndex((session) => session.id === sessionId);
+    this.focusPanel();
+    const count = workspaces.length;
+    for (let i = 0; i < (tab - this.panelTab + count) % count; i += 1) this.stdin.type("\t");
+    this.panelTab = tab;
+    // Up to the first row, then down: a selected row shows its activatable
+    // extra rows, and the cursor walks through them before the next session.
+    for (let i = 0; i < 40; i += 1) this.stdin.type("k");
+    for (const before of workspaces[tab]!.sessions.slice(0, row)) {
+      const extras = (before.extraRows ?? []).filter((extra) => extra.activatable === true);
+      for (let i = 0; i <= extras.length; i += 1) this.stdin.type("j");
+    }
+  }
+
+  /** Rows listed under a session whatever the cursor (states, not gestures). */
+  stateRows(sessionId: string) {
+    return (this.row(sessionId).extraRows ?? []).filter((extra) => extra.whenSelected !== true);
+  }
+
+  /** Select a row, walk down to one of its activatable extra rows, press Enter. */
+  gesture(sessionId: string, rowId: string): void {
+    this.selectRow(sessionId);
+    const position = (this.row(sessionId).extraRows ?? [])
+      .filter((extra) => extra.activatable === true)
+      .findIndex((extra) => extra.id === rowId);
+    if (position < 0) {
+      throw new Error(
+        `no activatable row ${rowId} under ${sessionId}: ${JSON.stringify(this.row(sessionId).extraRows)}`,
+      );
+    }
+    for (let i = 0; i <= position; i += 1) this.stdin.type("j");
+    this.stdin.type("\r");
+  }
+
+  broker(socketPath = "/fake/host-1.sock"): FakeBroker {
+    const broker = this.fleet.host(socketPath).broker;
+    if (!broker) throw new Error("no broker double on this host");
+    return broker;
   }
 
   /** Station-owned controller id (pid 9001 in the harness). */
@@ -2272,5 +2432,443 @@ describe("Step 8 — no exit branch closes the station, except the three wanted 
       },
     );
     await h.run();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 6 — S1.7b / D-A14–15: a wake on the session left, with INJ doubles
+// ---------------------------------------------------------------------------
+
+const MULTILINE_DRAFT = "first line\n\tindented  \nlast, unfinished";
+
+describe("Step 6 — automatic message on the session that was left (INJ doubles)", () => {
+  it("should let a qualified composer accept the wake once and keep the draft exact (mixed fleet)", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const broker = h.broker();
+    // Mixed test registry: A (api) has the test adapter, B (tracker) has none.
+    broker.adapters.set("h2a-api", "qualified");
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    let outcomes: string[] = [];
+    h.step(
+      (x) => x.stdin.type(MULTILINE_DRAFT),
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        // A is released on this host: a wake right now is deferred, not refused.
+        expect(api.controllerId).toBeNull();
+        outcomes.push(broker.deposit("h2a-api", "wake: continue"));
+        x.now += 5_000;
+      },
+      () => {
+        outcomes.push(broker.deposit("h2a-api", "wake: continue"));
+        // The neighbour without adapter keeps its deposit, visibly refused.
+        outcomes.push(broker.deposit("h2a-tracker", "wake: tracker"));
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.row("h2a-tracker").extraRows).toContainEqual({ id: "refusal", text: "refused-no-draft-adapter" });
+        expect(x.row("h2a-tracker").draftCapability).toBe("refused-no-draft-adapter");
+        expect(x.stateRows("h2a-api")).toEqual([]);
+        x.activate("h2a-api");
+      },
+      (x) => x.stdin.type(" + more"),
+      tick,
+    );
+    await h.run();
+
+    expect(outcomes).toEqual(["deferred-recent-human", "submitted", "refused-no-draft-adapter"]);
+    // Accepted exactly once; D0 is back, byte for byte, multi-line included.
+    expect(broker.accepted).toEqual([{ sessionId: "h2a-api", text: "wake: continue" }]);
+    expect(broker.composer.get("h2a-api")).toBe(`${MULTILINE_DRAFT} + more`);
+    // Zero automatic byte on any PTY; B received nothing at all.
+    expect(broker.automaticPtyBytes).toEqual([]);
+    expect(tracker.writes).toEqual([]);
+    expect(api.writes.join("")).toBe(`${MULTILINE_DRAFT} + more`);
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker", "h2a-api"]);
+    expect(h.of("guard")).toEqual([]);
+  });
+
+  it("should keep every line usable with a visible refusal at 0/5 on a new host", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const broker = h.broker();
+    const api = h.fleet.session("h2a-api");
+    h.step(
+      (x) => x.stdin.type("draft"),
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        x.now += 5_000;
+        expect(broker.deposit("h2a-api", "wake")).toBe("refused-no-draft-adapter");
+      },
+      tick,
+      tick,
+      (x) => {
+        // A is not held by anyone: the refusal comes from the host, not a lease.
+        expect(api.controllerId).toBeNull();
+        expect(x.row("h2a-api")).toMatchObject({
+          compatGuard: false,
+          draftCapability: "refused-no-draft-adapter",
+        });
+        expect(x.row("h2a-api").extraRows).toContainEqual({ id: "refusal", text: "refused-no-draft-adapter" });
+        x.activate("h2a-api");
+      },
+      (x) => x.stdin.type("-still-mine"),
+      tick,
+    );
+    await h.run();
+    // The deposit is kept, nothing was submitted, nothing was written for it.
+    expect(broker.deposits).toEqual([{ sessionId: "h2a-api", text: "wake", outcome: "refused-no-draft-adapter" }]);
+    expect(broker.accepted).toEqual([]);
+    expect(broker.automaticPtyBytes).toEqual([]);
+    expect(api.writes.join("")).toBe("draft-still-mine");
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker", "h2a-api"]);
+  });
+
+  it("should defer the legacy automation under a compatibility guard and drive after a confirmed release (old host)", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const drive = async (): Promise<string> => {
+      // What the base `op drive` does: the 4 s human-activity lease, then text + CR.
+      const client = h.fleet.host("/fake/host-1.sock").connect();
+      try {
+        const lease = await client.acquireAutomationControllerIfNoRecentHuman("h2a-api", "drive", 4_000);
+        await client.write(lease, "automatic line\r");
+        await client.releaseController(lease);
+        return "driven";
+      } catch {
+        return "deferred";
+      } finally {
+        client.close();
+      }
+    };
+    const results: string[] = [];
+    h.autoDetach = false;
+    h.step(
+      (x) => x.stdin.type("partial draft"),
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        x.now += 5_000;
+        expect(x.row("h2a-api")).toMatchObject({ compatGuard: true, draftCapability: "refused-no-capability" });
+        void drive().then((result) => results.push(result));
+      },
+      tick,
+      (x) => {
+        expect(results).toEqual(["deferred"]);
+        expect(api.writes.join("")).toBe("partial draft");
+        // The confirmed "release" gesture: row, Enter, then Enter on the card.
+        x.gesture("h2a-api", "guard-release");
+      },
+      (x) => {
+        expect(plain(x.stdout.text())).toContain("Release api? A draft left there may then");
+        expect(api.controllerId).toBe(x.stationController);
+        x.stdin.type("\r");
+      },
+      tick,
+      (x) => {
+        expect(api.controllerId).toBeNull();
+        expect(x.row("h2a-api").compatGuard).toBe(false);
+        x.now += 5_000;
+        void drive().then((result) => results.push(result));
+      },
+      tick,
+      (x) => x.stdin.type(DETACH),
+    );
+    await h.run();
+    expect(results).toEqual(["deferred", "driven"]);
+    expect(api.writes.join("")).toBe("partial draftautomatic line\r");
+    expect(h.of("gesture")).toEqual([
+      { type: "gesture", gesture: "guard-release", sessionId: "h2a-api", outcome: "released" },
+    ]);
+    expect(h.persisted().state.compatGuards).toEqual({});
+  });
+
+  it("should keep a session taken by force guarded, and offer to guard a session never displayed (old host)", async () => {
+    const h = new Harness();
+    const tracker = h.fleet.session("h2a-tracker");
+    const conductor = h.fleet.session("h2a-conductor");
+    h.step(
+      (x) => {
+        tracker.controlElsewhere({ pid: 4321, tty: "/dev/pts/7" });
+        x.activate("h2a-tracker");
+      },
+      (x) => x.stdin.type("\r"),
+      (x) => x.activate("h2a-api"),
+      (x) => {
+        // Taken by force, then left: it stays under the station's guard.
+        expect(tracker.controllerId).toBe(x.stationController);
+        expect(x.row("h2a-tracker").compatGuard).toBe(true);
+        // A session never displayed can be guarded by a confirmed gesture.
+        x.gesture("h2a-conductor", "guard-keep");
+      },
+      (x) => x.stdin.type("\r"),
+      tick,
+      (x) => {
+        expect(conductor.controllerId).toBe(x.stationController);
+        expect(x.row("h2a-conductor").compatGuard).toBe(true);
+        // Guarded, never displayed: no byte and no resize ever reached it.
+        expect(conductor.writes).toEqual([]);
+        expect(conductor.resizes).toEqual([]);
+      },
+    );
+    await h.run();
+    expect(Object.keys(h.persisted().state.compatGuards).sort()).toEqual(["h2a-conductor", "h2a-tracker"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 7 — D-A05/A10/A13/A16/A17 recovery states and view, D-A18 manual pin
+// ---------------------------------------------------------------------------
+
+const HOSTILE_DRAFT = "line one  \r\n\x1b[2J\x1b]0;pwned\x07<b>html</b>\tend\n";
+
+function keptDraft(overrides: Partial<DraftRecoveryRecord> = {}): DraftRecoveryRecord {
+  return {
+    sessionId: "h2a-api",
+    applicationIncarnation: "app-1",
+    requestId: "req-7",
+    submission: "submitted",
+    draft: "saved-for-recovery",
+    byteLength: Buffer.byteLength(HOSTILE_DRAFT),
+    ...overrides,
+  };
+}
+
+function seedDraft(broker: FakeBroker, record: DraftRecoveryRecord, status: Partial<StationSessionDraftStatus> = {}): void {
+  broker.status.set(record.sessionId, { submission: record.submission, drafts: [record], ...status });
+  broker.vault.set(FakeBroker.key(record), Buffer.from(HOSTILE_DRAFT, "utf8"));
+}
+
+describe("Step 7 — recovery states, inert view and confirmed gestures (INJ doubles)", () => {
+  it("should list per session the restitution state, the submission outcome and the dropped-on-app-exit count", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const broker = h.broker();
+    seedDraft(broker, keptDraft());
+    broker.status.set("h2a-tracker", {
+      submission: "uncertain",
+      droppedOnAppExit: 3,
+      drafts: [keptDraft({ sessionId: "h2a-tracker", requestId: "req-9", submission: "uncertain", draft: "restoring-on-ready" })],
+    });
+    h.step(tick, tick);
+    await h.run();
+    expect(h.row("h2a-api")).toMatchObject({ draftRecovery: "saved-for-recovery" });
+    expect(h.row("h2a-api").extraRows).toContainEqual({
+      id: "draft:app-1:req-7",
+      text: "Draft kept — restitution to resume",
+      activatable: true,
+    });
+    expect(h.row("h2a-tracker")).toMatchObject({ draftRecovery: "restoring-on-ready" });
+    expect(h.stateRows("h2a-tracker")).toEqual([
+      { id: "submission", text: "submission: uncertain" },
+      { id: "dropped", text: "3 dropped-on-app-exit" },
+      { id: "draft:app-1:req-9", text: "restoring-on-ready", activatable: true },
+    ]);
+    expect(plain(h.stdout.text())).toContain("3 dropped-on-app-exit");
+    expect(plain(h.stdout.text())).toContain("Draft kept — restitution to");
+  });
+
+  it("should show the complete draft inert, export the exact bytes and stay navigable", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const broker = h.broker();
+    seedDraft(broker, keptDraft({ retainedKeystrokes: 2 }));
+    h.step(
+      tick,
+      (x) => x.gesture("h2a-api", "draft:app-1:req-7"),
+      tick,
+      (x) => {
+        const text = plain(x.stdout.text());
+        expect(text).toContain("Draft kept — restitution to");
+        expect(text).toContain("message: submitted");
+        expect(text).toContain("draft: saved-for-recovery");
+        expect(text).toContain(`${Buffer.byteLength(HOSTILE_DRAFT)} bytes`);
+        expect(text).toContain("2 keystrokes retained after");
+        // The draft is painted as text: its CSI and OSC are visible, not executed.
+        expect(text).toContain("␛[2J␛]0;pwned␇<b>html</b>␉end");
+        // Export is selected first: Enter writes the raw bytes.
+        x.stdin.type("\r");
+      },
+      tick,
+      // Navigation stays possible: close the view and switch.
+      (x) => x.stdin.type("\x1b"),
+      (x) => x.activate("h2a-tracker"),
+      tick,
+    );
+    await h.run();
+    const exported = h.of("gesture").find((event) => event.gesture === "draft-export");
+    expect(exported?.outcome).toMatch(/draft-exports\/h2a-api-req-7-\d+\.bin$/);
+    const bytes = readFileSync(exported!.outcome);
+    expect(Buffer.compare(bytes, Buffer.from(HOSTILE_DRAFT, "utf8"))).toBe(0);
+    expect(statSync(exported!.outcome).mode & 0o777).toBe(0o600);
+    expect(statSync(dirname(exported!.outcome)).mode & 0o777).toBe(0o700);
+    expect(readdirSync(dirname(exported!.outcome))).toHaveLength(1);
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    // The draft never became a title, a clear screen or a session input.
+    expect(h.stdout.text()).not.toContain("\x1b]0;pwned");
+    expect(h.fleet.all().flatMap((session) => session.writes)).toEqual([]);
+  });
+
+  it("should replace and delete only after a confirmation, and show a host refusal", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const broker = h.broker();
+    const record = keptDraft();
+    seedDraft(broker, record);
+    broker.deleteOutcome = () => ({ ok: false, reason: "refused-transaction-not-settled" });
+    broker.replaceOutcome = () => {
+      // A proven restitution purges the content at the host.
+      broker.vault.delete(FakeBroker.key(record));
+      broker.status.set("h2a-api", { submission: "submitted", drafts: [{ ...record, draft: "restored" }] });
+      return { ok: true };
+    };
+    h.step(
+      tick,
+      (x) => x.gesture("h2a-api", "draft:app-1:req-7"),
+      tick,
+      (x) => {
+        // Delete: Tab twice, Enter asks, Esc withdraws — nothing was called.
+        x.stdin.type("\t");
+        x.stdin.type("\t");
+        x.stdin.type("\r");
+      },
+      (x) => {
+        expect(plain(x.stdout.text())).toContain("Enter: confirm · Esc: cancel");
+        expect(broker.deleteCalls).toEqual([]);
+        x.stdin.type("\r");
+      },
+      tick,
+      (x) => {
+        expect(broker.deleteCalls).toHaveLength(1);
+        expect(plain(x.stdout.text())).toContain("refused-transaction-not-settled");
+        // Replace: Shift+Tab back to it, Enter, Enter.
+        x.stdin.type("\x1b[Z");
+        x.stdin.type("\r");
+        x.stdin.type("\r");
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(broker.replaceCalls).toEqual([{ sessionId: "h2a-api", applicationIncarnation: "app-1", requestId: "req-7" }]);
+        const text = plain(x.stdout.text());
+        expect(text).toContain("draft: restored");
+        expect(text).toContain("content purged after proven");
+        expect(x.row("h2a-api").draftRecovery).toBe("none");
+      },
+    );
+    await h.run();
+    expect(h.of("gesture").map((event) => [event.gesture, event.outcome])).toEqual([
+      ["draft-delete", "refused-transaction-not-settled"],
+      ["draft-replace", "done"],
+    ]);
+  });
+
+  it("should find the same recovery state after the station is closed and reopened (D-A16)", async () => {
+    const first = new Harness({ brokerProtected: true });
+    seedDraft(first.broker(), keptDraft({ submission: "uncertain" }));
+    first.step(tick);
+    await first.run();
+    // A second station over the same hosts: the host is the authority.
+    const second = new Harness({ brokerProtected: true });
+    seedDraft(second.broker(), keptDraft({ submission: "uncertain" }));
+    second.step(tick);
+    await second.run();
+    for (const h of [first, second]) {
+      expect(h.row("h2a-api")).toMatchObject({ draftRecovery: "saved-for-recovery" });
+      expect(h.row("h2a-api").extraRows).toContainEqual({ id: "submission", text: "submission: uncertain" });
+    }
+    // Uncertain: the station itself never asked for a new submission.
+    expect(second.broker().accepted).toEqual([]);
+    expect(second.broker().replaceCalls).toEqual([]);
+  });
+});
+
+describe("Step 7 — D-A18 manual pin through set-manual-pin (INJ double)", () => {
+  it("should set and remove the pin after a confirmation and display the value read from the host", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const broker = h.broker();
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      tick,
+      (x) => x.gesture("h2a-tracker", "pin-set"),
+      (x) => {
+        expect(plain(x.stdout.text())).toContain("Set manual-only on tracker?");
+        // Nothing is sent before the confirmation.
+        expect(broker.pinCalls).toEqual([]);
+        x.stdin.type("\r");
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(broker.pinCalls).toEqual([{ sessionId: "h2a-tracker", incarnation: "inc-1", manualPin: true }]);
+        expect(tracker.manualPin).toBe(true);
+        expect(x.row("h2a-tracker").extraBadges).toEqual(["manual-only"]);
+        // A pinned session refuses the automatic message, even after a switch.
+        expect(broker.deposit("h2a-tracker", "wake")).toBe("refused-manual-pin");
+        x.activate("h2a-tracker");
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.row("h2a-tracker").extraRows).toContainEqual({ id: "refusal", text: "refused-manual-pin" });
+        x.gesture("h2a-tracker", "pin-remove");
+      },
+      (x) => x.stdin.type("\r"),
+      tick,
+      tick,
+      (x) => {
+        expect(tracker.manualPin).toBe(false);
+        expect(x.row("h2a-tracker").extraBadges).toBeUndefined();
+      },
+    );
+    await h.run();
+    expect(h.of("gesture").map((event) => [event.gesture, event.outcome])).toEqual([
+      ["pin-set", "acknowledged"],
+      ["pin-remove", "acknowledged"],
+    ]);
+    expect(broker.pinCalls.map((call) => call.manualPin)).toEqual([true, false]);
+  });
+
+  it("should show to a second station, then to a reopened one, the value the host holds", async () => {
+    const one = new Harness({ brokerProtected: true });
+    one.fleet.session("h2a-tracker").manualPin = true;
+    one.step(tick);
+    await one.run();
+    expect(one.row("h2a-tracker").extraBadges).toEqual(["manual-only"]);
+    // The station state never stores the pin.
+    expect(JSON.stringify(one.persisted().state)).not.toContain("manual");
+    const reopened = new Harness({ brokerProtected: true });
+    reopened.fleet.session("h2a-tracker").manualPin = true;
+    reopened.step(tick);
+    await reopened.run();
+    expect(reopened.row("h2a-tracker").extraBadges).toEqual(["manual-only"]);
+    expect(reopened.row("h2a-api").extraBadges).toBeUndefined();
+  });
+
+  it("should display the refusal of a stale incarnation and leave the pin unchanged", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      tick,
+      (x) => x.gesture("h2a-tracker", "pin-set"),
+      (x) => {
+        // The PTY was replaced between the gesture and its confirmation.
+        tracker.incarnation = "inc-2";
+        x.stdin.type("\r");
+      },
+      tick,
+      tick,
+    );
+    await h.run();
+    expect(h.of("gesture")).toEqual([
+      { type: "gesture", gesture: "pin-set", sessionId: "h2a-tracker", outcome: "stale terminal session incarnation" },
+    ]);
+    expect(tracker.manualPin).toBeUndefined();
+    expect(plain(h.stdout.text())).toContain("tracker: stale terminal session");
+  });
+
+  it("should offer no pin gesture on a host without the capability", async () => {
+    const h = new Harness();
+    h.step(tick, (x) => x.selectRow("h2a-tracker"), tick);
+    await h.run();
+    const rows = (h.row("h2a-tracker").extraRows ?? []).map((row) => row.id);
+    expect(rows).toEqual(["guard-keep"]);
+    expect(h.row("h2a-tracker").draftCapability).toBe("refused-no-capability");
   });
 });
