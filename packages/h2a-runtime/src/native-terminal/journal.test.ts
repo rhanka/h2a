@@ -315,7 +315,9 @@ describe("native host life journal", () => {
     it(`should canonicalize verified stack files and redact an existing ${kind} sentinel`, () => {
       const f = fixture(), sentinel = "pQ7r4V9n2M6x8Z5s", source = fileURLToPath(new URL("../", import.meta.url));
       expect(Object.values(process.env).some(value => value?.includes(sentinel))).toBe(false);
-      const target = join(f.root, `${sentinel}.mjs`), alias = join(source, `r2-${kind}-${sentinel}.mjs`);
+      const stackDir = join(source, ".stack-test");
+      mkdirSync(stackDir, { recursive: true, mode: 0o700 });
+      const target = join(f.root, `${sentinel}.mjs`), alias = join(stackDir, `r2-${kind}-${sentinel}.mjs`);
       writeFileSync(target, "export {};\n");
       let path: string;
       if (kind === "traversal") path = `${source}../../../${relative(repo, target)}`;
