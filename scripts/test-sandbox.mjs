@@ -568,6 +568,7 @@ function buildCheckoutOverlayArgs(repoRoot, runRoot, ciImports) {
   // Fixed checkout views
   addDirView("tmp", "views/tmp");
   addDirView("tmp/test-runtime", "aliases/test-runtime");
+  addDirView(".tmp", "views/dot-tmp");
   addDirView(".qual-tmp", "aliases/qual-tmp");
 
   if (existsSync(join(repoRoot, "node_modules"))) {
@@ -780,9 +781,9 @@ function sanitizeGuestEnv(rawEnv, { runRootVisible, nonce, receiptPath, roleInfo
   clean.H2A_NATIVE_SOCKET = join(runRootVisible, "runtime", "host.sock");
   clean.H2A_NATIVE_HOST_LOG = join(runRootVisible, "state", "native-host.log");
   clean.DBUS_SESSION_BUS_ADDRESS = `unix:path=${join(runRootVisible, "runtime", "no-bus")}`;
-  clean.CODEX_HOME = join(runRootVisible, "config", "codex");
-  clean.CLAUDE_CONFIG_DIR = join(runRootVisible, "config", "claude");
-  clean.VIBE_HOME = join(runRootVisible, "config", "vibe");
+  delete clean.CODEX_HOME;
+  delete clean.CLAUDE_CONFIG_DIR;
+  delete clean.VIBE_HOME;
   clean.npm_config_cache = join(runRootVisible, "home", ".npm");
   clean.GIT_OPTIONAL_LOCKS = "0";
   clean[TEST_STATE_ROOT_ENV] = runRootVisible;
@@ -991,6 +992,9 @@ async function main() {
         ...(roleInfo.role === "m17-run" ? ["--bind", m17SetupReceipt.volumePath, join(SANDBOX_MOUNT_ROOT, "m17")] : []),
         "--ro-bind", receiptHost, SANDBOX_RECEIPT_PATH,
         "--ro-bind", roWitnessHost, SANDBOX_RO_WITNESS_PATH,
+        ...(!unshareNet && existsSync("/run/systemd/resolve")
+          ? ["--dir", "/run/systemd", "--ro-bind", "/run/systemd/resolve", "/run/systemd/resolve"]
+          : []),
         "--remount-ro", "/run",
         "--bind", join(hostH, COMPAT_TMP_TARGET), "/tmp",
         ...checkoutArgs,
