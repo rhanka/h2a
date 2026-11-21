@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { verifySandboxConfinement } from '../../../../scripts/test-sandbox-contract.mjs';
+verifySandboxConfinement(process.env);
 const repo = resolve(import.meta.dirname, '../../../..');
 const ts = createRequire(join(repo, 'package.json'))('typescript');
 const lane = fs.mkdtempSync(join(tmpdir(), 'h2a-host-build-'));
@@ -63,7 +65,8 @@ const env = { ...process.env, HOME: join(lane, 'home'), TMPDIR: join(lane, 'tmp'
   XDG_STATE_HOME: join(lane, 'state'), H2A_ROOT: join(lane, 'state', 'bus'), IDLOCK_LANE: lane,
   VIBE_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
   NODE_OPTIONS: '--import ' + join(repo, 'packages/h2a/test/helpers/identity-isolation-guard.mjs') };
-const result = spawnSync(process.execPath, ['--test', ...files], { cwd: root, env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+const d16Preload = join(repo, 'packages/h2a/test/helpers/native-isolation.js');
+const result = spawnSync(process.execPath, ['--import', d16Preload, '--test', ...files], { cwd: root, env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
 fs.writeFileSync(join(lane, 'tests.tap'), result.stdout + result.stderr);
 process.stdout.write(`LANE=${lane}\n${result.stdout}${result.stderr}`);
 process.exitCode = result.status ?? 1;

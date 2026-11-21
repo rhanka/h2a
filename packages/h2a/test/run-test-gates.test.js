@@ -496,13 +496,14 @@ function assertM17CiGraph(source) {
   // same-run companion evidence is mandatory in its production invocation.
 
   const commands = [...job.matchAll(/^[ ]+(?:- )?run: ([^\n]+)$/gm)].map((match) => match[1]).filter(line => line !== "|")
-  assert.match(job, /H2A_TEST_QUALIFICATION_ROOT=\$DIR/);
+  assert.match(job, /H2A_TEST_STAGE_ROOT=\$DIR/);
   assert.deepEqual(
     commands,
     [
+      'node scripts/test-sandbox.mjs --prepare-ci',
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
-      'node --test packages/h2a/test/run-test-gates.test.js',
+      'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js',
       'test "$M17_RESULT" = success',
       'test "$BULK_RESULT" = success',
       'test "$SHARDS_RESULT" = success',
@@ -568,7 +569,8 @@ function assertM17CiGraph(source) {
   assert.match(producer, /node: \["22", "24"\]/)
   assert.doesNotMatch(producer, /continue-on-error:/)
   assert.deepEqual([...producer.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map(match => match[1]), [
-    'npm ci', 'npm run build', 'node scripts/ci-m17-temp.mjs setup', 'node scripts/ci-m17-proof.mjs run',
+    'node scripts/test-sandbox.mjs --prepare-ci', 'npm ci', 'npm run build', 'node scripts/ci-m17-temp.mjs setup',
+    'node scripts/test-sandbox.mjs -- node scripts/ci-m17-proof.mjs run',
     'node scripts/ci-m17-temp.mjs cleanup', 'node scripts/ci-m17-proof.mjs finalize',
   ])
   assert.match(producer, /- name: Remove the private M17 data volume\n\s+if: \$\{\{ always\(\) && env\.H2A_TEST_M17_TMPDIR != '' \}\}\n\s+run: node scripts\/ci-m17-temp\.mjs cleanup/)
@@ -589,8 +591,8 @@ test('CI companion negative controls reject skipped-green dependencies and stale
     ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
     ['run: test "$SHARDS_RESULT" = success', 'run: true'],
     ['needs: [m17-qualification, bulk-qualification, node-shard]\n    if: ${{ always() }}', 'needs: []\n    if: ${{ always() }}'],
-    ['run: node --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: test "$M17_RESULT" = success',
-      'run: node --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: true'],
+    ['run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: test "$M17_RESULT" = success',
+      'run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: true'],
     ['name: m17-${{ github.run_id }}-node22', 'name: m17-last-success-node22'],
     ['H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json\n          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json\n          H2A_TEST_NODE_SHARD_DIR:', 'OPTIONAL_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json\n          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json\n          H2A_TEST_NODE_SHARD_DIR:'],
     ['if-no-files-found: error', 'if-no-files-found: warn'],
@@ -608,7 +610,7 @@ test('trust-root rejects a missing, optional or foreign shard and cannot bypass 
   for (const [before, after] of [
     ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
     ['if: ${{ always() }}', 'if: ${{ success() }}'],
-    ['run: node --test packages/h2a/test/run-test-gates.test.js', 'run: true'],
+    ['run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js', 'run: true'],
     ['run: test "$SHARDS_RESULT" = success', 'run: true'],
     ['name: node-shard-${{ github.run_id }}-node22-shard0', 'name: node-shard-last-success-node22-shard0'],
     ['name: node-shard-${{ github.run_id }}-node22-shard1', 'name: node-shard-${{ github.run_id }}-node24-shard1'],
@@ -1201,6 +1203,8 @@ function sentinelRunnerSource({ brokenId, dropInLoop, dropAtEntry, executionProo
   source = source.replaceAll("'./test-execution-evidence.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-execution-evidence.mjs')).href))
   source = source.replaceAll("'./test-inventory.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-inventory.mjs')).href))
   source = source.replaceAll("'./report-test-durations.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/report-test-durations.mjs')).href))
+  source = source.replaceAll("'./test-sandbox-contract.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-sandbox-contract.mjs')).href))
+  source = source.replace("const SANDBOX_LAUNCHER = resolve(HERE, 'test-sandbox.mjs')", `const SANDBOX_LAUNCHER = ${JSON.stringify(resolve(REPO_ROOT, 'scripts/test-sandbox.mjs'))}`)
   source = source.replace("const inventory = readInventory(REPO_ROOT)", "const inventory = {}").replace("policyFor(REPO_ROOT, inventory, 'runtime')", "{}")
   const beforeRoot = source
   source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')
@@ -1828,4 +1832,168 @@ test('a failed parallel suite remains failed and every independent suite still e
 
 test('parallel Vitest suites each use one worker without dropping their required files', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true, boundedWorkers: true })
+})
+
+test('L0 R3: importing run-tests.mjs and run-test-gates.mjs has zero filesystem or env side effects', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'd16-pure-import-'))
+  try {
+    const fakeHome = join(lab, 'home')
+    const fakeTmp = join(lab, 'tmp')
+    mkdirSync(fakeHome, { recursive: true, mode: 0o700 })
+    mkdirSync(fakeTmp, { recursive: true, mode: 0o700 })
+    for (const mod of ['scripts/run-tests.mjs', 'scripts/run-test-gates.mjs']) {
+      const env = { ...process.env, HOME: fakeHome, TMPDIR: fakeTmp, TMP: fakeTmp, TEMP: fakeTmp }
+      delete env.H2A_TEST_QUALIFICATION_ROOT
+      const res = spawnSync(
+        process.execPath,
+        ['-e', `import(${JSON.stringify(pathToFileURL(resolve(REPO_ROOT, mod)).href)}).then(() => console.log(JSON.stringify({ tmpdir: process.env.TMPDIR, qual: process.env.H2A_TEST_QUALIFICATION_ROOT ?? null })))`],
+        { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: 15_000 },
+      )
+      assert.equal(res.status, 0, `${mod}: ${res.stderr}`)
+      const observed = JSON.parse(res.stdout.trim())
+      assert.equal(observed.tmpdir, fakeTmp, `${mod} mutated TMPDIR on import`)
+      assert.equal(observed.qual, null, `${mod} mutated H2A_TEST_QUALIFICATION_ROOT on import`)
+      assert.equal(existsSync(join(fakeHome, '.cache-tmp')), false, `${mod} created .cache-tmp on import`)
+    }
+  } finally {
+    rmSync(lab, { recursive: true, force: true })
+  }
+})
+
+test('L0 R5: unavailable barrier exits 3 (qualification-incomplete) without starting the command', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'd16-no-barrier-'))
+  try {
+    const sentinel = join(lab, 'started.txt')
+    const emptyBin = join(lab, 'empty-bin')
+    mkdirSync(emptyBin, { recursive: true, mode: 0o700 })
+    const res = spawnSync(
+      process.execPath,
+      [
+        resolve(REPO_ROOT, 'scripts/test-sandbox.mjs'),
+        '--',
+        process.execPath,
+        '-e',
+        `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')`,
+      ],
+      {
+        cwd: REPO_ROOT,
+        env: { ...process.env, PATH: emptyBin, TMPDIR: lab, H2A_TEST_STAGE_ROOT: lab },
+        encoding: 'utf8',
+        timeout: 15_000,
+      },
+    )
+    assert.equal(res.status, 3, `expected exit 3 when bwrap is absent, got ${res.status}: ${res.stderr}`)
+    assert.match(res.stderr, /qualification-incomplete/)
+    assert.equal(existsSync(sentinel), false, 'command must never start when barrier is unavailable')
+  } finally {
+    rmSync(lab, { recursive: true, force: true })
+  }
+})
+
+test('L0 R4/R5: N3 role classification, N5 lane manifest/receipt v1, and closed VM host selectors', async () => {
+  const { buildSourceManifest, verifyLaneReceipt, detectSandboxRole } = await import(
+    pathToFileURL(resolve(REPO_ROOT, 'scripts/test-sandbox-contract.mjs')).href
+  )
+  const { parseSelectorArgs, buildSelectorCommand } = await import(
+    pathToFileURL(resolve(REPO_ROOT, 'scripts/test-host-qualification.mjs')).href
+  )
+  const { createHash } = await import('node:crypto')
+  const { symlinkSync, chmodSync, unlinkSync } = await import('node:fs')
+
+  // N3 role classification
+  assert.deepEqual(detectSandboxRole(['node', 'scripts/ci-m17-proof.mjs', 'run'], {}, REPO_ROOT), { role: 'm17-run', shardIndex: null })
+  assert.deepEqual(detectSandboxRole(['node', 'scripts/ci-bulk-proof.mjs'], {}, REPO_ROOT), { role: 'bulk', shardIndex: null })
+  assert.deepEqual(detectSandboxRole(['node', 'scripts/run-node-shard.mjs', '--shard=2'], {}, REPO_ROOT), { role: 'node-shard', shardIndex: 2 })
+  assert.deepEqual(detectSandboxRole(['npm', 'test'], {}, REPO_ROOT), { role: 'aggregator', shardIndex: null })
+  assert.deepEqual(detectSandboxRole(['node', 'scripts/run-test-gates.mjs'], {}, REPO_ROOT), { role: 'aggregator', shardIndex: null })
+  assert.deepEqual(detectSandboxRole(['node', '--import', './packages/h2a/test/helpers/native-isolation.js', '--test', 'packages/h2a/test/run-test-gates.test.js'], {}, REPO_ROOT), { role: 'ordinary', shardIndex: null })
+  assert.deepEqual(detectSandboxRole(['node', '--import', './packages/h2a/test/helpers/native-isolation.js', '--test', 'packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs'], {}, REPO_ROOT), { role: 'focus-perf', shardIndex: null })
+
+  // Closed VM selectors (N5 / C2)
+  assert.equal(parseSelectorArgs(['startup', '--mode=fresh']).mode, 'fresh')
+  assert.equal(parseSelectorArgs(['startup-systemd', '--mode=resume']).mode, 'resume')
+  assert.equal(parseSelectorArgs(['mutations']).selector, 'mutations')
+  assert.equal(parseSelectorArgs(['effective-cgroups']).selector, 'effective-cgroups')
+  assert.equal(parseSelectorArgs(['native-namespaces']).selector, 'native-namespaces')
+  assert.equal(buildSelectorCommand('native-namespaces', null), null)
+  assert.throws(() => parseSelectorArgs(['unknown-selector']))
+  assert.throws(() => parseSelectorArgs(['startup', '--mode=invalid']))
+  assert.throws(() => parseSelectorArgs(['mutations', '--extra']))
+  assert.throws(() => parseSelectorArgs(['native-namespaces', 'extra']))
+
+  // N5 deterministic buildSourceManifest + verifyLaneReceipt v1
+  const lab = mkdtempSync(join(tmpdir(), 'd16-lane-receipt-'))
+  try {
+    const repo = join(lab, 'repo')
+    const ctrl = join(lab, 'ctrl')
+    mkdirSync(repo, { recursive: true, mode: 0o700 })
+    mkdirSync(ctrl, { recursive: true, mode: 0o700 })
+    const git = (...a) => {
+      const r = spawnSync('git', a, { cwd: repo, encoding: 'utf8' })
+      assert.equal(r.status, 0, r.stderr)
+      return r.stdout.trim()
+    }
+    git('init', '--quiet')
+    git('config', 'user.name', 'D16')
+    git('config', 'user.email', 'd16@example.invalid')
+    writeFileSync(join(repo, 'a.txt'), 'hello\n')
+    writeFileSync(join(repo, 'run.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o644 })
+    symlinkSync('a.txt', join(repo, 'link.txt'))
+    git('add', '.')
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'init')
+
+    const m0 = buildSourceManifest(repo)
+    assert.match(m0.sourceSha256, /^[0-9a-f]{64}$/)
+    assert.equal(m0.entries.find((e) => e.path === 'link.txt').mode, '120000')
+
+    // Mode change, new allowed file, deleted tracked file, modified symlink each alter sourceSha256.
+    chmodSync(join(repo, 'run.sh'), 0o755)
+    const mMode = buildSourceManifest(repo, { allowedPaths: ['run.sh'] })
+    assert.notEqual(mMode.sourceSha256, m0.sourceSha256)
+    assert.throws(() => buildSourceManifest(repo, { allowedPaths: ['a.txt'] }), /outside closed lot allow-list/)
+
+    writeFileSync(join(repo, 'new.txt'), 'added\n')
+    const mNew = buildSourceManifest(repo, { allowedPaths: ['run.sh', 'new.txt'] })
+    assert.notEqual(mNew.sourceSha256, mMode.sourceSha256)
+
+    unlinkSync(join(repo, 'a.txt'))
+    const mDel = buildSourceManifest(repo, { allowedPaths: ['run.sh', 'new.txt', 'a.txt'] })
+    assert.equal(mDel.entries.find((e) => e.path === 'a.txt').mode, '000000')
+    assert.equal(mDel.entries.find((e) => e.path === 'a.txt').digest, '-')
+
+    const reportBytes = Buffer.from(JSON.stringify({
+      testResults: [{ name: join(repo, 'packages/h2a/test/sample.test.js'), assertionResults: [{ status: 'passed', fullName: 'ok' }] }],
+    }))
+    writeFileSync(join(ctrl, 'r.json'), reportBytes)
+    const reportHash = createHash('sha256').update(reportBytes).digest('hex')
+
+    const req = {
+      version: 1,
+      id: 'a'.repeat(32),
+      baseSha: mDel.baseSha,
+      sourceSha256: mDel.sourceSha256,
+      runner: 'node',
+      files: ['packages/h2a/test/sample.test.js'],
+      argv: ['node', 'scripts/test-sandbox.mjs', '--', 'node', '--test', 'packages/h2a/test/sample.test.js'],
+    }
+    const receipt = {
+      ...req,
+      executor: 'host-conductor-1',
+      platform: 'linux/x64',
+      node: process.version,
+      barrier: { backend: 'bwrap', rootDev: '10', rootIno: '20', namespace: 'mnt:[1]', readOnlyProbe: true, writeProbe: true },
+      exitCode: 0,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      reports: [{ path: 'r.json', sha256: reportHash }],
+    }
+    assert.equal(verifyLaneReceipt(req, receipt, { expectedRequest: req, expectedExecutor: 'host-conductor-1', controlDir: ctrl }), true)
+    assert.throws(() => verifyLaneReceipt(req, { ...receipt, sourceSha256: 'b'.repeat(64) }, { expectedRequest: req, controlDir: ctrl }))
+    assert.throws(() => verifyLaneReceipt(req, { ...receipt, executor: 'unknown-host' }, { expectedRequest: req, expectedExecutor: 'host-conductor-1', controlDir: ctrl }))
+    assert.throws(() => verifyLaneReceipt({ ...req, files: ['packages/h2a/test/other.test.js'] }, { ...receipt, files: ['packages/h2a/test/other.test.js'] }, { controlDir: ctrl }))
+    assert.throws(() => verifyLaneReceipt(req, { ...receipt, exitCode: 3, passed: 0 }, { controlDir: ctrl }))
+  } finally {
+    rmSync(lab, { recursive: true, force: true })
+  }
 })

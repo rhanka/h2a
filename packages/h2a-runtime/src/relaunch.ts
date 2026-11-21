@@ -27,6 +27,7 @@ import { recordInjectionBestEffort } from "./injection-ledger.js";
 import { tmpdir } from "node:os";
 
 import { resolveConfigPath } from "./config.js";
+import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
 import {
   cpuRateMsPerSecond,
@@ -89,9 +90,10 @@ function readResumeLaunchClaim(path: string): ResumeLaunchClaimOwner | undefined
 function releaseResumeLaunchClaim(path: string, token: string): void {
   if (readResumeLaunchClaim(path)?.token !== token) return;
   try {
+    guardTestStateWrite(path);
     unlinkSync(path);
   } catch {
-    // Already released or replaced by a newer claim.
+    // Already released or replaced by a newer claim, or refused by D16 guard.
   }
 }
 
@@ -117,16 +119,26 @@ export function tryAcquireResumeLaunchClaim(
   if (convId.length === 0) throw new Error("resume launch claim requires a conversation id");
   const root = options.root ?? resolveResumeLaunchClaimRoot();
   const pidAlive = options.pidAlive ?? defaultPidAlive;
-  mkdirSync(root, { recursive: true });
   const key = createHash("sha256").update(convId).digest("hex");
   const path = join(root, `${key}.claim`);
   const reclaimPath = `${path}.reclaim`;
   const token = randomUUID();
   const pendingPath = join(root, `.${key}.${token}.pending`);
+  try {
+    guardTestStateWrite(root);
+    guardTestStateWrite(path);
+    guardTestStateWrite(reclaimPath);
+    guardTestStateWrite(pendingPath);
+  } catch {
+    return undefined;
+  }
+  mkdirSync(root, { recursive: true });
   const owner: ResumeLaunchClaimOwner = { token, pid: process.pid, convId };
   const claim = (ownsReclaimBarrier = false): ResumeLaunchClaim | undefined => {
     if (!ownsReclaimBarrier && existsSync(reclaimPath)) return undefined;
     try {
+      guardTestStateWrite(pendingPath);
+      guardTestStateMove(pendingPath, path);
       writeFileSync(pendingPath, JSON.stringify(owner), {
         encoding: "utf8",
         mode: 0o600,
@@ -137,7 +149,10 @@ export function tryAcquireResumeLaunchClaim(
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       return undefined;
     } finally {
-      rmSync(pendingPath, { force: true });
+      try {
+        guardTestStateWrite(pendingPath);
+        rmSync(pendingPath, { force: true });
+      } catch { /* refused or already removed */ }
     }
     // A stale-owner reclaimer may have installed its barrier after our first
     // check. Yield this generation only; token comparison protects its claim.
@@ -164,6 +179,7 @@ export function tryAcquireResumeLaunchClaim(
   // linkSync is the atomic election: exactly one contender can create the
   // fixed reclaim barrier for this dead generation.
   try {
+    guardTestStateMove(path, reclaimPath);
     linkSync(path, reclaimPath);
   } catch {
     return undefined;
@@ -173,7 +189,10 @@ export function tryAcquireResumeLaunchClaim(
     releaseResumeLaunchClaim(path, prior.token);
     return claim(true);
   } finally {
-    rmSync(reclaimPath, { force: true });
+    try {
+      guardTestStateWrite(reclaimPath);
+      rmSync(reclaimPath, { force: true });
+    } catch { /* refused or already removed */ }
   }
 }
 

@@ -155,9 +155,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - name: Verify the commit-msg hook and Node guard suite
         env:
           TMPDIR: ${{ runner.temp }}
         run: |
-          bash .githooks/test.sh
-          node --test packages/h2a/test/trailer-guard.test.js
+          node scripts/test-sandbox.mjs -- bash .githooks/test.sh
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/trailer-guard.test.js

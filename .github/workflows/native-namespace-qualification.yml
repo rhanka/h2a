@@ -7,7 +7,9 @@ on:
       - 'packages/h2a-runtime/src/proc-identity*'
       - 'packages/h2a-runtime/src/registry.ts'
       - 'packages/h2a/test/helpers/native-isolation.js'
+      - 'packages/h2a/test/helpers/native-isolation-core.js'
       - 'scripts/run-namespace-qualification.mjs'
+      - 'scripts/test-host-qualification.mjs'
       - '.github/workflows/native-namespace-qualification.yml'
   workflow_dispatch:
 permissions:
@@ -24,5 +26,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Prepare disposable VM reservation for T10
+        run: node scripts/test-host-qualification.mjs native-namespaces
       - name: Qualify real PID and network namespace boundaries (T10)
-        run: sudo env "PATH=$PATH" node scripts/run-namespace-qualification.mjs
+        run: >-
+          sudo env
+          "PATH=$PATH"
+          "GITHUB_ACTIONS=$GITHUB_ACTIONS"
+          "RUNNER_ENVIRONMENT=$RUNNER_ENVIRONMENT"
+          "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          "GITHUB_JOB=$GITHUB_JOB"
+          "GITHUB_RUN_ID=$GITHUB_RUN_ID"
+          "GITHUB_RUN_ATTEMPT=$GITHUB_RUN_ATTEMPT"
+          "GITHUB_SHA=$GITHUB_SHA"
+          "RUNNER_TEMP=$RUNNER_TEMP"
+          "$(command -v node)" scripts/run-namespace-qualification.mjs

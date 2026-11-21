@@ -154,6 +154,10 @@ jobs:
           node -e 'if (process.versions.node.split(".")[0] !== process.argv[1]) process.exit(1)' "${{ matrix.node }}"
           test "$(git rev-parse HEAD)" = "${{ needs.resolve-release-sha.outputs.release-sha }}"
 
+      - name: Prepare D16 confinement barrier
+        shell: bash
+        run: node scripts/test-sandbox.mjs --prepare-ci
+
       - run: npm ci
         shell: bash
       - run: npm run audit:security
@@ -175,10 +179,10 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Test npm test gate runner directly (trust root)
         shell: bash
-        run: node --test packages/h2a/test/run-test-gates.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js
       # Same contract as ci's build-and-test: this leg consumes the SAME-RUN
       # M17 and bulk producer proofs and the four shard envelopes the
       # node-qualification producers sealed at THIS release SHA, instead of
@@ -264,7 +268,7 @@ jobs:
           path: dist-tarballs/
           if-no-files-found: error
       # TMPDIR cleanup AFTER the last consumer (trust root, npm test, pack,
-      # smoke all read TMPDIR/TMP/TEMP/H2A_TEST_QUALIFICATION_ROOT): no step
+      # smoke all read TMPDIR/TMP/TEMP/H2A_TEST_STAGE_ROOT): no step
       # runs with a missing TMPDIR. R6: `if: always()` (R8 exception #2) — an
       # implicit `success()` skipped this cleanup after a failed `npm test`,
       # leaving the disposable TMPDIR behind on exactly the runs that most
