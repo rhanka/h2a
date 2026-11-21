@@ -54,6 +54,7 @@ export const RIGHT_PANEL_MAX_WIDTH = 60;
 export const RIGHT_PANEL_STRIP_COLS = 1;
 export const RIGHT_PANEL_MIN_CHILD_COLS = 40;
 export const RIGHT_PANEL_MIN_ROWS = 10;
+export const RIGHT_PANEL_WHEEL_STEP = 3;
 
 export type RightPanelSessionStatus =
   | "running"
@@ -83,6 +84,15 @@ export type RightPanelDraftRecoveryState =
   | "saved-for-recovery"
   | "uncertain";
 
+/** Provenanced delegated execution rendered under its parent session (`PANEL §4.2`, F9). */
+export type RightPanelDelegatedChild = Readonly<{
+  id: string;
+  label: string;
+  tool: string;
+  state: "pending" | "running" | "throttled" | "failed";
+  origin: "mcp:h2a_run" | "cli:h2a-delegate";
+}>;
+
 export type RightPanelSession = Readonly<{
   id: string;
   label: string;
@@ -98,6 +108,12 @@ export type RightPanelSession = Readonly<{
   draftCapability?: RightPanelDraftCapabilityState;
   /** Pending/uncertain draft recovery state (populated via doubles until INJ L2). */
   draftRecovery?: RightPanelDraftRecoveryState;
+  /** Provenanced delegated execution names for bottom-bar rendering (`PANEL §4.4`, §11 L1). */
+  delegatedNames?: readonly string[];
+  /** Provenanced delegated executions for the in-place expander (`PANEL §4.2`, L1). */
+  delegatedChildren?: readonly RightPanelDelegatedChild[];
+  /** True when delegated provenance is degraded/unverifiable (`PANEL §4.2` => `deleg ?`). */
+  delegatedDegraded?: boolean;
   project?: string;
   tool?: string;
 }>;
@@ -124,13 +140,32 @@ export type RightPanelDecision = Readonly<{
   dossierLinkClass?: RightPanelDossierLinkClass;
   isOwnerGate?: boolean;
   workspace?: string;
+  /** Project name whose journal of record produced this row (`PANEL §4.3`, L1). */
+  project?: string;
+  /** Resolved journal-of-record directory cited on this row (`PANEL §4.3`, L1). */
+  journalOfRecord?: string;
+  /** Decision/question source kind (`PANEL §4.3`, L1). */
+  source?: "track" | "owner-gate" | "h2a-message";
+  /** ISO timestamp used for oldest-first ordering within each class (`PANEL §4.3`). */
+  createdAt?: string;
   /** Stable revision key used for unseen/seen tracking across refreshes (`PANEL §4.5`). */
   revisionKey?: string;
+}>;
+
+/** Per-project unreadable Track journal entry (`PANEL §4.3`, §11 L1). */
+export type RightPanelProjectDecisionsDegraded = Readonly<{
+  project: string;
+  trackDir: string;
+  reason: string;
 }>;
 
 export type RightPanelSnapshot = Readonly<{
   workspaces: readonly RightPanelWorkspace[];
   decisions: readonly RightPanelDecision[];
+  /** Per-project unreadable Track stores (`PANEL §4.3`, §11 L1). */
+  decisionsDegraded?: readonly RightPanelProjectDecisionsDegraded[];
+  /** True when unattributed delegated work exists without proven parent (`PANEL §4.2`). */
+  unattributedDelegatedDegraded?: boolean;
   /** Deduplicated attention subject count (`PANEL §4.5`). */
   attentionCount: number;
   /** True when another session or an unseen pending decision needs owner attention (`PANEL §4.5`). */
@@ -148,11 +183,16 @@ export type RightPanelAction =
   | { type: "detach" }
   | { type: "toggle" }
   | { type: "select-tab"; index: number }
+  | { type: "select-view"; view: RightPanelView }
   | { type: "select-session"; index: number; sessionId?: string }
   | { type: "activate-session"; index: number; sessionId?: string }
+  | { type: "toggle-delegated-expander"; sessionId: string; expanded: boolean }
   | { type: "select-decision"; index: number; decisionId?: string }
   | { type: "activate-decision"; index: number; decisionId?: string }
-  | { type: "open-link"; target: string };
+  | { type: "open-link"; target: string }
+  | { type: "scroll"; offset: number; delta: number };
+
+export type RightPanelGlyphWidthOracle = (glyph: string) => number;
 
 const GLYPHS: Record<
   RightPanelSessionStatus,
@@ -170,8 +210,49 @@ const GLYPHS: Record<
   unknown: { symbol: "·", ansi: "\x1b[2m", attention: false },
 };
 
+/**
+ * Width-stable ASCII fallback glyphs (`PANEL §10`, L1 Étape 4).
+ * Used whenever a terminal width oracle disagrees with F6 display-column accounting.
+ */
+const FALLBACK_GLYPHS: Record<RightPanelSessionStatus, string> = {
+  running: "o",
+  idle: ".",
+  waiting: "~",
+  paused: "||",
+  blocked: "x",
+  failed: "x",
+  question: "?",
+  decision: "D",
+  unknown: ".",
+};
+
 export function sessionStatusGlyph(status: RightPanelSessionStatus) {
   return GLYPHS[status] ?? GLYPHS.unknown;
+}
+
+/**
+ * Resolve a status glyph verified against an optional terminal width oracle
+ * (`PANEL §10`, `14-L1.md` Étape 4). If the oracle reports a different column
+ * width than F6 `panelDisplayColumns`, substitutes the stable text fallback
+ * (e.g. `||` for `paused`) instead of padding around a broken glyph.
+ */
+export function resolveStatusGlyph(
+  status: RightPanelSessionStatus,
+  widthOracle?: RightPanelGlyphWidthOracle,
+): { symbol: string; ansi: string; attention: boolean } {
+  const base = GLYPHS[status] ?? GLYPHS.unknown;
+  if (!widthOracle) return base;
+  const expected = panelDisplayColumns(base.symbol);
+  let measured: number;
+  try {
+    measured = widthOracle(base.symbol);
+  } catch {
+    measured = -1;
+  }
+  if (measured !== expected) {
+    return { ...base, symbol: FALLBACK_GLYPHS[status] ?? FALLBACK_GLYPHS.unknown };
+  }
+  return base;
 }
 
 type RightPanelConfigLike = {
@@ -257,6 +338,8 @@ export function buildRightPanelSnapshot(args: {
     sessions: readonly RightPanelSession[];
   }[];
   decisions: readonly RightPanelDecision[];
+  decisionsDegraded?: readonly RightPanelProjectDecisionsDegraded[];
+  unattributedDelegatedDegraded?: boolean;
   seenDecisionKeys?: ReadonlySet<string>;
   degraded?: boolean;
 }): RightPanelSnapshot {
@@ -265,6 +348,21 @@ export function buildRightPanelSnapshot(args: {
     // Delegated sub-sessions stay hidden from the human list by default.
     sessions: g.sessions.filter((s) => s.delegated !== true),
   }));
+
+  // PANEL §4.3: one list — decisions first, then questions, oldest first within each class.
+  const orderedDecisions = args.decisions
+    .map((d, idx) => ({ d, idx }))
+    .sort((a, b) => {
+      const classA = a.d.kind === "question" ? 1 : 0;
+      const classB = b.d.kind === "question" ? 1 : 0;
+      if (classA !== classB) return classA - classB;
+      if (a.d.createdAt && b.d.createdAt) {
+        const cmp = a.d.createdAt.localeCompare(b.d.createdAt);
+        if (cmp !== 0) return cmp;
+      }
+      return a.idx - b.idx;
+    })
+    .map((entry) => entry.d);
 
   const seen = args.seenDecisionKeys;
   const isUnseenPending = (d: RightPanelDecision): boolean => {
@@ -276,7 +374,7 @@ export function buildRightPanelSnapshot(args: {
   // Track which other-sessions have an unseen pending decision attributed to them.
   const sessionsWithUnseenDecision = new Set<string>();
   const unseenPendingDecisions: RightPanelDecision[] = [];
-  for (const d of args.decisions) {
+  for (const d of orderedDecisions) {
     if (!isUnseenPending(d)) continue;
     unseenPendingDecisions.push(d);
     if (d.sessionId) sessionsWithUnseenDecision.add(d.sessionId);
@@ -320,12 +418,21 @@ export function buildRightPanelSnapshot(args: {
     collapsedLit = true;
   }
 
+  const decisionsDegraded =
+    args.decisionsDegraded && args.decisionsDegraded.length > 0
+      ? [...args.decisionsDegraded]
+      : undefined;
+
   return {
     workspaces,
-    decisions: args.decisions,
+    decisions: orderedDecisions,
+    ...(decisionsDegraded ? { decisionsDegraded } : {}),
+    ...(args.unattributedDelegatedDegraded === true
+      ? { unattributedDelegatedDegraded: true }
+      : {}),
     attentionCount: countedSessionIds.size + unattributedUnseenCount,
     collapsedLit,
-    degraded: args.degraded === true,
+    degraded: args.degraded === true || (decisionsDegraded?.length ?? 0) > 0,
   };
 }
 
@@ -335,6 +442,7 @@ export type TrackDecisionRow = {
   outcome?: string;
   workspace?: string;
   accountable?: string;
+  createdAt?: string;
   openQuestionCount?: number;
   artifacts?: readonly (
     | { kind: "h2a-decision-dossier"; negotiationRef: string; dossierHash?: string; label?: string }
@@ -425,6 +533,7 @@ export function decisionsFromTrackDecisions(
       ...(isOwnerGate ? { isOwnerGate: true } : {}),
       ...(row.workspace ? { workspace: row.workspace } : {}),
       ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+      ...(typeof row.createdAt === "string" && row.createdAt ? { createdAt: row.createdAt } : {}),
       ...(derived
         ? { dossierLink: derived.link, dossierLinkClass: derived.linkClass }
         : {}),
@@ -586,12 +695,48 @@ function isWideCodePoint(cp: number): boolean {
 }
 
 /**
- * Fit text (which may include ANSI SGR escape sequences) to exact visible
- * display columns: truncate with "…" if wider, pad with spaces if narrower.
+ * Display-column width matching F6 `terminalDisplayColumns` (`status-projection.ts`),
+ * ignoring ANSI CSI sequences, combining marks (`\p{Mark}`), and C0/C1 controls.
+ */
+export function panelDisplayColumns(text: string): number {
+  let visible = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "\x1b" && text[i + 1] === "[") {
+      let j = i + 2;
+      while (j < text.length && text.charCodeAt(j) >= 0x20 && text.charCodeAt(j) <= 0x3f) {
+        j += 1;
+      }
+      if (j < text.length && text.charCodeAt(j) >= 0x40 && text.charCodeAt(j) <= 0x7e) {
+        i = j + 1;
+        continue;
+      }
+    }
+    const cp = text.codePointAt(i)!;
+    const step = cp > 0xffff ? 2 : 1;
+    const raw = text.slice(i, i + step);
+    if (
+      cp < 0x20 ||
+      (cp >= 0x7f && cp <= 0x9f) ||
+      /\p{Mark}/u.test(raw)
+    ) {
+      i += step;
+      continue;
+    }
+    visible += isWideCodePoint(cp) ? 2 : 1;
+    i += step;
+  }
+  return visible;
+}
+
+/**
+ * Fit text (which may include ANSI SGR escape sequences, wide CJK glyphs, and
+ * combining marks) to exact visible display columns matching F6 accounting:
+ * truncate with "…" if wider, pad with spaces if narrower.
  */
 function truncate(text: string, width: number): string {
   if (width <= 0) return "";
-  type Token = { raw: string; cols: number; isAnsi: boolean };
+  type Token = { raw: string; cols: number; isAnsi: boolean; isMark: boolean };
   const tokens: Token[] = [];
   let visible = 0;
   let i = 0;
@@ -602,7 +747,7 @@ function truncate(text: string, width: number): string {
         j += 1;
       }
       if (j < text.length && text.charCodeAt(j) >= 0x40 && text.charCodeAt(j) <= 0x7e) {
-        tokens.push({ raw: text.slice(i, j + 1), cols: 0, isAnsi: true });
+        tokens.push({ raw: text.slice(i, j + 1), cols: 0, isAnsi: true, isMark: false });
         i = j + 1;
         continue;
       }
@@ -610,8 +755,14 @@ function truncate(text: string, width: number): string {
     const cp = text.codePointAt(i)!;
     const step = cp > 0xffff ? 2 : 1;
     const raw = text.slice(i, i + step);
-    const cols = cp < 0x20 || (cp >= 0x7f && cp <= 0x9f) ? 0 : isWideCodePoint(cp) ? 2 : 1;
-    tokens.push({ raw, cols, isAnsi: false });
+    const isMark = /\p{Mark}/u.test(raw);
+    const cols =
+      cp < 0x20 || (cp >= 0x7f && cp <= 0x9f) || isMark
+        ? 0
+        : isWideCodePoint(cp)
+          ? 2
+          : 1;
+    tokens.push({ raw, cols, isAnsi: false, isMark });
     visible += cols;
     i += step;
   }
@@ -622,10 +773,16 @@ function truncate(text: string, width: number): string {
   let out = "";
   let used = 0;
   let hasAnsi = false;
-  for (const tok of tokens) {
+  for (let idx = 0; idx < tokens.length; idx += 1) {
+    const tok = tokens[idx]!;
     if (tok.isAnsi) {
       out += tok.raw;
       hasAnsi = true;
+      continue;
+    }
+    if (tok.isMark) {
+      // Attach combining mark only if its base character was emitted.
+      if (used > 0) out += tok.raw;
       continue;
     }
     if (used + tok.cols > limit) break;
@@ -655,38 +812,61 @@ function formatSessionBadges(session: RightPanelSession): string {
   return tags.length > 0 ? ` [${tags.join(",")}]` : "";
 }
 
+type TabHitSpan = Readonly<{ index: number; startCol: number; endCol: number }>;
+type ViewHitSpan = Readonly<{ view: RightPanelView; startCol: number; endCol: number }>;
+type RenderedListRow = Readonly<{
+  text: string;
+  hit?: RightPanelAction;
+  isSelected?: boolean;
+}>;
+
 export class RightPanelController {
   readonly #stdout: PanelStdout;
   readonly #width: number;
   readonly #parser = new PanelInputParser();
   readonly #onOpen: (() => void) | undefined;
+  readonly #onSelectionChange: (() => void) | undefined;
   readonly #restoreChildState: (() => string) | undefined;
   readonly #isStatusBarActive: (() => boolean) | undefined;
+  readonly #glyphWidthOracle: RightPanelGlyphWidthOracle | undefined;
   #snapshot: RightPanelSnapshot;
   #open = false;
   #focus = false;
+  #barSelectionActive = false;
   view: RightPanelView = "sessions";
   activeTabIndex = 0;
   #selectedSession = 0;
   #selectedDecision = 0;
+  #sessionScrollOffset = 0;
+  #decisionScrollOffset = 0;
+  #lastViewportRows = 1;
+  #lastTotalListRows = 0;
+  #expandedDelegatedSessions = new Set<string>();
   #slashPrompt: string | undefined;
   #notice: string | undefined;
   #hitRows = new Map<number, RightPanelAction>();
+  #tabHitSpans: TabHitSpan[] = [];
+  #viewHitSpans: ViewHitSpan[] = [];
+  #viewFooterRow: number | undefined;
 
   constructor(opts: {
     stdout: PanelStdout;
     snapshot: RightPanelSnapshot;
     width?: number;
     onOpen?: () => void;
+    onSelectionChange?: () => void;
     restoreChildState?: () => string;
     isStatusBarActive?: () => boolean;
+    glyphWidthOracle?: RightPanelGlyphWidthOracle;
   }) {
     this.#stdout = opts.stdout;
     this.#snapshot = opts.snapshot;
     this.#width = opts.width ?? RIGHT_PANEL_DEFAULT_WIDTH;
     this.#onOpen = opts.onOpen;
+    this.#onSelectionChange = opts.onSelectionChange;
     this.#restoreChildState = opts.restoreChildState;
     this.#isStatusBarActive = opts.isStatusBarActive;
+    this.#glyphWidthOracle = opts.glyphWidthOracle;
   }
 
   isPaintActive(): boolean {
@@ -716,6 +896,48 @@ export class RightPanelController {
     return this.#selectedDecision;
   }
 
+  scrollOffset(): number {
+    if (this.view === "sessions") return this.#sessionScrollOffset;
+    if (this.view === "decisions") return this.#decisionScrollOffset;
+    return 0;
+  }
+
+  tabHitSpans(): readonly TabHitSpan[] {
+    return this.#tabHitSpans;
+  }
+
+  /**
+   * Delegated session names for the currently selected right-panel session
+   * (`PANEL §4.4`, L1). Returns `undefined` when panel is closed or deselected
+   * so bottom-bar rendering restores the byte-identical count form.
+   * Never reads or exposes draft D fields.
+   */
+  selectedDelegatedNamesForBar(): readonly string[] | "unknown" | undefined {
+    if (!this.isOpen() || !this.#barSelectionActive || this.view !== "sessions") {
+      return undefined;
+    }
+    const ws = this.#snapshot.workspaces[this.activeTabIndex];
+    const session = ws?.sessions[this.#selectedSession];
+    if (!session) return undefined;
+    if (session.delegatedNames !== undefined && session.delegatedNames.length > 0) {
+      return session.delegatedNames;
+    }
+    if (session.delegatedDegraded === true) {
+      return "unknown";
+    }
+    if (session.delegatedNames !== undefined) {
+      return session.delegatedNames;
+    }
+    return undefined;
+  }
+
+  clearSelection(): void {
+    if (!this.#barSelectionActive) return;
+    this.#barSelectionActive = false;
+    this.#onSelectionChange?.();
+    this.paint();
+  }
+
   slashPrompt(): string | undefined {
     return this.#slashPrompt;
   }
@@ -743,6 +965,7 @@ export class RightPanelController {
     }
     this.#clampSelection();
     this.paint();
+    this.#onSelectionChange?.();
   }
 
   #clampSelection(): void {
@@ -786,30 +1009,38 @@ export class RightPanelController {
         // Opening refused below minimum child columns; keep marker strip intact.
         this.#open = false;
         this.#focus = false;
+        this.#barSelectionActive = false;
         this.paint();
+        this.#onSelectionChange?.();
         return;
       }
       this.#open = true;
       this.#focus = true;
+      this.#barSelectionActive = true;
       this.#onOpen?.();
     } else {
       this.#open = false;
       this.#focus = false;
+      this.#barSelectionActive = false;
     }
     this.paint();
+    this.#onSelectionChange?.();
   }
 
   onResize(): void {
     const totalCols = this.#stdout.columns ?? 0;
     if (this.#open && totalCols > 0 && totalCols - this.#width < RIGHT_PANEL_MIN_CHILD_COLS) {
       this.#focus = false;
+      this.#barSelectionActive = false;
     }
     this.paint();
+    this.#onSelectionChange?.();
   }
 
   dispose(): void {
     this.#open = false;
     this.#focus = false;
+    this.#barSelectionActive = false;
     this.#parser.reset();
   }
 
@@ -838,10 +1069,226 @@ export class RightPanelController {
     this.#stdout.write(out);
   }
 
+  #buildTabHeaderAndSpans(childCols: number, width: number): {
+    headerLine: string;
+    spans: TabHitSpan[];
+  } {
+    if (this.#slashPrompt !== undefined) {
+      return { headerLine: truncate(`${this.#slashPrompt}_`, width), spans: [] };
+    }
+    if (this.#notice !== undefined) {
+      return { headerLine: truncate(this.#notice, width), spans: [] };
+    }
+    const workspaces = this.#snapshot.workspaces;
+    if (workspaces.length === 0) {
+      const text = this.#snapshot.degraded ? "sessions [unknown]" : "sessions";
+      return { headerLine: truncate(text, width), spans: [] };
+    }
+
+    const spans: TabHitSpan[] = [];
+    let colOffset = 0;
+    const parts: string[] = [];
+    for (let i = 0; i < workspaces.length; i += 1) {
+      if (i > 0) colOffset += 1; // single-space separator
+      const label = i === this.activeTabIndex ? `[${workspaces[i]!.title}]` : workspaces[i]!.title;
+      const labelCols = panelDisplayColumns(label);
+      if (colOffset < width && labelCols > 0) {
+        const startCol = childCols + 1 + colOffset;
+        const endCol = childCols + Math.min(width, colOffset + labelCols);
+        if (endCol >= startCol) {
+          spans.push({ index: i, startCol, endCol });
+        }
+      }
+      colOffset += labelCols;
+      parts.push(label);
+    }
+    const joined = parts.join(" ");
+    const full = this.#snapshot.degraded ? `${joined} [unknown]` : joined;
+    return { headerLine: truncate(full, width), spans };
+  }
+
+  #buildViewFooterAndSpans(childCols: number, width: number): {
+    footerLine: string;
+    spans: ViewHitSpan[];
+  } {
+    const entries: Array<{ view: RightPanelView; token: string }> = [
+      { view: "sessions", token: "/s" },
+      { view: "decisions", token: "/d" },
+      { view: "track", token: "/t" },
+    ];
+    const spans: ViewHitSpan[] = [];
+    const parts: string[] = [];
+    let colOffset = 0;
+    for (let i = 0; i < entries.length; i += 1) {
+      if (i > 0) colOffset += 1;
+      const entry = entries[i]!;
+      const label = entry.view === this.view ? `[${entry.token}]` : entry.token;
+      const labelCols = panelDisplayColumns(label);
+      if (colOffset < width && labelCols > 0) {
+        const startCol = childCols + 1 + colOffset;
+        const endCol = childCols + Math.min(width, colOffset + labelCols);
+        if (endCol >= startCol) {
+          spans.push({ view: entry.view, startCol, endCol });
+        }
+      }
+      colOffset += labelCols;
+      parts.push(label);
+    }
+    return { footerLine: truncate(parts.join(" "), width), spans };
+  }
+
+  #buildListRows(width: number): RenderedListRow[] {
+    const rows: RenderedListRow[] = [];
+    if (this.view === "sessions") {
+      const ws = this.#snapshot.workspaces[this.activeTabIndex];
+      const sessions = ws?.sessions ?? [];
+      let sawSessionDelegDegraded = false;
+      sessions.forEach((s, index) => {
+        const g = resolveStatusGlyph(s.status, this.#glyphWidthOracle);
+        const star = g.attention ? "*" : " ";
+        const badges = formatSessionBadges(s);
+        const rawLabel =
+          s.status === "unknown"
+            ? `${s.label} unknown${badges}`
+            : `${s.label}${badges}`;
+        const isSelected = index === this.#selectedSession;
+        const body = truncate(`${g.symbol}${star} ${rawLabel}`, width);
+        const symbolCols = panelDisplayColumns(g.symbol);
+        const text = isSelected
+          ? `\x1b[7m${body}\x1b[0m`
+          : `${g.ansi}${g.symbol}\x1b[0m${truncate(`${star} ${rawLabel}`, Math.max(0, width - symbolCols))}`;
+        rows.push({
+          text,
+          hit: { type: "select-session", index, sessionId: s.id },
+          isSelected,
+        });
+
+        const children = s.delegatedChildren ?? [];
+        const hasExpander = children.length > 0 || s.delegatedDegraded === true;
+        if (s.delegatedDegraded === true) sawSessionDelegDegraded = true;
+        if (hasExpander) {
+          const expanded = this.#expandedDelegatedSessions.has(s.id);
+          const arrow = expanded ? "▾" : "▸";
+          const expLabel =
+            children.length > 0 && s.delegatedDegraded
+              ? `  ${arrow} ${children.length} delegated · deleg ?`
+              : children.length > 0
+                ? `  ${arrow} ${children.length} delegated`
+                : `  ${arrow} deleg ?`;
+          rows.push({
+            text: truncate(expLabel, width),
+            hit: {
+              type: "toggle-delegated-expander",
+              sessionId: s.id,
+              expanded: !expanded,
+            },
+          });
+          if (expanded) {
+            for (const child of children) {
+              rows.push({
+                text: truncate(`    · ${child.label} (${child.tool} · ${child.state})`, width),
+              });
+            }
+            if (s.delegatedDegraded) {
+              rows.push({
+                text: truncate("    · deleg ? (provenance missing)", width),
+              });
+            }
+          }
+        }
+      });
+
+      if (this.#snapshot.unattributedDelegatedDegraded && !sawSessionDelegDegraded) {
+        const expanded = this.#expandedDelegatedSessions.has("__unattributed__");
+        const arrow = expanded ? "▾" : "▸";
+        rows.push({
+          text: truncate(`  ${arrow} deleg ?`, width),
+          hit: {
+            type: "toggle-delegated-expander",
+            sessionId: "__unattributed__",
+            expanded: !expanded,
+          },
+        });
+        if (expanded) {
+          rows.push({
+            text: truncate("    · unattributed delegation", width),
+          });
+        }
+      }
+
+      if (sessions.length === 0 && rows.length === 0) {
+        rows.push({ text: truncate("(no sessions)", width) });
+      }
+      return rows;
+    }
+
+    if (this.view === "decisions") {
+      const degradedProjects = this.#snapshot.decisionsDegraded ?? [];
+      if (this.#snapshot.decisions.length === 0 && degradedProjects.length === 0) {
+        rows.push({ text: truncate("(no pending decision)", width) });
+        return rows;
+      }
+      this.#snapshot.decisions.forEach((d, index) => {
+        const symbol = d.kind === "question" ? "?" : "◆";
+        // PANEL §4.3 & §10: `*` while pending, NEVER on deferred.
+        const star = d.outcome === "deferred" ? " " : "*";
+        const isSelected = index === this.#selectedDecision;
+        const body = truncate(`${symbol}${star} ${d.title}`, width);
+        rows.push({
+          text: isSelected ? `\x1b[7m${body}\x1b[0m` : body,
+          hit: { type: "select-decision", index, decisionId: d.id },
+          isSelected,
+        });
+        if (d.dossierLink) {
+          const linkText =
+            d.dossierLinkClass === "not-openable"
+              ? `${d.dossierLink} (not openable)`
+              : d.dossierLink;
+          rows.push({
+            text: truncate(linkText, width),
+            hit: { type: "open-link", target: d.dossierLink },
+          });
+        }
+        if (d.project || d.journalOfRecord) {
+          const cite = d.project && d.journalOfRecord
+            ? `  ${d.project} · ${d.journalOfRecord}`
+            : `  ${d.project ?? d.journalOfRecord}`;
+          rows.push({ text: truncate(cite, width) });
+        }
+      });
+      for (const deg of degradedProjects) {
+        rows.push({
+          text: truncate(`· ${deg.project}: decisions unknown (?)`, width),
+        });
+        rows.push({
+          text: truncate(`  ${deg.trackDir}`, width),
+        });
+      }
+      return rows;
+    }
+
+    rows.push({ text: truncate("track: not in L0", width) });
+    return rows;
+  }
+
+  #getCurrentScrollOffset(): number {
+    if (this.view === "sessions") return this.#sessionScrollOffset;
+    if (this.view === "decisions") return this.#decisionScrollOffset;
+    return 0;
+  }
+
+  #setCurrentScrollOffset(next: number): void {
+    if (this.view === "sessions") this.#sessionScrollOffset = next;
+    else if (this.view === "decisions") this.#decisionScrollOffset = next;
+  }
+
   #renderLines(childCols: number, panelRows: number): string[] {
     const width = Math.max(0, (this.#stdout.columns ?? 0) - childCols);
     const lines: string[] = [];
     this.#hitRows.clear();
+    this.#tabHitSpans = [];
+    this.#viewHitSpans = [];
+    this.#viewFooterRow = undefined;
     if (!this.isOpen()) {
       const marker = this.#snapshot.degraded
         ? "?"
@@ -857,72 +1304,58 @@ export class RightPanelController {
       return lines;
     }
 
-    const tabs = this.#snapshot.workspaces
-      .map((w, i) => (i === this.activeTabIndex ? `[${w.title}]` : w.title))
-      .join(" ");
-    const header =
-      this.#slashPrompt !== undefined
-        ? `${this.#slashPrompt}_`
-        : this.#notice !== undefined
-          ? this.#notice
-          : this.#snapshot.degraded
-            ? `${tabs || "sessions"} [unknown]`
-            : tabs || "sessions";
-    lines.push(truncate(header, width));
+    const { headerLine, spans: tabSpans } = this.#buildTabHeaderAndSpans(childCols, width);
+    this.#tabHitSpans = tabSpans;
+    lines.push(headerLine);
 
-    if (this.view === "sessions") {
-      const ws = this.#snapshot.workspaces[this.activeTabIndex];
-      let row = 2;
-      (ws?.sessions ?? []).forEach((s, index) => {
-        const g = sessionStatusGlyph(s.status);
-        const star = g.attention ? "*" : " ";
-        const badges = formatSessionBadges(s);
-        const rawLabel =
-          s.status === "unknown"
-            ? `${s.label} unknown${badges}`
-            : `${s.label}${badges}`;
-        const body = truncate(`${g.symbol}${star} ${rawLabel}`, width);
-        if (index === this.#selectedSession) {
-          lines.push(`\x1b[7m${body}\x1b[0m`);
-        } else {
-          lines.push(`${g.ansi}${g.symbol}\x1b[0m${truncate(`${star} ${rawLabel}`, Math.max(0, width - 1))}`);
-        }
-        this.#hitRows.set(row, { type: "select-session", index, sessionId: s.id });
-        row += 1;
-      });
-      if ((ws?.sessions.length ?? 0) === 0) lines.push(truncate("(no sessions)", width));
-    } else if (this.view === "decisions") {
-      let row = 2;
-      if (this.#snapshot.decisions.length === 0) {
-        lines.push(truncate("(no pending decision)", width));
+    const hasFooter = panelRows >= 3;
+    const viewportRows = hasFooter ? panelRows - 2 : Math.max(1, panelRows - 1);
+    const listRows = this.#buildListRows(width);
+    this.#lastViewportRows = viewportRows;
+    this.#lastTotalListRows = listRows.length;
+
+    const maxScroll = Math.max(0, listRows.length - viewportRows);
+    let offset = Math.max(0, Math.min(maxScroll, this.#getCurrentScrollOffset()));
+    this.#setCurrentScrollOffset(offset);
+
+    const visible = listRows.slice(offset, offset + viewportRows);
+    for (let i = 0; i < visible.length; i += 1) {
+      const item = visible[i]!;
+      lines.push(item.text);
+      if (item.hit) {
+        this.#hitRows.set(2 + i, item.hit);
       }
-      this.#snapshot.decisions.forEach((d, index) => {
-        const symbol = d.kind === "question" ? "?" : "◆";
-        // PANEL §4.3 & §10: `*` while pending, NEVER on deferred.
-        const star = d.outcome === "deferred" ? " " : "*";
-        const body = truncate(`${symbol}${star} ${d.title}`, width);
-        lines.push(index === this.#selectedDecision ? `\x1b[7m${body}\x1b[0m` : body);
-        this.#hitRows.set(
-          row,
-          d.dossierLink
-            ? { type: "open-link", target: d.dossierLink }
-            : { type: "select-decision", index, decisionId: d.id },
-        );
-        row += 1;
-        if (d.dossierLink) {
-          const linkText =
-            d.dossierLinkClass === "not-openable"
-              ? `${d.dossierLink} (not openable)`
-              : d.dossierLink;
-          lines.push(truncate(linkText, width));
-          this.#hitRows.set(row, { type: "open-link", target: d.dossierLink });
-          row += 1;
-        }
-      });
-    } else {
-      lines.push(truncate("track: not in L0", width));
+    }
+
+    if (hasFooter) {
+      const blank = " ".repeat(width);
+      while (lines.length < panelRows - 1) {
+        lines.push(blank);
+      }
+      const { footerLine, spans: viewSpans } = this.#buildViewFooterAndSpans(childCols, width);
+      this.#viewHitSpans = viewSpans;
+      this.#viewFooterRow = panelRows;
+      lines.push(footerLine);
     }
     return lines;
+  }
+
+  #ensureSelectedRowVisible(): void {
+    const totalCols = this.#stdout.columns ?? 0;
+    const childCols = this.childCols(totalCols);
+    const width = Math.max(1, totalCols - childCols);
+    const listRows = this.#buildListRows(width);
+    const selIdx = listRows.findIndex((r) => r.isSelected === true);
+    if (selIdx < 0) return;
+    const viewportRows = Math.max(1, this.#lastViewportRows);
+    let offset = this.#getCurrentScrollOffset();
+    if (selIdx < offset) {
+      offset = selIdx;
+    } else if (selIdx >= offset + viewportRows) {
+      offset = selIdx - viewportRows + 1;
+    }
+    const maxScroll = Math.max(0, listRows.length - viewportRows);
+    this.#setCurrentScrollOffset(Math.max(0, Math.min(maxScroll, offset)));
   }
 
   /** Flush a pending bare Escape after disambiguation timeout. */
@@ -943,6 +1376,7 @@ export class RightPanelController {
     const actions: RightPanelAction[] = [];
     const forwardChunks: Buffer[] = [];
     let dirty = false;
+    let selectionChanged = false;
 
     this.#parser.feed(
       chunk,
@@ -954,6 +1388,7 @@ export class RightPanelController {
       (event) => {
         const step = this.#handleSingleEvent(event, opts);
         if (step.dirty) dirty = true;
+        if (step.selectionChanged) selectionChanged = true;
         if (step.actions.length > 0) actions.push(...step.actions);
         if (step.forwardBytes && step.forwardBytes.length > 0) {
           forwardChunks.push(step.forwardBytes);
@@ -962,6 +1397,7 @@ export class RightPanelController {
     );
 
     if (dirty) this.paint();
+    if (selectionChanged) this.#onSelectionChange?.();
     if (forwardChunks.length > 0) {
       const merged = Buffer.concat(forwardChunks);
       return {
@@ -989,15 +1425,18 @@ export class RightPanelController {
     const actions: RightPanelAction[] = [];
     const forwardChunks: Buffer[] = [];
     let dirty = false;
+    let selectionChanged = false;
     for (const event of events) {
       const step = this.#handleSingleEvent(event, opts);
       if (step.dirty) dirty = true;
+      if (step.selectionChanged) selectionChanged = true;
       if (step.actions.length > 0) actions.push(...step.actions);
       if (step.forwardBytes && step.forwardBytes.length > 0) {
         forwardChunks.push(step.forwardBytes);
       }
     }
     if (dirty) this.paint();
+    if (selectionChanged) this.#onSelectionChange?.();
     if (forwardChunks.length > 0) {
       const merged = Buffer.concat(forwardChunks);
       return {
@@ -1013,7 +1452,12 @@ export class RightPanelController {
   #handleSingleEvent(
     event: PanelInputEvent,
     opts: RightPanelHandleInputOptions,
-  ): { dirty: boolean; actions: RightPanelAction[]; forwardBytes?: Buffer } {
+  ): {
+    dirty: boolean;
+    selectionChanged?: boolean;
+    actions: RightPanelAction[];
+    forwardBytes?: Buffer;
+  } {
     if (event.type === "detach") {
       return { dirty: false, actions: [{ type: "detach" }] };
     }
@@ -1040,8 +1484,9 @@ export class RightPanelController {
         return { dirty: true, actions: [] };
       }
       this.#focus = false;
+      this.#barSelectionActive = false;
       this.#notice = undefined;
-      return { dirty: true, actions: [] };
+      return { dirty: true, selectionChanged: true, actions: [] };
     }
 
     // Active slash prompt (`/s`, `/d`, `/t`, `/a`, `/c`, `/gw` + Enter, unknown `/x`).
@@ -1071,19 +1516,31 @@ export class RightPanelController {
           this.#slashPrompt = undefined;
           this.#notice = undefined;
           this.view = "sessions";
-          return { dirty: true, actions: [] };
+          return {
+            dirty: true,
+            selectionChanged: true,
+            actions: [{ type: "select-view", view: "sessions" }],
+          };
         }
         if (next === "/d") {
           this.#slashPrompt = undefined;
           this.#notice = undefined;
           this.view = "decisions";
-          return { dirty: true, actions: [] };
+          return {
+            dirty: true,
+            selectionChanged: true,
+            actions: [{ type: "select-view", view: "decisions" }],
+          };
         }
         if (next === "/t") {
           this.#slashPrompt = undefined;
           this.#notice = undefined;
           this.view = "track";
-          return { dirty: true, actions: [] };
+          return {
+            dirty: true,
+            selectionChanged: true,
+            actions: [{ type: "select-view", view: "track" }],
+          };
         }
         if (next === "/a") {
           this.#slashPrompt = undefined;
@@ -1118,6 +1575,9 @@ export class RightPanelController {
       if (event.char === "j") {
         return this.#moveSelection(1);
       }
+      if (event.char === " ") {
+        return this.#toggleSelectedDelegatedExpander("toggle");
+      }
       return { dirty: false, actions: [] };
     }
 
@@ -1128,10 +1588,12 @@ export class RightPanelController {
           ? (this.activeTabIndex - 1 + n) % n
           : (this.activeTabIndex + 1) % n;
         this.#selectedSession = 0;
+        this.#sessionScrollOffset = 0;
       }
       this.#notice = undefined;
       return {
         dirty: true,
+        selectionChanged: true,
         actions: [{ type: "select-tab", index: this.activeTabIndex }],
       };
     }
@@ -1139,6 +1601,8 @@ export class RightPanelController {
     if (event.type === "nav") {
       if (event.direction === "up") return this.#moveSelection(-1);
       if (event.direction === "down") return this.#moveSelection(1);
+      if (event.direction === "right") return this.#toggleSelectedDelegatedExpander("expand");
+      if (event.direction === "left") return this.#toggleSelectedDelegatedExpander("collapse");
       return { dirty: false, actions: [] };
     }
 
@@ -1149,7 +1613,35 @@ export class RightPanelController {
     return { dirty: false, actions: [] };
   }
 
-  #moveSelection(delta: -1 | 1): { dirty: boolean; actions: RightPanelAction[] } {
+  #toggleSelectedDelegatedExpander(
+    mode: "toggle" | "expand" | "collapse",
+  ): { dirty: boolean; actions: RightPanelAction[] } {
+    if (this.view !== "sessions") return { dirty: false, actions: [] };
+    const ws = this.#snapshot.workspaces[this.activeTabIndex];
+    const target = ws?.sessions[this.#selectedSession];
+    if (!target) return { dirty: false, actions: [] };
+    const hasExpander =
+      (target.delegatedChildren?.length ?? 0) > 0 || target.delegatedDegraded === true;
+    if (!hasExpander) return { dirty: false, actions: [] };
+    const currently = this.#expandedDelegatedSessions.has(target.id);
+    const next =
+      mode === "toggle" ? !currently : mode === "expand" ? true : false;
+    if (next === currently) return { dirty: false, actions: [] };
+    if (next) this.#expandedDelegatedSessions.add(target.id);
+    else this.#expandedDelegatedSessions.delete(target.id);
+    return {
+      dirty: true,
+      actions: [
+        { type: "toggle-delegated-expander", sessionId: target.id, expanded: next },
+      ],
+    };
+  }
+
+  #moveSelection(delta: -1 | 1): {
+    dirty: boolean;
+    selectionChanged?: boolean;
+    actions: RightPanelAction[];
+  } {
     this.#notice = undefined;
     if (this.view === "sessions") {
       const ws = this.#snapshot.workspaces[this.activeTabIndex];
@@ -1157,9 +1649,12 @@ export class RightPanelController {
       if (sessions.length === 0) return { dirty: false, actions: [] };
       const next = Math.max(0, Math.min(sessions.length - 1, this.#selectedSession + delta));
       this.#selectedSession = next;
+      this.#barSelectionActive = true;
+      this.#ensureSelectedRowVisible();
       const target = sessions[next]!;
       return {
         dirty: true,
+        selectionChanged: true,
         actions: [{ type: "select-session", index: next, sessionId: target.id }],
       };
     }
@@ -1168,6 +1663,7 @@ export class RightPanelController {
       if (decisions.length === 0) return { dirty: false, actions: [] };
       const next = Math.max(0, Math.min(decisions.length - 1, this.#selectedDecision + delta));
       this.#selectedDecision = next;
+      this.#ensureSelectedRowVisible();
       const target = decisions[next]!;
       return {
         dirty: true,
@@ -1220,7 +1716,12 @@ export class RightPanelController {
     event: SgrMouseEvent,
     _raw: Buffer,
     opts: RightPanelHandleInputOptions,
-  ): { dirty: boolean; actions: RightPanelAction[]; forwardBytes?: Buffer } {
+  ): {
+    dirty: boolean;
+    selectionChanged?: boolean;
+    actions: RightPanelAction[];
+    forwardBytes?: Buffer;
+  } {
     const effectiveMode: MouseTrackingMode | null =
       opts.cliMouseMode !== undefined
         ? opts.cliMouseMode
@@ -1259,18 +1760,53 @@ export class RightPanelController {
       return { dirty: false, actions: [] };
     }
     if (route.zone === "panel") {
-      if (event.release || event.wheel) return { dirty: false, actions: [] };
+      if (event.release) return { dirty: false, actions: [] };
+      if (event.wheel) {
+        // PANEL §9.3 & L1.5: 3 rows per notch, clamped at bounds, never leaked to CLI.
+        const step = (event.button & 1) === 0 ? -RIGHT_PANEL_WHEEL_STEP : RIGHT_PANEL_WHEEL_STEP;
+        const maxScroll = Math.max(0, this.#lastTotalListRows - this.#lastViewportRows);
+        const prev = this.#getCurrentScrollOffset();
+        const next = Math.max(0, Math.min(maxScroll, prev + step));
+        this.#setCurrentScrollOffset(next);
+        return {
+          dirty: next !== prev,
+          actions: [{ type: "scroll", offset: next, delta: next - prev }],
+        };
+      }
       this.#focus = true;
+      this.#barSelectionActive = true;
       if (event.y === 1) {
-        this.activeTabIndex =
-          this.#snapshot.workspaces.length > 0
-            ? (this.activeTabIndex + 1) % this.#snapshot.workspaces.length
-            : 0;
+        const matchedTab = this.#tabHitSpans.find(
+          (span) => event.x >= span.startCol && event.x <= span.endCol,
+        );
+        if (!matchedTab) {
+          return { dirty: false, actions: [] };
+        }
+        this.activeTabIndex = matchedTab.index;
         this.#selectedSession = 0;
+        this.#sessionScrollOffset = 0;
+        this.#notice = undefined;
         return {
           dirty: true,
+          selectionChanged: true,
           actions: [{ type: "select-tab", index: this.activeTabIndex }],
         };
+      }
+      if (this.#viewFooterRow !== undefined && event.y === this.#viewFooterRow) {
+        const matchedView = this.#viewHitSpans.find(
+          (span) => event.x >= span.startCol && event.x <= span.endCol,
+        );
+        if (matchedView) {
+          this.view = matchedView.view;
+          this.#slashPrompt = undefined;
+          this.#notice = undefined;
+          return {
+            dirty: true,
+            selectionChanged: true,
+            actions: [{ type: "select-view", view: matchedView.view }],
+          };
+        }
+        return { dirty: false, actions: [] };
       }
       const hit = this.#hitRows.get(event.y);
       if (hit) {
@@ -1279,6 +1815,7 @@ export class RightPanelController {
           this.#selectedSession = hit.index;
           return {
             dirty: true,
+            selectionChanged: true,
             actions: [
               alreadySelected
                 ? {
@@ -1290,16 +1827,46 @@ export class RightPanelController {
             ],
           };
         }
+        if (hit.type === "toggle-delegated-expander") {
+          if (hit.expanded) this.#expandedDelegatedSessions.add(hit.sessionId);
+          else this.#expandedDelegatedSessions.delete(hit.sessionId);
+          return { dirty: true, actions: [hit] };
+        }
         if (hit.type === "select-decision") {
+          const alreadySelected = this.#selectedDecision === hit.index;
           this.#selectedDecision = hit.index;
+          if (alreadySelected) {
+            const target = this.#snapshot.decisions[hit.index];
+            if (target?.dossierLink) {
+              return {
+                dirty: true,
+                actions: [{ type: "open-link", target: target.dossierLink }],
+              };
+            }
+            return {
+              dirty: true,
+              actions: [
+                {
+                  type: "activate-decision",
+                  index: hit.index,
+                  ...(hit.decisionId ? { decisionId: hit.decisionId } : {}),
+                },
+              ],
+            };
+          }
+          return { dirty: true, actions: [hit] };
         }
         return { dirty: true, actions: [hit] };
       }
       return { dirty: true, actions: [] };
     }
-    // CLI zone: clicking returns keyboard focus to CLI; forward transcoded event only if CLI subscribed.
-    if (!event.release && !event.wheel && this.#focus) {
+    // CLI zone: clicking returns keyboard focus to CLI and clears panel bar selection;
+    // forward transcoded event only if CLI subscribed.
+    let focusCleared = false;
+    if (!event.release && !event.wheel && (this.#focus || this.#barSelectionActive)) {
       this.#focus = false;
+      this.#barSelectionActive = false;
+      focusCleared = true;
     }
     if (route.forwardToCli) {
       const encoded = transcodeSgrMouseForChild(
@@ -1309,7 +1876,8 @@ export class RightPanelController {
       );
       if (encoded !== undefined) {
         return {
-          dirty: false,
+          dirty: focusCleared,
+          selectionChanged: focusCleared,
           actions: [],
           forwardBytes: Buffer.from(
             encoded,
@@ -1318,6 +1886,6 @@ export class RightPanelController {
         };
       }
     }
-    return { dirty: false, actions: [] };
+    return { dirty: focusCleared, selectionChanged: focusCleared, actions: [] };
   }
 }
