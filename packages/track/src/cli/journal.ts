@@ -28,7 +28,7 @@ function isDir(p: string): boolean {
 
 function parseSimpleFlags(args: string[]): { positional: string[]; flags: Record<string, string | true> } {
   const positional: string[] = []
-  const flags: Record<string, string | true> = {}
+  const flags: Record<string, string | true> = Object.create(null) as Record<string, string | true>
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!
     if (a.startsWith('--')) {
@@ -81,7 +81,7 @@ export function cmdJournal(
 
   if (sub === 'which') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal which: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal which (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'format') throw new DomainError(`unknown flag --${k} for journal which`)
@@ -173,7 +173,7 @@ export function cmdJournal(
 
   if (sub === 'attach') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal attach: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal attach (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'to') throw new DomainError(`unknown flag --${k} for journal attach`)
@@ -205,7 +205,7 @@ export function cmdJournal(
 
   if (sub === 'declare-writer') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal declare-writer: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal declare-writer (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'holder' && k !== 'token-file') {
@@ -246,7 +246,7 @@ export function cmdJournal(
 
   if (sub === 'takeover') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal takeover: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal takeover (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'holder' && k !== 'reason' && k !== 'token-file') {
@@ -288,7 +288,7 @@ export function cmdJournal(
 
   if (sub === 'release') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal release: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal release (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       throw new DomainError(`unknown flag --${k} for journal release`)
@@ -308,7 +308,7 @@ export function cmdJournal(
 
   if (sub === 'status') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal status: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal status (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'format') throw new DomainError(`unknown flag --${k} for journal status`)

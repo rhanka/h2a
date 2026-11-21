@@ -251,6 +251,11 @@ class NumberConflictError extends DomainError {
 }
 
 const DEFAULT_NUMBER_RETRY_LIMIT = 16
+const FORBIDDEN_CAPTURE_ORIGINS: ReadonlySet<CaptureOrigin> = new Set([
+  'injected',
+  'subagent',
+  'background',
+])
 
 /** Highest registered demand/request number across the entire journal (demands + legacy numbered items, no workspace filter). */
 function highestDemandNumber(events: readonly TrackEvent[]): number {
@@ -966,6 +971,15 @@ export class Track {
     key?: string
     maxRetries?: number
   }): { demandId: DemandId; number: number } {
+    if (
+      this.prov?.transport === 'capture' &&
+      this.prov.origin !== undefined &&
+      FORBIDDEN_CAPTURE_ORIGINS.has(this.prov.origin)
+    ) {
+      throw new DomainError(
+        `raiseNumberedDemand: forbidden capture origin "${this.prov.origin}"`,
+      )
+    }
     const workspace = typeof input.workspace === 'string' ? input.workspace.trim() : ''
     if (workspace.length === 0) {
       throw new DomainError('raiseNumberedDemand: workspace is required')
@@ -1070,6 +1084,14 @@ export class Track {
       key?: string
     },
   ): TrackEvent {
+    if (
+      FORBIDDEN_CAPTURE_ORIGINS.has(input.origin) ||
+      (this.prov?.transport === 'capture' &&
+        this.prov.origin !== undefined &&
+        FORBIDDEN_CAPTURE_ORIGINS.has(this.prov.origin))
+    ) {
+      throw new DomainError(`addDemandOwnerMessage: forbidden capture origin "${input.origin}"`)
+    }
     if (!this.state().demands.has(demandId)) {
       throw new DomainError(`unknown demand ${demandId}`)
     }
@@ -1109,6 +1131,14 @@ export class Track {
       key?: string
     },
   ): TrackEvent {
+    if (
+      FORBIDDEN_CAPTURE_ORIGINS.has(input.origin) ||
+      (this.prov?.transport === 'capture' &&
+        this.prov.origin !== undefined &&
+        FORBIDDEN_CAPTURE_ORIGINS.has(this.prov.origin))
+    ) {
+      throw new DomainError(`addDecisionOwnerMessage: forbidden capture origin "${input.origin}"`)
+    }
     if (!this.state().decisions.has(decisionId)) {
       throw new DomainError(`unknown decision ${decisionId}`)
     }

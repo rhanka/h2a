@@ -1,23 +1,21 @@
-import { randomBytes } from 'node:crypto'
-import {
-  chmodSync,
-  existsSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { withFileLock } from '../events/lock.js'
 import type { CaptureOrigin } from '../events/types.js'
 import { ulid } from 'ulid'
+import {
+  assertStateHomeOutsideGit,
+  lstatNoFollow,
+  readFileNoFollow,
+  writeFileAtomicPrivate,
+} from '../fs-private.js'
 import { identityDigest } from '../journal/identity.js'
 import { ensurePrivateDir } from '../journal/index-store.js'
 import { DomainError } from '../model/item.js'
 import { trackStateHome } from '../state-home.js'
+import { hasInjectionMarker } from './markers.js'
+import { assertValidCliName } from './registry.js'
 import { maskSecrets } from './secrets.js'
 
 export const CAPTURE_ORIGINS = ['owner', 'doubtful', 'injected', 'subagent', 'background'] as const
@@ -55,6 +53,26 @@ export const MIN_CAPTURE_RETENTION_HOURS = 1
 export const MAX_CAPTURE_RETENTION_HOURS = 168
 
 const SAFE_CAPTURE_ID_RE = /^[0-9A-Za-z_-]{1,64}$/u
+const IDENTITY_DIGEST_RE = /^[0-9a-f]{64}$/u
+const FORBIDDEN_METADATA_CHARS_RE = /[\x00-\x1f\x7f]/u
+export const MAX_CAPTURE_TRANSCRIPT_BYTES = 1024
+export const MAX_CAPTURE_SESSION_BYTES = 256
+
+function sanitizeCaptureMetadata(
+  value: string | null,
+  field: 'transcript' | 'session',
+  maxBytes: number,
+): string | null {
+  if (value === null) return null
+  if (FORBIDDEN_METADATA_CHARS_RE.test(value)) {
+    throw new DomainError(`capture add: --${field} must not contain control characters or newlines`)
+  }
+  const masked = maskSecrets(value).text
+  if (Buffer.byteLength(masked, 'utf8') > maxBytes) {
+    throw new DomainError(`capture add: --${field} exceeds maximum length of ${maxBytes} bytes`)
+  }
+  return masked
+}
 
 export interface CaptureClassification {
   as: CaptureClassKind
@@ -85,7 +103,8 @@ export interface CaptureEntry {
   at: string
   cli: string
   session: string | null
-  folder: string
+  /** Local folder path while open (`captured`/`classified`); omitted once purged (`expired`/`dismissed`/`inscribed`/`acknowledged`). */
+  folder?: string | undefined
   identity: string
   origin: CaptureOrigin
   /** Masked captured text while open (`captured`/`classified`); `null` once purged. */
@@ -139,8 +158,9 @@ export function effectiveCaptureEntry(
   retentionHours: number,
 ): CaptureEntry {
   if (isCaptureOverAge(entry, nowIso, retentionHours)) {
+    const { folder: _strippedFolder, ...rest } = entry
     return {
-      ...entry,
+      ...rest,
       state: 'expired',
       text: null,
       expiredAt: entry.expiredAt ?? nowIso,
@@ -172,25 +192,14 @@ function lockTargetForDir(identityDir: string): string {
 }
 
 function writeEntryAtomically(filePath: string, entry: CaptureEntry): void {
-  const tmpFile = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`
   const payload = `${JSON.stringify(entry, null, 2)}\n`
-  try {
-    writeFileSync(tmpFile, payload, { encoding: 'utf8', mode: 0o600 })
-    chmodSync(tmpFile, 0o600)
-    renameSync(tmpFile, filePath)
-  } catch (err) {
-    try {
-      unlinkSync(tmpFile)
-    } catch {
-      // ignore cleanup failure
-    }
-    throw err
-  }
+  writeFileAtomicPrivate(filePath, payload, 0o600)
 }
 
 function parseEntryFile(filePath: string): CaptureEntry | undefined {
+  const raw = readFileNoFollow(filePath)
+  if (raw === undefined) return undefined
   try {
-    const raw = readFileSync(filePath, 'utf8')
     const parsed = JSON.parse(raw) as unknown
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
     const obj = parsed as Record<string, unknown>
@@ -203,8 +212,16 @@ function parseEntryFile(filePath: string): CaptureEntry | undefined {
   }
 }
 
+function assertCaptureTreeNoSymlinks(env: NodeJS.ProcessEnv): { stateHome: string; root: string } {
+  const stateHome = trackStateHome(env)
+  lstatNoFollow(stateHome)
+  const root = captureRootDir(env)
+  lstatNoFollow(root)
+  return { stateHome, root }
+}
+
 /**
- * Pure read-only lookup of a single capture entry (V4).
+ * Pure read-only lookup of a single capture entry (V4). Fails closed on symbolic links.
  */
 export function readCaptureEntry(
   identity: string,
@@ -212,14 +229,17 @@ export function readCaptureEntry(
   env: NodeJS.ProcessEnv = process.env,
 ): CaptureEntry | undefined {
   if (!SAFE_CAPTURE_ID_RE.test(captureId)) return undefined
-  const filePath = join(captureDirForIdentity(identity, env), `${captureId}.json`)
-  if (!existsSync(filePath)) return undefined
+  assertCaptureTreeNoSymlinks(env)
+  const idDir = captureDirForIdentity(identity, env)
+  const dirSt = lstatNoFollow(idDir)
+  if (dirSt === undefined || !dirSt.isDirectory()) return undefined
+  const filePath = join(idDir, `${captureId}.json`)
   return parseEntryFile(filePath)
 }
 
 /**
  * Pure read-only search for a capture entry by id across the preferred identity first, then any
- * identity directory under `capture/` (V4).
+ * 64-hex identity directory under `capture/` (V4). Rejects symbolic links.
  */
 export function findCaptureEntry(
   captureId: string,
@@ -227,22 +247,20 @@ export function findCaptureEntry(
   env: NodeJS.ProcessEnv = process.env,
 ): { entry: CaptureEntry; identityDir: string } | undefined {
   if (!SAFE_CAPTURE_ID_RE.test(captureId)) return undefined
+  const { root } = assertCaptureTreeNoSymlinks(env)
   if (preferredIdentity !== undefined) {
     const dir = captureDirForIdentity(preferredIdentity, env)
     const entry = readCaptureEntry(preferredIdentity, captureId, env)
     if (entry !== undefined) return { entry, identityDir: dir }
   }
-  const root = captureRootDir(env)
-  if (!existsSync(root)) return undefined
+  const rootSt = lstatNoFollow(root)
+  if (rootSt === undefined || !rootSt.isDirectory()) return undefined
   for (const sub of readdirSync(root)) {
+    if (!IDENTITY_DIGEST_RE.test(sub)) continue
     const dir = join(root, sub)
-    try {
-      if (!statSync(dir).isDirectory()) continue
-    } catch {
-      continue
-    }
+    const st = lstatNoFollow(dir)
+    if (st === undefined || !st.isDirectory()) continue
     const candidate = join(dir, `${captureId}.json`)
-    if (!existsSync(candidate)) continue
     const entry = parseEntryFile(candidate)
     if (entry !== undefined) return { entry, identityDir: dir }
   }
@@ -260,8 +278,10 @@ export function listCaptures(
   const env = opts.env ?? process.env
   const now = opts.now ?? new Date().toISOString()
   const retentionHours = resolveCaptureRetentionHours(env)
+  assertCaptureTreeNoSymlinks(env)
   const dir = captureDirForIdentity(identity, env)
-  if (!existsSync(dir)) return []
+  const dirSt = lstatNoFollow(dir)
+  if (dirSt === undefined || !dirSt.isDirectory()) return []
 
   const entries: CaptureEntry[] = []
   for (const name of readdirSync(dir)) {
@@ -286,17 +306,16 @@ export function listAllCapturesByIdentity(
   const env = opts.env ?? process.env
   const now = opts.now ?? new Date().toISOString()
   const retentionHours = resolveCaptureRetentionHours(env)
-  const root = captureRootDir(env)
+  const { root } = assertCaptureTreeNoSymlinks(env)
   const out = new Map<string, CaptureEntry[]>()
-  if (!existsSync(root)) return out
+  const rootSt = lstatNoFollow(root)
+  if (rootSt === undefined || !rootSt.isDirectory()) return out
 
   for (const sub of readdirSync(root).sort()) {
+    if (!IDENTITY_DIGEST_RE.test(sub)) continue
     const dir = join(root, sub)
-    try {
-      if (!statSync(dir).isDirectory()) continue
-    } catch {
-      continue
-    }
+    const st = lstatNoFollow(dir)
+    if (st === undefined || !st.isDirectory()) continue
     for (const name of readdirSync(dir)) {
       if (!name.endsWith('.json')) continue
       const parsed = parseEntryFile(join(dir, name))
@@ -315,7 +334,7 @@ export function listAllCapturesByIdentity(
 
 /**
  * Append a new captured message to the identity's queue (0700 folders, 0600 files).
- * Secret masking runs BEFORE any byte is written to disk (spec V8).
+ * Secret masking and injection-marker enforcement run BEFORE any byte is written to disk (spec V8, §7.6).
  */
 export function appendCapture(
   input: {
@@ -332,11 +351,16 @@ export function appendCapture(
 ): CaptureEntry {
   const env = opts.env ?? process.env
   const now = opts.now ?? new Date().toISOString()
+  const cliName = assertValidCliName(input.cli, 'capture add')
+  const session = sanitizeCaptureMetadata(input.session, 'session', MAX_CAPTURE_SESSION_BYTES)
+  const transcript = sanitizeCaptureMetadata(input.transcript, 'transcript', MAX_CAPTURE_TRANSCRIPT_BYTES)
+  const effectiveOrigin: CaptureOrigin = hasInjectionMarker(input.rawText) ? 'injected' : input.origin
   const masked = maskSecrets(input.rawText)
   const id = input.id ?? ulid()
   assertSafeCaptureId(id)
 
   const stateHome = trackStateHome(env)
+  assertStateHomeOutsideGit(stateHome, env)
   const rootDir = captureRootDir(env)
   const idDir = captureDirForIdentity(input.identity, env)
   ensurePrivateDir(stateHome)
@@ -346,44 +370,52 @@ export function appendCapture(
   const entry: CaptureEntry = {
     id,
     at: now,
-    cli: input.cli,
-    session: input.session,
+    cli: cliName,
+    session,
     folder: input.folder,
     identity: input.identity,
-    origin: input.origin,
+    origin: effectiveOrigin,
     text: masked.text,
     size: Buffer.byteLength(masked.text, 'utf8'),
     maskedSecretCount: masked.maskedCount,
-    transcript: input.transcript,
+    transcript,
     announced: false,
     state: 'captured',
   }
 
-  return withFileLock(lockTargetForDir(idDir), () => {
+  const written = withFileLock(lockTargetForDir(idDir), () => {
     const filePath = join(idDir, `${id}.json`)
     writeEntryAtomically(filePath, entry)
     return structuredClone(entry)
   })
+  // Spec §7.5: every write to a queue on the machine sweeps expired texts.
+  sweepExpiredQueues({ env, now })
+  return written
 }
 
 /**
- * Atomically mutate an existing capture entry under the identity queue lock (mode 0600).
+ * Atomically mutate an existing capture entry under the identity queue lock (mode 0600), then
+ * sweep expired texts across every queue on the machine (spec §7.5).
  */
 export function updateCaptureEntry(
   identity: string,
   captureId: string,
   mutator: (current: CaptureEntry) => CaptureEntry,
-  opts: { env?: NodeJS.ProcessEnv | undefined } = {},
+  opts: { env?: NodeJS.ProcessEnv | undefined; now?: string | undefined } = {},
 ): CaptureEntry {
   assertSafeCaptureId(captureId)
   const env = opts.env ?? process.env
+  const now = opts.now ?? new Date().toISOString()
+  assertCaptureTreeNoSymlinks(env)
   const idDir = captureDirForIdentity(identity, env)
-  if (!existsSync(idDir)) {
+  const dirSt = lstatNoFollow(idDir)
+  if (dirSt === undefined || !dirSt.isDirectory()) {
     throw new DomainError(`capture entry ${captureId} not found`)
   }
-  return withFileLock(lockTargetForDir(idDir), () => {
+  const updated = withFileLock(lockTargetForDir(idDir), () => {
     const filePath = join(idDir, `${captureId}.json`)
-    if (!existsSync(filePath)) {
+    const fileSt = lstatNoFollow(filePath)
+    if (fileSt === undefined) {
       throw new DomainError(`capture entry ${captureId} not found`)
     }
     const current = parseEntryFile(filePath)
@@ -394,28 +426,29 @@ export function updateCaptureEntry(
     writeEntryAtomically(filePath, next)
     return structuredClone(next)
   })
+  sweepExpiredQueues({ env, now })
+  return updated
 }
 
 /**
  * Sweep expired unclassified texts across EVERY queue directory under `trackStateHome` (spec §7.5,
- * plan/07 Lot 1 & Lot 2). Removes the text (`text: null`) and sets `state: 'expired'` while keeping
- * time, session, CLI, size and transcript pointer. Returns the number of entries expired.
+ * plan/07 Lot 1 & Lot 2). Removes the text (`text: null`) and `folder`, setting `state: 'expired'`
+ * while keeping time, session, CLI, size and sanitized transcript pointer.
  */
 export function sweepExpiredQueues(opts: CaptureQueueOptions = {}): number {
   const env = opts.env ?? process.env
   const now = opts.now ?? new Date().toISOString()
   const retentionHours = resolveCaptureRetentionHours(env)
-  const root = captureRootDir(env)
-  if (!existsSync(root)) return 0
+  const { root } = assertCaptureTreeNoSymlinks(env)
+  const rootSt = lstatNoFollow(root)
+  if (rootSt === undefined || !rootSt.isDirectory()) return 0
 
   let expiredCount = 0
   for (const sub of readdirSync(root)) {
+    if (!IDENTITY_DIGEST_RE.test(sub)) continue
     const dir = join(root, sub)
-    try {
-      if (!statSync(dir).isDirectory()) continue
-    } catch {
-      continue
-    }
+    const dirSt = lstatNoFollow(dir)
+    if (dirSt === undefined || !dirSt.isDirectory()) continue
     const candidateFiles: string[] = []
     for (const name of readdirSync(dir)) {
       if (!name.endsWith('.json')) continue
@@ -432,8 +465,9 @@ export function sweepExpiredQueues(opts: CaptureQueueOptions = {}): number {
         const current = parseEntryFile(filePath)
         if (current === undefined) continue
         if (!isCaptureOverAge(current, now, retentionHours)) continue
+        const { folder: _strippedFolder, ...rest } = current
         const expired: CaptureEntry = {
-          ...current,
+          ...rest,
           state: 'expired',
           text: null,
           expiredAt: now,
@@ -448,7 +482,7 @@ export function sweepExpiredQueues(opts: CaptureQueueOptions = {}): number {
 
 /**
  * Find unannounced, unclassified (non-expired) captures for `session` in `identity`, mark them
- * `announced: true` under the queue lock, and return them (plan/07 Lot 1 `track capture remind`).
+ * `announced: true` under the queue lock, sweep expired queues, and return them (plan/07 Lot 1 `track capture remind`).
  */
 export function consumeUnannouncedForSession(
   identity: string,
@@ -458,11 +492,16 @@ export function consumeUnannouncedForSession(
   const env = opts.env ?? process.env
   const now = opts.now ?? new Date().toISOString()
   const retentionHours = resolveCaptureRetentionHours(env)
+  assertCaptureTreeNoSymlinks(env)
   const idDir = captureDirForIdentity(identity, env)
-  if (!existsSync(idDir)) return []
+  const dirSt = lstatNoFollow(idDir)
+  if (dirSt === undefined || !dirSt.isDirectory()) {
+    sweepExpiredQueues({ env, now })
+    return []
+  }
 
-  return withFileLock(lockTargetForDir(idDir), () => {
-    const matched: CaptureEntry[] = []
+  const matched = withFileLock(lockTargetForDir(idDir), () => {
+    const out: CaptureEntry[] = []
     for (const name of readdirSync(idDir)) {
       if (!name.endsWith('.json')) continue
       const filePath = join(idDir, name)
@@ -474,9 +513,11 @@ export function consumeUnannouncedForSession(
       if (isCaptureOverAge(current, now, retentionHours)) continue
       const updated: CaptureEntry = { ...current, announced: true }
       writeEntryAtomically(filePath, updated)
-      matched.push(updated)
+      out.push(updated)
     }
-    matched.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
-    return matched
+    out.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
+    return out
   })
+  sweepExpiredQueues({ env, now })
+  return matched
 }

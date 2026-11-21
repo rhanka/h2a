@@ -10,6 +10,7 @@ import { cmdEventsContains } from './events-contains.js'
 import { cmdAdopt } from './adopt.js'
 import { cmdCapture } from '../capture/cli.js'
 import { readCaptureViewForIdentity } from '../capture/reader.js'
+import { maskSecrets } from '../capture/secrets.js'
 import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
 import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
@@ -572,7 +573,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
     writerTokenFile = extracted.writerTokenFile
     argv = extracted.rest
   } catch (error) {
-    io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
+    const rawMsg = error instanceof Error ? error.message : String(error)
+    io.err(`error: ${maskSecrets(rawMsg).text}\n`)
     return 1
   }
   const cmd = argv[0]
@@ -778,7 +780,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         return 2
     }
   } catch (error) {
-    io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
+    const rawMsg = error instanceof Error ? error.message : String(error)
+    io.err(`error: ${maskSecrets(rawMsg).text}\n`)
     return 1
   }
 }

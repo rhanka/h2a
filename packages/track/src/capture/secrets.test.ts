@@ -87,6 +87,13 @@ const SECRET_FIXTURES: ReadonlyArray<{ kind: string; rawSecret: string; sample: 
       `Deploy avec -----${'BEGIN PRIVATE'} KEY-----\n${s}\n-----${'END PRIVATE'} KEY-----`,
   ),
   makeFixture(
+    'pgp-private-key',
+    ['lQOYBGTestPgpSyntheticPrivateKeyBlockBody0123456789', 'ABCD'],
+    '',
+    (s) =>
+      `Clé -----${'BEGIN PGP PRIVATE'} KEY BLOCK-----\n${s}\n-----${'END PGP PRIVATE'} KEY BLOCK-----`,
+  ),
+  makeFixture(
     'jwt',
     [
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
@@ -161,6 +168,18 @@ const SECRET_FIXTURES: ReadonlyArray<{ kind: string; rawSecret: string; sample: 
     ['sk', 'live', 'SyntheticStripeSecretKey0123456789'],
     '_',
     (s) => `Paiement ${s} en échec`,
+  ),
+  makeFixture(
+    'webhook-secret',
+    ['whsec', 'SyntheticWebhookSigningSecret0123456789'],
+    '_',
+    (s) => `Webhook ${s} invalide`,
+  ),
+  makeFixture(
+    'age-secret-key',
+    ['AGE-SECRET-KEY-1', 'SYNTHETICAGESECRETKEYVALUE0123456789ABCDEF'],
+    '',
+    (s) => `Identité age ${s} compromise`,
   ),
   makeFixture(
     'auth-header',
@@ -273,5 +292,140 @@ describe('secret masking at capture (T3a-b, lot 3a)', () => {
         ).toBe(false)
       }
     }
+  })
+
+  it('C1: masks prefixed env vars, *_TOKEN, camelCase/kebab-case, quoted JSON, X-Api-Key/Api-Key/X-Auth-Token, rediss/amqps/empty-user URLs, and trailing hyphen base64url tokens', () => {
+    const cases: ReadonlyArray<{ label: string; secret: string; sample: string; kind: string }> = [
+      {
+        label: 'AWS_SECRET_ACCESS_KEY=',
+        secret: ['SyntheticAwsSecretAccessKey', '0123456789'].join(''),
+        sample: `export AWS_SECRET_ACCESS_KEY=${['SyntheticAwsSecretAccessKey', '0123456789'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'DB_PASSWORD=',
+        secret: ['SyntheticDbPassword', '9988'].join(''),
+        sample: `DB_PASSWORD=${['SyntheticDbPassword', '9988'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'OPENAI_API_KEY=',
+        secret: ['SyntheticPrefixedApiKey', '4455'].join(''),
+        sample: `OPENAI_API_KEY=${['SyntheticPrefixedApiKey', '4455'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'PREFIX_SECRET=',
+        secret: ['SyntheticPrefixSecret', '7766'].join(''),
+        sample: `PREFIX_SECRET=${['SyntheticPrefixSecret', '7766'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'GITHUB_TOKEN=',
+        secret: ['SyntheticGithubEnvTok', '1122'].join(''),
+        sample: `GITHUB_TOKEN=${['SyntheticGithubEnvTok', '1122'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'API_TOKEN=',
+        secret: ['SyntheticApiEnvTok', '3344'].join(''),
+        sample: `API_TOKEN=${['SyntheticApiEnvTok', '3344'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'camelCase apiKey/clientSecret/accessToken',
+        secret: ['SyntheticCamelSecret', '5566'].join(''),
+        sample: `apiKey=${['SyntheticCamelSecret', '5566'].join('')} clientSecret=${['SyntheticCamelSecret', '5566'].join('')} accessToken=${['SyntheticCamelSecret', '5566'].join('')}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'quoted JSON secret fields',
+        secret: ['SyntheticJsonSecretVal', '8899'].join(''),
+        sample: `{"client_secret":"${['SyntheticJsonSecretVal', '8899'].join('')}","password":"${['SyntheticJsonSecretVal', '8899'].join('')}"}`,
+        kind: 'secret-assignment',
+      },
+      {
+        label: 'X-Api-Key header',
+        secret: ['SyntheticXApiKeyVal', '1010'].join(''),
+        sample: `X-Api-Key: ${['SyntheticXApiKeyVal', '1010'].join('')}`,
+        kind: 'auth-header',
+      },
+      {
+        label: 'Api-Key header',
+        secret: ['SyntheticApiKeyHdr', '2020'].join(''),
+        sample: `Api-Key: ${['SyntheticApiKeyHdr', '2020'].join('')}`,
+        kind: 'auth-header',
+      },
+      {
+        label: 'X-Auth-Token header',
+        secret: ['SyntheticXAuthTok', '3030'].join(''),
+        sample: `X-Auth-Token: ${['SyntheticXAuthTok', '3030'].join('')}`,
+        kind: 'auth-header',
+      },
+      {
+        label: 'redis://:pass@host (no username)',
+        secret: ['SyntheticRedisPass', '4040'].join(''),
+        sample: `redis://:${['SyntheticRedisPass', '4040'].join('')}@cache.example.test:6379/0`,
+        kind: 'url-credentials',
+      },
+      {
+        label: 'rediss://:pass@host',
+        secret: ['SyntheticRedissPass', '5050'].join(''),
+        sample: `rediss://:${['SyntheticRedissPass', '5050'].join('')}@cache.example.test:6379/0`,
+        kind: 'url-credentials',
+      },
+      {
+        label: 'amqps://user:pass@host',
+        secret: ['SyntheticAmqpsPass', '6060'].join(''),
+        sample: `amqps://broker:${['SyntheticAmqpsPass', '6060'].join('')}@mq.example.test/vhost`,
+        kind: 'url-credentials',
+      },
+      {
+        label: 'base64url token ending with hyphen',
+        secret: ['sk', 'ant', 'api03', 'SyntheticTrailingHyphen0123456789-'].join('-'),
+        sample: `Clé ${['sk', 'ant', 'api03', 'SyntheticTrailingHyphen0123456789-'].join('-')} fin`,
+        kind: 'anthropic-key',
+      },
+    ]
+
+    for (const c of cases) {
+      const res = maskSecrets(c.sample)
+      expect(res.maskedCount, `${c.label}: expected match`).toBeGreaterThanOrEqual(1)
+      expect(res.text, `${c.label}: raw secret remained`).not.toContain(c.secret)
+      expect(res.text, `${c.label}: expected placeholder`).toContain(`[secret masqué : ${c.kind}]`)
+      // Check trailing hyphen is also masked (no stray "- fin")
+      if (c.label.includes('hyphen')) {
+        expect(res.text).toBe('Clé [secret masqué : anthropic-key] fin')
+      }
+      // Idempotency
+      const res2 = maskSecrets(res.text)
+      expect(res2.text, `${c.label}: idempotency`).toBe(res.text)
+      expect(res2.maskedCount, `${c.label}: second pass count`).toBe(0)
+    }
+  })
+
+  it('C1: CLI stderr never echoes raw secrets or raw positional tokens', () => {
+    const project = join(scratch, 'repo-stderr')
+    mkdirSync(project, { recursive: true })
+    expect(cli(project, ['init']).code).toBe(0)
+
+    const syntheticSecret = ['sk', 'ant', 'api03', 'SyntheticStderrLeakCheck0123456789'].join('-')
+    const rPos = cli(project, ['capture', 'add', '--cli', 'claude', syntheticSecret, '--stdin'], {
+      stdin: 'hello',
+    })
+    expect(rPos.code).toBe(0)
+    expect(rPos.out).toBe('')
+    expect(rPos.err).not.toContain(syntheticSecret)
+
+    const rOrigin = cli(project, ['capture', 'add', '--cli', 'claude', '--origin', syntheticSecret, '--stdin'], {
+      stdin: 'hello',
+    })
+    expect(rOrigin.code).toBe(0)
+    expect(rOrigin.err).not.toContain(syntheticSecret)
+
+    const rawWriterToken = 'a'.repeat(64)
+    const rRel = cli(project, ['journal', 'release', rawWriterToken])
+    expect(rRel.code).toBe(1)
+    expect(rRel.err).not.toContain(rawWriterToken)
   })
 })
