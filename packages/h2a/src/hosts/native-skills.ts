@@ -45,7 +45,7 @@ export function nativeSkillArtifacts(options: {
       const expected = `You are the ${parsed.name} custom command for Gemini CLI.\n\n${parsed.body}`;
       try {
         const value = parseNativeToml(rendered);
-        if (Object.keys(value).sort().join(',') !== 'description,prompt' || value.description !== parsed.description || value.prompt?.trimEnd() !== expected.trimEnd()) throw new Error('unsafe literal');
+        if (Object.keys(value).sort().join(',') !== 'description,prompt' || value.description !== parsed.description || value.prompt !== expected) throw new Error('unsafe literal');
       } catch {
         // Native resource paths can contain triple apostrophes. Keep the
         // historical renderer/catalog intact; use a validated basic string.
