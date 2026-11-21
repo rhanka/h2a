@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 
 import {
   launchLayout,
@@ -500,9 +501,13 @@ export function writeLastLayout(
     })),
   };
   const path = lastLayoutPath();
-  mkdirSync(dirname(path), { recursive: true });
+  guardTestStateWrite(dirname(path));
+  guardTestStateWrite(path);
   const tmp = `${path}.tmp.${process.pid}`;
+  guardTestStateWrite(tmp);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+  guardTestStateMove(tmp, path);
   renameSync(tmp, path);
 }
 

@@ -34,20 +34,30 @@ export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = fal
     const markers = join(root, 'observed.json')
     const warmerMarker = join(root, 'warmer-launched.json')
     let copy = source
-    for (const module of ['cleanse-contract-ledger', 'test-execution-evidence', 'test-inventory', 'historical-test-ref', 'report-test-durations', 'm17-ci-evidence', 'bulk-ci-evidence', 'node-suite-env', 'ci-node-shards']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
+    for (const module of ['cleanse-contract-ledger', 'test-execution-evidence', 'test-inventory', 'historical-test-ref', 'report-test-durations', 'm17-ci-evidence', 'bulk-ci-evidence', 'node-suite-env', 'ci-node-shards', 'test-sandbox-contract']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
+    copy = copy.replace(
+      'const SANDBOX_LAUNCHER = resolve(HERE, "test-sandbox.mjs");',
+      `const SANDBOX_LAUNCHER = ${JSON.stringify(resolve(repoRoot, 'scripts/test-sandbox.mjs'))};`,
+    )
     writeFileSync(join(root, 'scripts/run-tests.mjs'), copy)
     // Substitute the child-process boundary, preserving production discovery,
     // entry, commands, loop, evidence validation and exit aggregation.
+    const contractUrl = pathToFileURL(resolve(repoRoot, 'scripts/test-sandbox-contract.mjs')).href
     writeFileSync(join(root, 'mock-spawn.mjs'), `
 import cp from 'node:child_process';
 import {EventEmitter} from 'node:events';
 import {syncBuiltinESMExports} from 'node:module';
-import {writeFileSync} from 'node:fs';
+import {realpathSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
+import {verifySandboxConfinement, isPathWithinAttestedRoot} from ${JSON.stringify(contractUrl)};
+const d16Receipt = verifySandboxConfinement(process.env);
 const root = ${JSON.stringify(root)}, files = ${JSON.stringify(files)}, track = ${JSON.stringify(track)}, agentStats = ${JSON.stringify(agentStats)}, focus = ${JSON.stringify(focus)}, laneFiles = ${JSON.stringify(LANE_TEST_FILES)}, warmerMarker = ${JSON.stringify(warmerMarker)};
 const fault = ${JSON.stringify(nodeBucketFault ?? null)};
 const observed=[], reports=new Set();
 cp.spawnSync=(command,args,options)=>{
+  if (Array.isArray(args) && args.some(arg => typeof arg === 'string' && arg.endsWith('test-sandbox.mjs'))) {
+    throw Error('unexpected nested test-sandbox.mjs invocation inside already-confined observation lab');
+  }
   if (args.join(' ') === 'config get cache') return {status:0, stdout:resolve(root,'prepared-cache')+'\\n'};
   // The entry's setup probes historical fixture refs with plain git
   // cat-file (node-suite-env pre-ensure) before any suite is launched;
@@ -55,7 +65,8 @@ cp.spawnSync=(command,args,options)=>{
   // probes pass through without a verdict, like the npm cache probe above.
   if (command === 'git' && args[0] === 'cat-file') return {status:0};
   ${preparedNpmCache ? `if(options.env.npm_config_cache!==resolve(root,'prepared-cache')) throw Error('Prepared npm cache lost during HOME isolation: '+options.env.npm_config_cache);
-  if(!options.env.HOME.startsWith(resolve(root,'tmp/test-runtime'))) throw Error('Test HOME must remain isolated');` : ''}
+  const canonicalHome = (() => { try { return realpathSync(options.env.HOME); } catch { return resolve(options.env.HOME); } })();
+  if(!isPathWithinAttestedRoot(canonicalHome, d16Receipt)) throw Error('Test HOME must remain isolated under attested D16 root R: ' + canonicalHome);` : ''}
   if (typeof args[0] === 'string' && args[0].endsWith('prepare-mh-test-fixtures.mjs')) {
     if(command!==process.execPath) throw Error('fixture producer must use the candidate Node');
     observed.push('Fixtures');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
@@ -111,7 +122,17 @@ cp.spawn=(command,args,options)=>{
   return child;
 };syncBuiltinESMExports();
 `)
-    const env = { ...process.env, HOME: join(root, 'home'), XDG_RUNTIME_DIR: join(root, 'run'), XDG_CONFIG_HOME: join(root, 'home/.config'), XDG_STATE_HOME: join(root, 'home/.local/state'), TMPDIR: root, H2A_TEST_LEGACY_HOST_DIR: join(root, 'legacy') }
+    const env = {
+      ...process.env,
+      HOME: join(root, 'home'),
+      XDG_RUNTIME_DIR: join(root, 'run'),
+      XDG_CONFIG_HOME: join(root, 'home/.config'),
+      XDG_STATE_HOME: join(root, 'home/.local/state'),
+      TMPDIR: root,
+      TMP: root,
+      TEMP: root,
+      H2A_TEST_LEGACY_HOST_DIR: join(root, 'legacy'),
+    }
     delete env.NODE_TEST_CONTEXT
     delete env.H2A_TEST_REPORT_PATH
     delete env.H2A_TEST_TIMEOUT_MS

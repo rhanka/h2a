@@ -590,8 +590,7 @@ registry-backed session of a project is preserved (no collapse).
 
 ### 1.8 Test pollution of real state (lot L0 evidence)
 
-Both analyses identify the same two leakers by unique fixture ids;
-re-verified at this base:
+Both analyses identify per-suite findings; re-verified on the L0 build base (`b749b1ab4` / `origin/main`):
 
 - `R/src/attach-reconnect-livelock.test.ts` drives the real `attach`
   with `sessionId:"sess-livelock"`; `attach` calls
@@ -600,10 +599,17 @@ re-verified at this base:
   (`resolveCrashLogPath`, `R/src/crash-log.ts:108`;
   `appendCrashLog`, `:435`). The suite sets no `HOME`/`XDG_STATE_HOME`
   isolation.
-- `R/src/native-terminal/op.test.ts`, first `describe`
-  ("native terminal attach recovery"), drives the real `runAttach`
-  (`h2a-alpha`) into the same log. Only the **second** `describe` in
-  that file installs a `mkdtemp` `XDG_STATE_HOME`.
+- `R/src/native-terminal/op.test.ts`: the first `describe`
+  ("native terminal attach recovery", `:85`) already sets a private
+  `XDG_STATE_HOME` in `beforeEach` (`:89–93`) and restores it in
+  `afterEach` (`:95–98`), so it is a retained green non-regression
+  control rather than a current leaker (reclassified under C3 /
+  INJ:864–865). By contrast, the fourth `describe`
+  (`native attach right panel (L0)`, `:2133`) calls `runAttach`
+  (`:2182`, `:2262`, `:2434`, `:2542`, `:2639`, and `:2789` after #506)
+  without local `XDG_STATE_HOME` isolation; the D16 Vitest setup must
+  supply the worker's private state before file evaluation so its log
+  writes land only inside the worker root and never touch owner state.
 - The global guard catches none of this: `R/vitest.native-isolation.mjs`
   (both vitest configs) installs only
   `afterEach(assertNoNativeTestSpawnViolations)` — a **spawn** guard.
@@ -665,6 +671,41 @@ re-verified at this base:
   `packages/h2a/focus-kit/test/evidence-corpus-checkout.test.mjs` only
   matches the `prepare-evidence-corpus` step — neither pins a test
   command, so neither needs an edit for the rewiring (lot L0).
+- **N1 — Normative CI inventory (amendment INJ-L0 r2).** Every ordinary Node
+  `--test` or Vitest invocation, direct or delegated by an inventoried helper,
+  enters D16 before test discovery. The two targeted forms in §4 remain the
+  lane entry points. The independent trust-root command remains verbatim
+  `node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js`.
+  The dedicated CI job executes it before its own direct invocation of the
+  production runner; in `release.yml`, it precedes `npm test` at the verified
+  SHA. The file stays excluded from runner discovery. Any other host
+  qualification recipe requires a new normative entry.
+
+  | Workflow and lines | Normative treatment |
+  |---|---|
+  | `.github/workflows/ci.yml:58`, `:75`, `:112`, `:200`, `:366`, `:506` | D16 Node envelope with resolved preload for deepmerge (after both subtree installs), repo no-python guard self-tests, Codex oracle with its exact filter, independent Bulk control, both messaging files, and the independent runner trust root. Both shell tests at `:78` run under `scripts/test-sandbox.mjs` preserving their arguments. |
+  | `.github/workflows/ci.yml:165`, `:202`, `:276`, `:401`, `:408`, `:424`, `:456`, `:544` | Producers and aggregators per D-L0-1 (N3). For the three Vitest calls, wrap only the Vitest command, with `--no-install` and all current files; build both control-plane workspaces first. Keep the public job name `npm-test-trust-root` and both existing production entry points. |
+  | `.github/workflows/node-qualification.yml:80`, `:121`, `:190` and `.github/workflows/release.yml:86`, `:181`, `:221` | Same as the CI graph for the resolved SHA, including on backfill. Trust root precedes `npm test` in `verify`. Matrix keeps exact Node patch pins and publish depends on `verify`. |
+  | `.github/workflows/codex-drift.yml:38`, `:54` | Wrap the Node oracle with its filter and keep observation status. Host configuration probes stay UAT on the VM. |
+  | `.github/workflows/focus-dossier.yml:28`–`:60` | Prepare corpus, dependencies and Chromium before suites. Wrap all ten Node calls at lines 30, 33, 35, 39, 41, 43, 45, 47, 49, 53 (line 39 keeps both files). Export performance metrics even when a later assertion fails. |
+  | `.github/workflows/no-coauthor-trailer.yml:149`, `:162` and `.github/workflows/smoke.yml:14`, `:25` | Confine hook shell test and `hook-selftest` Node test. Metadata scan keeps its permissions. Candidate Node test reads prepared tarballs read-only. `smoke-install`, pack, install and publish keep their distribution scope. |
+  | `.github/workflows/native-host-equipment.yml:25` and `packages/h2a/test/helpers/host-isolated-run.mjs:58` | D16 around helper, resolved preload on internal `node --test`, private consumer copy and identity guard preserved. Same contract on the identity lane inside `npm test`. |
+  | `.github/workflows/native-recovery.yml:67`, `:79`, `:116` | Dedicated VM qualification (`scripts/test-host-qualification.mjs`) for non-systemd control (fresh, resume, restore), paired systemd runs (fresh, resume), mutations, and effective-cgroups. Thresholds, VM manager bus, `always()` and cleanup remain part of the measurement. Parity reported; regression/incidents blocking. |
+  | `.github/workflows/native-namespace-qualification.yml:16`, `:26`, `:28` | **C2 — T10.** In `native-namespaces`, keep unconditional `run: npm run build`. In a later qualification step, `run` invokes literally `scripts/run-namespace-qualification.mjs` under `sudo` with zero script arguments after N5 VM reservation prepared by `scripts/test-host-qualification.mjs` selector `native-namespaces`. Runs only `namespace-publication.test.ts` on a fresh VM with real `unshare`. Ordinary setup refuses any standalone short root. Contract `packages/h2a/test/ci-release-candidate.test.js:53–57` stays applicable. |
+  | `.github/workflows/docker.yml:1`, `.github/workflows/publish-rehearsal.yml:1` | Image build, publish rehearsal and package smokes distinct from Node/Vitest discovery; no D16 proof inferred from their pass. |
+
+- **C5 — YAML contracts for `--prepare-ci`.** In `no-coauthor-trailer.yml`,
+  keep the literal `/tmp/` and any word matching `\bpython\d*\b`
+  (case-insensitive) out of the entire file, comments included
+  (`packages/h2a/test/trailer-guard.test.js:362–363`). The build contract reads
+  `ci.yml`, requires at least one path matching
+  `packages/h2a-runtime/src/*.test.ts` (including subdirectories) and verifies
+  each cited file exists in the checkout
+  (`packages/h2a/test/gateway-host-build.test.js:7–10`). On disposable GitHub
+  VMs, `--prepare-ci` probes `bwrap` before installing anything; if missing, it
+  runs `apt-get install --no-install-recommends` for `bubblewrap` and `uidmap`
+  with bounded apt-lock wait and bounded transient network retries within the
+  job timeout, then re-probes before any test.
 - The 2026-10-17 timestamps in the brief are consistent with the
   per-component crash logs landing 2026-10-16: previously file-free
   suites started writing real state the day the production code under
@@ -887,6 +928,123 @@ Rules for **every** lot (not repeated per lot):
   forbidden in lot/CI commands; no claim is made that a preload can
   intercept an arbitrary command that omits it altogether. The full
   suite is the conductor's, at integration, through the same envelope.
+
+  **Precisions D16 (amendment INJ-L0 r2, N2–N5):**
+
+  - **N2 — Barrier, roots and `compat-tmp` (C5).** Before any runner, the
+    launcher creates a private per-invocation host root `H` (`mkdtemp`, mode
+    `0700`, launcher UID, no symlinks) under the lane's dedicated temp root or
+    `RUNNER_TEMP` on CI (never global `/tmp` or owner data). Inside the Linux
+    mount namespace, `H` is bound at `/run/h2a-test/r` (`R`);
+    `H2A_TEST_STATE_ROOT` and `H2A_TEST_QUALIFICATION_ROOT` point to `R`. The
+    supervisor uses `R/tmp`; each Node/Vitest worker allocates
+    `R/w-*/{home,state,config,runtime,cache,data,tmp}` (or `I/w-*` under
+    canonical `IDLOCK_LANE` `I` inside `R`), mode `0700`, setting `HOME`,
+    `XDG_*`, `TMPDIR`/`TMP`/`TEMP`, provider config, private bus, sockets and
+    logs before product imports. `H2A_TEST_STATE_ROOT` is the sole mutation-guard
+    activation predicate; any other D16 component without it or any partial/
+    contradictory tuple fails before mutation; `H2A_TEST_QUALIFICATION_ROOT`
+    alone grants no runner right; `H2A_TEST_STAGE_ROOT` in YAML is strictly
+    host staging. The launcher binds the checkout, Git and dependencies
+    read-only at the checkout's original absolute path, masks owner state/bus/
+    sockets, keeps `/run/h2a-test/receipt.json` read-only outside `R` (control
+    dir `C` `0700` outside `H`, hidden from guest), and proves `/proc/self/ns/mnt`,
+    `/proc/self/mountinfo`, `R` `dev/ino`, `EROFS` on `/run/h2a-test/ro-witness`
+    and exclusive create/remove in `R` (or `I`). **C5 (`compat-tmp`):** mount
+    `R/compat-tmp` on guest `/tmp` and record `<checkout>/.qual-tmp`,
+    `<checkout>/tmp/test-runtime` and `/tmp`→`compat-tmp` (with visible path,
+    target relative to `R`, and `dev/ino`) separately in the read-only receipt;
+    the mutation guard translates guest `/tmp` suffixes to `R/compat-tmp` only
+    after verifying receipt and `dev/ino`. On shared hosts, require
+    `--unshare-net` with verified loopback; on authenticated disposable VMs
+    allocated to the job (GitHub-hosted or conductor-verified out-of-band),
+    sharing the VM's network is permitted for pinned fixture downloads
+    (`scripts/prepare-mh-test-fixtures.mjs:12,:27,:39`). Missing/unverifiable
+    barrier ⇒ exit 3 (`qualification-incomplete`) before the runner.
+  - **N3 — Proof exchange between CI jobs.** The host launcher selects the role
+    from the exact entry point, validated argv and import env vars: M17 run
+    (0 imports, exports `tmp/m17-export/proof.json` via host `finalize`), Bulk
+    (0 imports, exports `tmp/bulk-export/proof.json`), `node-shard` (requires
+    `H2A_TEST_CI_M17_REPORT` + `H2A_TEST_CI_BULK_REPORT` only, index 0–3,
+    exports `tmp/node-shard/node-shard-<i>.json`), aggregator (`build-and-test`,
+    `npm-test-trust-root` production entry, `verify`: requires all 3 import
+    vars with 1+1+4 files), independent trust-root test (0 imports), Focus
+    performance (exports unique `H/w-*/tmp/focus-evidence-performance-*/metrics.json`
+    to `RUNNER_TEMP/<fixture>/metrics.json` even on test failure, distinct from
+    acceptance proofs). Imports are copied into private read-only views; outputs
+    are published atomically (exclusive temp + same-dir hardlink failing on
+    `EEXIST`, 32 MiB cap, no symlinks, no external hardlinks) only after the
+    confined group exits cleanly. M17 mounts an exclusive 1 GiB `tmpfs`
+    (`nodev,nosuid,noexec,mode=0700`, ≥512 MiB free) under `H/m17` presented as
+    `R/m17`, records receipts/provisional proof in host control dir `C` outside
+    `H`, checks container PIDs only inside the container namespace, waits for
+    bwrap init exit on the host, lets `cleanup` unmount and remove `H`, and lets
+    `finalize` publish `proof.json` only after matching setup+run+cleanup nonces
+    and verifying real absence of `H`, `H/m17`, `H/<suffix>` and active receipt.
+  - **N4 — Runners, images, copies and writer guards (C1, C4).** Launcher owns
+    root lifetime; importing `scripts/run-tests.mjs` or `scripts/run-test-gates.mjs`
+    is pure (no filesystem/env side effect). **C1:** keep the end-of-file
+    `if (invokedDirectly)` blocks of `scripts/run-tests.mjs:522–524` (`  main();`)
+    and `scripts/run-test-gates.mjs:601–603` (`process.exit(runGates(STEPS))`)
+    verbatim; delegate/verify inside `main()` and `runGates()`, keeping
+    `runGates(steps, options)` synchronous. In
+    `packages/h2a/test/helpers/node-track-observation-lab.js:36–38` and
+    `sentinelRunnerSource` (`packages/h2a/test/run-test-gates.test.js:1193–1207`),
+    resolve `./test-sandbox-contract.mjs` and `./test-sandbox.mjs` to real
+    checkout files, verify the receipt in `mock-spawn.mjs` before stubbing
+    `spawnSync`, fail on unexpected nested sandbox launch, and check canonical
+    `HOME` under `R` plus prepared `npm_config_cache`. Preload entry
+    (`packages/h2a/test/helpers/native-isolation.js`) statically imports only
+    Node stdlib + pure `scripts/test-sandbox-contract.mjs`, verifies D16 first,
+    then dynamically imports `native-isolation-core.js` (which loads
+    `image.js`/`wire.js`). `IDLOCK` guard (`identity-isolation-guard.mjs:9`)
+    verifies D16 before writing `owned-pids.txt` or patching `fs`. Closed
+    images/launchers/routers omit `--import` only for that verified call while
+    staying under the OS barrier. Pre-populate each `dist` shadow from existing
+    built bytes; prefetch the three `scripts/historical-test-ref.mjs:3` refs
+    before bwrap. **C4 (host journal & registry):** in
+    `packages/h2a-runtime/src/native-terminal/journal.ts`, guard before `fork`
+    (`:205`) and inside `appendHostJournal` (`:141–181`, called both directly
+    and from the `Worker` at `:293`) on parent dir, `logPath`, `${logPath}.lock`,
+    `${logPath}.1` before create/write/rotate/unlink (keeping fd/inode/token
+    checks). In `packages/h2a-runtime/src/registry.ts`, guard `path` and
+    `${path}.lock` before `acquireFileLockAsync` (`:1083`), `acquireFileLock`
+    (`:1102`) and `tryAcquireFileLock` (`:1128`), revalidate and compare lock
+    fd identity in `finally` before `releaseFileLock` (`:1090`, `:1169` — on
+    refusal/mismatch close fd without unlinking), and guard corrupt-copy
+    (`:544`, `:552`) and atomic save (`:1029`, `:1044–1045`);
+    `packages/h2a-runtime/src/file-lock.ts` stays read-only. In `relaunch.ts`,
+    guard `resolveResumeLaunchClaimRoot` and its claim mutations (`:88`, `:98`,
+    `:112`, `:129`, `:165`); `prepareGatewayRetypeCommand` (`:486`) uses worker
+    `tmpdir()` (`R/w-*/tmp`).
+  - **N5 — Host labs and confined lanes (receipt v1).** Only `startup-matrix`,
+    `effective-cgroups` and `native-namespaces` run as VM qualifications via
+    `scripts/test-host-qualification.mjs` with closed selectors (`startup`,
+    `startup-systemd`, `mutations`, `effective-cgroups`, `native-namespaces`)
+    and a root-owned `/run/h2a-qualification` reservation on GitHub-hosted VMs.
+    Ordinary preload/setup reject any VM exemption; T10 uses dedicated
+    `packages/h2a-runtime/qualification/vitest.namespace.config.mjs` and
+    `namespace-vm-setup.mjs` with `scripts/run-namespace-qualification.mjs`
+    (`?preload=t10` for children). For an already-confined lane (D-L0-4),
+    `scripts/test-sandbox-contract.mjs` implements `buildSourceManifest` and
+    `verifyLaneReceipt` per the deterministic v1 contract:
+    - **Sources:** union of `git ls-tree -r -z HEAD`, index, and
+      `git ls-files --cached --others --exclude-standard -z`, bounded to the
+      lot's closed allow-list; read via `lstat`/symlink target; refuse index
+      conflicts, special devices, and gitlinks.
+    - **Digest (`sourceSha256`):** SHA-256 of `INJ-L0-v1\0<head40>\0` followed
+      by entries sorted by unsigned byte order of Git-relative path, each
+      `<mode>\0<path>\0<sha256_or_dash>\0` (`100644`/`100755`/`120000`, or
+      `000000` + `-` for deleted tracked entries).
+    - **Request v1:** exact keys `version` (`1`), `id` (32 hex chars, 128-bit
+      nonce recorded by conductor), `baseSha` (40 hex), `sourceSha256` (64 hex),
+      `runner` (`node`|`vitest`), `files` (normalized unique repo paths in
+      selection order), `argv` (exact envelope argv array).
+    - **Receipt v1:** request keys plus `executor`, `platform`, `node`,
+      `barrier` (`backend,rootDev,rootIno,namespace,readOnlyProbe,writeProbe`),
+      `exitCode`, `passed`, `failed`, `skipped`, `reports` (`[{path,sha256}]`
+      relative to `C`); exit 0, `passed > 0`, `failed === 0`, `skipped === 0`,
+      both probes `true`. Exit 3 before start ⇒ diagnostic only, no pass receipt.
 - **Isolation**: lot L0 lands first; every later lot's tests run under
   its per-worker temp roots and verified filesystem barrier. Until L0
   is available on a lot's base, its dynamic proofs are incomplete;
@@ -939,7 +1097,11 @@ proposition name; plus the two historical suites run under the new setup):
 - `it('should isolate direct attach crash logging before importing the runtime')`
 - `it('should write sess-livelock crash rows only under the isolated state root')`
   (red today against a fake sentinel HOME — never the real one)
-- `it('should keep the first op.test describe off the ambient attach.log')`
+- `it('should isolate op.test fourth describe (native attach right panel) via worker state')`
+  (C3: `op.test.ts:2133` calls `runAttach` without local XDG isolation;
+  the first `describe` at `op.test.ts:85` already sets private
+  `XDG_STATE_HOME` at `:89–98` and is reclassified as a retained green
+  non-regression control per INJ:864–865)
 - `it('should run a suite with no explicit isolation on the worker temp environment')`
   (via the complete sandboxed Node command in the preamble, with
   `--import ./packages/h2a/test/helpers/native-isolation.js`; the suite
@@ -993,30 +1155,83 @@ Allowed files:
   under the private root only; preserve discovery and execution proofs)
 - `.github/workflows/ci.yml`, `.github/workflows/codex-drift.yml`,
   `.github/workflows/release.yml`, `.github/workflows/focus-dossier.yml`
-  (only the test commands inventoried in §1.8: wrap every direct Node
-  test with the launcher + resolved preload, and every direct Vitest
-  test with the launcher, preserving filters and selected files)
+  (and the additional workflows in the normative CI inventory N1 below:
+  wrap every direct Node test with the launcher + resolved preload, and
+  every direct Vitest test with the launcher, preserving filters and
+  selected files)
 - `packages/h2a/test/release-workflow.test.js` and
   `packages/h2a/test/run-test-gates.test.js` (only the exact command,
-  safe-envelope and report-path assertions affected by that rewiring;
-  retain the independent job, trust-root-before-`npm test` ordering,
-  unconditional gates, runner-test exclusion from discovery and all
-  existing execution-evidence checks)
+  safe-envelope, report-path, R4 graph/exchange and R5 lane-receipt
+  assertions within N3 and N5; retain the independent job,
+  trust-root-before-`npm test` ordering, unconditional gates, runner-test
+  exclusion from discovery and all existing execution-evidence checks)
 - **bounded writer inventory, fixed now** (each: call-time resolution +
   mutation-point guard only, no behaviour change outside the marked
   test environment):
   - `packages/h2a-runtime/src/crash-log.ts` (`resolveCrashLogPath`,
     `appendCrashLog` including the explicit `logPath` argument)
   - `packages/h2a-runtime/src/config.ts` (`resolveConfigPath` and its writers)
-  - `packages/h2a-runtime/src/registry.ts` (`resolveRegistryPath` and its writers)
+  - `packages/h2a-runtime/src/registry.ts` (`resolveRegistryPath` and its writers, including lock acquisition/release guards per C4; `file-lock.ts` stays read-only)
   - `packages/h2a-runtime/src/restore.ts` (`writeLastLayout` / layout-last path)
   - `packages/h2a-runtime/src/relaunch.ts` (`resolveResumeLaunchClaimRoot` claim files)
-  - `packages/h2a-runtime/src/native-terminal/journal.ts` (`resolveHostJournalPath`)
+  - `packages/h2a-runtime/src/native-terminal/journal.ts` (`resolveHostJournalPath`, `appendHostJournal`, `createHostJournalWriter` per C4)
+
+  **Closed file list additions (amendment INJ-L0 r2):**
+  - `.github/workflows/node-qualification.yml`, `.github/workflows/no-coauthor-trailer.yml`,
+    `.github/workflows/smoke.yml`, `.github/workflows/native-host-equipment.yml`
+    (N1 release producers and ordinary entry points)
+  - `.github/workflows/native-recovery.yml`, `.github/workflows/native-namespace-qualification.yml`,
+    `scripts/run-namespace-qualification.mjs`, `scripts/test-host-qualification.mjs` (new)
+    (closed VM entries and minimal T10 context across `sudo`)
+  - `packages/h2a-runtime/qualification/vitest.namespace.config.mjs` (new),
+    `packages/h2a-runtime/qualification/namespace-vm-setup.mjs` (new),
+    `packages/h2a-runtime/qualification/namespace-publication.test.ts`,
+    `packages/h2a/test/helpers/native-isolation-core.js` (new)
+  - `scripts/test-sandbox-contract.mjs` (new), `scripts/ci-m17-temp.mjs`,
+    `scripts/ci-m17-proof.mjs`, `scripts/ci-bulk-proof.mjs`, `scripts/run-node-shard.mjs`
+  - `scripts/m17-ci-evidence.mjs`, `scripts/bulk-ci-evidence.mjs`, `scripts/ci-node-shards.mjs`
+  - `scripts/node-suite-env.mjs`, `scripts/historical-test-ref.mjs`,
+    `scripts/clean-workspace-dist.mjs`, `packages/h2a/test/helpers/host-isolated-run.mjs`,
+    `packages/h2a/test/helpers/identity-isolated-run.mjs`,
+    `packages/h2a/test/helpers/identity-isolation-guard.mjs`
+  - `scripts/release-execution-plan.json`, `scripts/test-inventory.json`
+  - `packages/h2a/test/m17-ci-evidence.test.js`, `packages/h2a/test/bulk-ci-evidence.test.js`,
+    `packages/h2a/test/ci-node-shards.test.js`, `packages/h2a/test/release-node-qualification.test.js`,
+    `packages/h2a/test/native-isolation.test.js`, `packages/h2a/test/native-spawn-guard.test.js`,
+    `packages/h2a/test/gate-execution-evidence.test.js`
+  - `packages/h2a/test/helpers/node-track-observation-lab.js` (C1)
+  - `docs/plan/mh-l6/dist-freeze-0986.json` (B1: update `sixEntryComparison` local digest for `native-terminal/journal.js` after the deliberate C4 mutation-guard addition in `packages/h2a-runtime/src/native-terminal/journal.ts`; published `.6` closure and all other 5 entries unchanged)
+  - `packages/h2a/test/agy-claude-run.test.js`, `packages/h2a/test/mcp-focus.test.js`,
+    `packages/h2a/test/mcp-run.test.js` (B2–B4: place workspace test scratch dirs under `<checkout>/tmp/` writable view rather than the read-only checkout root)
+  - `packages/h2a/test/registry-bridge-lock-recovery.test.js` (B5: skip redundant `chmodSync(PKG_ROOT, 0o755)` when `PKG_ROOT` already has mode `0o755` on the read-only checkout)
+  - `scripts/test-sandbox.mjs` (already listed above; B6 adds pre-populated shadow views for `packages/h2a/.claude-plugin` and `packages/h2a/.codex-plugin` so `registry-plugin-declarations.test.js` exercises the real generator write path without writing to the host checkout, plus `src/.test-scratch` workspace view for `gateway-host/{config-file,daemon}.test.ts`)
+  - `packages/h2a-runtime/src/sync-incremental.test.ts`, `packages/h2a-runtime/src/sync-status.test.ts` (allocate Vitest scratch HOME under worker `tmpdir()` inside `R` instead of the read-only checkout root or legacy `packages/remote-cli/`)
+  - `packages/h2a-runtime/src/native-terminal/journal.test.ts` (place `r2-*` stack canonicalization sentinels under the attested `src/.stack-test/` shadow view)
+  - `packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts` (rewrite `test-sandbox-contract.mjs` and `native-isolation-core.js` imports in the copied `late-native-isolation.mjs` preload fixture per INJ-L0 Step 4)
+  - `apps/control-plane/src/backslash-path-ghsa.test.ts`, `apps/control-plane/src/router-wildcard-ghsa.test.ts` (isolate `DATA_DIR` under worker `tmpdir()` inside `R` so `ArchiveStaging` does not attempt `mkdir <checkout>/staging` on the read-only checkout)
+  - `docs/specs/pty-restore-injection/SPEC_EVOL_PTY_RESTORE_INJECTION.md` (Step 0 / INJ:900 spec amendments before code)
 
   Any further writer discovered while landing the inventory is appended
   to this list by amendment **before** code, with the same guard; the
   inventory itself remains a lot deliverable, but it starts from the
   list above, not from zero.
+
+**N6 — Additional acceptance controls (amendment INJ-L0 r2, including C3):**
+Add to the L0 proofs above: pre-import refusal on both runners, separation of
+two workers on one invocation, side-effect-free imports of `run-tests.mjs` and
+`run-test-gates.mjs`, valid then tampered closed-image verification, refusal of
+export before cleanup, and refusal of missing/stale/future/reassigned-shard
+reports. Focus performance metrics must survive a failing assertion. Host
+commands outside the closed VM selectors and lane receipts tied to different
+sources fail separately. Real M17, all 9 Bulk files, all 4 shards on each Node
+version and their consumers, host gates per N5, and the independent trust root
+are required. Record command, sources, version, platform, pass/fail/skipped
+counts (`skipped: 0` for named D16 selections) and exit code; confirm #505's
+`packages/h2a/test/human-output-dist.test.js` and
+`packages/h2a-runtime/src/human-output.test.ts` remain in discovery. Retained
+green non-regression control (C3): `op.test.ts:85` first `describe` keeps
+`h2a-alpha` off ambient `attach.log`; `op.test.ts:2133` fourth `describe`
+receives worker state from the D16 Vitest setup before evaluation.
 
 Forbidden: touching, reading for content, truncating or "cleaning" any
 real owner state; mocking `appendCrashLog` in the regression suites as
@@ -1040,7 +1255,8 @@ barrier as qualification-incomplete, never green; a deliberately
 un-isolated probe suite fails (negative control, reported, then removed
 or kept as the named fixture — lot report states which).
 
-CI/runner qualification is part of L0's named set:
+CI/runner qualification is part of L0's named set (see also N6 complementary
+acceptance controls above):
 `packages/h2a/test/release-workflow.test.js` and
 `packages/h2a/test/run-test-gates.test.js`, each run with the complete
 sandboxed Node command above (`skipped: 0`). In CI and release, the

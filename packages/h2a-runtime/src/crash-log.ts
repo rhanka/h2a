@@ -45,6 +45,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 
 export const CRASH_LOG_COMPONENTS = ["cli", "attach", "mcp-server"] as const;
 export type CrashLogComponent = (typeof CRASH_LOG_COMPONENTS)[number];
@@ -161,6 +162,15 @@ const PATH_ENV_KEYS = new Set([
   "XDG_RUNTIME_DIR",
   "XDG_STATE_HOME",
   "XDG_CONFIG_HOME",
+  "H2A_TEST_STATE_ROOT",
+  "H2A_TEST_STATE_RECEIPT",
+  "H2A_TEST_STATE_ATTESTATION",
+  "H2A_TEST_STATE_BARRIER",
+  "H2A_TEST_SANDBOX_NONCE",
+  "H2A_TEST_OWNER_HOME",
+  "H2A_TEST_WORKER_ROOT",
+  "H2A_TEST_WORKER_PID",
+  "H2A_TEST_STAGE_ROOT",
 ]);
 
 /**
@@ -350,6 +360,7 @@ export function getCrashLogDrops(): number {
 }
 
 function acquireCrashLogLock(lockPath: string, token: string): number | undefined {
+  guardTestStateWrite(lockPath);
   try {
     const fd = openSync(
       lockPath,
@@ -393,6 +404,7 @@ function acquireCrashLogLock(lockPath: string, token: string): number | undefine
     } catch {
       return undefined;
     }
+    guardTestStateWrite(lockPath);
     unlinkSync(lockPath);
     const fd = openSync(
       lockPath,
@@ -407,6 +419,7 @@ function acquireCrashLogLock(lockPath: string, token: string): number | undefine
 }
 
 function ensurePrivateCrashLogDir(dir: string): void {
+  guardTestStateWrite(dir);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   let directory = lstatSync(dir);
   // Self-heal a pre-existing group/other-readable state dir we own (tighter
@@ -449,6 +462,10 @@ export function appendCrashLog(
   const lockPath = `${logPath}.lock`;
   const token = `${process.pid}:${randomUUID()}`;
   try {
+    guardTestStateWrite(dirname(logPath));
+    guardTestStateWrite(logPath);
+    guardTestStateWrite(lockPath);
+    guardTestStateWrite(`${logPath}.1`);
     const text = `${JSON.stringify(toCrashLogRow(component, entry))}\n`;
     ensurePrivateCrashLogDir(dirname(logPath));
     lockFd = acquireCrashLogLock(lockPath, token);
@@ -461,6 +478,8 @@ export function appendCrashLog(
       try {
         privateFile(fd);
         if (fstatSync(fd).size >= MAX_CRASH_LOG_BYTES) {
+          guardTestStateWrite(`${logPath}.1`);
+          guardTestStateMove(logPath, `${logPath}.1`);
           try {
             unlinkSync(`${logPath}.1`);
           } catch (error) {
@@ -500,6 +519,7 @@ export function appendCrashLog(
   } finally {
     if (lockFd !== undefined) {
       try {
+        guardTestStateWrite(lockPath);
         const owned = fstatSync(lockFd);
         const current = lstatSync(lockPath);
         if (
