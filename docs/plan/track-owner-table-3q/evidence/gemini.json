@@ -4,6 +4,10 @@
   "cliVersion": "0.67.0",
   "qualifiedOn": "2026-11-20",
   "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
   "hookPoint": "BeforeAgent",
   "hookConfigLevel": "project",
   "projectConfigPath": "<throwaway-project>/.gemini/settings.json",
@@ -11,7 +15,9 @@
     "blockedBeforeModelCall": true,
     "exitCode": 0,
     "recordCount": 1,
-    "eventTags": ["message"],
+    "eventTags": [
+      "message"
+    ],
     "sentDigest": "f1bf87d76f798a71a383d85e5952996c2e453ce3ffcd4870347f1012bbb352e2",
     "receivedDigest": "f1bf87d76f798a71a383d85e5952996c2e453ce3ffcd4870347f1012bbb352e2",
     "byteIdentical": true,

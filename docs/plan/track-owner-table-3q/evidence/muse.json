@@ -4,6 +4,10 @@
   "cliVersion": "1.4.24",
   "qualifiedOn": "2026-11-20",
   "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
   "hookPoint": "UserPromptSubmit",
   "hookConfigLevel": "project",
   "projectConfigPath": "<throwaway-project>/.muse/hooks.json",
@@ -16,7 +20,10 @@
     "blockedBeforeModelCall": true,
     "exitCode": 1,
     "recordCount": 2,
-    "eventTags": ["session-start", "message"],
+    "eventTags": [
+      "session-start",
+      "message"
+    ],
     "sentDigest": "a98429fb8c4bdb1e06954e075f8cf9d144272f4e8853eceee44207c033eb00d3",
     "receivedDigest": "a98429fb8c4bdb1e06954e075f8cf9d144272f4e8853eceee44207c033eb00d3",
     "byteIdentical": true,
@@ -48,7 +55,10 @@
   "subAgentProbe": {
     "executed": true,
     "provider": "default signed-in provider",
-    "subAgentToolsObserved": ["subagent_spawn", "subagent_wait"],
+    "subAgentToolsObserved": [
+      "subagent_spawn",
+      "subagent_wait"
+    ],
     "messageHookCount": 1,
     "messageHookFiredForSubAgent": false,
     "subAgentMarker": "never-fires"

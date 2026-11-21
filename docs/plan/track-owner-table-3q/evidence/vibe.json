@@ -4,6 +4,10 @@
   "cliVersion": "3.1.2",
   "qualifiedOn": "2026-11-20",
   "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
   "hookPoint": "pre_agent",
   "hookConfigLevel": "project",
   "projectConfigPath": "<throwaway-project>/.vibe/hooks.toml",
@@ -17,7 +21,9 @@
     "blockedBeforeModelCall": true,
     "exitCode": 0,
     "recordCount": 1,
-    "eventTags": ["message"],
+    "eventTags": [
+      "message"
+    ],
     "sentDigest": "bb6f44c11524d2c06337c2d7a13eca42c0aeea65d96d3dc183c824e4b8cf4bdb",
     "receivedDigest": "bb6f44c11524d2c06337c2d7a13eca42c0aeea65d96d3dc183c824e4b8cf4bdb",
     "byteIdentical": true,
