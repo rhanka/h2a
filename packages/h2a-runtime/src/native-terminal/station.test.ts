@@ -789,7 +789,8 @@ class Harness {
         this.receipts.push(sequence);
         this.stdout.timeline.push({ kind: "receipt", data: sequence });
       },
-      endpoints: () => [...this.fleet.hosts.keys()],
+      endpoints: () => [...this.fleet.hosts.keys(), ...this.absentEndpoints],
+      ...(this.proveAbsent ? { proveAbsent: this.proveAbsent } : {}),
       connect: async (socketPath) => {
         const host = this.fleet.hosts.get(socketPath);
         if (!host) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -859,6 +860,10 @@ class Harness {
 
   stepError: unknown;
   connectGate: ((socketPath: string) => Promise<void>) | undefined;
+  /** Known endpoints with no host behind them (the unused socket generation). */
+  absentEndpoints: string[] = [];
+  /** Absence proof of the runtime; the real one takes the host publication lock. */
+  proveAbsent: ((socketPath: string, failure: unknown) => Promise<boolean>) | undefined;
   /** Runs once the station returned, before the clean-exit invariant. */
   afterStation: (() => void | Promise<void>) | undefined;
 
@@ -2925,5 +2930,33 @@ describe("Clean exit — no host connection outlives the station", () => {
     // …and those late connections are closed, not kept (run() asserts it).
     await expect(h.run()).resolves.toBe(0);
     expect(pendingAtClose).toBeGreaterThan(0);
+  });
+});
+
+describe("Inventory — an absent endpoint is proven absent sparingly", () => {
+  it("should take the publication-lock proof at most once per 30 s for an absent endpoint", async () => {
+    const h = new Harness();
+    h.absentEndpoints = ["/fake/absent.sock"];
+    const proofs: number[] = [];
+    h.proveAbsent = async (socketPath, failure) => {
+      expect(socketPath).toBe("/fake/absent.sock");
+      expect((failure as NodeJS.ErrnoException).code).toBe("ENOENT");
+      proofs.push(h.now);
+      return true;
+    };
+    // Twelve refreshes, two seconds apart: 24 s of station time.
+    for (let i = 0; i < 12; i += 1) h.step((x) => void (x.now += 2_000));
+    h.step((x) => {
+      // The absent endpoint does not degrade the panel: the view is complete.
+      expect(x.lastSnapshot().degraded).toBe(false);
+      expect(proofs).toHaveLength(1);
+      x.now += 31_000;
+    });
+    h.step(tick, tick);
+    await h.run();
+    // One more proof once the first one is older than 30 s, never one per refresh.
+    expect(proofs).toHaveLength(2);
+    expect(proofs[1]! - proofs[0]!).toBeGreaterThanOrEqual(30_000);
+    expect(h.displayed()).toEqual(["h2a-api"]);
   });
 });
