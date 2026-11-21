@@ -138,5 +138,34 @@ describe('journal of reference resolver (lot 1)', () => {
       }
       expect(res.trackDir).toBeNull()
     }
+
+    // (3) Even with an explicit TRACK_STATE_HOME inside tmpRoot, an index reference pointing
+    // outside tmpRoot is never retained (ceiling holds for step 3 as well).
+    const tempStateHome = join(scratch, 'state-home-ceiling')
+    mkdirSync(tempStateHome, { recursive: true })
+    const outsidePath = '/nonexistent-outside-tmp-root/.track'
+    const repoIdent = resolveJournalOfReference({ cwd: repo, processEnv: { ...process.env, TRACK_STATE_HOME: tempStateHome } }).identity
+    writeFileSync(
+      join(tempStateHome, 'journals.json'),
+      JSON.stringify({
+        version: 1,
+        identities: {
+          [repoIdent]: {
+            root: realpathSync(repo),
+            reference: { path: outsidePath, by: 'test', at: '2026-11-20T00:00:00.000Z' },
+            copies: [],
+            attachedTo: null,
+          },
+        },
+      }),
+      'utf8',
+    )
+    const afterCeiling = resolveJournalOfReference({
+      cwd: repo,
+      processEnv: { ...process.env, TRACK_STATE_HOME: tempStateHome },
+    })
+    expect(afterCeiling.trackDir).toBeNull()
+    expect(afterCeiling.journal).not.toBe(outsidePath)
+    expect(afterCeiling.steps.find((s) => s.step === 3)?.outcome).toContain('outside temporary root')
   })
 })
