@@ -2960,3 +2960,37 @@ describe("Inventory — an absent endpoint is proven absent sparingly", () => {
     expect(h.displayed()).toEqual(["h2a-api"]);
   });
 });
+
+describe("Launch — every session is held by another terminal (restore tabs still open)", () => {
+  it("should open on the panel with no card pile-up, take nothing, and switch after one confirmation", async () => {
+    const h = new Harness();
+    for (const session of h.fleet.all()) session.controlElsewhere({ pid: 600, tty: "/dev/pts/2" });
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      (x) => {
+        // Nothing is displayed, nothing was taken: one acquisition attempt each, no takeover.
+        expect(x.displayed()).toEqual([]);
+        expect(x.heldByStation()).toEqual([]);
+        expect(x.fleet.all().map((session) => session.acquireRequests)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+        // The seven refusals of the launch are silent: no card is waiting.
+        expect(x.of("card")).toEqual([]);
+        expect(x.of("switch-refused")).toHaveLength(7);
+        expect(plain(x.stdout.text())).toContain("[h2a] F12: panel · choose a session");
+        // The panel has the keyboard: a digit activates without any click.
+        x.stdin.type("3");
+      },
+      (x) => {
+        expect(x.of("card").map((e) => e.kind)).toEqual(["controlled-elsewhere"]);
+        x.stdin.type("\r");
+      },
+      (x) => x.stdin.type("mine-now"),
+      tick,
+    );
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.displayed()).toEqual(["h2a-tracker"]);
+    expect(tracker.writes.join("")).toBe("mine-now");
+    const takeovers = [...h.fleet.hosts.values()].flatMap((host) => host.log.filter((e) => e.includes("takeover")));
+    expect(takeovers).toEqual(["acquire:h2a-tracker:takeover"]);
+  });
+});

@@ -547,6 +547,8 @@ class Station {
   #started = false;
   /** Set when the station is leaving: no connection may be opened or kept. */
   #closing = false;
+  /** True while the launch walks its candidates (no card per refusal). */
+  #quietRefusals = false;
 
   constructor(runtime: StationRuntime, options: StationOptions) {
     this.#runtime = runtime;
@@ -1237,6 +1239,9 @@ class Station {
   ): "refused" {
     const text = this.#refusalText(sessionId, reason, state);
     this.#emit({ type: "switch-refused", sessionId, reason });
+    // At launch the station tries its candidates one after the other: a
+    // session held elsewhere is simply not displayed, without a card each.
+    if (this.#quietRefusals) return "refused";
     this.#emit({ type: "card", kind: reason, sessionId, text });
     if (reason === "controlled-elsewhere") {
       // I5: taking a session held elsewhere needs an explicit, confirmed gesture.
@@ -2259,16 +2264,26 @@ class Station {
 
       await this.#reacquireAllGuards();
       let shown = false;
-      for (const candidate of candidates) {
-        if (this.#ended) break;
-        if ((await this.#switchTo(candidate, { initial: true })) === "displayed") {
-          shown = true;
-          break;
+      this.#quietRefusals = true;
+      try {
+        for (const candidate of candidates) {
+          if (this.#ended) break;
+          if ((await this.#switchTo(candidate, { initial: true })) === "displayed") {
+            shown = true;
+            break;
+          }
         }
+      } finally {
+        this.#quietRefusals = false;
       }
       if (!shown && !this.#ended) {
-        // Nothing could be displayed yet: the panel still lists every session.
-        this.#stdout.write(H2A_OUTER_MOUSE_ENABLE);
+        // Nothing could be displayed (every session is held elsewhere, as when
+        // restore tabs are still open): the panel lists them all and takes the
+        // keyboard, so a session can be chosen — and taken only on confirmation.
+        this.#stdout.write(
+          `[h2a] ${this.#t("station.card.selectAnother")}\r\n${H2A_OUTER_MOUSE_ENABLE}`,
+        );
+        this.#panel.setOpen(true, { focus: true });
         this.#panel.paint();
         this.#gate = "open";
       }
