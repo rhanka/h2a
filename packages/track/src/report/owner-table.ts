@@ -135,6 +135,8 @@ export type OwnerTableGateCode =
   | 'invalid-decision'
   | 'internal-jargon'
   | 'banned-word'
+  | 'journal-integrity'
+  | 'document-desync'
 
 export const OWNER_TABLE_NO_DEMANDS_MESSAGE =
   'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
