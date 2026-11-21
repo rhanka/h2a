@@ -1,7 +1,7 @@
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { checkFocusArtifact, type FocusAnchorEntry } from "@sentropic/focus/artifact";
+import type { FocusAnchorEntry } from "@sentropic/focus/artifact";
 import { isOsTemporaryPath } from "../path-safety.js";
 import type { DiagramViewRefusal } from "../../focus-build.js";
 
@@ -575,6 +575,7 @@ export async function handleH2aFocusCheck(
     }
   }
 
+  const { checkFocusArtifact } = await import("@sentropic/focus/artifact");
   const result = checkFocusArtifact(
     document,
     previousManifest !== undefined ? { previousManifest } : undefined
