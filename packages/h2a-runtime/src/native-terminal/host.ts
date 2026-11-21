@@ -564,7 +564,15 @@ export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 /** The provenance of an exclusive controller, used only for human-input safety. */
 export type NativeTerminalControllerActivity = "human" | "automation";
 
+export type NativeTerminalSize = Readonly<{
+  cols: number;
+  rows: number;
+}>;
+
+export type NativeTerminalHolderKind = "none" | "human" | "automation" | "remote";
+
 export type NativeTerminalControllerIdentity = Readonly<{
+  controllerId?: string;
   pid: number | null;
   tty: string;
   since: string;
@@ -581,6 +589,9 @@ export type NativeTerminalSessionState = Readonly<{
   generation: string;
   incarnation: string;
   pid: number;
+  cols?: number;
+  rows?: number;
+  lastLocalSize?: NativeTerminalSize | null;
   status: NativeTerminalSessionStatus;
   latestSeq: number;
   exit: NativeTerminalExit | null;
@@ -591,6 +602,7 @@ export type NativeTerminalSessionState = Readonly<{
    * holder's diagnostic identity and epoch, never its input lease.
    */
   controlled: boolean;
+  holderKind?: NativeTerminalHolderKind;
   controllerEpoch?: number;
   controller?: NativeTerminalControllerIdentity | null;
   /**
@@ -748,6 +760,9 @@ type SessionRecord = {
   readonly replay: TerminalReplayBuffer;
   cols: number;
   rows: number;
+  lastLocalSize: NativeTerminalSize | null;
+  pendingRespawnSize?: NativeTerminalSize;
+  pendingRespawnLocalSize?: NativeTerminalSize;
   status: NativeTerminalSessionStatus;
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
@@ -1033,6 +1048,7 @@ export class NativeTerminalHost {
       replay: new TerminalReplayBuffer(this.#replayBytesPerSession),
       cols: options.cols,
       rows: options.rows,
+      lastLocalSize: null,
       status: "running",
       exit: null,
       stopSignal: null,
@@ -1221,7 +1237,12 @@ export class NativeTerminalHost {
     record.controllerEpoch += 1;
     record.controllerId = controllerId;
     record.controllerActivity = activity;
-    record.controllerIdentity = Object.freeze({ pid: options.pid ?? null, tty: options.tty ?? "unknown", since: new Date().toISOString() });
+    record.controllerIdentity = Object.freeze({
+      controllerId: randomUUID(),
+      pid: options.pid ?? null,
+      tty: options.tty ?? "unknown",
+      since: new Date().toISOString(),
+    });
     if (activity === "human") record.lastHumanActivityAt = Date.now();
     return Object.freeze({
       role: "controller",
@@ -1307,10 +1328,19 @@ export class NativeTerminalHost {
       throw new RangeError("terminal dimensions must be positive safe integers");
     }
     const record = this.#requireController(lease);
+    const size: NativeTerminalSize = Object.freeze({ cols, rows });
+    if (record.respawning) {
+      record.pendingRespawnSize = size;
+      if (record.controllerActivity === "human") {
+        record.pendingRespawnLocalSize = size;
+      }
+      return;
+    }
+    record.pty.resize(cols, rows);
     record.cols = cols;
     record.rows = rows;
-    if (!record.respawning) {
-      record.pty.resize(cols, rows);
+    if (record.controllerActivity === "human") {
+      record.lastLocalSize = size;
     }
   }
 
@@ -1449,6 +1479,8 @@ export class NativeTerminalHost {
       oldPty.kill(signal);
     } catch (error) {
       delete record.onRespawnOldExit;
+      delete record.pendingRespawnSize;
+      delete record.pendingRespawnLocalSize;
       record.respawning = false;
       throw error;
     }
@@ -1466,9 +1498,29 @@ export class NativeTerminalHost {
 
     delete record.onRespawnOldExit;
     if (!oldExited) {
+      const pendingSize = record.pendingRespawnSize;
+      const pendingLocalSize = record.pendingRespawnLocalSize;
+      delete record.pendingRespawnSize;
+      delete record.pendingRespawnLocalSize;
       record.respawning = false;
+      let resizeFailure: unknown;
+      if (pendingSize !== undefined) {
+        try {
+          oldPty.resize(pendingSize.cols, pendingSize.rows);
+          record.cols = pendingSize.cols;
+          record.rows = pendingSize.rows;
+          if (pendingLocalSize !== undefined) {
+            record.lastLocalSize = pendingLocalSize;
+          }
+        } catch (error) {
+          resizeFailure = error;
+        }
+      }
+      const baseMessage = `terminal session ${options.id} child pid=${oldPty.pid} did not exit during soft respawn`;
       throw new Error(
-        `terminal session ${options.id} child pid=${oldPty.pid} did not exit during soft respawn`,
+        resizeFailure === undefined
+          ? baseMessage
+          : `${baseMessage}; pending resize failed (${String(resizeFailure)})`,
       );
     }
 
@@ -1484,6 +1536,8 @@ export class NativeTerminalHost {
       record.replay.append(modeReset);
     }
 
+    const spawnCols = record.pendingRespawnSize?.cols ?? record.cols;
+    const spawnRows = record.pendingRespawnSize?.rows ?? record.rows;
     const newGroupToken = randomUUID();
     let newPty: PtyHandle;
     try {
@@ -1496,10 +1550,12 @@ export class NativeTerminalHost {
           H2A_NATIVE_TERMINAL: "1",
           [H2A_SESSION_TOKEN_ENV_VAR]: newGroupToken,
         },
-        cols: record.cols,
-        rows: record.rows,
+        cols: spawnCols,
+        rows: spawnRows,
       });
     } catch (error) {
+      delete record.pendingRespawnSize;
+      delete record.pendingRespawnLocalSize;
       record.exit = Object.freeze({ exitCode: 1 });
       record.status = "exited";
       record.respawning = false;
@@ -1530,6 +1586,8 @@ export class NativeTerminalHost {
       } catch {
         // Best-effort cleanup of the untracked child.
       }
+      delete record.pendingRespawnSize;
+      delete record.pendingRespawnLocalSize;
       record.exit = Object.freeze({ exitCode: 1 });
       record.status = "exited";
       record.respawning = false;
@@ -1539,6 +1597,15 @@ export class NativeTerminalHost {
       );
     }
 
+    if (record.pendingRespawnSize !== undefined) {
+      record.cols = record.pendingRespawnSize.cols;
+      record.rows = record.pendingRespawnSize.rows;
+    }
+    if (record.pendingRespawnLocalSize !== undefined) {
+      record.lastLocalSize = record.pendingRespawnLocalSize;
+    }
+    delete record.pendingRespawnSize;
+    delete record.pendingRespawnLocalSize;
     record.pty = newPty;
     record.groupToken = newGroupToken;
     record.status = "running";
@@ -2311,16 +2378,24 @@ export class NativeTerminalHost {
   }
 
   #snapshot(record: SessionRecord): NativeTerminalSessionState {
+    const holderKind: NativeTerminalHolderKind =
+      record.controllerId === null
+        ? "none"
+        : (record.controllerActivity ?? "human");
     return Object.freeze({
       id: record.id,
       generation: this.#generation,
       incarnation: record.incarnation,
       pid: record.pty.pid,
+      cols: record.cols,
+      rows: record.rows,
+      lastLocalSize: record.lastLocalSize,
       status: record.status,
       latestSeq: record.replay.latestSeq,
       exit: record.exit,
       stopSignal: record.stopSignal,
       controlled: record.controllerId !== null,
+      holderKind,
       controllerEpoch: record.controllerEpoch,
       controller: record.controllerIdentity,
       lastHumanActivityAt: record.lastHumanActivityAt,

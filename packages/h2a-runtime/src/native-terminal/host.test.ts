@@ -394,11 +394,15 @@ describe("NativeTerminalHost", () => {
         generation: "host-generation-1",
         incarnation: expect.any(String),
         pid: expect.any(Number),
+        cols: 80,
+        rows: 24,
+        lastLocalSize: null,
         status: "exited",
         latestSeq: 1,
         exit: { exitCode: 7, signal: 15 },
         stopSignal: null,
         controlled: false,
+        holderKind: "none",
         controller: null,
         controllerEpoch: 0,
         lastHumanActivityAt: null,
@@ -408,16 +412,78 @@ describe("NativeTerminalHost", () => {
         generation: "host-generation-1",
         incarnation: expect.any(String),
         pid: expect.any(Number),
+        cols: 80,
+        rows: 24,
+        lastLocalSize: null,
         status: "running",
         latestSeq: 2,
         exit: null,
         stopSignal: null,
         controlled: false,
+        holderKind: "none",
         controller: null,
         controllerEpoch: 0,
         lastHumanActivityAt: null,
       },
     ]);
+  });
+
+  it("LH-04 publishes initial PTY dimensions, null lastLocalSize and none holderKind across create, state and list", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-lh04-create",
+      replayBytesPerSession: 64,
+      spawner,
+      registryPath,
+    });
+
+    const created = host.create({
+      id: "sized",
+      command: "sized",
+      args: [],
+      cwd: "/workspace/sized",
+      env: {},
+      cols: 101,
+      rows: 37,
+    });
+    ptys.get("sized")!.emitData("hello-sized");
+
+    expect(created).toMatchObject({
+      id: "sized",
+      cols: 101,
+      rows: 37,
+      lastLocalSize: null,
+      controlled: false,
+      holderKind: "none",
+      controller: null,
+    });
+    expect(host.state("sized")).toMatchObject({
+      id: "sized",
+      cols: 101,
+      rows: 37,
+      lastLocalSize: null,
+      controlled: false,
+      holderKind: "none",
+      controller: null,
+    });
+    expect(host.list()).toEqual([
+      expect.objectContaining({
+        id: "sized",
+        cols: 101,
+        rows: 37,
+        lastLocalSize: null,
+        controlled: false,
+        holderKind: "none",
+        controller: null,
+      }),
+    ]);
+    expect(host.readOutput("sized", 0)).toEqual({
+      generation: "host-generation-lh04-create",
+      incarnation: created.incarnation,
+      chunks: [{ seq: 1, data: "hello-sized" }],
+      gap: null,
+      latestSeq: 1,
+    });
   });
 
   it("should answer DSR cursor queries with a cursor-position report", () => {
@@ -2344,6 +2410,98 @@ describe("NativeTerminalHost", () => {
     expect(host.state("alpha").controlled).toBe(false);
   });
 
+  it("LH-04 tracks human vs automation resizes, lastLocalSize, holderKind and public controller UUID without leaking private lease id", () => {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const { spawner } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-lh04-holder",
+      replayBytesPerSession: 64,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+
+    const humanSecret = "private-human-lease-id-secret";
+    const humanLease = host.acquireController("alpha", humanSecret, "human", {
+      pid: 4321,
+      tty: "/dev/pts/4",
+    });
+    const afterAcquire = host.state("alpha");
+    expect(afterAcquire.controlled).toBe(true);
+    expect(afterAcquire.holderKind).toBe("human");
+    expect(afterAcquire.lastLocalSize).toBeNull();
+    expect(afterAcquire.controller).not.toBeNull();
+    expect(afterAcquire.controller?.controllerId).toMatch(uuidPattern);
+    expect(afterAcquire.controller?.controllerId).not.toBe(humanSecret);
+    expect(typeof afterAcquire.controller?.since).toBe("string");
+    expect(JSON.stringify(afterAcquire)).not.toContain(humanSecret);
+
+    const activityAfterAcquire = afterAcquire.lastHumanActivityAt;
+    host.resize(humanLease, 120, 41);
+    const humanSnapshot = host.state("alpha");
+    expect(humanSnapshot.cols).toBe(120);
+    expect(humanSnapshot.rows).toBe(41);
+    expect(humanSnapshot.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+    expect(Object.isFrozen(humanSnapshot.lastLocalSize)).toBe(true);
+    expect(humanSnapshot.holderKind).toBe("human");
+    expect(humanSnapshot.controller?.controllerId).toBe(afterAcquire.controller?.controllerId);
+    expect(humanSnapshot.controller?.since).toBe(afterAcquire.controller?.since);
+    expect(humanSnapshot.lastHumanActivityAt).toBe(activityAfterAcquire);
+    expect(JSON.stringify(humanSnapshot)).not.toContain(humanSecret);
+
+    host.releaseController(humanLease);
+    const afterHumanRelease = host.state("alpha");
+    expect(afterHumanRelease.controlled).toBe(false);
+    expect(afterHumanRelease.holderKind).toBe("none");
+    expect(afterHumanRelease.controller).toBeNull();
+    expect(afterHumanRelease.cols).toBe(120);
+    expect(afterHumanRelease.rows).toBe(41);
+    expect(afterHumanRelease.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+
+    const autoSecret = "private-automation-lease-id-secret";
+    const autoLease = host.acquireController("alpha", autoSecret, "automation");
+    const afterAutoAcquire = host.state("alpha");
+    expect(afterAutoAcquire.holderKind).toBe("automation");
+    expect(afterAutoAcquire.controller?.controllerId).toMatch(uuidPattern);
+    expect(afterAutoAcquire.controller?.controllerId).not.toBe(autoSecret);
+    expect(afterAutoAcquire.controller?.controllerId).not.toBe(humanSnapshot.controller?.controllerId);
+    expect(JSON.stringify(afterAutoAcquire)).not.toContain(autoSecret);
+
+    host.resize(autoLease, 144, 50);
+    const afterAutoResize = host.state("alpha");
+    expect(afterAutoResize.cols).toBe(144);
+    expect(afterAutoResize.rows).toBe(50);
+    expect(afterAutoResize.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+    expect(afterAutoResize.holderKind).toBe("automation");
+    expect(afterAutoResize.controller?.controllerId).toBe(afterAutoAcquire.controller?.controllerId);
+    expect(afterAutoResize.controller?.since).toBe(afterAutoAcquire.controller?.since);
+    expect(JSON.stringify(afterAutoResize)).not.toContain(autoSecret);
+
+    // Earlier human snapshot remains immutable after subsequent mutations.
+    expect(humanSnapshot.cols).toBe(120);
+    expect(humanSnapshot.rows).toBe(41);
+    expect(humanSnapshot.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+    expect(humanSnapshot.holderKind).toBe("human");
+
+    host.readOutput("alpha", 0);
+    host.attachObserver("alpha");
+    host.releaseController(autoLease);
+    const finalState = host.state("alpha");
+    expect(finalState.cols).toBe(144);
+    expect(finalState.rows).toBe(50);
+    expect(finalState.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+    expect(finalState.controller).toBeNull();
+    expect(finalState.holderKind).toBe("none");
+
+    // stop(lease) preserves the active holder projection while stopping until invalidation.
+    const stoppingLease = host.acquireController("alpha", "stop-holder-secret", "human");
+    const beforeStop = host.state("alpha");
+    const stoppingState = host.stop(stoppingLease, "SIGTERM");
+    expect(stoppingState.status).toBe("stopping");
+    expect(stoppingState.holderKind).toBe("human");
+    expect(stoppingState.controller?.controllerId).toBe(beforeStop.controller?.controllerId);
+  });
+
   it("atomically refuses automation when human activity appears after an idle snapshot", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
@@ -2893,5 +3051,95 @@ describe("NativeTerminalHost", () => {
 
     host.write(current, "current");
     expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("current");
+  });
+
+  it("LH-04 preserves dimensions and holder on rejected resizes, clears holder on exit and resets lastLocalSize on recreation", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-lh04-errors",
+      replayBytesPerSession: 64,
+      spawner,
+      registryPath,
+    });
+    const first = host.create({
+      id: "alpha",
+      command: "alpha",
+      args: [],
+      cwd: "/workspace/alpha",
+      env: {},
+      cols: 90,
+      rows: 30,
+    });
+    const lease = host.acquireController("alpha", "human-owner", "human");
+    host.resize(lease, 110, 36);
+    const established = host.state("alpha");
+    expect(established.cols).toBe(110);
+    expect(established.rows).toBe(36);
+    expect(established.lastLocalSize).toEqual({ cols: 110, rows: 36 });
+    expect(established.holderKind).toBe("human");
+
+    // 1. Invalid dimensions keep both pairs, provenance and epoch unchanged.
+    for (const [cols, rows] of [[0, 36], [110, -1], [110.5, 36]] as const) {
+      expect(() => host.resize(lease, cols, rows)).toThrow(/positive safe integers/i);
+      const afterInvalid = host.state("alpha");
+      expect(afterInvalid.cols).toBe(110);
+      expect(afterInvalid.rows).toBe(36);
+      expect(afterInvalid.lastLocalSize).toEqual({ cols: 110, rows: 36 });
+      expect(afterInvalid.holderKind).toBe("human");
+      expect(afterInvalid.controllerEpoch).toBe(established.controllerEpoch);
+      expect(afterInvalid.controller?.controllerId).toBe(established.controller?.controllerId);
+    }
+
+    // 2. Stale lease keeps both pairs, provenance and epoch unchanged.
+    const staleLease = { ...lease, epoch: lease.epoch - 1 };
+    expect(() => host.resize(staleLease, 130, 44)).toThrow(/stale terminal controller lease/i);
+    const afterStale = host.state("alpha");
+    expect(afterStale.cols).toBe(110);
+    expect(afterStale.rows).toBe(36);
+    expect(afterStale.lastLocalSize).toEqual({ cols: 110, rows: 36 });
+    expect(afterStale.holderKind).toBe("human");
+    expect(afterStale.controllerEpoch).toBe(established.controllerEpoch);
+    expect(afterStale.controller?.controllerId).toBe(established.controller?.controllerId);
+
+    // 3. Throwing StubPty.resize keeps confirmed sizes, provenance and epoch unchanged.
+    ptys.get("alpha")!.resize.mockImplementationOnce(() => {
+      throw new Error("ioctl TIOCSWINSZ failed");
+    });
+    expect(() => host.resize(lease, 140, 48)).toThrow(/ioctl TIOCSWINSZ failed/);
+    const afterThrow = host.state("alpha");
+    expect(afterThrow.cols).toBe(110);
+    expect(afterThrow.rows).toBe(36);
+    expect(afterThrow.lastLocalSize).toEqual({ cols: 110, rows: 36 });
+    expect(afterThrow.holderKind).toBe("human");
+    expect(afterThrow.controllerEpoch).toBe(established.controllerEpoch);
+    expect(afterThrow.controller?.controllerId).toBe(established.controller?.controllerId);
+
+    // 4. PTY exit clears the holder while keeping confirmed sizes.
+    ptys.get("alpha")!.emitExit({ exitCode: 0 });
+    const afterExit = host.state("alpha");
+    expect(afterExit.status).toBe("exited");
+    expect(afterExit.controlled).toBe(false);
+    expect(afterExit.holderKind).toBe("none");
+    expect(afterExit.controller).toBeNull();
+    expect(afterExit.cols).toBe(110);
+    expect(afterExit.rows).toBe(36);
+    expect(afterExit.lastLocalSize).toEqual({ cols: 110, rows: 36 });
+
+    // 5. Recreating the same name with another size creates a new incarnation and resets lastLocalSize to null.
+    const recreated = host.create({
+      id: "alpha",
+      command: "alpha",
+      args: [],
+      cwd: "/workspace/alpha",
+      env: {},
+      cols: 100,
+      rows: 28,
+    });
+    expect(recreated.incarnation).not.toBe(first.incarnation);
+    expect(recreated.cols).toBe(100);
+    expect(recreated.rows).toBe(28);
+    expect(recreated.lastLocalSize).toBeNull();
+    expect(recreated.holderKind).toBe("none");
+    expect(recreated.controller).toBeNull();
   });
 });

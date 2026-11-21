@@ -189,6 +189,210 @@ describe("native terminal soft respawn (respawnIfIncarnation)", () => {
     expect(spawned[2]!.options.env["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
   });
 
+  it("LH-04 defers resize during soft respawn until child adoption and keeps holder identity", async () => {
+    const directory = createPrivateTestDirectory("r4");
+    directories.push(directory);
+    const { spawner, spawned } = createFakeSpawner({
+      autoExitOnSignal: () => false,
+    });
+    const host = new NativeTerminalHost({
+      generation: "gen-lh04-respawn",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath: makeRegistry(directory),
+      readLeaderStartTime: () => 4242,
+    });
+
+    const created = host.create({
+      id: "h2a-lh04",
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: { PATH: "/usr/bin" },
+      cols: 80,
+      rows: 24,
+    });
+    const lease = host.acquireController("h2a-lh04", "attach-lh04-secret", "human", {
+      pid: 2222,
+      tty: "/dev/pts/3",
+    });
+    host.resize(lease, 120, 41);
+    const before = host.state("h2a-lh04");
+    expect(before.cols).toBe(120);
+    expect(before.rows).toBe(41);
+    expect(before.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+    expect(before.holderKind).toBe("human");
+    expect(typeof before.controller?.controllerId).toBe("string");
+    expect(spawned[0]!.resizes).toEqual([{ cols: 120, rows: 41 }]);
+
+    const respawnPromise = host.respawnIfIncarnation({
+      id: "h2a-lh04",
+      generation: created.generation,
+      incarnation: created.incarnation,
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: { PATH: "/usr/bin", RESPAWNED: "1" },
+      timeoutMs: 2_000,
+    });
+
+    // Resize requested while the old child has not yet exited.
+    host.resize(lease, 132, 45);
+    const during = host.state("h2a-lh04");
+    expect(during.cols).toBe(120);
+    expect(during.rows).toBe(41);
+    expect(during.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+    expect(spawned[0]!.resizes).toEqual([{ cols: 120, rows: 41 }]);
+
+    spawned[0]!.emitExit(0, 15);
+    const after = await respawnPromise;
+
+    expect(spawned).toHaveLength(2);
+    expect(spawned[1]!.options.cols).toBe(132);
+    expect(spawned[1]!.options.rows).toBe(45);
+    expect(after.cols).toBe(132);
+    expect(after.rows).toBe(45);
+    expect(after.lastLocalSize).toEqual({ cols: 132, rows: 45 });
+    expect(after.holderKind).toBe("human");
+    expect(after.controller?.controllerId).toBe(before.controller?.controllerId);
+    expect(after.controller?.since).toBe(before.controller?.since);
+    const observed = host.state("h2a-lh04");
+    expect(observed.cols).toBe(132);
+    expect(observed.rows).toBe(45);
+    expect(observed.lastLocalSize).toEqual({ cols: 132, rows: 45 });
+    expect(observed.holderKind).toBe("human");
+    expect(observed.controller?.controllerId).toBe(before.controller?.controllerId);
+  });
+
+  it("LH-04 applies pending resize once to surviving child on timeout and preserves confirmed sizes if survivor resize throws", async () => {
+    const directory = createPrivateTestDirectory("r5");
+    directories.push(directory);
+    const { spawner, spawned } = createFakeSpawner({
+      autoExitOnSignal: () => false,
+    });
+    const host = new NativeTerminalHost({
+      generation: "gen-lh04-survivor",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath: makeRegistry(directory),
+      readLeaderStartTime: () => 4242,
+    });
+
+    const created = host.create({
+      id: "h2a-survivor",
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+      cols: 80,
+      rows: 24,
+    });
+    const lease = host.acquireController("h2a-survivor", "attach-survivor", "human");
+    host.resize(lease, 120, 41);
+
+    const firstAttempt = host.respawnIfIncarnation({
+      id: "h2a-survivor",
+      generation: created.generation,
+      incarnation: created.incarnation,
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+      timeoutMs: 30,
+    });
+    host.resize(lease, 132, 45);
+    await expect(firstAttempt).rejects.toThrow(/did not exit during soft respawn/);
+
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]!.resizes).toEqual([
+      { cols: 120, rows: 41 },
+      { cols: 132, rows: 45 },
+    ]);
+    const afterSurvivorApply = host.state("h2a-survivor");
+    expect(afterSurvivorApply.cols).toBe(132);
+    expect(afterSurvivorApply.rows).toBe(45);
+    expect(afterSurvivorApply.lastLocalSize).toEqual({ cols: 132, rows: 45 });
+
+    // Second attempt: survivor's resize also throws -> confirmed sizes stay at 132x45 and error surfaces both failures.
+    spawned[0]!.resize = () => {
+      throw new Error("survivor ioctl failed");
+    };
+    const secondAttempt = host.respawnIfIncarnation({
+      id: "h2a-survivor",
+      generation: created.generation,
+      incarnation: created.incarnation,
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+      timeoutMs: 30,
+    });
+    host.resize(lease, 150, 55);
+    await expect(secondAttempt).rejects.toThrow(/did not exit during soft respawn.*survivor ioctl failed/);
+
+    const afterSurvivorThrow = host.state("h2a-survivor");
+    expect(afterSurvivorThrow.cols).toBe(132);
+    expect(afterSurvivorThrow.rows).toBe(45);
+    expect(afterSurvivorThrow.lastLocalSize).toEqual({ cols: 132, rows: 45 });
+    expect(afterSurvivorThrow.holderKind).toBe("human");
+  });
+
+  it("LH-04 abandons pending resize and preserves confirmed sizes in terminal state when replacement spawn fails", async () => {
+    const directory = createPrivateTestDirectory("r6");
+    directories.push(directory);
+    const { spawner: baseSpawner, spawned } = createFakeSpawner({
+      autoExitOnSignal: () => false,
+    });
+    let calls = 0;
+    const spawner: PtySpawner = (options) => {
+      calls += 1;
+      if (calls === 2) throw new Error("spawn replacement failed");
+      return baseSpawner(options);
+    };
+    const host = new NativeTerminalHost({
+      generation: "gen-lh04-spawn-fail",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath: makeRegistry(directory),
+      readLeaderStartTime: () => 4242,
+    });
+
+    const created = host.create({
+      id: "h2a-spawn-fail",
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+      cols: 80,
+      rows: 24,
+    });
+    const lease = host.acquireController("h2a-spawn-fail", "attach-spawn-fail", "human");
+    host.resize(lease, 120, 41);
+
+    const respawnPromise = host.respawnIfIncarnation({
+      id: "h2a-spawn-fail",
+      generation: created.generation,
+      incarnation: created.incarnation,
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+      timeoutMs: 2_000,
+    });
+    host.resize(lease, 140, 50);
+    spawned[0]!.emitExit(0, 15);
+    await expect(respawnPromise).rejects.toThrow(/failed to spawn replacement child/);
+
+    const terminal = host.state("h2a-spawn-fail");
+    expect(terminal.status).toBe("exited");
+    expect(terminal.controlled).toBe(false);
+    expect(terminal.holderKind).toBe("none");
+    expect(terminal.controller).toBeNull();
+    expect(terminal.cols).toBe(120);
+    expect(terminal.rows).toBe(41);
+    expect(terminal.lastLocalSize).toEqual({ cols: 120, rows: 41 });
+  });
+
   it("fences respawnIfIncarnation on generation and incarnation without touching the live child", async () => {
     const directory = createPrivateTestDirectory("rf");
     directories.push(directory);
