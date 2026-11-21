@@ -1200,7 +1200,12 @@ Allowed files:
     `packages/h2a/test/native-isolation.test.js`, `packages/h2a/test/native-spawn-guard.test.js`,
     `packages/h2a/test/gate-execution-evidence.test.js`
   - `packages/h2a/test/helpers/node-track-observation-lab.js` (C1)
-  - `docs/specs/pty-restore-injection/SPEC_EVOL_PTY_RESTORE_INJECTION.md` (Step 0 spec amendment only)
+  - `docs/plan/mh-l6/dist-freeze-0986.json` (B1: update `sixEntryComparison` local digest for `native-terminal/journal.js` after the deliberate C4 mutation-guard addition in `packages/h2a-runtime/src/native-terminal/journal.ts`; published `.6` closure and all other 5 entries unchanged)
+  - `packages/h2a/test/agy-claude-run.test.js`, `packages/h2a/test/mcp-focus.test.js`,
+    `packages/h2a/test/mcp-run.test.js` (B2–B4: place workspace test scratch dirs under `<checkout>/tmp/` writable view rather than the read-only checkout root)
+  - `packages/h2a/test/registry-bridge-lock-recovery.test.js` (B5: skip redundant `chmodSync(PKG_ROOT, 0o755)` when `PKG_ROOT` already has mode `0o755` on the read-only checkout)
+  - `scripts/test-sandbox.mjs` (already listed above; B6 adds pre-populated shadow views for `packages/h2a/.claude-plugin` and `packages/h2a/.codex-plugin` so `registry-plugin-declarations.test.js` exercises the real generator write path without writing to the host checkout)
+  - `docs/specs/pty-restore-injection/SPEC_EVOL_PTY_RESTORE_INJECTION.md` (Step 0 / INJ:900 spec amendments before code)
 
   Any further writer discovered while landing the inventory is appended
   to this list by amendment **before** code, with the same guard; the
