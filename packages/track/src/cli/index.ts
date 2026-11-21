@@ -9,6 +9,7 @@ import { validate } from '../events/validate.js'
 import { cmdEventsContains } from './events-contains.js'
 import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
+import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
@@ -574,7 +575,25 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       // `resolveTrackDirOrNull`, so an unadopted repo yields rc=0 + an honest-empty view + a stderr
       // `track init` hint, never a boot crash. NEVER creates. A bad EXPLICIT override still throws
       // (user error → the outer catch → rc=1). The reader over a nonexistent log already reads empty.
-      case 'report':
+      case 'report': {
+        if (rest.includes('--owner-table')) {
+          const ref = resolveJournalOfReference(resolveOpts)
+          const ctx: Ctx = {
+            io,
+            eventsPath:
+              ref.trackDir !== null
+                ? eventsPathOf(ref.trackDir)
+                : eventsPathOf(join(resolve(io.cwd), '.track')),
+          }
+          return cmdReport(rest, ctx, ref.trackDir === null, ref)
+        }
+        const trackDir = resolveTrackDirOrNull(resolveOpts)
+        const ctx: Ctx = {
+          io,
+          eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
+        }
+        return cmdReport(rest, ctx, trackDir === null)
+      }
       case 'snapshot':
       case 'export-graph':
       case 'query':
@@ -1334,7 +1353,12 @@ function cmdDemand(args: string[], ctx: Ctx): number {
   return 2
 }
 
-function cmdReport(args: string[], ctx: Ctx, noTrackDir = false): number {
+function cmdReport(
+  args: string[],
+  ctx: Ctx,
+  noTrackDir = false,
+  journalRef?: JournalReferenceResult,
+): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
@@ -1493,7 +1517,7 @@ function cmdReport(args: string[], ctx: Ctx, noTrackDir = false): number {
   const reader = new TrackReader(ctx.eventsPath)
   if (ownerTable) {
     if (noTrackDir) {
-      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd))
+      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, journalRef?.reason))
     }
     const defaultPolicyPath = join(dirname(ctx.eventsPath), 'owner-report-policy.json')
     const explicitPolicyPath =
