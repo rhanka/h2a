@@ -96,6 +96,37 @@ uncertain and are preserved. `node scripts/generate-native-host-catalog.mjs`
 uses committed integrity pins; `--refresh-pins` deliberately refreshes them.
 Only that maintenance job downloads history; catalog tests run offline.
 
+## Track owner-table distribution, binary resolution, and purge rule
+
+`h2a install-skills` distributes the identical `harness-track-report` skill body
+across Claude Code, Codex, Gemini CLI, agy, Muse, and Vibe (differing only in
+host wrapper — YAML frontmatter vs Gemini TOML envelope — and resource paths)
+and emits the canonical body SHA-256 digest in its JSON summary. Because the
+probed `agy` CLI (1.5.13) exposes no skill-listing command, `install-skills --host agy`
+keeps the shared `.gemini/commands/*.toml` target and reports `skillSurface: "command only"`
+with its reason.
+
+Both `harness/track-report` (`SKILL.md`) and the `/track` slash command installed
+by `track install-skills` resolve a verified `track` binary (`>= 0.98.11` whose
+`report --help` mentions `--owner-table`) in this exact POSIX `sh` order, without
+requiring a local build or an interactive shell and without ever falling back to
+a bare `track` on `PATH`:
+
+1. `$TRACK_BIN`
+2. `<cwd>/packages/track/dist/cli/bin.js`
+3. `<cwd>/node_modules/@sentropic/track/dist/cli/bin.js`
+4. Global npm prefix (`npm root -g`, then per-user home prefixes under `~/.npm-global`, `~/.local`, and `~/.local/share/h2a/upgrade/current`)
+5. `@sentropic/track` nested inside a globally installed `@sentropic/h2a` (under `npm root -g` and the same per-user home prefixes)
+
+**Purge rule:** `install-skills` and `doctor --repair` replace or remove a stale
+skill copy or a stale `/track` command (`commands/track.md`, `prompts/track.md`,
+`commands/track.toml`) **only** when its content digest is present in the bundled
+historical catalogue. Any file whose digest is not in the catalogue is preserved
+untouched and reported (`skipped` / `conflicts` / `command-stale` / `skill-stale`).
+`h2a doctor` inspects installed Claude/Codex skills and `/track` commands (`skill-missing`,
+`skill-stale`, `command-stale`) and reports unowned command files in the native
+shared Gemini/agy store (`unownedCommands`); without `--repair` it mutates nothing.
+
 ## Vibe hooks
 
 The Node scripts ship in the package and are copied under
