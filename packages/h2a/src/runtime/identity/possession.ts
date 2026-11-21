@@ -7,10 +7,19 @@ import { withLockSync, LockTimeoutError } from '../local-files/locks.js';
 import { syncDirectory, syncFile } from './durable.js';
 
 export const digestBytes = (bytes: string | Buffer): string => createHash('sha256').update(bytes).digest('hex');
+export interface BindingCommitIntegrityErrorOptions {
+  readonly retryable?: boolean;
+  readonly diagnostic?: Record<string, unknown>;
+}
 export class BindingCommitIntegrityError extends Error {
   readonly reasonCode = 'binding-commit-integrity';
-  readonly retryable = false;
-  constructor(detail: string) { super(`Identity binding commit integrity: ${detail}`, { cause: 'identity_storage_failed' }); }
+  readonly retryable: boolean;
+  readonly diagnostic?: Record<string, unknown>;
+  constructor(detail: string, options: BindingCommitIntegrityErrorOptions = {}) {
+    super(`Identity binding commit integrity: ${detail}`, { cause: 'identity_storage_failed' });
+    this.retryable = options.retryable ?? false;
+    if (options.diagnostic !== undefined) this.diagnostic = options.diagnostic;
+  }
 }
 export class BindingFenceStaleError extends LockTimeoutError {
   constructor() { super('identity/.lock', undefined, 0); this.message = 'Identity possession receipt changed; prepare again outside the fence'; }
@@ -54,7 +63,15 @@ export function preparePossession(root: string, instance: string): PossessionRec
   const publicFile = join(root, 'keys', `${keyName}.pub.pem`);
   if (!existsSync(privateFile) || !existsSync(publicFile)) return undefined;
   return withLockSync(join(root, 'registry', '.lock'), () => {
-    const privateBytes = readFileSync(privateFile); const publicBytes = readFileSync(publicFile);
+    let privateBytes: Buffer;
+    let publicBytes: Buffer;
+    try {
+      privateBytes = readFileSync(privateFile);
+      publicBytes = readFileSync(publicFile);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw e;
+    }
     const instancesFile = join(root, 'registry', 'instances.jsonl');
     const keysFile = join(root, 'registry', 'keys.jsonl');
     const registrations = rows(instancesFile);
@@ -104,7 +121,7 @@ export function receiptMatches(root: string, receipt: PossessionReceipt, cold = 
       while (offset < bytes.length) { const n = readSync(fd, bytes, offset, bytes.length - offset, source.offset + offset); if (!n) return false; offset += n; }
       if (digestBytes(bytes) !== source.sha256) return false;
       const current = statSync(file);
-      if (current.ino !== st.ino || current.dev !== st.dev || current.size !== st.size || current.ctimeMs !== st.ctimeMs) return false;
+      if (current.ino !== st.ino || current.dev !== st.dev || current.size < st.size || (!cold && (current.size !== st.size || current.ctimeMs !== st.ctimeMs))) return false;
     } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
   }
   return true;
