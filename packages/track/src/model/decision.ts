@@ -116,6 +116,13 @@ export interface DecisionState {
   settledAt?: string
   /** Monotonic stream index when `outcome` transitioned to a settled value. */
   settledOrder?: number
+  /** Stable 1..N decision number (`D<n>` in `--owner-table`), never reassigned. */
+  ownerNumber?: number
+}
+
+/** True when a decision title denotes a session-bound OWNER GATE (never receives a `D<n>` number). */
+export function isOwnerGateTitle(title: string): boolean {
+  return title.trimStart().startsWith('OWNER GATE')
 }
 
 export interface DecisionCreatedPayload {

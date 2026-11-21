@@ -91,7 +91,7 @@ test("native set = {query,report,snapshot} ∪ sync-writes; focus (async) stays 
   assert.deepEqual([...TRACK_NATIVE_READONLY_VERBS].sort(), ["query", "report", "snapshot"]);
   assert.deepEqual(
     [...TRACK_NATIVE_WRITE_VERBS].sort(),
-    ["accept", "blocker", "branch", "consolidate", "decision", "ingest", "item", "priority", "restructure"]
+    ["accept", "blocker", "branch", "consolidate", "decision", "demand", "ingest", "item", "priority", "restructure"]
   );
 
   // Union = read-only ⊎ write, disjoint, all facade verbs.

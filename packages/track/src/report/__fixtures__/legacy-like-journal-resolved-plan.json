@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "planHash": "sha256:654343fdf1772df2737cd0a0904377712e813858e310a067f7c85dec4858c21c",
+  "planHash": "sha256:36bd02bd949dff8479c550550b76039ddb8faaf5fbe095dc28b5cff67c3f5ab9",
   "baseline": {
     "streamLength": 91,
     "lastContentHash": "sha256:ad406fd78ac1a857454f5fe44a8e61160bb9ba603ce6e6b377c67bf1ef92114c"
   },
   "counts": {
-    "total": 45,
-    "mechanical": 13,
+    "total": 62,
+    "mechanical": 30,
     "toDecide": 32,
     "unresolved": 0
   },
@@ -326,13 +326,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000087",
-        "ref": "D2",
+        "ref": null,
         "subject": "Choix rattaché à la demande 1 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000087"
       },
-      "question": "Provide the dossier link for decision D2 (\"Choix rattaché à la demande 1 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Choix rattaché à la demande 1 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-2.md"
       }
@@ -345,13 +345,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000092",
-        "ref": "D3",
+        "ref": null,
         "subject": "Choix rattaché à la demande 2 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000092"
       },
-      "question": "Provide the dossier link for decision D3 (\"Choix rattaché à la demande 2 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Choix rattaché à la demande 2 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-3.md"
       }
@@ -364,13 +364,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000097",
-        "ref": "D4",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 1 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000097"
       },
-      "question": "To which numbered row does decision D4 (\"Décision hors demande sans dossier 1 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 1 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 16
       }
@@ -383,13 +383,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000097",
-        "ref": "D4",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 1 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000097"
       },
-      "question": "Provide the dossier link for decision D4 (\"Décision hors demande sans dossier 1 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 1 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-4.md"
       }
@@ -402,13 +402,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000102",
-        "ref": "D5",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 2 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000102"
       },
-      "question": "To which numbered row does decision D5 (\"Décision hors demande sans dossier 2 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 2 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 17
       }
@@ -421,13 +421,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000102",
-        "ref": "D5",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 2 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000102"
       },
-      "question": "Provide the dossier link for decision D5 (\"Décision hors demande sans dossier 2 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 2 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-5.md"
       }
@@ -440,13 +440,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000107",
-        "ref": "D6",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 3 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000107"
       },
-      "question": "To which numbered row does decision D6 (\"Décision hors demande sans dossier 3 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 3 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 18
       }
@@ -459,13 +459,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000107",
-        "ref": "D6",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 3 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000107"
       },
-      "question": "Provide the dossier link for decision D6 (\"Décision hors demande sans dossier 3 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 3 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-6.md"
       }
@@ -478,13 +478,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000112",
-        "ref": "D7",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 4 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000112"
       },
-      "question": "To which numbered row does decision D7 (\"Décision hors demande sans dossier 4 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 4 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 19
       }
@@ -497,13 +497,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000112",
-        "ref": "D7",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 4 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000112"
       },
-      "question": "Provide the dossier link for decision D7 (\"Décision hors demande sans dossier 4 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 4 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-7.md"
       }
@@ -516,13 +516,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000117",
-        "ref": "D8",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 5 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000117"
       },
-      "question": "To which numbered row does decision D8 (\"Décision hors demande sans dossier 5 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 5 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 20
       }
@@ -535,13 +535,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000117",
-        "ref": "D8",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 5 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000117"
       },
-      "question": "Provide the dossier link for decision D8 (\"Décision hors demande sans dossier 5 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 5 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-8.md"
       }
@@ -554,13 +554,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000122",
-        "ref": "D9",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 6 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000122"
       },
-      "question": "To which numbered row does decision D9 (\"Décision hors demande sans dossier 6 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 6 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 21
       }
@@ -573,13 +573,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000122",
-        "ref": "D9",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 6 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000122"
       },
-      "question": "Provide the dossier link for decision D9 (\"Décision hors demande sans dossier 6 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 6 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-9.md"
       }
@@ -592,13 +592,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000127",
-        "ref": "D10",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 7 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000127"
       },
-      "question": "To which numbered row does decision D10 (\"Décision hors demande sans dossier 7 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 7 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 22
       }
@@ -611,13 +611,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000127",
-        "ref": "D10",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 7 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000127"
       },
-      "question": "Provide the dossier link for decision D10 (\"Décision hors demande sans dossier 7 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 7 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-10.md"
       }
@@ -630,13 +630,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000132",
-        "ref": "D11",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 8 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000132"
       },
-      "question": "To which numbered row does decision D11 (\"Décision hors demande sans dossier 8 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 8 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 23
       }
@@ -649,13 +649,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000132",
-        "ref": "D11",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 8 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000132"
       },
-      "question": "Provide the dossier link for decision D11 (\"Décision hors demande sans dossier 8 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 8 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-11.md"
       }
@@ -668,13 +668,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000137",
-        "ref": "D12",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 9 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000137"
       },
-      "question": "To which numbered row does decision D12 (\"Décision hors demande sans dossier 9 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 9 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 24
       }
@@ -687,13 +687,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000137",
-        "ref": "D12",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 9 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000137"
       },
-      "question": "Provide the dossier link for decision D12 (\"Décision hors demande sans dossier 9 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 9 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-12.md"
       }
@@ -706,13 +706,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000142",
-        "ref": "D13",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 10 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000142"
       },
-      "question": "To which numbered row does decision D13 (\"Décision hors demande sans dossier 10 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 10 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 25
       }
@@ -725,13 +725,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000142",
-        "ref": "D13",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 10 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000142"
       },
-      "question": "Provide the dossier link for decision D13 (\"Décision hors demande sans dossier 10 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 10 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-13.md"
       }
@@ -744,13 +744,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000147",
-        "ref": "D14",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 11 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000147"
       },
-      "question": "To which numbered row does decision D14 (\"Décision hors demande sans dossier 11 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 11 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 26
       }
@@ -763,13 +763,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000147",
-        "ref": "D14",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 11 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000147"
       },
-      "question": "Provide the dossier link for decision D14 (\"Décision hors demande sans dossier 11 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 11 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-14.md"
       }
@@ -782,13 +782,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000152",
-        "ref": "D15",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 12 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000152"
       },
-      "question": "To which numbered row does decision D15 (\"Décision hors demande sans dossier 12 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande sans dossier 12 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 27
       }
@@ -801,13 +801,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000152",
-        "ref": "D15",
+        "ref": null,
         "subject": "Décision hors demande sans dossier 12 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000152"
       },
-      "question": "Provide the dossier link for decision D15 (\"Décision hors demande sans dossier 12 ?\"). Supply { \"dossierLink\": \"<path-or-uri>\" }.",
+      "question": "Provide the dossier link for decision \"Décision hors demande sans dossier 12 ?\". Supply { \"dossierLink\": \"<path-or-uri>\" }.",
       "resolution": {
         "dossierLink": "docs/dossiers/adopted-decision-15.md"
       }
@@ -820,13 +820,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000157",
-        "ref": "D16",
+        "ref": null,
         "subject": "Décision hors demande avec dossier 1 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000157"
       },
-      "question": "To which numbered row does decision D16 (\"Décision hors demande avec dossier 1 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande avec dossier 1 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 15
       }
@@ -839,13 +839,13 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000162",
-        "ref": "D17",
+        "ref": null,
         "subject": "Décision hors demande avec dossier 2 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000162"
       },
-      "question": "To which numbered row does decision D17 (\"Décision hors demande avec dossier 2 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande avec dossier 2 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 16
       }
@@ -858,15 +858,270 @@
       "element": {
         "kind": "decision",
         "id": "01K0FXT0000000000000000167",
-        "ref": "D18",
+        "ref": null,
         "subject": "Décision hors demande avec dossier 3 ?"
       },
       "proposedWrite": {
         "decisionId": "01K0FXT0000000000000000167"
       },
-      "question": "To which numbered row does decision D18 (\"Décision hors demande avec dossier 3 ?\") belong? Supply { \"rowNumber\": <n> }.",
+      "question": "To which numbered row does decision \"Décision hors demande avec dossier 3 ?\" belong? Supply { \"rowNumber\": <n> }.",
       "resolution": {
         "rowNumber": 17
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000087",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000087",
+        "ref": null,
+        "subject": "Choix rattaché à la demande 1 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000087"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000092",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000092",
+        "ref": null,
+        "subject": "Choix rattaché à la demande 2 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000092"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000097",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000097",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 1 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000097"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000102",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000102",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 2 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000102"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000107",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000107",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 3 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000107"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000112",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000112",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 4 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000112"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000117",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000117",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 5 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000117"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000122",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000122",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 6 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000122"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000127",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000127",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 7 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000127"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000132",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000132",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 8 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000132"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000137",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000137",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 9 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000137"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000142",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000142",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 10 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000142"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000147",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000147",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 11 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000147"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000152",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000152",
+        "ref": null,
+        "subject": "Décision hors demande sans dossier 12 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000152"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000157",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000157",
+        "ref": null,
+        "subject": "Décision hors demande avec dossier 1 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000157"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000162",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000162",
+        "ref": null,
+        "subject": "Décision hors demande avec dossier 2 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000162"
+      }
+    },
+    {
+      "id": "E9:number-decision:01K0FXT0000000000000000167",
+      "class": "E9",
+      "kind": "mechanical",
+      "action": "number-decision",
+      "element": {
+        "kind": "decision",
+        "id": "01K0FXT0000000000000000167",
+        "ref": null,
+        "subject": "Décision hors demande avec dossier 3 ?"
+      },
+      "proposedWrite": {
+        "decisionId": "01K0FXT0000000000000000167"
       }
     }
   ]

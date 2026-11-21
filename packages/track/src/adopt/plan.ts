@@ -276,7 +276,7 @@ function extractEntries(
         question: `Provide the dossier link for decision ${label}. Supply { "dossierLink": "<path-or-uri>" }.`,
         resolution: null,
       })
-    } else if ((gap.class as string) === 'E9') {
+    } else if (gap.class === 'E9') {
       pushUnique({
         id: `E9:number-decision:${dec.id}`,
         class: 'E9',
@@ -284,7 +284,6 @@ function extractEntries(
         action: 'number-decision',
         element: { kind: 'decision', id: dec.id, ref: dec.ref, subject: dec.question },
         proposedWrite: { decisionId: dec.id },
-        pendingOn: 'lot-2',
       })
     }
   }

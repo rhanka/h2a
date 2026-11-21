@@ -59,14 +59,16 @@ export type OwnerTableGapClass =
   | 'E6'
   | 'E7'
   | 'E8'
+  | 'E9'
 
 /**
- * Classify a strict-audit violation into global gate (G1–G3) or per-element gap (E1–E8),
+ * Classify a strict-audit violation into global gate (G1–G3) or per-element gap (E1–E9),
  * using the violation's stable `check` identifier and row number (spec annex B, DS-5).
  */
 export function classifyViolation(v: OwnerTableGateViolation): OwnerTableGapClass {
   if (v.code === 'journal-integrity' || v.check === 'journal.integrity') return 'G1'
   if (v.code === 'document-desync' || v.check === 'document.desync') return 'E8'
+  if (v.code === 'decision-unnumbered' || v.check === 'decision.unnumbered') return 'E9'
   if (v.code === 'no-owner-demands' || v.check === 'demands.none' || v.check === 'demands.all-archived') {
     return 'E2'
   }
@@ -244,6 +246,7 @@ export interface QualifiedOwnerTableCounts {
   outsideDemand: number
   withoutDossier: number
   toInstruct: number
+  toNumber: number
   ownerGates: number
   openQuestionCount: number
   decisionsWithOpenQuestions: number
@@ -385,15 +388,17 @@ export function buildQualifiedOwnerTable(
       addQualifier(violation.decisionId, 'à instruire')
     } else if (gapClass === 'E6' && violation.decisionId !== undefined) {
       addQualifier(violation.decisionId, 'sans dossier')
+    } else if (gapClass === 'E9' && violation.decisionId !== undefined) {
+      addQualifier(violation.decisionId, 'à numéroter')
     }
   }
 
-  // Build qualified decisions first so rows can inspect E5 / OWNER GATE status by identity
+  // Build qualified decisions first so rows can inspect E5 / E9 / OWNER GATE status by identity
   const qualifierOrder: readonly DecisionQualifierLabel[] = [
     'à instruire',
+    'à numéroter',
     'hors demande',
     'sans dossier',
-    'à numéroter',
   ]
   const qualifiedDecisions: QualifiedDecisionItem[] = view.decisions.map((d) => {
     const kind: OwnerTableDecisionKind = d.kind ?? 'decision'
@@ -402,7 +407,8 @@ export function buildQualifiedOwnerTable(
       ? []
       : qualifierOrder.filter((q) => qSet.has(q))
     const isToInstruct = qualifiers.includes('à instruire')
-    const displayRef = kind === 'owner-gate' || isToInstruct || d.ref.trim() === '' ? null : d.ref
+    const isToNumber = qualifiers.includes('à numéroter')
+    const displayRef = kind === 'owner-gate' || isToInstruct || isToNumber || d.ref.trim() === '' ? null : d.ref
     const masksObj: Record<string, MaskMotif> = {}
     const dMasks = decisionMasksMap.get(d.id)
     if (dMasks !== undefined) {
@@ -490,19 +496,26 @@ export function buildQualifiedOwnerTable(
     maskedCells += Object.keys(d.masks).length
   }
 
-  // Reply line: only numbered non-gate non-E5 decisions with recorded recommendation, in number order
-  const replyEntries: { ref: string; letter: string }[] = []
+  // Reply line: only numbered non-gate non-E5 non-E9 decisions with recorded recommendation, in number order
+  const replyEntries: { ref: string; num: number; letter: string }[] = []
   for (const d of qualifiedDecisions) {
     if (
       d.kind !== 'owner-gate' &&
       d.ref !== null &&
       !d.qualifiers.includes('à instruire') &&
+      !d.qualifiers.includes('à numéroter') &&
       d.recommendedLetter !== '' &&
       d.recommendation !== ''
     ) {
-      replyEntries.push({ ref: d.ref, letter: d.recommendedLetter })
+      const m = /^D(\d+)$/u.exec(d.ref)
+      replyEntries.push({
+        ref: d.ref,
+        num: m !== null ? Number(m[1]) : Number.MAX_SAFE_INTEGER,
+        letter: d.recommendedLetter,
+      })
     }
   }
+  replyEntries.sort((a, b) => a.num - b.num)
   const replyLine = formatReplyLine(replyEntries)
 
   // Header label derivation with text-gate fallback to `journal`
@@ -537,6 +550,7 @@ export function buildQualifiedOwnerTable(
   const outsideDemand = nonGateDecisions.filter((d) => d.qualifiers.includes('hors demande')).length
   const withoutDossier = nonGateDecisions.filter((d) => d.qualifiers.includes('sans dossier')).length
   const toInstruct = nonGateDecisions.filter((d) => d.qualifiers.includes('à instruire')).length
+  const toNumber = nonGateDecisions.filter((d) => d.qualifiers.includes('à numéroter')).length
   const ownerGates = qualifiedDecisions.filter((d) => d.kind === 'owner-gate').length
   const openQuestionCount = qualifiedDecisions.reduce((sum, d) => sum + d.openQuestionCount, 0)
   const decisionsWithOpenQuestions = qualifiedDecisions.filter((d) => d.openQuestionCount > 0).length
@@ -554,6 +568,7 @@ export function buildQualifiedOwnerTable(
     outsideDemand,
     withoutDossier,
     toInstruct,
+    toNumber,
     ownerGates,
     openQuestionCount,
     decisionsWithOpenQuestions,
@@ -584,15 +599,18 @@ export function buildQualifiedOwnerTable(
     scope.motifs.push({ kind: 'gap', text: formatMotifUnverifiedDocs(unverifiedDocs) })
   }
 
-  // Ensure blocking E5 decisions on rows render their annex-F todo cause instead of an internal D#
+  // Ensure blocking E5 / E9 decisions on rows render their annex-F todo cause instead of an internal D#
   for (const row of numberedRows) {
     if ((row.kind ?? 'single') === 'demand-title') continue
     if (row.blockingDecisionIds.length === 0) continue
-    const hasToInstructBlocker = row.blockingDecisionIds.some((dId) => {
+    const hasUnnumberedBlocker = row.blockingDecisionIds.some((dId) => {
       const dec = qualifiedDecisionById.get(dId)
-      return dec !== undefined && dec.qualifiers.includes('à instruire')
+      return (
+        dec !== undefined &&
+        (dec.qualifiers.includes('à instruire') || dec.qualifiers.includes('à numéroter'))
+      )
     })
-    if (!hasToInstructBlocker) continue
+    if (!hasUnnumberedBlocker) continue
     const rewrittenCauses = row.blockingDecisionIds
       .map((dId) => {
         const dec = qualifiedDecisionById.get(dId)
@@ -601,13 +619,18 @@ export function buildQualifiedOwnerTable(
           kind: dec.kind,
           ref: dec.ref,
           isToInstruct: dec.qualifiers.includes('à instruire'),
+          isToNumber: dec.qualifiers.includes('à numéroter'),
           session: dec.session ?? null,
         })
       })
       .filter((s): s is string => s !== undefined)
     const nonDecisionParts = row.todo
       .split(' ; ')
-      .filter((part) => !/^bloqué par /u.test(part.trim()) && part.trim() !== '—')
+      .filter(
+        (part) =>
+          !/^bloqué par (?:D\d+|OWNER GATE|décision à (?:instruire|numéroter))/u.test(part.trim()) &&
+          part.trim() !== '—',
+      )
     const combined = [...rewrittenCauses, ...nonDecisionParts]
     row.todo = combined.length > 0 ? combined.join(' ; ') : '—'
   }
@@ -669,6 +692,7 @@ function renderQualifiedDecisionCell(
           kind: dec.kind,
           ref: dec.ref,
           isToInstruct: dec.qualifiers.includes('à instruire'),
+          isToNumber: dec.qualifiers.includes('à numéroter'),
           blocking: blockingSet.has(dId),
           sansObjet: row.status === 'withdrawn' || sansObjetSet.has(dId),
         }),
@@ -766,6 +790,7 @@ export function renderQualifiedOwnerTable(
       outsideDemand: qualified.counts.outsideDemand,
       withoutDossier: qualified.counts.withoutDossier,
       toInstruct: qualified.counts.toInstruct,
+      toNumber: qualified.counts.toNumber,
       openQuestionCount: qualified.counts.openQuestionCount,
       decisionsWithOpenQuestions: qualified.counts.decisionsWithOpenQuestions,
     }),
