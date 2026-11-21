@@ -4,7 +4,7 @@
 
 - [ ] A conductor can bring an existing journal to the point where the owner table passes `--strict`, through a tool that first shows every write it would make, then applies them.
 - [ ] The tool never closes a decision, never invents an owner text, and never presents a reconstructed demand as captured.
-- [ ] Contract: `docs/specs/2026-11-20-SPEC_EVOL_track-owner-table-autonomous.md`, sections 3 (V7), 5 and 8 (lots 5a and 5b), tests T5a-a to T5a-e.
+- [ ] Contract: `docs/specs/2026-11-20-SPEC_EVOL_track-owner-table-autonomous.md`, sections 3 (V7), 4, 5 and 8 (lots 5a and 5b), annex B, tests T5a-a to T5a-e.
 
 ## Scope / Guardrails
 
@@ -14,7 +14,7 @@
 - [ ] The dry run writes nothing: no journal, no index, no side file.
 - [ ] Every proposed write is either mechanical — derivable from the journal alone — or marked `to-decide`. A `to-decide` entry is never applied until a human-supplied value resolves it in the plan file.
 - [ ] No decision is settled, withdrawn or archived by this tool without a recorded owner answer or a traced replacement: it only proposes, and the existing decision verbs record.
-- [ ] A demand reconstructed from an old item is inscribed as not captured: its text is never quoted and carries the manual provenance.
+- [ ] A demand reconstructed from an old item is inscribed through the ordinary `cli` transport, never with the `capture` provenance: the reader therefore labels it `(non capté)` and never quotes it.
 - [ ] Application is idempotent: each write carries an idempotency key derived from the plan entry.
 - [ ] On an exclusive journal, application is refused unless the holder runs it.
 - [ ] No Python and no perl anywhere. Node and TypeScript only.
@@ -31,7 +31,8 @@
   - `packages/track/src/adopt/**`
   - `packages/track/src/cli/index.ts`
   - `packages/track/src/cli/adopt.ts`
-  - `packages/track/src/report/fixtures/**`
+  - `packages/track/src/report/__fixtures__/**`
+  - `packages/track/src/report/legacy-like-journal.fixture.test.ts`
   - `packages/track/src/index.ts`
   - `packages/track/README.md`
   - `plan/11-BRANCH_track-owner-table-lot-5a-adoption-tool.md`
@@ -64,7 +65,7 @@
 ## Plan / Todo (lot-based)
 
 - [ ] **Lot 0 — Baseline and red tests**
-  - [ ] Read spec sections 4, 5 and annex B; read the fixture builder `packages/track/src/report/fixtures/legacy-like-journal.ts` and the qualified reader of lot 1; read `packages/track/src/track.ts` for the existing verbs that number, summarise and archive a demand and that attach a dossier to a decision.
+  - [ ] Read spec sections 4, 5 and annex B; read the fixture data under `packages/track/src/report/__fixtures__/legacy-like-journal/`, its builder in `packages/track/src/report/legacy-like-journal.fixture.test.ts`, and the qualified reader of lot 1; read `packages/track/src/track.ts` for the existing verbs that number, summarise and archive a demand and that attach a dossier to a decision.
   - [ ] Create the worktree under `tmp/worktrees/`; `npm ci`; `npm run build -w @sentropic/track`.
   - [ ] Tests (red first):
     - [ ] `T5a-a` — `packages/track/src/adopt/adopt.test.ts` — the dry run writes nothing and lists every write it would make (T5a-a)
@@ -80,7 +81,7 @@
 
 - [ ] **Lot 1 — Dry run**
   - [ ] Create `packages/track/src/adopt/plan.ts`: from a journal, build the adoption plan — a JSON document listing, per gap of the qualified reader, one entry with its class, the element concerned, the proposed write and its kind, `mechanical` or `to-decide`.
-  - [ ] Mechanical entries: give the next number to a demand that has none; turn an owner-request item without a number into a numbered demand marked as not captured; give a stable number to a structured decision that has none.
+  - [ ] Mechanical entries: give the next number to a demand that has none; turn an owner-request item without a number into a numbered demand, inscribed through the `cli` transport; give a stable number to a structured decision that has none (class E9, once lot 2 is merged).
   - [ ] `to-decide` entries, each with the question a human must answer: the row a decision outside any demand belongs to; the options and recommendation of a decision to instruct; the dossier link of a decision; the cause of a blocked row; the rewrite of a masked text.
   - [ ] Add `track adopt plan [--out <file>]` in `packages/track/src/cli/adopt.ts`, dispatched as a read: it prints the plan and writes nothing but the output file when `--out` is given outside the journal folder.
   - [ ] Lot gate:
