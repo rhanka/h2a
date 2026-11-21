@@ -17,8 +17,11 @@ import {
   formatOwnerEtaCell,
   formatOwnerStageCell,
   formatOwnerStatusCell,
+  formatOwnerTableNoJournalMessage,
   optionLetter,
+  OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
   OWNER_TABLE_HEADERS,
+  OWNER_TABLE_NO_DEMANDS_MESSAGE,
   projectOwnerTable,
   renderOwnerTable,
   type OwnerTableRow,
@@ -2080,7 +2083,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     const expectedNoDemandsMsg =
       'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
       '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
-      'enregistre et numérote les demandes avec `track demand raise` puis `track demand number <id> <n>`, ' +
+      'ingère une ligne `demand.raise` avec `track ingest <file.jsonl> --workspace <w>` puis numérote-la avec `track demand number <demandId> --number <n>`, ' +
       'ou utilise `track report --status-table` pour la vue technique)'
 
     // (b1) Journal exists with non-demand events (0 demand.* events)
@@ -2317,5 +2320,86 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     } finally {
       rmSync(archivedDir, { recursive: true, force: true })
     }
+  })
+
+  it('every command quoted by a refusal message runs without a usage error (T0-c)', () => {
+    const messages = [
+      OWNER_TABLE_NO_DEMANDS_MESSAGE,
+      OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
+      formatOwnerTableNoJournalMessage(join(dir, 'placeholder-cwd')),
+    ]
+    const commands: string[] = []
+    for (const msg of messages) {
+      for (const match of msg.matchAll(/`(track [^`]+)`/gu)) {
+        commands.push(match[1]!)
+      }
+    }
+    expect(commands.length).toBeGreaterThan(0)
+
+    const failures: string[] = []
+    for (const command of commands) {
+      const cmdDir = mkdtempSync(join(tmpdir(), 'track-owner-t0c-'))
+      try {
+        const cmdStore = new EventStore(join(cmdDir, '.track', 'events.jsonl'))
+        const cmdTrack = new Track(cmdStore, { by: 'test-owner-table', now: () => clock })
+        const unnumberedDemandId = cmdTrack.raiseDemand({
+          type: 'feature',
+          workspace: 'ws',
+          raw: { text: 'Demande de test non numérotée' },
+          source: { kind: 'human' },
+        })
+        const ingestFile = join(cmdDir, 'demand-raise.jsonl')
+        writeFileSync(
+          ingestFile,
+          `${JSON.stringify({
+            v: 1,
+            kind: 'demand.raise',
+            payload: {
+              type: 'feature',
+              raw: { text: 'Demande de test', title: 'Demande de test' },
+              source: { kind: 'human' },
+              workspace: 'ws',
+            },
+          })}\n`,
+          'utf8',
+        )
+
+        const substitutions: Record<string, string> = {
+          '<id>': unnumberedDemandId,
+          '<demandId>': unnumberedDemandId,
+          '<n>': '1',
+          '<text>': 'Demande de test',
+          '<file.jsonl>': ingestFile,
+          '<w>': 'ws',
+          '<dossier>': join(cmdDir, '.track'),
+        }
+
+        const argv = command
+          .split(/\s+/u)
+          .slice(1)
+          .map((token) => {
+            if (/^<[^>]+>$/u.test(token)) {
+              expect(substitutions, `unknown placeholder ${token} in "${command}"`).toHaveProperty(token)
+              return substitutions[token]!
+            }
+            expect(token, `unsubstituted placeholder in "${command}"`).not.toMatch(/<[^>]+>/u)
+            return token
+          })
+
+        const out: string[] = []
+        const err: string[] = []
+        const code = runCli(argv, {
+          cwd: cmdDir,
+          out: (s) => out.push(s),
+          err: (s) => err.push(s),
+        })
+        if (code !== 0) {
+          failures.push(`${command} -> exit ${code}: ${err.join('').trim()}`)
+        }
+      } finally {
+        rmSync(cmdDir, { recursive: true, force: true })
+      }
+    }
+    expect(failures).toEqual([])
   })
 })
