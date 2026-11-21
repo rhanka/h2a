@@ -17,8 +17,11 @@ import {
   formatOwnerEtaCell,
   formatOwnerStageCell,
   formatOwnerStatusCell,
+  formatOwnerTableNoJournalMessage,
   optionLetter,
+  OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
   OWNER_TABLE_HEADERS,
+  OWNER_TABLE_NO_DEMANDS_MESSAGE,
   projectOwnerTable,
   renderOwnerTable,
   type OwnerTableRow,
@@ -1241,22 +1244,22 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       baselineCommit: '1f57127dee0bf671e559c347cd86960180cd64c9',
       now: '2026-11-14T19:00:00.000Z',
     })
-    for (const ref of ['D2', 'D8', 'D9', 'D12']) {
+    for (const ref of ['D3', 'D9', 'D10', 'D13']) {
       const dec = realView.decisions.find((d) => d.ref === ref)
       expect(dec?.blocking).toBe(true)
     }
 
-    // P3-1: D17 in real .track has 90 options -> base-26 letters A..Z, AA..AZ, BA..BZ, CA..CL
-    const d17 = realView.decisions.find((d) => d.ref === 'D17')
-    expect(d17).toBeDefined()
-    expect(d17!.options).toHaveLength(90)
-    expect(d17!.options[0]?.letter).toBe('A')
-    expect(d17!.options[25]?.letter).toBe('Z')
-    expect(d17!.options[26]?.letter).toBe('AA')
-    expect(d17!.options[51]?.letter).toBe('AZ')
-    expect(d17!.options[52]?.letter).toBe('BA')
-    expect(d17!.options[89]?.letter).toBe('CL')
-    expect(d17!.options.every((o) => /^[A-Z]+$/u.test(o.letter))).toBe(true)
+    // P3-1: D18 in real .track has 90 options -> base-26 letters A..Z, AA..AZ, BA..BZ, CA..CL
+    const d18 = realView.decisions.find((d) => d.ref === 'D18')
+    expect(d18).toBeDefined()
+    expect(d18!.options).toHaveLength(90)
+    expect(d18!.options[0]?.letter).toBe('A')
+    expect(d18!.options[25]?.letter).toBe('Z')
+    expect(d18!.options[26]?.letter).toBe('AA')
+    expect(d18!.options[51]?.letter).toBe('AZ')
+    expect(d18!.options[52]?.letter).toBe('BA')
+    expect(d18!.options[89]?.letter).toBe('CL')
+    expect(d18!.options.every((o) => /^[A-Z]+$/u.test(o.letter))).toBe(true)
 
     // 2. Owner Case 1 (Carbon R5 P1-1 case 1): lot2 has a linked spec but is not started (to-do), while lot1 is in-progress (🔵 at dev)
     const dCase1 = track.raiseDemand({
@@ -2080,11 +2083,8 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     const expectedNoDemandsMsg =
       'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
       '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
-      'enregistre et numérote les demandes avec `track demand raise` puis `track demand number <id> <n>`, ' +
+      'ingère une ligne `demand.raise` avec `track ingest <file.jsonl> --workspace <w>` puis numérote-la avec `track demand number <demandId> --number <n>`, ' +
       'ou utilise `track report --status-table` pour la vue technique)'
-    const expectedAllArchivedMsg =
-      'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
-      'tableau owner vide refusé'
 
     // (b1) Journal exists with non-demand events (0 demand.* events)
     track.createItem({ kind: 'chore', title: 'Tâche technique sans demande owner', workspace: 'ws-empty' })
@@ -2161,7 +2161,118 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     expect(outOrphan.join('') + errOrphan.join('')).not.toContain('Aucune décision en attente')
     expect(outOrphan.join('') + errOrphan.join('')).not.toContain('Réponse : aucune décision en attente')
 
-    // (b3) Journal where all owner-numbered demands are archived -> still refuses empty table
+    // (b4) Fresh `track init` directory (empty .track, 0 events) and unnumbered `demand.raised` (0 `demand.owner-numbered`)
+    const initDir = mkdtempSync(join(tmpdir(), 'track-owner-fresh-init-'))
+    try {
+      expect(runCli(['init'], { cwd: initDir, out: () => {}, err: () => {} })).toBe(0)
+      const initOut: string[] = []
+      const initErr: string[] = []
+      const initCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: initDir,
+        out: (s) => initOut.push(s),
+        err: (s) => initErr.push(s),
+      })
+      expect(initCode).toBe(1)
+      expect(initOut.join('')).toBe('')
+      expect(initErr.join('')).toContain(
+        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}\n`,
+      )
+      expect(initOut.join('') + initErr.join('')).not.toContain('Aucune décision en attente')
+      expect(initOut.join('') + initErr.join('')).not.toContain('Réponse : aucune décision en attente')
+
+      // Raising a demand without numbering it still has zero owner-numbered demands
+      const unnumberedTrack = new Track(new EventStore(join(initDir, '.track', 'events.jsonl')), {
+        by: 'test-owner-table',
+        now: () => clock,
+      })
+      unnumberedTrack.raiseDemand({
+        type: 'feature',
+        workspace: 'ws-init',
+        raw: { text: 'Demande non numérotée' },
+        source: { kind: 'human' },
+      })
+      const unnumOut: string[] = []
+      const unnumErr: string[] = []
+      const unnumCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: initDir,
+        out: (s) => unnumOut.push(s),
+        err: (s) => unnumErr.push(s),
+      })
+      expect(unnumCode).toBe(1)
+      expect(unnumOut.join('')).toBe('')
+      expect(unnumErr.join('')).toContain(`[no-owner-demands] ${expectedNoDemandsMsg}`)
+      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Aucune décision en attente')
+      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Réponse : aucune décision en attente')
+    } finally {
+      rmSync(initDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a numbered journal that still holds a pending or deferred decision without options (T0-a)', () => {
+    for (const outcome of ['pending', 'deferred'] as const) {
+      const caseDir = mkdtempSync(join(tmpdir(), `track-owner-t0a-${outcome}-`))
+      try {
+        const caseStore = new EventStore(join(caseDir, '.track', 'events.jsonl'))
+        const caseTrack = new Track(caseStore, { by: 'test-owner-table', now: () => clock })
+        const demandId = caseTrack.raiseDemand({
+          type: 'feature',
+          workspace: 'ws-t0a',
+          raw: { text: 'Suivre une demande avec décision sans options' },
+          source: { kind: 'human' },
+        })
+        caseTrack.numberDemand(demandId, 1)
+
+        const legacyDecisionId = '01JTESTLEGACYDECISION00001'
+        caseStore.appendCommand([
+          {
+            id: '01JTESTLEGACYDECISIONEVT01',
+            type: 'decision.created',
+            aggregate: 'decision',
+            aggregateId: legacyDecisionId,
+            at: clock,
+            by: 'test-owner-table',
+            payload: {
+              decisionKind: 'commitment',
+              title: 'Arbitrage historique sans options',
+              workspace: 'ws-t0a',
+              targets: [demandId],
+              dossier: {
+                context: 'Décision historique sans options structurées.',
+                options: [],
+                qa: [],
+              },
+            },
+          },
+        ])
+        if (outcome === 'deferred') {
+          caseTrack.setOutcome(legacyDecisionId, 'deferred')
+        }
+
+        const out: string[] = []
+        const err: string[] = []
+        const code = runCli(['report', '--owner-table', '--format', 'md'], {
+          cwd: caseDir,
+          out: (s) => out.push(s),
+          err: (s) => err.push(s),
+        })
+        expect(code, `outcome=${outcome}\nstdout:\n${out.join('')}\nstderr:\n${err.join('')}`).toBe(1)
+        expect(err.join(''), `outcome=${outcome}`).toContain('[invalid-decision]')
+        expect(out.join(''), `outcome=${outcome}`).toBe('')
+        expect(out.join('') + err.join(''), `outcome=${outcome}`).not.toContain('Aucune décision en attente')
+        expect(out.join('') + err.join(''), `outcome=${outcome}`).not.toContain(
+          'Réponse : aucune décision en attente',
+        )
+      } finally {
+        rmSync(caseDir, { recursive: true, force: true })
+      }
+    }
+  })
+
+  it('refuses a journal whose numbered demands are all archived with its own message and never the absolute sentence (T0-b)', () => {
+    const expectedAllArchivedMsg =
+      'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
+      'tableau owner vide refusé'
+
     const archivedDir = mkdtempSync(join(tmpdir(), 'track-owner-all-archived-'))
     try {
       const archivedStore = new EventStore(join(archivedDir, '.track', 'events.jsonl'))
@@ -2209,51 +2320,86 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     } finally {
       rmSync(archivedDir, { recursive: true, force: true })
     }
+  })
 
-    // (b4) Fresh `track init` directory (empty .track, 0 events) and unnumbered `demand.raised` (0 `demand.owner-numbered`)
-    const initDir = mkdtempSync(join(tmpdir(), 'track-owner-fresh-init-'))
-    try {
-      expect(runCli(['init'], { cwd: initDir, out: () => {}, err: () => {} })).toBe(0)
-      const initOut: string[] = []
-      const initErr: string[] = []
-      const initCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
-        cwd: initDir,
-        out: (s) => initOut.push(s),
-        err: (s) => initErr.push(s),
-      })
-      expect(initCode).toBe(1)
-      expect(initOut.join('')).toBe('')
-      expect(initErr.join('')).toContain(
-        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}\n`,
-      )
-      expect(initOut.join('') + initErr.join('')).not.toContain('Aucune décision en attente')
-      expect(initOut.join('') + initErr.join('')).not.toContain('Réponse : aucune décision en attente')
-
-      // Raising a demand without numbering it still has zero owner-numbered demands
-      const unnumberedTrack = new Track(new EventStore(join(initDir, '.track', 'events.jsonl')), {
-        by: 'test-owner-table',
-        now: () => clock,
-      })
-      unnumberedTrack.raiseDemand({
-        type: 'feature',
-        workspace: 'ws-init',
-        raw: { text: 'Demande non numérotée' },
-        source: { kind: 'human' },
-      })
-      const unnumOut: string[] = []
-      const unnumErr: string[] = []
-      const unnumCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
-        cwd: initDir,
-        out: (s) => unnumOut.push(s),
-        err: (s) => unnumErr.push(s),
-      })
-      expect(unnumCode).toBe(1)
-      expect(unnumOut.join('')).toBe('')
-      expect(unnumErr.join('')).toContain(`[no-owner-demands] ${expectedNoDemandsMsg}`)
-      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Aucune décision en attente')
-      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Réponse : aucune décision en attente')
-    } finally {
-      rmSync(initDir, { recursive: true, force: true })
+  it('every command quoted by a refusal message runs without a usage error (T0-c)', () => {
+    const messages = [
+      OWNER_TABLE_NO_DEMANDS_MESSAGE,
+      OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
+      formatOwnerTableNoJournalMessage(join(dir, 'placeholder-cwd')),
+    ]
+    const commands: string[] = []
+    for (const msg of messages) {
+      for (const match of msg.matchAll(/`(track [^`]+)`/gu)) {
+        commands.push(match[1]!)
+      }
     }
+    expect(commands.length).toBeGreaterThan(0)
+
+    const failures: string[] = []
+    for (const command of commands) {
+      const cmdDir = mkdtempSync(join(tmpdir(), 'track-owner-t0c-'))
+      try {
+        const cmdStore = new EventStore(join(cmdDir, '.track', 'events.jsonl'))
+        const cmdTrack = new Track(cmdStore, { by: 'test-owner-table', now: () => clock })
+        const unnumberedDemandId = cmdTrack.raiseDemand({
+          type: 'feature',
+          workspace: 'ws',
+          raw: { text: 'Demande de test non numérotée' },
+          source: { kind: 'human' },
+        })
+        const ingestFile = join(cmdDir, 'demand-raise.jsonl')
+        writeFileSync(
+          ingestFile,
+          `${JSON.stringify({
+            v: 1,
+            kind: 'demand.raise',
+            payload: {
+              type: 'feature',
+              raw: { text: 'Demande de test', title: 'Demande de test' },
+              source: { kind: 'human' },
+              workspace: 'ws',
+            },
+          })}\n`,
+          'utf8',
+        )
+
+        const substitutions: Record<string, string> = {
+          '<id>': unnumberedDemandId,
+          '<demandId>': unnumberedDemandId,
+          '<n>': '1',
+          '<text>': 'Demande de test',
+          '<file.jsonl>': ingestFile,
+          '<w>': 'ws',
+          '<dossier>': join(cmdDir, '.track'),
+        }
+
+        const argv = command
+          .split(/\s+/u)
+          .slice(1)
+          .map((token) => {
+            if (/^<[^>]+>$/u.test(token)) {
+              expect(substitutions, `unknown placeholder ${token} in "${command}"`).toHaveProperty(token)
+              return substitutions[token]!
+            }
+            expect(token, `unsubstituted placeholder in "${command}"`).not.toMatch(/<[^>]+>/u)
+            return token
+          })
+
+        const out: string[] = []
+        const err: string[] = []
+        const code = runCli(argv, {
+          cwd: cmdDir,
+          out: (s) => out.push(s),
+          err: (s) => err.push(s),
+        })
+        if (code !== 0) {
+          failures.push(`${command} -> exit ${code}: ${err.join('').trim()}`)
+        }
+      } finally {
+        rmSync(cmdDir, { recursive: true, force: true })
+      }
+    }
+    expect(failures).toEqual([])
   })
 })
