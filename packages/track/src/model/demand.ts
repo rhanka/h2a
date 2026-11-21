@@ -10,7 +10,16 @@
 
 import { DomainError, type ItemId, type Link } from './item.js'
 import type { EtaJournalEntry, ReportStage } from './report-status.js'
-import type { ActorId, Ulid } from '../events/types.js'
+import type { ActorId, CaptureOrigin, Ulid } from '../events/types.js'
+
+/** An owner message inscribed from the capture queue onto a demand or decision (lot 3a). */
+export interface OwnerMessage {
+  captureId: string
+  at: string
+  origin: CaptureOrigin
+  text: string
+  masked?: boolean
+}
 
 export type DemandId = Ulid
 export type DemandType = 'feature' | 'defect' | 'chore' // additive; extensible
@@ -61,6 +70,14 @@ export interface DemandState {
   etaJournal?: EtaJournalEntry[]
   /** Explicit owner archive record; without it a numbered request row never disappears. */
   archived?: { decisionId: ItemId; reason: string; at: string }
+  /** Ordered follow-up owner messages inscribed from the capture queue (lot 3a). */
+  ownerMessages?: OwnerMessage[]
+  /** True when `demand.raised` carried `prov.transport === 'capture'` (lot 3a). */
+  captured?: boolean
+  /** Attribution origin when captured (lot 3a, DS-9). */
+  captureOrigin?: CaptureOrigin
+  /** True when a private term was masked at inscription into a versioned journal (lot 3a). */
+  maskedAtInscription?: boolean
 }
 
 // Lifecycle machine (DESIGN state machine §):
@@ -116,6 +133,8 @@ export interface DemandRaisedPayload {
   sourceKey?: string
   concerns?: { kind: 'item'; id: ItemId }
   links?: Link[]
+  /** True when private-term masking was applied at inscription into a versioned journal (lot 3a). */
+  masked?: boolean
 }
 
 function assertRaw(input: unknown): DemandRaw {
@@ -194,6 +213,9 @@ export function assertDemandRaised(input: unknown): DemandRaisedPayload {
   if (a['links'] !== undefined && !Array.isArray(a['links'])) {
     throw new DomainError('demand.raise: links must be an array')
   }
+  if (a['masked'] !== undefined && typeof a['masked'] !== 'boolean') {
+    throw new DomainError('demand.raise: masked must be a boolean')
+  }
   return {
     type: a['type'] as DemandType,
     raw,
@@ -202,5 +224,6 @@ export function assertDemandRaised(input: unknown): DemandRaisedPayload {
     ...(a['sourceKey'] !== undefined ? { sourceKey: a['sourceKey'] as string } : {}),
     ...(concerns !== undefined ? { concerns } : {}),
     ...(a['links'] !== undefined ? { links: a['links'] as Link[] } : {}),
+    ...(a['masked'] === true ? { masked: true } : {}),
   }
 }
