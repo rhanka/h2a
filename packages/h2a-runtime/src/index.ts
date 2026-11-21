@@ -145,6 +145,7 @@ import {
   sleepSync,
   type PromptDeliveryResult,
 } from "./prompt-delivery.js";
+import { recordInjectionBestEffort } from "./injection-ledger.js";
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { buildLaunchContext } from "./launch-context.js";
 import {
@@ -6944,7 +6945,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   name,
                   initialPrompt,
                   nativePromptDeliveryDeps(sleepSync),
-                  { profile },
+                  { profile, sessionKey: `native:${name}` },
                 )
               : deliverInitialPrompt(agentPane!, initialPrompt, {
                   capturePane: capturePaneVisible,
@@ -6954,7 +6955,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   cpuMs: paneTreeCpuMs,
                   sleep: sleepSync,
                   now: () => Date.now(),
-                }, { profile });
+                }, { profile, sessionKey: `tmux:${name}` });
             if (promptDelivery.state !== "working") {
               const quotaDiagnostic = promptDelivery.state === "submitted-idle" ? "" : `${promptDelivery.reason}\n${promptDelivery.capture ?? ""}`;
               const quotaVerdict = profile === "agy" && isAgyClaudeModel(opts.model)
@@ -8809,6 +8810,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       // pane's tmux session within the last 4s (client_activity, agnostic to TUI).
       // Fail-open: any probe failure (no clients, detached, error) proceeds normally.
       // The envelope is NOT marked .processed on defer — the watcher retries next tick.
+      let tmuxSessionName: string | undefined;
       {
         const displayRes = spawnSync(
           "tmux",
@@ -8817,6 +8819,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if (displayRes.status === 0 && displayRes.stdout?.trim()) {
           const sessionName = displayRes.stdout.trim();
+          tmuxSessionName = sessionName;
           const clientsRes = spawnSync(
             "tmux",
             ["list-clients", `-t=${sessionName}`, "-F", "#{client_activity}"],
@@ -8849,6 +8852,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         (env as { body?: { request?: { instructionLine?: string } } }).body
           ?.request?.instructionLine ??
         `h2a inbox read --instance ${target} --root ${localRoot}`;
+      if (tmuxSessionName) {
+        recordInjectionBestEffort(`tmux:${tmuxSessionName}`, instructionLine);
+      }
       spawnSync("tmux", ["send-keys", "-t", pane, "-l", instructionLine], {
         stdio: "ignore",
       });
@@ -9775,20 +9781,26 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             relaunchContinuationPrompt(entry.task),
             {
               deliverContinuation: (prompt) =>
-                deliverInitialPrompt(agentPane!, prompt, {
-                  capturePane: capturePaneVisible,
-                  clearComposer: clearPaneComposer,
-                  pasteBlock: pasteLiteralBlock,
-                  submit: submitPane,
-                  cpuMs: paneTreeCpuMs,
-                  sleep: sleepSync,
-                  now: () => Date.now(),
-                }),
+                deliverInitialPrompt(
+                  agentPane!,
+                  prompt,
+                  {
+                    capturePane: capturePaneVisible,
+                    clearComposer: clearPaneComposer,
+                    pasteBlock: pasteLiteralBlock,
+                    submit: submitPane,
+                    cpuMs: paneTreeCpuMs,
+                    sleep: sleepSync,
+                    now: () => Date.now(),
+                  },
+                  { sessionKey: `tmux:${name}` },
+                ),
               submitConfirmation: () => submitPane(agentPane!),
               capturePane: () => capturePaneVisible(agentPane!),
               sleep: sleepSync,
               now: () => Date.now(),
             },
+            { sessionKey: `tmux:${name}` },
           );
           if (wake.confirmation === "auto-passed") {
             process.stderr.write(
