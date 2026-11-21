@@ -1,0 +1,60 @@
+Notice: Private-name gate skipped: no unversioned local policy file configured (set --policy <path> or TRACK_OWNER_POLICY_FILE).
+error: REFUSED: owner table failed blocking gates:
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] rows must be in strictly ascending # order
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [missing-row] row #0 must have a positive integer request number
+- [missing-row] duplicate request number #0
+- [invalid-decision] decision D1 is not referenced by any row
+- [invalid-decision] decision D1 must carry a question, at least 2 options with consequences, and a valid recommendation
+- [invalid-decision] decision D1 is missing a dossier link
+- [invalid-decision] decision D2 is missing a dossier link
+- [invalid-decision] decision D3 is missing a dossier link
+- [invalid-decision] decision D4 is not referenced by any row
+- [invalid-decision] decision D4 is missing a dossier link
+- [invalid-decision] decision D5 is not referenced by any row
+- [invalid-decision] decision D5 is missing a dossier link
+- [invalid-decision] decision D6 is not referenced by any row
+- [invalid-decision] decision D6 is missing a dossier link
+- [invalid-decision] decision D7 is not referenced by any row
+- [invalid-decision] decision D7 is missing a dossier link
+- [invalid-decision] decision D8 is not referenced by any row
+- [invalid-decision] decision D8 is missing a dossier link
+- [invalid-decision] decision D9 is not referenced by any row
+- [invalid-decision] decision D9 is missing a dossier link
+- [invalid-decision] decision D10 is not referenced by any row
+- [invalid-decision] decision D10 is missing a dossier link
+- [invalid-decision] decision D11 is not referenced by any row
+- [invalid-decision] decision D11 is missing a dossier link
+- [invalid-decision] decision D12 is not referenced by any row
+- [invalid-decision] decision D12 is missing a dossier link
+- [invalid-decision] decision D13 is not referenced by any row
+- [invalid-decision] decision D13 is missing a dossier link
+- [invalid-decision] decision D14 is not referenced by any row
+- [invalid-decision] decision D14 is missing a dossier link
+- [invalid-decision] decision D15 is not referenced by any row
+- [invalid-decision] decision D15 is missing a dossier link
+- [invalid-decision] decision D16 is not referenced by any row
+- [invalid-decision] decision D17 is not referenced by any row
+- [invalid-decision] decision D18 is not referenced by any row
