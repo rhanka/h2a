@@ -71,23 +71,6 @@ function replay(id: string, seq: number, data: string): NativeTerminalReplay {
 const EXPECTED_PANEL_OFF_STDOUT =
   "\x1b[?1004h\x1b[?2004hhello world\r\n\r\n[h2a] detached from native session (session keeps running)\r\n\x1b[?1004l\x1b[?2004l";
 
-// Panel-ON oracle updated for L0.5a (reverse-video selected row highlight,
-// visible-width padding to 32 cols, 25ms pending-ESC flush, and toggle-only child resize);
-// panel-OFF above stays byte-identical to origin/main (dac65c6a3).
-const EXPECTED_PANEL_ON_STDOUT =
-  "\x1b[s\x1b[1;120H│\x1b[2;120H│\x1b[3;120H│\x1b[4;120H│\x1b[5;120H│\x1b[6;120H│\x1b[7;120H│\x1b[8;120H│\x1b[9;120H│\x1b[10;120H│\x1b[11;120H│\x1b[12;120H│\x1b[13;120H│\x1b[14;120H│\x1b[15;120H│\x1b[16;120H│\x1b[17;120H│\x1b[18;120H│\x1b[19;120H│\x1b[20;120H\x1b[41m*\x1b[0m\x1b[21;120H│\x1b[22;120H│\x1b[23;120H│\x1b[24;120H│\x1b[25;120H│\x1b[26;120H│\x1b[27;120H│\x1b[28;120H│\x1b[29;120H│\x1b[30;120H│\x1b[31;120H│\x1b[32;120H│\x1b[33;120H│\x1b[34;120H│\x1b[35;120H│\x1b[36;120H│\x1b[37;120H│\x1b[38;120H│\x1b[39;120H│\x1b[u" +
-  "\x1b[?1000h\x1b[?1006h\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89H[core] docs                     \x1b[2;89H\x1b[7m●  alpha                        \x1b[0m\x1b[3;89H\x1b[31m✖\x1b[0m* beta                         \x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "\x1b[?1004hfirst\r\n" +
-  "\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89H[core] docs                     \x1b[2;89H\x1b[7m●  alpha                        \x1b[0m\x1b[3;89H\x1b[31m✖\x1b[0m* beta                         \x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89Hcore [docs]                     \x1b[2;89H\x1b[7m○  gamma                        \x1b[0m\x1b[3;89H\x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89Hcore [docs]                     \x1b[2;89H\x1b[7m◆* gateway posture              \x1b[0m\x1b[3;89H\x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "second\r\n" +
-  "\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89Hcore [docs]                     \x1b[2;89H\x1b[7m◆* gateway posture              \x1b[0m\x1b[3;89H\x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89Hcore [docs]                     \x1b[2;89H\x1b[7m◆* gateway posture              \x1b[0m\x1b[3;89H\x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "third\r\n" +
-  "\x1b[s\x1b[?69h\x1b[1;88s\x1b[1;89Hcore [docs]                     \x1b[2;89H\x1b[7m◆* gateway posture              \x1b[0m\x1b[3;89H\x1b[4;89H\x1b[5;89H\x1b[6;89H\x1b[7;89H\x1b[8;89H\x1b[9;89H\x1b[10;89H\x1b[11;89H\x1b[12;89H\x1b[13;89H\x1b[14;89H\x1b[15;89H\x1b[16;89H\x1b[17;89H\x1b[18;89H\x1b[19;89H\x1b[20;89H\x1b[21;89H\x1b[22;89H\x1b[23;89H\x1b[24;89H\x1b[25;89H\x1b[26;89H\x1b[27;89H\x1b[28;89H\x1b[29;89H\x1b[30;89H\x1b[31;89H\x1b[32;89H\x1b[33;89H\x1b[34;89H\x1b[35;89H\x1b[36;89H\x1b[37;89H\x1b[38;89H\x1b[39;89H\x1b[u" +
-  "\r\n[h2a] detached from native session (session keeps running)\r\n\x1b[?1004l\x1b[?1006l\x1b[?1000l\x1b[?69l";
-
 async function runPanelOffScenario() {
   const stdin = new FakeInput();
   const stdout = new FakeOutput();
@@ -317,18 +300,44 @@ describe("S0 Step 1 — attach byte-for-byte characterization oracle", () => {
     });
   });
 
-  it("matches exact base oracle bytes for attach with right panel ON", async () => {
+  it("matches L0.5b attach contract with right panel ON (whole-attach mouse, no ?69 or CSI s/u, pre-published reset)", async () => {
     const result = await runPanelOnScenario();
-    expect(result).toEqual({
-      exitCode: 0,
-      stdoutBytes: EXPECTED_PANEL_ON_STDOUT,
-      childWrites: ["hi"],
-      resizes: [
-        { cols: 119, rows: 40 },
-        { cols: 88, rows: 40 },
-      ],
-      savedResets: ["\x1b[?1004l", ""],
-    });
+    expect(result.exitCode).toBe(0);
+    expect(result.childWrites).toEqual(["hi"]);
+    expect(result.resizes).toEqual([
+      { cols: 119, rows: 40 },
+      { cols: 88, rows: 40 },
+    ]);
+    // Whole-attach mouse + hygiene pre-published before child modes, then child ?1004l added, then cleared on detach.
+    expect(result.savedResets).toEqual([
+      "\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[4l\x1b[?6l\x1b[r\x1b[0m",
+      "\x1b[?1004l\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[4l\x1b[?6l\x1b[r\x1b[0m",
+      "",
+    ]);
+    // No DECLRMM (?69) and no DECSC/SCOSC (CSI s/u) emitted by the panel.
+    expect(result.stdoutBytes).not.toContain("\x1b[?69h");
+    expect(result.stdoutBytes).not.toContain("\x1b[?69l");
+    expect(result.stdoutBytes).not.toContain("\x1b[s");
+    expect(result.stdoutBytes).not.toContain("\x1b[u");
+    // Whole-attach outer mouse enabled once at attach start and never torn down before detach.
+    const detachIdx = result.stdoutBytes.indexOf("[h2a] detached");
+    expect(detachIdx).toBeGreaterThan(0);
+    const beforeDetach = result.stdoutBytes.slice(0, detachIdx);
+    const afterDetach = result.stdoutBytes.slice(detachIdx);
+    expect(beforeDetach).toContain("\x1b[?1000h\x1b[?1006h");
+    expect(beforeDetach).not.toContain("\x1b[?1000l");
+    expect(beforeDetach).not.toContain("\x1b[?1006l");
+    // Bar inactive => panel spans rows 1..40, renders full-width padded rows, and switches views/tabs.
+    expect(beforeDetach).toContain("\x1b[40;120H│");
+    expect(beforeDetach).toContain("[core] docs");
+    expect(beforeDetach).toContain("core [docs]");
+    expect(beforeDetach).toContain("◆* gateway posture");
+    expect(beforeDetach).toContain("first\r\n");
+    expect(beforeDetach).toContain("second\r\n");
+    expect(beforeDetach).toContain("third\r\n");
+    // Detach cleanly resets both child modes and h2a outer mouse.
+    expect(afterDetach).toContain("\x1b[?1004l");
+    expect(afterDetach).toContain("\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l");
   });
 });
 

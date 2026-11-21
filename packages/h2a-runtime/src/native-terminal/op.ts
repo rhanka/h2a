@@ -528,7 +528,10 @@ interface HeadlessTerminal {
     };
     readonly coreService: {
       readonly modes: { readonly insertMode: boolean };
-      readonly decPrivateModes: { readonly origin: boolean };
+      readonly decPrivateModes: {
+        readonly origin: boolean;
+        readonly wraparound?: boolean;
+      };
     };
     readonly _inputHandler: {
       readonly _curAttrData: HeadlessAttrData;
@@ -595,6 +598,13 @@ function sgrSequenceFromAttr(attr: HeadlessAttrData): string {
   return codes.length > 0 ? `\x1b[${codes.join(";")}m` : "";
 }
 
+type StatusBarRightPanelHost = {
+  childCols(totalCols: number): number;
+  isPaintActive(): boolean;
+  isOpen(): boolean;
+  paint(): void;
+};
+
 class NativeStatusBarController {
   readonly #id: string;
   readonly #stdout: NodeJS.WriteStream;
@@ -602,8 +612,11 @@ class NativeStatusBarController {
   readonly #opts: NativeAttachStatusBarOptions;
   readonly #optionEnabled: boolean;
   readonly #isTty: boolean;
+  #rightPanel: StatusBarRightPanelHost | undefined;
+  #onBeforeActivate: (() => void) | undefined;
   #featureEnabled = false;
   #initialized = false;
+  #headlessInitialized = false;
   #probeInFlight: Promise<void> | undefined;
   #readSnapshot:
     | ((opts: ReadNativeStatusBarOptions) => Promise<NativeStatusBarSnapshot>)
@@ -622,9 +635,11 @@ class NativeStatusBarController {
   #activeCols = 0;
   #lastRenderedLine = "";
   #needsRepaint = true;
+  #panelDirty = false;
   #pendingRegionReapply = false;
   #restored = false;
   #pendingSeq = "";
+  #lastGraphicChar = "";
   #rightPanelMarkerProvider:
     | (() => NativeStatusBarRightPanelMarker | undefined)
     | undefined;
@@ -662,6 +677,14 @@ class NativeStatusBarController {
     };
   }
 
+  setRightPanel(panel: StatusBarRightPanelHost | undefined): void {
+    this.#rightPanel = panel;
+  }
+
+  setOnBeforeActivate(cb: (() => void) | undefined): void {
+    this.#onBeforeActivate = cb;
+  }
+
   isActive(): boolean {
     const rows = this.#stdout.rows ?? 0;
     const cols = this.#stdout.columns ?? 0;
@@ -673,10 +696,48 @@ class NativeStatusBarController {
     );
   }
 
+  #panelActive(): boolean {
+    if (!this.#rightPanel || !this.#rightPanel.isPaintActive()) return false;
+    const cols = this.#stdout.columns ?? 0;
+    if (cols <= 0) return false;
+    return this.#rightPanel.childCols(cols) < cols;
+  }
+
+  #containmentActive(): boolean {
+    return this.isActive() || this.#panelActive();
+  }
+
+  #childCols(totalCols: number): number {
+    if (!this.#panelActive()) return totalCols;
+    return Math.max(1, this.#rightPanel!.childCols(totalCols));
+  }
+
   childRows(): number | undefined {
     const rows = this.#stdout.rows;
     if (!rows) return undefined;
     return this.isActive() ? rows - 1 : rows;
+  }
+
+  onRightPanelGeometryChange(): void {
+    const totalCols = this.#stdout.columns ?? 0;
+    const totalRows = this.#stdout.rows ?? 0;
+    if (totalCols > 0 && totalRows > 0 && this.#containmentActive()) {
+      const childCols = this.#childCols(totalCols);
+      const childRows = this.isActive() ? totalRows - 1 : totalRows;
+      this.#ensureHeadless(childCols, childRows);
+    }
+    if (this.isActive()) {
+      this.paint(true);
+    }
+  }
+
+  restoreChildStateSequence(): string {
+    const totalCols = this.#stdout.columns ?? 0;
+    const totalRows = this.#stdout.rows ?? 0;
+    if (totalCols <= 0 || totalRows <= 0) return "";
+    const childCols = this.#childCols(totalCols);
+    const childRows = this.isActive() ? totalRows - 1 : totalRows;
+    return this.#restoreStateFromHeadless(childCols, childRows);
   }
 
   #ensureHeadless(cols: number, childRows: number): HeadlessTerminal | undefined {
@@ -697,6 +758,16 @@ class NativeStatusBarController {
     return this.#headless;
   }
 
+  async #ensureHeadlessCtor(): Promise<void> {
+    if (this.#headlessInitialized) return;
+    this.#headlessInitialized = true;
+    const xtermMod = await import("@xterm/headless");
+    const xterm = (xtermMod.default ?? xtermMod) as unknown as {
+      Terminal: HeadlessTerminalConstructor;
+    };
+    this.#xtermCtor = xterm.Terminal;
+  }
+
   async probe(
     force = false,
     linkState?: NativeStatusBarLinkState,
@@ -707,24 +778,38 @@ class NativeStatusBarController {
       this.#linkState = linkState;
       this.#snapshot = { ...this.#snapshot, linkState };
     }
-    if (!this.#optionEnabled || !this.#isTty) return;
+    if (!this.#optionEnabled || !this.#isTty) {
+      if (this.#rightPanel !== undefined) {
+        await this.#ensureHeadlessCtor();
+        const totalCols = this.#stdout.columns ?? 0;
+        const totalRows = this.#stdout.rows ?? 0;
+        if (totalCols > 0 && totalRows > 0 && this.#panelActive()) {
+          this.#ensureHeadless(this.#childCols(totalCols), totalRows);
+        }
+      }
+      return;
+    }
     if (!this.#initialized) {
       this.#initialized = true;
-      const [{ isStatusBarEnabled }, statusProjection, xtermMod] =
-        await Promise.all([
-          import("../config.js"),
-          import("../status-projection.js"),
-          import("@xterm/headless"),
-        ]);
-      const xterm = (xtermMod.default ?? xtermMod) as unknown as {
-        Terminal: HeadlessTerminalConstructor;
-      };
+      const [{ isStatusBarEnabled }, statusProjection] = await Promise.all([
+        import("../config.js"),
+        import("../status-projection.js"),
+        this.#ensureHeadlessCtor(),
+      ]);
       this.#readSnapshot = statusProjection.readNativeStatusBarSnapshot;
       this.#renderLine = statusProjection.renderNativeStatusBarLine;
-      this.#xtermCtor = xterm.Terminal;
       this.#featureEnabled = isStatusBarEnabled(this.#opts.env ?? process.env);
     }
-    if (!this.#featureEnabled || !this.#readSnapshot) return;
+    if (!this.#featureEnabled || !this.#readSnapshot) {
+      if (this.#rightPanel !== undefined) {
+        const totalCols = this.#stdout.columns ?? 0;
+        const totalRows = this.#stdout.rows ?? 0;
+        if (totalCols > 0 && totalRows > 0 && this.#panelActive()) {
+          this.#ensureHeadless(this.#childCols(totalCols), totalRows);
+        }
+      }
+      return;
+    }
     if (!this.isActive()) {
       this.paint(linkChanged);
       return;
@@ -765,12 +850,25 @@ class NativeStatusBarController {
   }
 
   onResize(): void {
+    const totalCols = this.#stdout.columns ?? 0;
+    const totalRows = this.#stdout.rows ?? 0;
+    if (totalCols > 0 && totalRows > 0 && this.#containmentActive()) {
+      this.#ensureHeadless(
+        this.#childCols(totalCols),
+        this.isActive() ? totalRows - 1 : totalRows,
+      );
+    }
     this.paint(true);
   }
 
   flushAfterOutputBatch(): void {
-    if (this.#needsRepaint && this.#pendingSeq.length === 0) {
+    if (this.#pendingSeq.length > 0) return;
+    if (this.#needsRepaint && this.isActive()) {
       this.paint(false);
+    }
+    if (this.#panelDirty && this.#panelActive()) {
+      this.#panelDirty = false;
+      this.#rightPanel!.paint();
     }
   }
 
@@ -786,9 +884,15 @@ class NativeStatusBarController {
     this.#pendingSeq = "";
     this.#lastRenderedLine = "";
     this.#needsRepaint = true;
+    this.#panelDirty = this.#panelActive();
     this.#pendingRegionReapply = false;
+    this.#lastGraphicChar = "";
     this.#headless?.reset();
     this.paint(true);
+    if (this.#panelActive()) {
+      this.#panelDirty = false;
+      this.#rightPanel!.paint();
+    }
   }
 
   dispose(): void {
@@ -826,6 +930,8 @@ class NativeStatusBarController {
   #restoreStateFromHeadless(cols: number, childRows: number): string {
     const headless = this.#headless;
     if (!headless) return "\x1b[1;1H\x1b[0m";
+    const totalCols = this.#stdout.columns ?? cols;
+    const hasRightMargin = cols < totalCols;
     const core = headless._core;
     const buf = core._bufferService.buffer;
     const originMode = core.coreService.decPrivateModes.origin === true;
@@ -836,8 +942,9 @@ class NativeStatusBarController {
     const col = Math.min(cols, Math.max(1, buf.x + 1));
     const targetRow = originMode ? Math.max(1, row - top + 1) : row;
     const originPrefix = originMode ? "\x1b[?6h" : "";
+    const insertSuffix = insertMode ? "\x1b[4h" : "";
 
-    if (buf.x >= cols && !insertMode) {
+    if (!hasRightMargin && buf.x >= cols && !insertMode) {
       const line = headless.buffer.active.getLine(buf.ybase + buf.y);
       if (line) {
         let startCol = cols;
@@ -850,14 +957,15 @@ class NativeStatusBarController {
           const chars = cell.getChars();
           const glyph = chars.length > 0 ? chars : " ";
           const cellSgr = sgrSequenceFromAttr(cell);
-          return `${originPrefix}\x1b[${targetRow};${startCol}H\x1b[0m${cellSgr}${glyph}\x1b[0m${activeSgr}`;
+          return `${originPrefix}\x1b[${targetRow};${startCol}H\x1b[0m${cellSgr}${glyph}\x1b[0m${activeSgr}${insertSuffix}`;
         }
       }
     }
-    return `${originPrefix}\x1b[${targetRow};${col}H\x1b[0m${activeSgr}`;
+    return `${originPrefix}\x1b[${targetRow};${col}H\x1b[0m${activeSgr}${insertSuffix}`;
   }
 
   #reapplyScrollRegionAndState(cols: number, childRows: number): string {
+    if (!this.isActive()) return "";
     const buf = this.#headless?._core._bufferService.buffer;
     const top = Math.min(childRows - 1, Math.max(1, (buf?.scrollTop ?? 0) + 1));
     const bottom = Math.min(
@@ -914,8 +1022,9 @@ class NativeStatusBarController {
 
     const rows = this.#stdout.rows!;
     const cols = this.#stdout.columns!;
+    const childCols = this.#childCols(cols);
     const childRows = rows - 1;
-    const headless = this.#ensureHeadless(cols, childRows);
+    const headless = this.#ensureHeadless(childCols, childRows);
     const rowsChanged = !this.#wasActive || rows !== this.#activeRows;
     const geometryChanged = rowsChanged || cols !== this.#activeCols;
     let clearPreviousRow = "";
@@ -958,14 +1067,17 @@ class NativeStatusBarController {
       childRows,
       Math.max(top + 1, (buf?.scrollBottom ?? childRows - 1) + 1),
     );
-    const restoreSeq = this.#restoreStateFromHeadless(cols, childRows);
+    const restoreSeq = this.#restoreStateFromHeadless(childCols, childRows);
+    const insertOff = this.#panelActive() ? "\x1b[4l" : "";
+    // Publish the status-bar restore receipt BEFORE activating DECSTBM on stdout.
+    this.#onBeforeActivate?.();
     this.#stdout.write(
-      `${clearPreviousRow}\x1b[?6l\x1b[${top};${bottom}r\x1b[${rows};1H${AMBER_BAR_SGR}${line}\x1b[0m${restoreSeq}`,
+      `${clearPreviousRow}\x1b[?6l${insertOff}\x1b[${top};${bottom}r\x1b[${rows};1H${AMBER_BAR_SGR}${line}\x1b[0m${restoreSeq}`,
     );
   }
 
   transformChildOutput(data: string): string {
-    if (!this.isActive()) {
+    if (!this.#containmentActive()) {
       if (this.#pendingSeq.length > 0) {
         const flushed = this.#pendingSeq + data;
         this.#pendingSeq = "";
@@ -977,9 +1089,11 @@ class NativeStatusBarController {
     const input = this.#pendingSeq.length > 0 ? this.#pendingSeq + data : data;
     this.#pendingSeq = "";
     const rows = this.#stdout.rows!;
-    const cols = this.#stdout.columns!;
-    const childRows = rows - 1;
-    const headless = this.#ensureHeadless(cols, childRows);
+    const totalCols = this.#stdout.columns!;
+    const childCols = this.#childCols(totalCols);
+    const childRows = this.isActive() ? rows - 1 : rows;
+    const hasRightMargin = childCols < totalCols;
+    const headless = this.#ensureHeadless(childCols, childRows);
     if (!headless) return input;
     const ih = headless._core._inputHandler;
     let out = "";
@@ -1033,7 +1147,8 @@ class NativeStatusBarController {
               final,
               rawSeq,
               childRows,
-              cols,
+              childCols,
+              hasRightMargin,
             );
             i = j + 1;
             continue;
@@ -1104,12 +1219,22 @@ class NativeStatusBarController {
           }
           const rawSeq = input.slice(i, j + 1);
           ih.parse(rawSeq);
+          if (hasRightMargin && rawSeq === "\x1b#8") {
+            this.#panelDirty = true;
+          }
           out += rawSeq;
           i = j + 1;
           continue;
         } else {
           const rawSeq = input.slice(i, i + 2);
-          out += this.#processEsc(headless, next, rawSeq, childRows, cols);
+          out += this.#processEsc(
+            headless,
+            next,
+            rawSeq,
+            childRows,
+            childCols,
+            hasRightMargin,
+          );
           i += 2;
           continue;
         }
@@ -1124,18 +1249,21 @@ class NativeStatusBarController {
       const step = cp > 0xffff ? 2 : 1;
       const glyph = input.slice(i, i + step);
       if (cp !== 0x0d) {
-        out += this.#flushPendingRegionReapply(cols, childRows);
+        out += this.#flushPendingRegionReapply(childCols, childRows);
       }
       const buf = headless._core._bufferService.buffer;
       const prevY = buf.y;
       const prevX = buf.x;
+      const prevScrollTop = buf.scrollTop;
       const prevScrollBottom = buf.scrollBottom;
+      const prevInsert = headless._core.coreService.modes.insertMode === true;
       ih.parse(glyph);
-      if (prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
+
+      if (this.isActive() && prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
         if (cp === 0x0a || cp === 0x0b || cp === 0x0c || cp === 0x84) {
           out +=
-            prevX >= cols
-              ? this.#restoreStateFromHeadless(cols, childRows)
+            prevX >= childCols
+              ? this.#restoreStateFromHeadless(childCols, childRows)
               : "";
           i += step;
           continue;
@@ -1148,15 +1276,84 @@ class NativeStatusBarController {
         if (
           cp >= 0x20 &&
           !(cp >= 0x7f && cp <= 0x9f) &&
-          prevX >= cols &&
+          prevX >= childCols &&
           buf.x <= prevX
         ) {
+          this.#lastGraphicChar = glyph;
           out += `\r${glyph}`;
+          if (hasRightMargin && buf.x >= childCols) {
+            out += `\x1b[${childCols}G`;
+          }
           i += step;
           continue;
         }
       }
-      out += glyph;
+
+      if (!hasRightMargin) {
+        out += glyph;
+        i += step;
+        continue;
+      }
+
+      // Column-containment path (PANEL:182; outer terminal ignores ?69/DECSLRM).
+      if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) {
+        if (cp === 0x09) {
+          out += `\x1b[${Math.min(childCols, buf.x + 1)}G`;
+        } else if (cp === 0x08 && prevX >= childCols) {
+          out += `\x1b[${Math.min(childCols, buf.x + 1)}G`;
+        } else if (cp === 0x0a || cp === 0x0b || cp === 0x0c || cp === 0x84) {
+          if (prevY === prevScrollBottom) this.#panelDirty = true;
+          out += glyph;
+          if (prevX >= childCols) {
+            out += `\x1b[${Math.min(childCols, buf.x + 1)}G`;
+          }
+        } else if (cp === 0x85) {
+          if (prevY === prevScrollBottom) this.#panelDirty = true;
+          out += glyph;
+        } else if (cp === 0x8d) {
+          if (prevY === prevScrollTop) this.#panelDirty = true;
+          out += glyph;
+          if (prevX >= childCols) {
+            out += `\x1b[${Math.min(childCols, buf.x + 1)}G`;
+          }
+        } else {
+          out += glyph;
+        }
+        i += step;
+        continue;
+      }
+
+      this.#lastGraphicChar = glyph;
+      if (prevInsert) this.#panelDirty = true;
+
+      if (prevX === childCols - 1 && buf.y === prevY && buf.x === prevX) {
+        // Wide glyph at right boundary with autowrap disabled: clear boundary cell without writing glyph.
+        out += `\x1b[${childCols}G\x1b[1X`;
+      } else if (prevX >= childCols - 1 && (buf.y !== prevY || buf.x < prevX)) {
+        // Autowrap occurred at childCols (either pending-wrap or wide glyph straddling boundary).
+        if (prevX === childCols - 1) {
+          out += `\x1b[${childCols}G\x1b[1X`;
+        }
+        if (prevY === prevScrollBottom) {
+          this.#panelDirty = true;
+          out += `\r\n${glyph}`;
+        } else if (prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
+          out += `\r${glyph}`;
+        } else {
+          out += `\r\n${glyph}`;
+        }
+        if (buf.x >= childCols) {
+          out += `\x1b[${childCols}G`;
+        }
+      } else if (prevX >= childCols && buf.y === prevY && buf.x >= childCols) {
+        // Autowrap disabled at right boundary: overwrite last child cell and clamp cursor inside child area.
+        out += `\x1b[${childCols}G${glyph}\x1b[${childCols}G`;
+      } else {
+        out += glyph;
+        if (buf.x >= childCols) {
+          out += `\x1b[${childCols}G`;
+        }
+      }
       i += step;
     }
     return out;
@@ -1168,23 +1365,26 @@ class NativeStatusBarController {
     rawSeq: string,
     childRows: number,
     cols: number,
+    hasRightMargin: boolean,
   ): string {
     const prefix = this.#flushPendingRegionReapply(cols, childRows);
     const core = headless._core;
     const buf = core._bufferService.buffer;
     const prevY = buf.y;
     const prevX = buf.x;
+    const prevScrollTop = buf.scrollTop;
     const prevScrollBottom = buf.scrollBottom;
     core._inputHandler.parse(rawSeq);
     if (next === "c") {
       this.#needsRepaint = true;
-      this.#pendingRegionReapply = true;
+      if (hasRightMargin) this.#panelDirty = true;
+      this.#pendingRegionReapply = this.isActive();
       return `${prefix}${rawSeq}`;
     }
     if (next === "8") {
       return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
     }
-    if (prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
+    if (this.isActive() && prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
       if (next === "D") {
         return `${prefix}${
           prevX >= cols
@@ -1196,7 +1396,63 @@ class NativeStatusBarController {
         return `${prefix}\r`;
       }
     }
+    if (hasRightMargin) {
+      if (next === "D") {
+        if (prevY === prevScrollBottom) this.#panelDirty = true;
+        return `${prefix}${rawSeq}${prevX >= cols ? `\x1b[${Math.min(cols, buf.x + 1)}G` : ""}`;
+      }
+      if (next === "E") {
+        if (prevY === prevScrollBottom) this.#panelDirty = true;
+        return `${prefix}${rawSeq}`;
+      }
+      if (next === "M") {
+        if (prevY === prevScrollTop) this.#panelDirty = true;
+        return `${prefix}${rawSeq}${prevX >= cols ? `\x1b[${Math.min(cols, buf.x + 1)}G` : ""}`;
+      }
+    }
     return `${prefix}${rawSeq}`;
+  }
+
+  #emitContainedRep(
+    glyph: string,
+    count: number,
+    prevX: number,
+    prevY: number,
+    prevScrollBottom: number,
+    childCols: number,
+    childRows: number,
+    wraparound: boolean,
+  ): string {
+    let out = "";
+    let curX = prevX;
+    let curY = prevY;
+    let remaining = Math.min(count, 65535);
+    while (remaining > 0) {
+      if (curX >= childCols) {
+        if (!wraparound) {
+          out += `\x1b[${childCols}G${glyph}\x1b[${childCols}G`;
+          return out;
+        }
+        if (curY === prevScrollBottom) {
+          this.#panelDirty = true;
+          out += "\r\n";
+        } else if (curY === childRows - 1 && prevScrollBottom < childRows - 1) {
+          out += "\r";
+        } else {
+          out += "\r\n";
+          curY = Math.min(childRows - 1, curY + 1);
+        }
+        curX = 0;
+      }
+      const take = Math.min(remaining, childCols - curX);
+      out += glyph.repeat(take);
+      curX += take;
+      remaining -= take;
+    }
+    if (curX >= childCols) {
+      out += `\x1b[${childCols}G`;
+    }
+    return out;
   }
 
   #processCsi(
@@ -1207,6 +1463,7 @@ class NativeStatusBarController {
     rawSeq: string,
     childRows: number,
     cols: number,
+    hasRightMargin: boolean,
   ): string {
     const isPassthroughModeCsi =
       intermediates === "" &&
@@ -1223,16 +1480,20 @@ class NativeStatusBarController {
 
     const core = headless._core;
     const prevBuf = core._bufferService.buffer;
+    const prevX = prevBuf.x;
     const prevY = prevBuf.y;
     const prevScrollBottom = prevBuf.scrollBottom;
     const prevOrigin = core.coreService.decPrivateModes.origin === true;
+    const prevInsert = core.coreService.modes.insertMode === true;
+    const prevWraparound = core.coreService.decPrivateModes.wraparound !== false;
 
     core._inputHandler.parse(rawSeq);
     const buf = core._bufferService.buffer;
 
     if (intermediates === "!" && final === "p" && params === "") {
       this.#needsRepaint = true;
-      this.#pendingRegionReapply = true;
+      if (hasRightMargin) this.#panelDirty = true;
+      this.#pendingRegionReapply = this.isActive();
       return `${prefix}${rawSeq}`;
     }
     if (intermediates !== "") return `${prefix}${rawSeq}`;
@@ -1251,27 +1512,80 @@ class NativeStatusBarController {
       if (bottom <= top) {
         return prefix;
       }
-      this.#needsRepaint = true;
-      this.#pendingRegionReapply = false;
-      return `${prefix}\x1b[${buf.scrollTop + 1};${buf.scrollBottom + 1}r`;
+      if (this.isActive()) {
+        this.#needsRepaint = true;
+        this.#pendingRegionReapply = false;
+        return `${prefix}\x1b[${buf.scrollTop + 1};${buf.scrollBottom + 1}r`;
+      }
+      return `${prefix}${rawSeq}`;
     }
 
     if ((final === "H" || final === "f") && isStandardParams) {
-      if (!prevOrigin) {
-        const rawRow = Number.parseInt(params.split(";")[0] || "1", 10) || 1;
-        if (rawRow > childRows) {
-          return `${prefix}\x1b[${buf.y + 1};${buf.x + 1}${final}`;
+      const parts = params.split(";");
+      const rawRow = Number.parseInt(parts[0] || "1", 10) || 1;
+      const rawCol = Number.parseInt(parts[1] || "1", 10) || 1;
+      const rowClamped = !prevOrigin && rawRow > childRows;
+      const colClamped = hasRightMargin && rawCol > cols;
+      if (rowClamped || colClamped) {
+        const targetRow = prevOrigin
+          ? Math.max(1, buf.y - buf.scrollTop + 1)
+          : buf.y + 1;
+        return `${prefix}\x1b[${targetRow};${Math.min(cols, buf.x + 1)}${final}`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if ((final === "G" || final === "`") && isStandardParams) {
+      if (hasRightMargin) {
+        const rawCol = Number.parseInt(params || "1", 10) || 1;
+        if (rawCol > cols || prevX >= cols) {
+          return `${prefix}\x1b[${Math.min(cols, buf.x + 1)}G`;
         }
       }
       return `${prefix}${rawSeq}`;
     }
 
+    if ((final === "C" || final === "a") && isStandardParams) {
+      if (hasRightMargin) {
+        const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+        if (prevX + n >= cols || prevX >= cols) {
+          return `${prefix}\x1b[${Math.min(cols, buf.x + 1)}G`;
+        }
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "D" && isStandardParams) {
+      if (hasRightMargin && prevX >= cols) {
+        return `${prefix}\x1b[${Math.min(cols, buf.x + 1)}G`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if ((final === "I" || final === "Z") && isStandardParams) {
+      if (hasRightMargin) {
+        return `${prefix}\x1b[${Math.min(cols, buf.x + 1)}G`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
     if (final === "d" && isStandardParams) {
+      let out = rawSeq;
       if (!prevOrigin) {
         const rawRow = Number.parseInt(params || "1", 10) || 1;
         if (rawRow > childRows) {
-          return `${prefix}\x1b[${buf.y + 1}d`;
+          out = `\x1b[${buf.y + 1}d`;
         }
+      }
+      if (hasRightMargin && prevX >= cols) {
+        out += `\x1b[${Math.min(cols, buf.x + 1)}G`;
+      }
+      return `${prefix}${out}`;
+    }
+
+    if (final === "A" && isStandardParams) {
+      if (hasRightMargin && prevX >= cols) {
+        return `${prefix}${rawSeq}\x1b[${Math.min(cols, buf.x + 1)}G`;
       }
       return `${prefix}${rawSeq}`;
     }
@@ -1281,12 +1595,103 @@ class NativeStatusBarController {
       isStandardParams
     ) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      let out = rawSeq;
       if ((prevY > prevScrollBottom || final === "e") && prevY + n >= childRows) {
         const maxDown = Math.max(0, buf.y - prevY);
         if (final === "E") {
-          return `${prefix}${maxDown > 0 ? `\x1b[${maxDown}E` : "\r"}`;
+          out = maxDown > 0 ? `\x1b[${maxDown}E` : "\r";
+        } else {
+          out = maxDown > 0 ? `\x1b[${maxDown}${final}` : "";
         }
-        return `${prefix}${maxDown > 0 ? `\x1b[${maxDown}${final}` : ""}`;
+      }
+      if (hasRightMargin && final !== "E" && prevX >= cols) {
+        out += `\x1b[${Math.min(cols, buf.x + 1)}G`;
+      }
+      return `${prefix}${out}`;
+    }
+
+    if (final === "K" && (params === "" || /^\??\d+$/.test(params))) {
+      if (hasRightMargin) {
+        const mode = Number.parseInt(params.replace(/^\?/, "") || "0", 10);
+        if (mode === 0) {
+          if (prevX >= cols) return prefix;
+          const count = cols - prevX;
+          return `${prefix}\x1b[${count}X`;
+        }
+        if (mode === 1) {
+          return `${prefix}${prevX >= cols ? `\x1b[${cols}G` : ""}\x1b[1K`;
+        }
+        if (mode === 2) {
+          return `${prefix}\x1b[1G\x1b[${cols}X\x1b[${Math.min(cols, buf.x + 1)}G`;
+        }
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "X" && isStandardParams) {
+      if (hasRightMargin) {
+        const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+        const x = Math.min(prevX, cols - 1);
+        const clamped = Math.min(n, Math.max(0, cols - x));
+        return `${prefix}${clamped > 0 ? `\x1b[${clamped}X` : ""}`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "@" && isStandardParams) {
+      if (hasRightMargin) {
+        this.#panelDirty = true;
+        const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+        const x = Math.min(prevX, cols - 1);
+        const clamped = Math.min(n, Math.max(1, cols - x));
+        return `${prefix}\x1b[${x + 1}G\x1b[${clamped}@\x1b[${Math.min(cols, buf.x + 1)}G`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "P" && isStandardParams) {
+      if (hasRightMargin) {
+        this.#panelDirty = true;
+        const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+        const x = Math.min(prevX, cols - 1);
+        const k = Math.min(n, Math.max(0, cols - x));
+        if (k <= 0) return prefix;
+        // DCH on outer terminal pulls cells from [cols .. totalCols-1] into [cols-k .. cols-1].
+        // Immediately erase those rightmost k child cells so panel/overflow cells never enter the child area.
+        return `${prefix}\x1b[${x + 1}G\x1b[${k}P\x1b[${cols - k + 1}G\x1b[${k}X\x1b[${Math.min(cols, buf.x + 1)}G`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "b" && isStandardParams) {
+      if (hasRightMargin) {
+        const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+        if (buf.x === prevX && buf.y === prevY && !prevInsert) {
+          return prefix;
+        }
+        if (prevInsert) this.#panelDirty = true;
+        if ((prevX + n >= cols || prevInsert) && this.#lastGraphicChar.length > 0) {
+          return `${prefix}${this.#emitContainedRep(
+            this.#lastGraphicChar,
+            n,
+            prevX,
+            prevY,
+            prevScrollBottom,
+            cols,
+            childRows,
+            prevWraparound,
+          )}`;
+        }
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if ((final === "L" || final === "M" || final === "S" || final === "T") && isStandardParams) {
+      if (hasRightMargin) {
+        this.#panelDirty = true;
+        if ((final === "S" || final === "T") && prevX >= cols) {
+          return `${prefix}${rawSeq}\x1b[${Math.min(cols, buf.x + 1)}G`;
+        }
       }
       return `${prefix}${rawSeq}`;
     }
@@ -1297,10 +1702,19 @@ class NativeStatusBarController {
 
     if (final === "J" && (params === "" || /^\??\d+$/.test(params))) {
       const mode = Number.parseInt(params.replace(/^\?/, "") || "0", 10);
+      if (hasRightMargin) {
+        this.#panelDirty = true;
+      }
       if (mode === 0 || mode === 2 || mode === 3) {
         this.#needsRepaint = true;
-        this.#pendingRegionReapply = true;
-        return `${prefix}${rawSeq}`;
+        this.#pendingRegionReapply = this.isActive();
+      }
+      if (hasRightMargin && mode === 0 && prevX >= cols) {
+        // Under pendingWrap, ED 0 preserves cell cols-1 on prevY and only erases rows below.
+        const targetRow = prevOrigin
+          ? Math.max(1, prevY - buf.scrollTop + 1)
+          : prevY + 1;
+        return `${prefix}\x1b[${targetRow};${cols + 1}H\x1b[J\x1b[${targetRow};${cols}H`;
       }
       return `${prefix}${rawSeq}`;
     }
@@ -1312,7 +1726,8 @@ class NativeStatusBarController {
       const modes = params.slice(1).split(";").map(Number);
       if (modes.some((m) => m === 47 || m === 1047 || m === 1049)) {
         this.#needsRepaint = true;
-        this.#pendingRegionReapply = true;
+        if (hasRightMargin) this.#panelDirty = true;
+        this.#pendingRegionReapply = this.isActive();
         return `${prefix}${rawSeq}`;
       }
       if (final === "l" && modes.includes(1048)) {
@@ -1391,6 +1806,8 @@ export async function runAttach(
           statusBar.paint(false);
         }
       },
+      restoreChildState: () => statusBar.restoreChildStateSequence(),
+      isStatusBarActive: () => statusBar.isActive(),
     });
     if (!opt?.snapshot) {
       const panelEnv = opt?.env ?? process.env;
@@ -1431,6 +1848,7 @@ export async function runAttach(
   if (rightPanel) {
     statusBar.setRightPanelMarkerProvider(() => rightPanel.statusBarMarker());
   }
+  statusBar.setRightPanel(rightPanel);
   const isRawCapable = stdin.isTTY === true;
   const wasRaw = stdin.isRaw === true;
   let tty = "not-a-tty";
@@ -1443,10 +1861,12 @@ export async function runAttach(
     tty,
     statusBar,
     takeover: options.takeover,
+    ownOuterMouse: rightPanel !== undefined,
     saveTerminalReset: runtime.saveTerminalReset,
     getChildCols: () =>
       rightPanel ? rightPanel.childCols(stdout.columns ?? 0) : stdout.columns,
   });
+  statusBar.setOnBeforeActivate(() => view.saveReset());
 
   const terminate = (): void => {
     view.detached = true;
@@ -1481,8 +1901,8 @@ export async function runAttach(
       return;
     }
     if (handled.actions.some((a) => a.type === "toggle")) {
+      statusBar.onRightPanelGeometryChange();
       view.sendChildResize();
-      statusBar.paint(false);
     }
     if (handled.forwardBytes && handled.forwardBytes.length > 0) {
       enqueueChildBytes(handled.forwardBytes);
@@ -1499,6 +1919,8 @@ export async function runAttach(
     if (rightPanel) {
       const handled = rightPanel.handleInputBytes(chunk, {
         cliMouseEnabled: view.modes.isMouseTrackingEnabled(),
+        cliMouseMode: view.modes.mouseTrackingMode(),
+        cliMouseEncoding: view.modes.mouseEncoding(),
         bracketedPasteEnabled: view.modes.isBracketedPasteEnabled(),
         kittyKeyboardEnabled: view.modes.isKittyKeyboardEnabled(),
         statusBarActive: statusBar.isActive(),
@@ -1524,8 +1946,11 @@ export async function runAttach(
     view.connectAndAcquire(
       () => runtime.connect(),
       () => {
-        rightPanel?.paint();
-        void rightPanelRefresher?.maybeRefresh(true);
+        if (rightPanel) {
+          view.enableOuterMouse();
+          rightPanel.paint();
+          void rightPanelRefresher?.maybeRefresh(true);
+        }
       },
     );
 
@@ -1653,7 +2078,6 @@ export async function runAttach(
         );
         if (view.detached) break;
         view.feedReplay(replay);
-        if (rightPanel?.isOpen()) rightPanel.paint();
         if (
           rightPanel &&
           pendingEscapeAt !== undefined &&
@@ -1663,6 +2087,8 @@ export async function runAttach(
           applyPanelResult(
             rightPanel.flushPending({
               cliMouseEnabled: view.modes.isMouseTrackingEnabled(),
+              cliMouseMode: view.modes.mouseTrackingMode(),
+              cliMouseEncoding: view.modes.mouseEncoding(),
               bracketedPasteEnabled: view.modes.isBracketedPasteEnabled(),
               kittyKeyboardEnabled: view.modes.isKittyKeyboardEnabled(),
               statusBarActive: statusBar.isActive(),
