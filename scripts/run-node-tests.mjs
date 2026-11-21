@@ -86,15 +86,61 @@ async function* execute(group, workers = concurrency) {
     execArgv: ['--import', fileURLToPath(new URL('../packages/h2a/test/helpers/native-isolation.js', import.meta.url))] });
 }
 async function* merge(sources) {
-  const output = new PassThrough({ objectMode: true });
-  let pendingSources = sources.length;
-  for (const source of sources) {
-    source.once('error', error => output.destroy(error));
-    source.once('end', () => { if (--pendingSources === 0) output.end(); });
-    source.pipe(output, { end: false });
+  // Node's spec reporter tracks open test:start frames on a single LIFO stack
+  // and asserts exact name/nesting match on test:pass/test:fail. Drain each
+  // concurrent run() independently so suites never stall on backpressure, while
+  // keeping every test:start..test:pass/fail span atomic across merged streams.
+  const states = sources.map(source => ({ source, queue: [], done: false }));
+  let active = null, depth = 0, failure = null, wake = null;
+  const notify = () => { const fn = wake; wake = null; fn?.(); };
+  const pumps = states.map(state => (async () => {
+    try {
+      for await (const event of state.source) {
+        state.queue.push(event);
+        notify();
+      }
+    } catch (error) {
+      failure ??= error;
+      notify();
+    } finally {
+      state.done = true;
+      notify();
+    }
+  })());
+  const take = () => {
+    if (active) {
+      if (active.queue.length) return { state: active, event: active.queue.shift() };
+      if (!active.done) return null;
+      active = null;
+      depth = 0;
+    }
+    for (const state of states) {
+      if (state.queue.length) return { state, event: state.queue.shift() };
+    }
+    return null;
+  };
+  try {
+    while (true) {
+      if (failure) throw failure;
+      const next = take();
+      if (next) {
+        const { state, event } = next;
+        if (event.type === 'test:start') {
+          active = state;
+          depth++;
+        } else if (state === active && (event.type === 'test:pass' || event.type === 'test:fail')) {
+          if (--depth <= 0) { active = null; depth = 0; }
+        }
+        yield event;
+        continue;
+      }
+      if (states.every(state => state.done && state.queue.length === 0)) break;
+      await new Promise(resolve => { wake = resolve; });
+    }
+  } finally {
+    for (const source of sources) source.destroy();
+    await Promise.allSettled(pumps);
   }
-  try { yield* output; }
-  finally { for (const source of sources) source.destroy(); }
 }
 async function* schedule() {
   for (const file of standalone) yield* execute([file]);
@@ -117,7 +163,10 @@ async function* schedule() {
   })());
   yield* merge([campaign, other]);
 }
-const events = Readable.from((async function* () {
+const specInput = new PassThrough({ objectMode: true });
+const evidenceInput = new PassThrough({ objectMode: true });
+const pump = (async () => {
+  try {
     for await (const event of schedule()) {
       const { type, data } = event;
       if (type === 'test:summary' && !data.success) process.exitCode = 1;
@@ -125,13 +174,22 @@ const events = Readable.from((async function* () {
       if (type === 'test:fail' && !data.todo && !data.skip) {
         process.stderr.write(`[node-test-failure] ${data.file}: ${data.name}\n${inspect(data.details?.error, { depth: 6 })}\n`);
       }
-      yield event;
+      specInput.write(event);
+      evidenceInput.write(event);
     }
-})());
+    specInput.end();
+    evidenceInput.end();
+  } catch (error) {
+    specInput.destroy(error);
+    evidenceInput.destroy(error);
+    throw error;
+  }
+})();
 try {
   await Promise.all([
-    pipeline(events, new spec(), process.stdout),
-    pipeline(events, Duplex.from(evidenceReporter), createWriteStream(reportPath)),
+    pump,
+    pipeline(specInput, new spec(), process.stdout),
+    pipeline(evidenceInput, Duplex.from(evidenceReporter), createWriteStream(reportPath)),
   ]);
 } finally {
   clearInterval(progress);
