@@ -11,7 +11,12 @@ import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
 import { DomainError } from '../model/item.js'
 import { fold } from '../state/fold.js'
-import { auditOwnerTable, renderOwnerTable, type ProjectOwnerTableOptions } from '../report/owner-table.js'
+import type { ProjectOwnerTableOptions } from '../report/owner-table.js'
+import {
+  buildQualifiedOwnerTable,
+  renderQualifiedOwnerTable,
+  type QualifiedOwnerTableOptions,
+} from '../report/owner-table-qualified.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
 
 /** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
@@ -477,24 +482,34 @@ export function queryText(
   return format === 'json' ? `${JSON.stringify(rows, null, 2)}\n` : formatRows(rows, format)
 }
 
+export interface OwnerTableCommandOptions extends ProjectOwnerTableOptions {
+  strict?: boolean
+  header?: QualifiedOwnerTableOptions['header']
+}
+
 /**
- * Render the owner-validated status table (`track report --owner-table` / default owner report).
- * Enforces all blocking gates fail-closed before returning Markdown/text or JSON.
+ * Render the owner-validated status table (`track report --owner-table`).
+ * Default mode renders the qualified view (refusing only G1–G4); `strict: true` refuses on E1–E8
+ * with the strict audit's exact text followed by `[document-desync]` lines, and when clean renders
+ * the exact same qualified output.
  */
 export function ownerTableText(
   reader: TrackReader,
-  options: ProjectOwnerTableOptions = {},
+  options: OwnerTableCommandOptions = {},
   format: Format = 'md',
 ): string {
   assertReportFormat(format)
-  const view = reader.ownerTable(options)
-  if (format === 'json') {
-    const audit = auditOwnerTable(view, options)
-    if (!audit.ok) {
-      const details = audit.violations.map((v) => `- [${v.code}] ${v.message}`).join('\n')
-      throw new DomainError(`REFUSED: owner table failed blocking gates:\n${details}`)
-    }
-    return `${JSON.stringify({ ...view, audit }, null, 2)}\n`
-  }
-  return renderOwnerTable(view, format, options)
+  const { strict, header, ...projOpts } = options
+  const ctx = reader.ownerTableContext(projOpts)
+  const qualified = buildQualifiedOwnerTable(ctx.view, {
+    ...projOpts,
+    mode: strict === true ? 'strict' : 'default',
+    policyFound: ctx.policyFound,
+    desyncFindings: ctx.desync,
+    header: {
+      ...header,
+      ...(ctx.lastEventAt !== undefined ? { lastEventAt: ctx.lastEventAt } : {}),
+    },
+  })
+  return renderQualifiedOwnerTable(qualified, format)
 }
