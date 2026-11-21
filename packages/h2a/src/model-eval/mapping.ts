@@ -1,9 +1,8 @@
 /**
  * Reviewed AA-slug → h2a-launch mapping table.
  *
- * Each row is evidence-backed (see `reviewed` + `note`). Slugs observed on
- * the AA leaderboard page on 2026-11-04; launch ids attested by the h2a-run
- * skill (same date). Unknown slugs are EXCLUDED and reported — never guessed.
+ * Each row records its review date and evidence. Unknown slugs are excluded
+ * and reported.
  *
  * One source slug per launch id: a recommendation score always comes from
  * the single reviewed slug mapped to that launch id, never borrowed from a
@@ -31,6 +30,24 @@ export const MODEL_EVAL_MAPPING: readonly ModelEvalMappingRow[] = [
     opus: false,
     reviewed: MODEL_EVAL_MAPPING_REVIEWED,
     note: "Codex-lane GPT (Terra xhigh class per h2a-run skill)."
+  },
+  {
+    aaSlug: "gpt-6-2-astra",
+    profile: "codex",
+    model: "gpt-6.2-astra",
+    aliases: ["astra", "astra 6.2"],
+    opus: false,
+    reviewed: "2026-11-21",
+    note: "AA https://artificialanalysis.ai/models/gpt-6-2-astra, OpenAI https://developers.openai.com/api/docs/models/gpt-6.2-astra"
+  },
+  {
+    aaSlug: "gpt-6-2-sol",
+    profile: "codex",
+    model: "gpt-6.2-sol",
+    aliases: ["sol", "sol 6.2"],
+    opus: false,
+    reviewed: "2026-11-21",
+    note: "AA https://artificialanalysis.ai/models/gpt-6-2-sol, OpenAI https://developers.openai.com/api/docs/models/gpt-6.2-sol"
   },
   {
     aaSlug: "gemini-3-7-flash",

@@ -14,6 +14,16 @@ test("launch skill documents direct defaults and cluster-mesh backend", () => {
   assert.match(migration, /rollback/i);
 });
 
+for (const [flavor, effort] of [["astra", "max"], ["sol", "xhigh"]]) {
+  test(`launch skill documents Codex 6.2 ${flavor} aliases and effort`, () => {
+    const row = source("../skills/h2a-run/SKILL.md").split("\n")
+      .find((line) => line.startsWith(`| \`${flavor}\`, \`${flavor} 6.2\``));
+    assert.ok(row);
+    assert.ok(row.includes(`| \`gpt-6.2-${flavor}\` | \`codex\` |`));
+    assert.ok(row.includes(effort));
+  });
+}
+
 test("launch and review skills keep the vibe surface documented at runtime parity", () => {
   const skill = source("../skills/h2a-run/SKILL.md");
   // Every runtime h2a_run profile (pinned by mcp-run.test.js) is documented,

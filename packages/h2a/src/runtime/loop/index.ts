@@ -39,7 +39,7 @@ export interface H2ALoopLaunchSpec {
   readonly prompt: string;
   readonly model: string;
   readonly name: string;
-  readonly effort?: "low" | "medium" | "high" | "xhigh";
+  readonly effort?: "low" | "medium" | "high" | "xhigh" | "max";
   readonly gateway?: "auto" | "required" | "off";
 }
 
@@ -276,8 +276,9 @@ export function validateLoopLaunchSpec(value: unknown): H2ALoopLaunchSpec {
   if (typeof raw.name !== "string" || !SAFE_LAUNCH_NAME.test(raw.name)) {
     throw new Error('loop launch name is required (allowed: letters, digits, "_", "-")');
   }
-  if (raw.effort !== undefined && !["low", "medium", "high", "xhigh"].includes(raw.effort as string)) {
-    throw new Error("loop launch effort must be low, medium, high, or xhigh");
+  if (raw.effort !== undefined && !["low", "medium", "high", "xhigh"].includes(raw.effort as string)
+      && !(raw.profile === "codex" && raw.effort === "max")) {
+    throw new Error("loop launch effort must be low, medium, high, or xhigh (Codex also accepts max)");
   }
   if (raw.gateway !== undefined && !["auto", "required", "off"].includes(raw.gateway as string)) {
     throw new Error("loop launch gateway must be auto, required, or off");

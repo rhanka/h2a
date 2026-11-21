@@ -113,6 +113,18 @@ test("canonical loop launch uses argv plus stdin, sidecar, background JSON and n
   }
 });
 
+test("loop launches accept Codex max without changing the model or effort", () => {
+  const dir = workspace();
+  try {
+    const spec = launchSpec(dir, { model: "gpt-6.2-astra", effort: "max" });
+    assert.deepEqual(buildLoopLaunchInvocation(spec).args.slice(-4),
+      ["--model", "gpt-6.2-astra", "--effort", "max"]);
+    assert.throws(() => validateLoopLaunchSpec({ ...spec, profile: "claude" }), /effort/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("claude required gateway is explicit in argv and must be proven by the result", () => {
   const dir = workspace();
   try {

@@ -983,8 +983,10 @@ export const embeddedTools = [
                 "low",
                 "medium",
                 "high",
-                "xhigh"
-              ]
+                "xhigh",
+                "max"
+              ],
+              "description": "Only Codex accepts max."
             },
             "gateway": {
               "type": "string",
@@ -1060,8 +1062,10 @@ export const embeddedTools = [
                 "low",
                 "medium",
                 "high",
-                "xhigh"
-              ]
+                "xhigh",
+                "max"
+              ],
+              "description": "Only Codex accepts max."
             },
             "gateway": {
               "type": "string",
@@ -1254,7 +1258,7 @@ export const embeddedTools = [
             "xhigh",
             "max"
           ],
-          "description": "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Muse additionally accepts max and maps effort to its native --reasoning-effort."
+          "description": "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Codex also accepts max for models that support it. Muse accepts max and maps effort to its native --reasoning-effort."
         },
         "role": {
           "type": "string",

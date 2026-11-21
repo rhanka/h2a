@@ -39,12 +39,14 @@ This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blo
 None of these require knowing a provider model id up front:
 
 1. **Profile** — `claude`, `codex`, `agy`, `muse`, or `vibe` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
-2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*, *fable-5.2*, *fable-5.1*), *luna*, *carbon* (`gemini-4-carbon`), *argon* (`gemini-4-argon-low` / `gemini-4-argon-medium` / `gemini-4-argon-high`), or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
-3. **Effort** — `low | medium | high | xhigh`, plus `max` for Muse. For Claude/Codex, translate a user's "max" intent to `xhigh`; for Muse, pass `max` unchanged as `--reasoning-effort max`. AGY accepts only `low | medium | high` and rejects `xhigh` (`gemini-4-carbon` refuses `max`; `claude-opus-5-5` and `claude-sonnet-5-5` map `max` to `high`). Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
+2. **Model flavor** — a nickname like *terra*, *astra*, *sol*, *fable*, *luna*, *carbon* (`gemini-4-carbon`), *argon* (`gemini-4-argon-low` / `gemini-4-argon-medium` / `gemini-4-argon-high`), or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
+3. **Effort** — `low | medium | high | xhigh`, plus `max` for Codex and Muse. Codex forwards `max` as `model_reasoning_effort="max"` for models that support it. Muse forwards it as `--reasoning-effort max`. Translate Claude's "max" intent to `xhigh`. AGY accepts only `low | medium | high` and rejects `xhigh` (`gemini-4-carbon` refuses `max`; `claude-opus-5-5` and `claude-sonnet-5-5` map `max` to `high`). Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
-**The canonical model catalog and equivalence council belong to the llm-mesh API exposed through `@sentropic/cluster-mesh`**, never to h2a or this skill. This skill must not freeze a provider/model table. Before translating a nickname:
+For direct Codex launches, use the OpenAI model ids in the table for Astra 6.2 and Sol 6.2. [Astra 6.2](https://developers.openai.com/api/docs/models/gpt-6.2-astra) · [Sol 6.2](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
+
+The llm-mesh API exposed through `@sentropic/cluster-mesh` owns the gateway catalog and equivalence council. For gateway routing:
 
 - if a gateway is already running for this session, query `GET <ANTHROPIC_BASE_URL>/v1/models` (the mesh's own live catalog) and match the flavor there;
 - otherwise, ask the caller for an exact model id; never start the gateway for a mere model lookup and never inspect or recreate a h2a-local table.
@@ -53,6 +55,8 @@ The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 r
 
 | Nickname / alias | Canonical `--model` / `model` id | Profile | Effort notes |
 | --- | --- | --- | --- |
+| `astra`, `astra 6.2` | `gpt-6.2-astra` | `codex` | `low \| medium \| high \| xhigh \| max` |
+| `sol`, `sol 6.2` | `gpt-6.2-sol` | `codex` | `low \| medium \| high \| xhigh \| max` |
 | `carbon`, `gemini-carbon`, `gemini-4-carbon`, `carbon-high` | `gemini-4-carbon` | `agy` | `low \| medium \| high` only (`max` is refused) |
 | `argon`, `gemini-argon`, `gemini-4-argon`, `argon-high`, `gemini-4-argon-high` | `gemini-4-argon-high` (`-low` / `-medium` / `-high`) | `agy` | `low \| medium \| high` (bare `gemini-4-argon` maps to `gemini-4-argon-high` or `gemini-4-argon-<effort>`) |
 | `flash`, `gemini-3.8-flash`, `flash-high` | `gemini-3.8-flash` | `agy` | `low \| medium \| high` |
@@ -80,7 +84,7 @@ Vibe (Mistral Vibe CLI) talks to the Mistral provider directly with its own plan
 
 ### `h2a_run` MCP tool (what this agent must use)
 
-Required: `profile` (`"claude"|"codex"|"agy"|"muse"|"vibe"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (`"low"|"medium"|"high"|"xhigh"|"max"`; `max` is Muse-only, AGY rejects `xhigh`), `gateway` (`"auto"|"required"|"off"`, default `"auto"` resolves direct; AGY, Muse and Vibe use `"off"`, `"required"` is rejected for them), `headless` (default `false`; AGY maps `true` to `--print`; Muse and Vibe reject `true`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
+Required: `profile` (`"claude"|"codex"|"agy"|"muse"|"vibe"`), `name` (`^[A-Za-z0-9_-]{1,64}$`), `workspace` (absolute path, must exist, must stay inside the MCP server's startup workspace root), `prompt` (1–65536 UTF-8 bytes, sent on stdin — never put it in argv), `background` (must be literal `true`). Optional: `agent` (AGY only; for example `"stp"`), `model` (free-text, format-checked only — see Step 2 for the value), `effort` (see Step 1), `gateway` (`"auto"|"required"|"off"`, default `"auto"` resolves direct; AGY, Muse and Vibe use `"off"`, `"required"` is rejected for them), `headless` (default `false`; AGY maps `true` to `--print`; Muse and Vibe reject `true`), `h2aSidecar` (default `!headless`; cannot be `true` together with `headless: true`).
 
 Example — "terra, xhigh, headless, on this repo":
 
