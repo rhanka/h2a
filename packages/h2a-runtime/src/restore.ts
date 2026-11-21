@@ -69,6 +69,7 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import { listNativeSessions } from "./native-host.js";
+import { applicationForeground } from "./native-terminal/protocol.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { STATION_STATE_FILE_NAME } from "./native-terminal/station-state.js";
 import { humanOutputText } from "./human-output.js";
@@ -276,9 +277,9 @@ export function reconcileRunConvIds(
  * of its own — F3) see the SAME probe state. A failed native inventory read
  * is carried as `known: false` — an UNKNOWN view, never an empty one.
  */
-export function captureHostViewSnapshot(): HostViewSnapshot {
+export function captureHostViewSnapshot() {
   const tmux = listLocalSessionsWithDiagnostics();
-  const native: HostViewSnapshot["native"] = (() => {
+  const native = (() => {
     try {
       const sessions = listNativeSessions();
       return {
@@ -290,6 +291,7 @@ export function captureHostViewSnapshot(): HostViewSnapshot {
             name: session.id,
             controlled: session.controlled,
             socketPath: session.socketPath,
+            ...applicationForeground(session),
           })),
       };
     } catch {
@@ -298,8 +300,8 @@ export function captureHostViewSnapshot(): HostViewSnapshot {
   })();
   return {
     tmux: tmux.known
-      ? { known: true, sessions: tmux.sessions }
-      : { known: false, ...(tmux.reason !== undefined ? { reason: tmux.reason } : {}) },
+      ? { known: true as const, sessions: tmux.sessions }
+      : { known: false as const, ...(tmux.reason !== undefined ? { reason: tmux.reason } : {}) },
     native,
   };
 }
