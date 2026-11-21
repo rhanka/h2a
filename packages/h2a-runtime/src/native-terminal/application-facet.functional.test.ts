@@ -106,14 +106,14 @@ it("observes a real foreground editor, CLI and persistent shell in one PTY", asy
       expect(await client.state("fixture")).toMatchObject({ applicationFacet: "shell" });
       await client.write(lease, "\rcontinued'\r");
       await waitForOutput("continued\r\n");
-      await client.write(lease, "/bin/bash -c 'printf \"manual CLI ready\\n\"; read -r command'\r");
-      await waitForOutput("manual CLI ready\r\n");
-      await vi.waitFor(async () => expect(await client.state("fixture")).toMatchObject({
-        applicationFacet: "unknown",
-      }));
-      await client.write(lease, "exit fixture\r");
-      await vi.waitFor(async () => expect(await output()).toMatch(/\[\[facet-shell-ready\]\] $/));
-      expect(await client.state("fixture")).toMatchObject({ applicationFacet: "shell" });
+      for (const [jobControl, ready] of [["-m", "manual CLI ready"], ["+m", "shared group CLI ready"]]) {
+        await client.write(lease, `set ${jobControl}; /bin/bash -c 'printf "${ready}\\n"; read -r command'\r`);
+        await waitForOutput(`${ready}\r\n`);
+        expect(await client.state("fixture")).toMatchObject({ applicationFacet: "unknown" });
+        await client.write(lease, "exit fixture\r");
+        await vi.waitFor(async () => expect((await output()).endsWith(fixtureShellPrompt)).toBe(true));
+        expect(await client.state("fixture")).toMatchObject({ applicationFacet: "shell" });
+      }
       await client.write(lease, "\x04");
       await vi.waitFor(async () => expect(await client.state("fixture")).toMatchObject({
         status: "exited",
