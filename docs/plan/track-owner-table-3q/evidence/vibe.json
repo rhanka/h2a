@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "cli": "vibe",
+  "cliVersion": "3.1.2",
+  "qualifiedOn": "2026-11-20",
+  "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
+  "hookPoint": "pre_agent",
+  "hookConfigLevel": "project",
+  "projectConfigPath": "<throwaway-project>/.vibe/hooks.toml",
+  "signedInRunOutcome": {
+    "blocked": true,
+    "exitCode": 2,
+    "error": "OSError: [Errno 30] Read-only file system: '~/.vibe/logs/vibe.log' (confinement sandbox mounts ~/.vibe read-only; Vibe/GLM quota also exhausted with HTTP 402)"
+  },
+  "witnessProbe": {
+    "mode": "throwaway VIBE_HOME with unused synthetic placeholder key; zero credentials copied; pre_agent denied before model call",
+    "blockedBeforeModelCall": true,
+    "exitCode": 0,
+    "recordCount": 1,
+    "eventTags": [
+      "message"
+    ],
+    "sentDigest": "bb6f44c11524d2c06337c2d7a13eca42c0aeea65d96d3dc183c824e4b8cf4bdb",
+    "receivedDigest": "bb6f44c11524d2c06337c2d7a13eca42c0aeea65d96d3dc183c824e4b8cf4bdb",
+    "byteIdentical": true,
+    "sentBytes": 92,
+    "receivedBytes": 92,
+    "topLevelKeys": [
+      "agent_name",
+      "cwd",
+      "hook_event_name",
+      "parent_session_id",
+      "prompt",
+      "session_id",
+      "transcript_path",
+      "turn_id"
+    ],
+    "payloadTextKey": "prompt",
+    "payloadSessionKey": "session_id",
+    "payloadFolderKey": "cwd",
+    "payloadTranscriptKey": "transcript_path"
+  },
+  "interactiveVsHeadless": {
+    "interactiveMode": "pty (vibe --trust <witness> with throwaway VIBE_HOME)",
+    "headlessMode": "vibe --trust -p <witness> --max-turns 1 with throwaway VIBE_HOME",
+    "envDiffs": [],
+    "payloadDiffs": [],
+    "note": "Only harness TERM differed (xterm-256color vs dumb); VIBE_* env vars and payload keys were identical",
+    "selectedHumanSessionEvidence": "none"
+  },
+  "subAgentProbe": {
+    "executed": false,
+    "rootPayloadObserved": {
+      "parent_session_id": null
+    },
+    "blockedReason": "Live model-backed sub-agent turn blocked by read-only ~/.vibe in confinement and exhausted Vibe/GLM quota (402); Vibe 3.1.2 documentation and vibe-post-agent.mjs indicate parent_session_id is non-null on sub-agents and match='main' scopes hooks to the main session, not yet live-probed on 3.1.2",
+    "subAgentMarker": "none"
+  },
+  "transcriptProbe": {
+    "readable": true,
+    "location": "$VIBE_HOME/logs/session/unified/<session_id>/journal/*.jsonl",
+    "format": "jsonl",
+    "witnessByteIdentical": true
+  },
+  "nativeQuestionProbe": {
+    "toolName": "ask_user_question",
+    "headlessObserved": false,
+    "nativeQuestionCapture": "gap",
+    "questionPayloadShape": "gap: live pre_tool probe for ask_user_question blocked by read-only ~/.vibe confinement and exhausted Vibe/GLM quota"
+  },
+  "classification": "deferred",
+  "reason": "pre_agent in .vibe/hooks.toml delivers byte-identical witness text in throwaway VIBE_HOME and writes readable JSONL session journals, but signed-in run fails with EROFS on ~/.vibe/logs/vibe.log in confinement and live sub-agent differentiation is unprobed on 3.1.2"
+}

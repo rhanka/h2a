@@ -46,6 +46,19 @@
 - agy: ✅ resolved — MCP runtime is embedded; servers go in `~/.gemini/config/mcp_config.json` (empty today). Remaining: confirm the exact MCP config schema agy expects (probe live, or ask agy headless), and whether `agy plugin import` accepts the h2a skill as-is (claude/gemini plugin format).
 - agy background/daemon (EVO-3): not exposed in `--help`; agy is a full agent (`brain/`, `conversations/`) but a scheduled-wake/daemon hook is unconfirmed.
 
+## Track owner-table capture hook qualification (lot 3q, 2026-11-20)
+
+Source of truth: [`packages/h2a/fixtures/capture-qualification.json`](../packages/h2a/fixtures/capture-qualification.json) (loader: `packages/h2a/src/hosts/capture-qualification.ts`, harness: `packages/h2a/scripts/qualification-capture.mjs`).
+
+| CLI | Version | Hook point | Capture | Sub-agent differentiation | Human session evidence | Native question tool | Evidence |
+|---|---|---|---|---|---|---|---|
+| claude | `2.1.330` | `UserPromptSubmit` | `direct` | `never-fires` | `env:CLAUDE_CODE_SESSION_ATTENDED=1` | `hooked` (`AskUserQuestion` interactive) | [`claude.json`](./plan/track-owner-table-3q/evidence/claude.json) |
+| codex | `0.163.0` | `UserPromptSubmit` | `direct` | `never-fires` | `none` | `hooked` (`request_user_input`) | [`codex.json`](./plan/track-owner-table-3q/evidence/codex.json) |
+| gemini | `0.67.0` | `BeforeAgent` | `deferred` | `none` (live turn stalled) | `none` | `gap` (`ask_user` stalled / headless-disabled) | [`gemini.json`](./plan/track-owner-table-3q/evidence/gemini.json) |
+| vibe | `3.1.2` | `pre_agent` | `deferred` | `none` (confinement EROFS + quota) | `none` | `gap` (`ask_user_question` blocked by EROFS/quota) | [`vibe.json`](./plan/track-owner-table-3q/evidence/vibe.json) |
+| agy | `1.5.13` | `PreInvocation` | `deferred` | `none` (fires for sub-agents without marker) | `none` | `hooked` (`ask_question`) | [`agy.json`](./plan/track-owner-table-3q/evidence/agy.json) |
+| muse | `1.4.24` | `UserPromptSubmit` | `direct` | `never-fires` | `none` | `gap` (`request_user_input` not triggered) | [`muse.json`](./plan/track-owner-table-3q/evidence/muse.json) |
+
 ## Related
 
 - `docs/evolution-intentions.md` (EVO-0/1/3/4), DEC-054/055 (host skill + MCP integration), DEC-052 (notifications), `docs/drumbeat.md` (EVO-2).

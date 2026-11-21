@@ -1,0 +1,159 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "cli": "claude",
+      "cliVersion": "2.1.330",
+      "qualifiedOn": "2026-11-20",
+      "hookPoint": "UserPromptSubmit",
+      "hookConfigLevel": "project",
+      "messageCapture": "direct",
+      "witnessSentDigest": "9dd015118d4a7af0eb8b2dcaaedfa3e1e29bd65486bf0a1e9850463255dbf132",
+      "witnessReceivedDigest": "9dd015118d4a7af0eb8b2dcaaedfa3e1e29bd65486bf0a1e9850463255dbf132",
+      "payloadTextKey": "prompt",
+      "payloadSessionKey": "session_id",
+      "payloadFolderKey": "cwd",
+      "payloadTranscriptKey": "transcript_path",
+      "humanSessionEvidence": {
+        "source": "env",
+        "name": "CLAUDE_CODE_SESSION_ATTENDED",
+        "interactiveValue": "1"
+      },
+      "subAgentMarker": "never-fires",
+      "transcript": {
+        "readable": false,
+        "location": "~/.claude/projects/<encoded-cwd>/<session_id>.jsonl",
+        "format": "jsonl"
+      },
+      "nativeQuestionCapture": "hooked",
+      "questionPayloadShape": "PreToolUse receives tool_name='AskUserQuestion' and tool_input={questions:[{question,header,options:[{label,description}],multiSelect}]} in interactive mode; absent in -p headless mode",
+      "reason": "UserPromptSubmit delivers byte-identical UTF-8 witness text in prompt, blocks before model call, never fires for Agent sub-agents, and sets CLAUDE_CODE_SESSION_ATTENDED=1 in interactive sessions",
+      "evidence": "docs/plan/track-owner-table-3q/evidence/claude.json"
+    },
+    {
+      "cli": "codex",
+      "cliVersion": "0.163.0",
+      "qualifiedOn": "2026-11-20",
+      "hookPoint": "UserPromptSubmit",
+      "hookConfigLevel": "project",
+      "messageCapture": "direct",
+      "witnessSentDigest": "1ba3f1492ba7db78d6f775a1261ba80740dbb5462bf7e05520f2e8644d1e146d",
+      "witnessReceivedDigest": "1ba3f1492ba7db78d6f775a1261ba80740dbb5462bf7e05520f2e8644d1e146d",
+      "payloadTextKey": "prompt",
+      "payloadSessionKey": "session_id",
+      "payloadFolderKey": "cwd",
+      "payloadTranscriptKey": "transcript_path",
+      "humanSessionEvidence": "none",
+      "subAgentMarker": "never-fires",
+      "transcript": {
+        "readable": true,
+        "location": "~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl",
+        "format": "jsonl"
+      },
+      "nativeQuestionCapture": "hooked",
+      "questionPayloadShape": "PreToolUse receives tool_name='request_user_input' and tool_input={questions:[{header,id,question,options:[{label,description}]}]}",
+      "reason": "UserPromptSubmit in .codex/hooks.json (git repo with hook trust) delivers byte-identical UTF-8 witness text in prompt, blocks before model call, and never fires for collaborationspawn_agent sub-agents",
+      "evidence": "docs/plan/track-owner-table-3q/evidence/codex.json"
+    },
+    {
+      "cli": "gemini",
+      "cliVersion": "0.67.0",
+      "qualifiedOn": "2026-11-20",
+      "hookPoint": "BeforeAgent",
+      "hookConfigLevel": "project",
+      "messageCapture": "deferred",
+      "witnessSentDigest": "f1bf87d76f798a71a383d85e5952996c2e453ce3ffcd4870347f1012bbb352e2",
+      "witnessReceivedDigest": "f1bf87d76f798a71a383d85e5952996c2e453ce3ffcd4870347f1012bbb352e2",
+      "payloadTextKey": "prompt",
+      "payloadSessionKey": "session_id",
+      "payloadFolderKey": "cwd",
+      "payloadTranscriptKey": "transcript_path",
+      "humanSessionEvidence": "none",
+      "subAgentMarker": "none",
+      "transcript": {
+        "readable": true,
+        "location": "~/.gemini/tmp/<project>/chats/session-*.jsonl",
+        "format": "jsonl"
+      },
+      "nativeQuestionCapture": "gap",
+      "questionPayloadShape": "gap: ask_user is disallowed in non-interactive -p mode and live model turns stalled on the qualification machine before reaching BeforeTool",
+      "reason": "BeforeAgent delivers byte-identical UTF-8 witness text and readable JSONL transcripts, but live sub-agent differentiation could not complete because unblocked model turns stalled on the qualification machine",
+      "evidence": "docs/plan/track-owner-table-3q/evidence/gemini.json"
+    },
+    {
+      "cli": "vibe",
+      "cliVersion": "3.1.2",
+      "qualifiedOn": "2026-11-20",
+      "hookPoint": "pre_agent",
+      "hookConfigLevel": "project",
+      "messageCapture": "deferred",
+      "witnessSentDigest": "bb6f44c11524d2c06337c2d7a13eca42c0aeea65d96d3dc183c824e4b8cf4bdb",
+      "witnessReceivedDigest": "bb6f44c11524d2c06337c2d7a13eca42c0aeea65d96d3dc183c824e4b8cf4bdb",
+      "payloadTextKey": "prompt",
+      "payloadSessionKey": "session_id",
+      "payloadFolderKey": "cwd",
+      "payloadTranscriptKey": "transcript_path",
+      "humanSessionEvidence": "none",
+      "subAgentMarker": "none",
+      "transcript": {
+        "readable": true,
+        "location": "$VIBE_HOME/logs/session/unified/<session_id>/journal/*.jsonl",
+        "format": "jsonl"
+      },
+      "nativeQuestionCapture": "gap",
+      "questionPayloadShape": "gap: live pre_tool probe for ask_user_question blocked by read-only ~/.vibe confinement and exhausted Vibe/GLM quota",
+      "reason": "pre_agent in .vibe/hooks.toml delivers byte-identical witness text in throwaway VIBE_HOME and writes readable JSONL session journals, but signed-in runs fail with EROFS on ~/.vibe/logs/vibe.log in confinement and live sub-agent differentiation is unprobed on 3.1.2",
+      "evidence": "docs/plan/track-owner-table-3q/evidence/vibe.json"
+    },
+    {
+      "cli": "agy",
+      "cliVersion": "1.5.13",
+      "qualifiedOn": "2026-11-20",
+      "hookPoint": "PreInvocation",
+      "hookConfigLevel": "project",
+      "messageCapture": "deferred",
+      "witnessSentDigest": "a5113be374f978ce39c6f848183602e7fdcc418010ffcfbd60744a91858db8e9",
+      "witnessReceivedDigest": "a5113be374f978ce39c6f848183602e7fdcc418010ffcfbd60744a91858db8e9",
+      "payloadTextKey": "lastUserInput",
+      "payloadSessionKey": "conversationId",
+      "payloadFolderKey": "cwd",
+      "payloadTranscriptKey": "transcriptPath",
+      "humanSessionEvidence": "none",
+      "subAgentMarker": "none",
+      "transcript": {
+        "readable": true,
+        "location": "~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript_full.jsonl",
+        "format": "jsonl"
+      },
+      "nativeQuestionCapture": "hooked",
+      "questionPayloadShape": "PreToolUse receives toolCall={id,name:'ask_question',args:{questions:[{is_multi_select,options:[string],question}]}}",
+      "reason": "PreInvocation delivers byte-identical lastUserInput in -p mode and transcripts are readable JSONL, but PreInvocation fires on every model step and for spawned sub-agents with no payload sub-agent marker field",
+      "evidence": "docs/plan/track-owner-table-3q/evidence/agy.json"
+    },
+    {
+      "cli": "muse",
+      "cliVersion": "1.4.24",
+      "qualifiedOn": "2026-11-20",
+      "hookPoint": "UserPromptSubmit",
+      "hookConfigLevel": "project",
+      "messageCapture": "direct",
+      "witnessSentDigest": "a98429fb8c4bdb1e06954e075f8cf9d144272f4e8853eceee44207c033eb00d3",
+      "witnessReceivedDigest": "a98429fb8c4bdb1e06954e075f8cf9d144272f4e8853eceee44207c033eb00d3",
+      "payloadTextKey": "prompt",
+      "payloadSessionKey": "session_id",
+      "payloadFolderKey": "cwd",
+      "payloadTranscriptKey": null,
+      "humanSessionEvidence": "none",
+      "subAgentMarker": "never-fires",
+      "transcript": {
+        "readable": true,
+        "location": "$XDG_DATA_HOME/muse/sessions/YYYY/MM/DD/<session_id>/session.jsonl",
+        "format": "jsonl"
+      },
+      "nativeQuestionCapture": "gap",
+      "questionPayloadShape": "gap: request_user_input was unavailable in muse exec headless mode and was not invoked during the interactive PTY probe",
+      "reason": "UserPromptSubmit in .muse/hooks.json (without matcher) delivers byte-identical UTF-8 witness text in prompt, blocks before model call, and never fires for subagent_spawn sub-agents (user-level hooks.json is not loaded; lot 3c must evaluate user-scoped plugin bundles)",
+      "evidence": "docs/plan/track-owner-table-3q/evidence/muse.json"
+    }
+  ]
+}
