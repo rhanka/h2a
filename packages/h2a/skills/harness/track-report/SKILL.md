@@ -128,23 +128,67 @@ The shape is not yours to choose. It is fixed by `docs/specs/examples/track-repo
 artefact the owner approved) and by `docs/specs/2026-07-29-track-report-period.md` and its two
 corrections. Where this file and that spec disagree, the spec wins.
 
-## Bootstrap a fresh clone
+## Bootstrap the track binary
 
-`track` is built from this repository; a fresh clone has neither `packages/track/dist` nor a local
-`track` executable. From the repository root, bootstrap it once before the read commands:
+Resolve a `track` CLI binary (`>= 0.98.11` with `--owner-table`) without requiring a local build or an
+interactive shell. Run this POSIX `sh` block once before the read commands:
 
-```bash
-npm ci
-npm run build -w @sentropic/track
-track_bin="$(pwd -P)/packages/track/dist/cli/bin.js"
-test -f "$track_bin"
-node "$track_bin" --version
+```sh
+min_track_version="0.98.11"
+track_bin=""
+npm_global_root="$(npm root -g 2>/dev/null || true)"
+track_version_ge() {
+  case "$1" in [0-9]*.[0-9]*.[0-9]*) ;; *) return 1 ;; esac
+  _cur="${1%%-*}"
+  _c1="${_cur%%.*}"; _rest="${_cur#*.}"; _c2="${_rest%%.*}"; _c3="${_rest#*.}"; _c3="${_c3%%.*}"
+  _m1="${2%%.*}"; _mrest="${2#*.}"; _m2="${_mrest%%.*}"; _m3="${_mrest#*.}"
+  case "$_c1$_c2$_c3" in *[!0-9]*) return 1 ;; esac
+  [ "$_c1" -gt "$_m1" ] && return 0
+  [ "$_c1" -lt "$_m1" ] && return 1
+  [ "$_c2" -gt "$_m2" ] && return 0
+  [ "$_c2" -lt "$_m2" ] && return 1
+  [ "$_c3" -ge "$_m3" ]
+}
+try_track_bin() {
+  [ -n "$track_bin" ] && return 0
+  [ -n "$1" ] && [ -f "$1" ] || return 1
+  _abs="$(cd "$(dirname "$1")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$1")")" || return 1
+  _ver="$(node "$_abs" --version 2>/dev/null | head -n 1 | tr -d '\r')" || return 1
+  track_version_ge "$_ver" "$min_track_version" || return 1
+  node "$_abs" report --help 2>/dev/null | grep -q -- '--owner-table' || return 1
+  track_bin="$_abs"
+}
+cwd_abs="$(pwd -P)"
+try_track_bin "${TRACK_BIN:-}" || true
+try_track_bin "$cwd_abs/packages/track/dist/cli/bin.js" || true
+try_track_bin "$cwd_abs/node_modules/@sentropic/track/dist/cli/bin.js" || true
+if [ -n "$npm_global_root" ]; then
+  try_track_bin "$npm_global_root/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -n "${HOME:-}" ]; then
+  try_track_bin "$HOME/.npm-global/lib/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/lib/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/share/h2a/upgrade/current/lib/node_modules/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -n "$npm_global_root" ]; then
+  try_track_bin "$npm_global_root/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -n "${HOME:-}" ]; then
+  try_track_bin "$HOME/.npm-global/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/share/h2a/upgrade/current/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -z "$track_bin" ]; then
+  printf 'track binary >= %s with --owner-table not found (tried TRACK_BIN, packages/track/dist/cli/bin.js, node_modules/@sentropic/track/dist/cli/bin.js, global npm prefix, per-user home prefix, and @sentropic/track nested in global @sentropic/h2a; never falls back to bare track on PATH).\n' "$min_track_version" >&2
+  exit 1
+fi
+printf '%s\n' "$track_bin"
 ```
 
-`track_bin` is an absolute path to this checkout's built executable. Record and reuse that value in every
-later tool call: `node "$track_bin" …` cannot fall through to a globally installed `track`, even when a
-tool persists only its cwd and not its shell functions. The bootstrap and every command below are read-only
-with respect to `.track/`.
+`track_bin` is an absolute path to a verified `track` executable (`>= 0.98.11` with `--owner-table`). Record
+and reuse that value in every later tool call: `node "$track_bin" …` never falls back to a bare `track` found
+on `PATH`, even when a tool persists only its cwd and not its shell functions. The bootstrap and every command
+below are read-only with respect to `.track/`.
 
 ## Read the deterministic layer
 
