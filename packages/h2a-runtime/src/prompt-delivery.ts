@@ -27,6 +27,7 @@
  */
 
 import { agyClaudeQuotaError, detectAgyClaudeQuotaExhaustion, type AgyClaudeQuotaExhaustedError } from "./agy-claude.js";
+import { recordInjectionBestEffort } from "./injection-ledger.js";
 
 /** A host modal that will never be answered inside a background lane. */
 export type HostModal = {
@@ -282,6 +283,8 @@ export type PromptDeliveryDeps = {
 
 export type PromptDeliveryOptions = {
   readonly profile?: string;
+  /** Session ledger key (`native:<name>` or `tmux:<name>`) for attribution. */
+  readonly sessionKey?: string;
   /** Budget for readiness (Codex/Muse 180s, other profiles 90s). */
   readonly timeoutMs?: number;
   /** Delay between readiness observations (default 750ms). */
@@ -549,6 +552,7 @@ export function deliverInitialPrompt(
   // paste. Only a marker that is NEW, or one that changed, is evidence.
   const markerBefore = detectCollapsedPaste(before);
   deps.clearComposer(pane);
+  recordInjectionBestEffort(options.sessionKey, prompt);
   if (!deps.pasteBlock(pane, prompt)) {
     return {
       state: "undelivered",
@@ -630,6 +634,7 @@ export function deliverInitialPrompt(
     };
   }
   const submittedAt = deps.now();
+  recordInjectionBestEffort(options.sessionKey, prompt);
   if (!deps.submit(pane)) {
     return {
       state: "undelivered",

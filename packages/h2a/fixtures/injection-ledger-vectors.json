@@ -1,0 +1,134 @@
+{
+  "schema": 1,
+  "windowMs": 120000,
+  "sessionKeys": [
+    {
+      "sessionKey": "native:h2a-demo",
+      "fileName": "260f653c6b6147a0cbf82a780134ed4f85940aa983f55f35cf33fe75eadb4c58"
+    },
+    {
+      "sessionKey": "native:h2a-proj#1",
+      "fileName": "4e134ef0e393f61b4c7e72cf2c8abc84cc4caa1e7eb4ed2086cd8466bbe90b4e"
+    },
+    {
+      "sessionKey": "tmux:h2a-demo",
+      "fileName": "3ad2c195f7b4c71b88341ba2fd581f61296c4adad6a9bed9025d7269a2a0627c"
+    },
+    {
+      "sessionKey": "tmux:main",
+      "fileName": "e96185878bca62e84873fd2995e3d8df020d0f70dbbc254a8df889775c932ab0"
+    }
+  ],
+  "texts": [
+    {
+      "raw": "continue",
+      "normalized": "continue",
+      "digest": "e256ee8e7aff6957a781d8328f0f68e26996564c81fa458da59fbca2305138ad"
+    },
+    {
+      "raw": "  continue  \r\n",
+      "normalized": "continue",
+      "digest": "e256ee8e7aff6957a781d8328f0f68e26996564c81fa458da59fbca2305138ad"
+    },
+    {
+      "raw": "line one\r\nline two\r\n\r\n",
+      "normalized": "line one\nline two",
+      "digest": "b6858b03a6cae635deeaeab09a74e598979b72c917cbfff0bb3fe2cd05111dbc"
+    },
+    {
+      "raw": "line one\rline two\r",
+      "normalized": "line one\nline two",
+      "digest": "b6858b03a6cae635deeaeab09a74e598979b72c917cbfff0bb3fe2cd05111dbc"
+    },
+    {
+      "raw": "\t  Re-read the latest user request.\n\n",
+      "normalized": "Re-read the latest user request.",
+      "digest": "705cbb572b8a548b9ed2aa1bd8fd2d16c83f70dd78177273ed79350ee871f827"
+    },
+    {
+      "raw": "Vérifier l’encodage UTF-8 — « guillemets »\r\n",
+      "normalized": "Vérifier l’encodage UTF-8 — « guillemets »",
+      "digest": "14531b9e06d89c662ce9e378f143cc6e5fe29a73217502b25cb4211e441e8423"
+    }
+  ],
+  "timedSequences": [
+    {
+      "name": "inside window at 0ms, 60s, and exact 120s boundary; outside at 120001ms",
+      "sessionKey": "native:h2a-window",
+      "writes": [
+        {
+          "at": 1700000000000,
+          "text": "first injected prompt\r\n"
+        }
+      ],
+      "queries": [
+        {
+          "at": 1700000000000,
+          "text": "first injected prompt",
+          "expectedMatch": true
+        },
+        {
+          "at": 1700000060000,
+          "text": "  first injected prompt  \n",
+          "expectedMatch": true
+        },
+        {
+          "at": 1700000120000,
+          "text": "first injected prompt",
+          "expectedMatch": true
+        },
+        {
+          "at": 1700000120001,
+          "text": "first injected prompt",
+          "expectedMatch": false
+        }
+      ]
+    },
+    {
+      "name": "write prunes entries older than 120s while keeping fresh ones",
+      "sessionKey": "tmux:h2a-prune",
+      "writes": [
+        {
+          "at": 1700000000000,
+          "text": "stale prompt"
+        },
+        {
+          "at": 1700000100000,
+          "text": "recent prompt"
+        },
+        {
+          "at": 1700000130000,
+          "text": "newest prompt"
+        }
+      ],
+      "expectedRemainingCountAfterWrites": 2,
+      "queries": [
+        {
+          "at": 1700000130000,
+          "text": "stale prompt",
+          "expectedMatch": false
+        },
+        {
+          "at": 1700000130000,
+          "text": "recent prompt",
+          "expectedMatch": true
+        },
+        {
+          "at": 1700000130000,
+          "text": "newest prompt",
+          "expectedMatch": true
+        },
+        {
+          "at": 1700000220001,
+          "text": "recent prompt",
+          "expectedMatch": false
+        },
+        {
+          "at": 1700000220001,
+          "text": "newest prompt",
+          "expectedMatch": true
+        }
+      ]
+    }
+  ]
+}

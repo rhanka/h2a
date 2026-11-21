@@ -57,6 +57,7 @@ import {
   type LaunchContext,
 } from "./launch-context.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
+import { recordInjectionBestEffort } from "./injection-ledger.js";
 import type { TunnelConfig } from "./config.js";
 import {
   statusFromSpawnResult,
@@ -2425,12 +2426,39 @@ export function localSessionGatewayEnvStatus(
   return "current";
 }
 
+function tmuxSessionNameFromTarget(target: string): string | undefined {
+  const clean = target.startsWith("=") ? target.slice(1) : target;
+  if (!clean || clean.startsWith("%") || clean.startsWith("@") || clean.startsWith("$")) {
+    return undefined;
+  }
+  const colon = clean.indexOf(":");
+  const session = colon === -1 ? clean : clean.slice(0, colon);
+  return session.length > 0 ? session : undefined;
+}
+
+function resolveTmuxSessionNameForLedger(target: string): string | undefined {
+  const direct = tmuxSessionNameFromTarget(target);
+  if (direct) return direct;
+  const res = spawnSync(
+    TMUX,
+    ["display-message", "-p", "-t", target, "#{session_name}"],
+    { encoding: "utf8" },
+  );
+  if (res.status !== 0 || typeof res.stdout !== "string") return undefined;
+  const session = res.stdout.trim();
+  return session.length > 0 ? session : undefined;
+}
+
 /**
  * Relaunch a CLI inside an EXISTING session's main pane, in situ: send the
  * command to the idle shell (it runs at the prompt; when it exits the shell is
  * still there). Does NOT recreate windows or go through `remote run`/the guard.
  */
 export function relaunchInSession(name: string, command: string): boolean {
+  const sessionName = resolveTmuxSessionNameForLedger(name);
+  if (sessionName) {
+    recordInjectionBestEffort(`tmux:${sessionName}`, command);
+  }
   const r = spawnSync(TMUX, ["send-keys", "-t", name, command, "Enter"], {
     stdio: "ignore",
   });
@@ -2469,7 +2497,17 @@ export function sessionAttached(name: string): boolean {
  * interactive throttle nudges (single lines).
  */
 export function sendKeysLiteral(name: string, keys: string): boolean {
+  const directSession = tmuxSessionNameFromTarget(name);
+  if (directSession) {
+    recordInjectionBestEffort(`tmux:${directSession}`, keys);
+  }
   if (!loadAndPaste(name, keys, false)) return false;
+  if (!directSession) {
+    const resolvedSession = resolveTmuxSessionNameForLedger(name);
+    if (resolvedSession) {
+      recordInjectionBestEffort(`tmux:${resolvedSession}`, keys);
+    }
+  }
   const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
     stdio: "ignore",
   });
