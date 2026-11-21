@@ -21,7 +21,7 @@ Enrolling, starting or switching the agent on, and revoking the node key, are te
 
 - `h2a remote enrol --confirm enrol` — enroll this workstation node on the remote-control site.
 - `h2a remote up --confirm up` — start the per-account agent.
-- `h2a remote on --confirm on` — share a session with the site.
+- `h2a remote on <session> --confirm on` — share a session with the site.
 - `h2a remote revoke --confirm revoke` — revoke the node key on the site, then delete it locally.
 
 Each of those needs an interactive terminal and the typed `--confirm <verb>` word. Site-side approval is the human boundary.

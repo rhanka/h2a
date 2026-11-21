@@ -1,5 +1,7 @@
-// LH-02 verb skeleton and the terminal gate. Every case runs under a
-// temporary store root derived from TMPDIR; no live state and no network.
+// LH-02 verb skeleton and the terminal gate (updated in LH-06 for private
+// XDG_CONFIG_HOME confinement and required <session> targets on off/on).
+// Every case runs under a temporary store root and config dir derived from
+// TMPDIR; no live state and no network.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,11 +14,19 @@ import { runRemoteControlVerb, REMOTE_CONTROL_VERBS } from "../dist/runtime/remo
 function makeRoot() {
   const base = mkdtempSync(join(process.env.TMPDIR, "lh02-"));
   const root = join(base, "store");
-  mkdirSync(root, { recursive: true });
-  return { base, root };
+  const config = join(base, "config");
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  mkdirSync(config, { recursive: true, mode: 0o700 });
+  const prevXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = config;
+  const ENABLED = { H2A_REMOTE_CONTROL: "1", XDG_CONFIG_HOME: config };
+  const DISABLED = { XDG_CONFIG_HOME: config };
+  return { base, root, config, prevXdgConfigHome, ENABLED, DISABLED };
 }
 
 function cleanup(dirs) {
+  if (dirs.prevXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = dirs.prevXdgConfigHome;
   rmSync(dirs.base, { recursive: true, force: true });
 }
 
@@ -34,22 +44,35 @@ function captureStreams() {
   };
 }
 
-const ENABLED = { H2A_REMOTE_CONTROL: "1" };
-const DISABLED = {};
-
-test("every new verb parses and reaches its stub service behind the flag", () => {
+test("every new verb parses and reaches its service behind the flag", () => {
   const dirs = makeRoot();
   try {
     assert.deepEqual([...REMOTE_CONTROL_VERBS], ["enrol", "up", "down", "status", "off", "on", "kill", "revoke"]);
     for (const verb of REMOTE_CONTROL_VERBS) {
       const result = runRemoteControlVerb(verb, {
         root: dirs.root,
-        env: ENABLED,
+        env: dirs.ENABLED,
         isInteractive: true,
-        confirm: verb
+        confirm: verb,
+        ...(verb === "off" || verb === "on" ? { session: "lh02-sess-1" } : {})
       });
-      assert.equal(result.ok, true, `${verb} should reach its stub, got ${JSON.stringify(result)}`);
+      assert.equal(result.ok, true, `${verb} should succeed behind flag, got ${JSON.stringify(result)}`);
     }
+    // Verify private XDG confinement for exclusions written by off/on
+    const exclPath = join(dirs.config, "sentropic", "h2a", "remote-control", "exclusions.json");
+    assert.equal(existsSync(exclPath), true, "exclusions must be written inside private XDG_CONFIG_HOME");
+    // Explicit configDir takes priority over XDG_CONFIG_HOME
+    const privateConfigDir = join(dirs.base, "explicit-cfg");
+    mkdirSync(privateConfigDir, { recursive: true, mode: 0o700 });
+    const explicitRes = runRemoteControlVerb("off", {
+      root: dirs.root,
+      configDir: privateConfigDir,
+      env: dirs.ENABLED,
+      isInteractive: false,
+      session: "lh02-explicit-sess"
+    });
+    assert.equal(explicitRes.ok, true);
+    assert.equal(existsSync(join(privateConfigDir, "remote-control", "exclusions.json")), true);
   } finally {
     cleanup(dirs);
   }
@@ -61,9 +84,10 @@ test("flag off means no new verb starts and every verb refuses", () => {
     for (const verb of REMOTE_CONTROL_VERBS) {
       const result = runRemoteControlVerb(verb, {
         root: dirs.root,
-        env: DISABLED,
+        env: dirs.DISABLED,
         isInteractive: true,
-        confirm: verb
+        confirm: verb,
+        ...(verb === "off" || verb === "on" ? { session: "lh02-sess-1" } : {})
       });
       assert.equal(result.ok, false, `${verb} must refuse while disabled`);
       assert.match(result.message, /site-side approval/, `${verb} refusal must name the site approval`);
@@ -91,16 +115,17 @@ test("enrol, up and on refuse without an interactive terminal or typed confirmat
   const dirs = makeRoot();
   try {
     for (const verb of ["enrol", "up", "on"]) {
+      const sessionOpt = verb === "on" ? { session: "lh02-sess-1" } : {};
       // piped / non-tty caller
-      const noTty = runRemoteControlVerb(verb, { root: dirs.root, env: ENABLED, isInteractive: false, confirm: verb });
+      const noTty = runRemoteControlVerb(verb, { root: dirs.root, env: dirs.ENABLED, isInteractive: false, confirm: verb, ...sessionOpt });
       assert.equal(noTty.ok, false, `${verb} must refuse without a terminal`);
       assert.match(noTty.message, /site-side approval/);
       // terminal but no typed confirmation
-      const noConfirm = runRemoteControlVerb(verb, { root: dirs.root, env: ENABLED, isInteractive: true });
+      const noConfirm = runRemoteControlVerb(verb, { root: dirs.root, env: dirs.ENABLED, isInteractive: true, ...sessionOpt });
       assert.equal(noConfirm.ok, false, `${verb} must refuse without typed confirmation`);
       assert.match(noConfirm.message, /site-side approval/);
       // terminal but wrong confirmation word
-      const wrong = runRemoteControlVerb(verb, { root: dirs.root, env: ENABLED, isInteractive: true, confirm: "yes" });
+      const wrong = runRemoteControlVerb(verb, { root: dirs.root, env: dirs.ENABLED, isInteractive: true, confirm: "yes", ...sessionOpt });
       assert.equal(wrong.ok, false, `${verb} must refuse a wrong confirmation`);
     }
     // CLI in the test process (never interactive) refuses the gated verbs
@@ -126,7 +151,12 @@ test("down, status and off run without a terminal", () => {
   const dirs = makeRoot();
   try {
     for (const verb of ["down", "status", "off"]) {
-      const result = runRemoteControlVerb(verb, { root: dirs.root, env: ENABLED, isInteractive: false });
+      const result = runRemoteControlVerb(verb, {
+        root: dirs.root,
+        env: dirs.ENABLED,
+        isInteractive: false,
+        ...(verb === "off" ? { session: "lh02-sess-1" } : {})
+      });
       assert.equal(result.ok, true, `${verb} must run without a terminal, got ${JSON.stringify(result)}`);
     }
   } finally {
@@ -137,7 +167,7 @@ test("down, status and off run without a terminal", () => {
 test("kill runs without a terminal and sets the local flag in the temporary root", () => {
   const dirs = makeRoot();
   try {
-    const result = runRemoteControlVerb("kill", { root: dirs.root, env: ENABLED, isInteractive: false });
+    const result = runRemoteControlVerb("kill", { root: dirs.root, env: dirs.ENABLED, isInteractive: false });
     assert.equal(result.ok, true);
     const flagFile = result.killFlagFile;
     assert.equal(typeof flagFile, "string");
@@ -146,7 +176,7 @@ test("kill runs without a terminal and sets the local flag in the temporary root
     const st = statSync(flagFile);
     assert.equal(st.mode & 0o777, 0o600);
     // status now reports the flag
-    const status = runRemoteControlVerb("status", { root: dirs.root, env: ENABLED, isInteractive: false });
+    const status = runRemoteControlVerb("status", { root: dirs.root, env: dirs.ENABLED, isInteractive: false });
     assert.equal(status.ok, true);
     assert.equal(status.kill, true);
     // the flag content carries no secret material
@@ -197,35 +227,40 @@ test("the four existing remote verbs keep byte-identical behaviour", () => {
 });
 
 test("help omits new verbs with flag off and lists each once with H2A_REMOTE_CONTROL=1", () => {
-  const off = captureStreams();
-  assert.equal(runCli(["--help"], off.streams, { env: DISABLED }), 0);
-  const offText = off.out();
-  for (const verb of REMOTE_CONTROL_VERBS) {
-    assert.equal(
-      offText.includes(`h2a remote ${verb}`),
-      false,
-      `help with flag off must omit h2a remote ${verb}`
-    );
-  }
-  for (const sub of ["serve", "send", "mirror-serve", "mirror"]) {
-    const re = new RegExp(`h2a remote ${sub}(?![\\w-])`, "g");
-    const count = [...offText.matchAll(re)].length;
-    assert.equal(count, 1, `help with flag off must list h2a remote ${sub} exactly once, found ${count}`);
-  }
+  const dirs = makeRoot();
+  try {
+    const off = captureStreams();
+    assert.equal(runCli(["--help"], off.streams, { env: dirs.DISABLED }), 0);
+    const offText = off.out();
+    for (const verb of REMOTE_CONTROL_VERBS) {
+      assert.equal(
+        offText.includes(`h2a remote ${verb}`),
+        false,
+        `help with flag off must omit h2a remote ${verb}`
+      );
+    }
+    for (const sub of ["serve", "send", "mirror-serve", "mirror"]) {
+      const re = new RegExp(`h2a remote ${sub}(?![\\w-])`, "g");
+      const count = [...offText.matchAll(re)].length;
+      assert.equal(count, 1, `help with flag off must list h2a remote ${sub} exactly once, found ${count}`);
+    }
 
-  const on = captureStreams();
-  assert.equal(runCli(["--help"], on.streams, { env: ENABLED }), 0);
-  const text = on.out();
-  for (const verb of REMOTE_CONTROL_VERBS) {
-    const needle = `h2a remote ${verb}`;
-    const count = text.split(needle).length - 1;
-    assert.equal(count, 1, `help with flag on must list ${needle} exactly once, found ${count}`);
-  }
-  for (const sub of ["serve", "send", "mirror-serve", "mirror"]) {
-    // `mirror` is a prefix of `mirror-serve`: require a word boundary so the
-    // two existing lines count separately, exactly as before this lot.
-    const re = new RegExp(`h2a remote ${sub}(?![\\w-])`, "g");
-    const count = [...text.matchAll(re)].length;
-    assert.equal(count, 1, `help with flag on must still list h2a remote ${sub} exactly once, found ${count}`);
+    const on = captureStreams();
+    assert.equal(runCli(["--help"], on.streams, { env: dirs.ENABLED }), 0);
+    const text = on.out();
+    for (const verb of REMOTE_CONTROL_VERBS) {
+      const needle = `h2a remote ${verb}`;
+      const count = text.split(needle).length - 1;
+      assert.equal(count, 1, `help with flag on must list ${needle} exactly once, found ${count}`);
+    }
+    assert.equal(text.includes("h2a remote off <session>"), true);
+    assert.equal(text.includes("h2a remote on <session> --confirm on"), true);
+    for (const sub of ["serve", "send", "mirror-serve", "mirror"]) {
+      const re = new RegExp(`h2a remote ${sub}(?![\\w-])`, "g");
+      const count = [...text.matchAll(re)].length;
+      assert.equal(count, 1, `help with flag on must still list h2a remote ${sub} exactly once, found ${count}`);
+    }
+  } finally {
+    cleanup(dirs);
   }
 });

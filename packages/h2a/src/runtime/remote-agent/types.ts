@@ -35,6 +35,8 @@ export const TRUNK_PROTOCOL_VERSION = 1 as const;
 // throws; escape-dense vectors are an RM-C gate.
 export const TRUNK_RECORD_MAX_BYTES = 32768 as const;
 export const TRUNK_TERMINAL_TEXT_MAX_BYTES = 16384 as const;
+export const CATALOGUE_MAX_ROWS = 512 as const;
+export const CATALOGUE_ROW_MAX_BYTES = 512 as const;
 export const CATALOGUE_SNAPSHOT_MAX_BYTES = 262144 as const;
 export const TERMINAL_INPUT_MAX_BYTES = 4096 as const;
 export const TERMINAL_OUTPUT_COALESCE_BYTES = 16384 as const;
@@ -85,20 +87,37 @@ export type TrunkLinkRecord = TrunkEnvelope & (
 );
 
 export type InventoryHostKind = "native" | "tmux" | "unknown";
+export type CatalogueInstanceStatus = "live" | "revoked";
+export type CatalogueOperabilityReason =
+  | "not-shared"
+  | "not-operable-tmux"
+  | "open-with-h2a-to-operate";
 
 export interface CatalogueSessionRow {
   readonly sessionId: string;
-  readonly instance: string;
+  readonly instance?: string;
+  readonly instanceId?: string;
+  readonly instanceStatus?: CatalogueInstanceStatus;
   readonly host?: string;
   readonly name?: string;
-  readonly startedAt: string;
-  readonly heartbeatAt: string;
+  readonly workspaceLabel?: string;
+  readonly startedAt?: string;
+  readonly heartbeatAt?: string;
   readonly state: string;
   readonly workStatus?: string;
   readonly hostKind: InventoryHostKind;
   readonly operable: boolean;
   readonly excluded?: boolean;
+  readonly operabilityReason?: CatalogueOperabilityReason;
 }
+
+export interface CatalogueInstanceStatusUpdate {
+  readonly sessionId: string;
+  readonly instanceId: string;
+  readonly instanceStatus: CatalogueInstanceStatus;
+}
+
+export type CatalogueRowUpdate = CatalogueSessionRow | CatalogueInstanceStatusUpdate;
 
 export interface CatalogueSnapshot {
   readonly v: typeof TRUNK_PROTOCOL_VERSION;
@@ -107,6 +126,7 @@ export interface CatalogueSnapshot {
   readonly s: number;
   readonly at: number;
   readonly rows: readonly CatalogueSessionRow[];
+  readonly truncatedRows?: number;
 }
 
 export interface CatalogueDelta {
@@ -116,7 +136,7 @@ export interface CatalogueDelta {
   readonly s: number;
   readonly at: number;
   readonly adds: readonly CatalogueSessionRow[];
-  readonly updates: readonly CatalogueSessionRow[];
+  readonly updates: readonly CatalogueRowUpdate[];
   readonly removes: readonly string[];
 }
 
