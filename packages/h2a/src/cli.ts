@@ -201,6 +201,7 @@ import { bridgeCentralMcpStdio, startCentralMcpServer } from "./runtime/mcp-cent
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
+import { isRemoteControlEnabled } from "./runtime/remote-agent/flag.js";
 import {
   isRemoteControlVerb,
   remoteControlUnknownMessage,
@@ -438,7 +439,19 @@ const CLI_HOSTS = [
   H2A_VIBE_HOST
 ] as const;
 
-export function renderCliHelp(): string {
+const REMOTE_CONTROL_MCP_TOOL_NAMES = new Set<string>([
+  "h2a_remote_status",
+  "h2a_remote_off",
+  "h2a_remote_kill"
+]);
+
+export function renderCliHelp(
+  env: Readonly<Record<string, string | undefined>> = process.env
+): string {
+  const remoteControlEnabled = isRemoteControlEnabled(env);
+  const visibleMcpTools = remoteControlEnabled
+    ? H2A_CLI_MCP_TOOL_NAMES
+    : H2A_CLI_MCP_TOOL_NAMES.filter((name) => !REMOTE_CONTROL_MCP_TOOL_NAMES.has(name));
   return [
     "h2a",
     "",
@@ -506,14 +519,18 @@ export function renderCliHelp(): string {
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
     "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>] [--interval-ms <n> [--max <n>]]   (push this instance's registration to a remote ingester; ONE-SHOT by default. --interval-ms >= 5000 opts into the live daemon: same payload, repeated on a monotonic beat (15000-30000 recommended), overlap-guarded, backing off on transient errors and STOPPING on repeated 401/403 because re-enrollment is required. Kill-switch: H2A_MIRROR_PUSH_OFF)",
-    "  h2a remote enrol [--root <path>] [--confirm enrol]   (remote control: enroll this workstation node on the remote-control site; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote up [--root <path>] [--confirm up]   (remote control: start the per-account agent; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote down [--root <path>]   (remote control: stop the per-account agent; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote status [--root <path>]   (remote control: report link, agent and kill-flag state; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote off [--root <path>] [--session <id>]   (remote control: stop sharing a session from the site; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote on [--root <path>] [--confirm on] [--session <id>]   (remote control: share a session with the site; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote kill [--root <path>]   (remote control: release remote leases, close the link, stop the agent and set the local kill flag; needs H2A_REMOTE_CONTROL=1)",
-    "  h2a remote revoke [--root <path>] [--confirm revoke]   (remote control: revoke the node key on the site then delete it locally; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+    ...(remoteControlEnabled
+      ? [
+          "  h2a remote enrol [--root <path>] [--confirm enrol]   (remote control: enroll this workstation node on the remote-control site; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote up [--root <path>] [--confirm up]   (remote control: start the per-account agent; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote down [--root <path>]   (remote control: stop the per-account agent; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote status [--root <path>]   (remote control: report link, agent and kill-flag state; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote off [--root <path>] [--session <id>]   (remote control: stop sharing a session from the site; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote on [--root <path>] [--confirm on] [--session <id>]   (remote control: share a session with the site; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote kill [--root <path>]   (remote control: release remote leases, close the link, stop the agent and set the local kill flag; needs H2A_REMOTE_CONTROL=1)",
+          "  h2a remote revoke [--root <path>] [--confirm revoke]   (remote control: revoke the node key on the site then delete it locally; interactive terminal + typed confirmation required — site-side approval is the human boundary; needs H2A_REMOTE_CONTROL=1)"
+        ]
+      : []),
     "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
     "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
     "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
@@ -597,7 +614,7 @@ export function renderCliHelp(): string {
     "    (namespacé pour éviter les collisions init/branch — voir `h2a harness --help`)",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
-    `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
+    `MCP tools: ${visibleMcpTools.join(", ")}`
   ].join("\n");
 }
 
@@ -8181,7 +8198,7 @@ export function runCli(
   }
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
-    streams.stdout.write(`${renderCliHelp()}\n`);
+    streams.stdout.write(`${renderCliHelp(options?.env)}\n`);
     return 0;
   }
 
@@ -8346,6 +8363,7 @@ export function runCli(
     if (sub !== undefined && isRemoteControlVerb(sub)) {
       const result = runRemoteControlVerb(sub, {
         root: resolveRoot(flags, streams.cwd ?? (() => process.cwd())),
+        ...(options?.env !== undefined ? { env: options.env } : {}),
         ...(flags.confirm !== undefined ? { confirm: flags.confirm } : {})
       });
       if (!result.ok) {
@@ -8364,7 +8382,8 @@ export function runCli(
     if (
       sub === "mirror-serve" ||
       sub === "mirror" ||
-      sub === undefined
+      sub === undefined ||
+      sub.startsWith("-")
     ) {
       streams.stderr.write(
         `h2a remote: subcommand required (serve, send).\n`

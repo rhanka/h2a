@@ -196,21 +196,36 @@ test("the four existing remote verbs keep byte-identical behaviour", () => {
   }
 });
 
-test("help lists each new verb once with no duplicate", () => {
-  const { streams, out } = captureStreams();
-  const rc = runCli(["--help"], streams);
-  assert.equal(rc, 0);
-  const text = out();
+test("help omits new verbs with flag off and lists each once with H2A_REMOTE_CONTROL=1", () => {
+  const off = captureStreams();
+  assert.equal(runCli(["--help"], off.streams, { env: DISABLED }), 0);
+  const offText = off.out();
+  for (const verb of REMOTE_CONTROL_VERBS) {
+    assert.equal(
+      offText.includes(`h2a remote ${verb}`),
+      false,
+      `help with flag off must omit h2a remote ${verb}`
+    );
+  }
+  for (const sub of ["serve", "send", "mirror-serve", "mirror"]) {
+    const re = new RegExp(`h2a remote ${sub}(?![\\w-])`, "g");
+    const count = [...offText.matchAll(re)].length;
+    assert.equal(count, 1, `help with flag off must list h2a remote ${sub} exactly once, found ${count}`);
+  }
+
+  const on = captureStreams();
+  assert.equal(runCli(["--help"], on.streams, { env: ENABLED }), 0);
+  const text = on.out();
   for (const verb of REMOTE_CONTROL_VERBS) {
     const needle = `h2a remote ${verb}`;
     const count = text.split(needle).length - 1;
-    assert.equal(count, 1, `help must list ${needle} exactly once, found ${count}`);
+    assert.equal(count, 1, `help with flag on must list ${needle} exactly once, found ${count}`);
   }
   for (const sub of ["serve", "send", "mirror-serve", "mirror"]) {
     // `mirror` is a prefix of `mirror-serve`: require a word boundary so the
     // two existing lines count separately, exactly as before this lot.
     const re = new RegExp(`h2a remote ${sub}(?![\\w-])`, "g");
     const count = [...text.matchAll(re)].length;
-    assert.equal(count, 1, `help must still list h2a remote ${sub} exactly once, found ${count}`);
+    assert.equal(count, 1, `help with flag on must still list h2a remote ${sub} exactly once, found ${count}`);
   }
 });
