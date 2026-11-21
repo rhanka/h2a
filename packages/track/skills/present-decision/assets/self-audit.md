@@ -19,10 +19,10 @@ Missing evidence, criteria or review: **Incomplete**; request input, never final
 - [ ] **Evidence and bias:** decisive claims: `[FACT]` with sources or `[JUDGMENT]`;
   assumptions/unknowns separate; failure scenario; presenter convenience separate from owner value.
 - [ ] **Reviews:** independent Codex + Opus passes for complex design; disagreements surfaced.
-- [ ] **Delivery/capture:** default MCP `h2a_focus_build` (`dossier.json` → `dossier.html`); portable Focus HTML,
-  ecosystem canvas, light/dark, phone pinch zoom; no claude.ai artifact. Dossier with diagram before the native question tool;
+- [ ] **Delivery/capture:** Focus artifact or standalone portable Focus HTML (`dossier.json`),
+  ecosystem canvas, light/dark, response line, pinch zoom; no claude.ai artifact. Dossier with diagram before the native question tool;
   never a bare text question. If unavailable, explain and leave the decision pending.
-  Local selections; no fabricated `comprehension[]` or relay as decider.
+  Local selections never record approval; no fabricated `comprehension[]` or relay as decider.
 - [ ] **Evidence (H1):** original bytes/digests; resolved citations/backlinks; primary summaries,
   separate annex consultation; offline search/download/back. H1 manifest only;
   DS in-canvas controls await H2/H3.
