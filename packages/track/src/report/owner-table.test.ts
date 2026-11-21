@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -2105,7 +2106,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     const expectedNoDemandsMsg =
       'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
       '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
-      'ingère une ligne `demand.raise` avec `track ingest <file.jsonl> --workspace <w>` puis numérote-la avec `track demand number <demandId> --number <n>`, ' +
+      'enregistre une demande avec `track demand raise --text <text>`, ' +
       'ou utilise `track report --status-table` pour la vue technique)'
 
     // (b1) Journal exists with non-demand events (0 demand.* events)
@@ -2362,6 +2363,16 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     for (const command of commands) {
       const cmdDir = mkdtempSync(join(tmpdir(), 'track-owner-t0c-'))
       try {
+        const gitEnv = {
+          ...process.env,
+          GIT_CEILING_DIRECTORIES: resolve(tmpdir()),
+          GIT_AUTHOR_NAME: 'Test',
+          GIT_AUTHOR_EMAIL: 'test@example.invalid',
+          GIT_COMMITTER_NAME: 'Test',
+          GIT_COMMITTER_EMAIL: 'test@example.invalid',
+        }
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: cmdDir, env: gitEnv, stdio: 'ignore' })
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'root'], { cwd: cmdDir, env: gitEnv, stdio: 'ignore' })
         const cmdStore = new EventStore(join(cmdDir, '.track', 'events.jsonl'))
         const cmdTrack = new Track(cmdStore, { by: 'test-owner-table', now: () => clock })
         const unnumberedDemandId = cmdTrack.raiseDemand({

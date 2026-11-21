@@ -13,7 +13,7 @@ import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.
 import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
 import { cmdJournal } from './journal.js'
 import { resolveOwnerTablePolicyFile, trackStateHome } from '../state-home.js'
-import { canonicalPath, identityOf, isInsideDir, isJournalIdentity, tmpCeilingFor } from '../journal/identity.js'
+import { canonicalPath, identityOf, isInsideDir, isJournalIdentity, projectIdentity, tmpCeilingFor } from '../journal/identity.js'
 import { deriveLabelFromIndex, readJournalIndex } from '../journal/index-store.js'
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
@@ -59,6 +59,8 @@ export interface CliIO {
   err: (s: string) => void
   /** Optional process environment injection for adapter/config isolation in embedders and tests. */
   env?: NodeJS.ProcessEnv
+  /** Optional stdin content injection for `--stdin` commands in tests. */
+  stdin?: string
 }
 
 /**
@@ -95,6 +97,11 @@ const USAGE = `usage: track <command>
   item assign-code <itemId> --code <c> [--client-token <t>]
   item show <itemId>
   item ls [--workspace <w>] [--kind <feature|bug|chore>] [--format json|text|md]
+  demand raise (--text <text> | --stdin) [--title <t>] [--type <feature|defect|chore>] [--workspace <w>] [--source <human|agent|h2a|import|external>] [--key <k>]
+  demand number <demandId> --number <n> [--summary <s>] [--requested-stage <stage>]
+  demand summary <demandId> --summary <s> [--requested-stage <stage>]
+  demand archive <demandId> --decision-id <id> --reason <r>
+  demand eta <demandId> --target-stage <stage> (--when <date> --source <measured|committed|unknown> | --delivered) [--target-label <l>] [--by <actor>] [--reason <r>] [--rebaseline-decision <id>]
   decision new --kind <orientation|commitment> --title <t> --workspace <w> --targets <id,id> --context <c> --options-json <json> --recommendation <optionId> --rationale <r> [--accountable <a>] [--engagement-ref <e>]
   decision ls [--workspace <w>] [--outcome <pending|go|no-go|deferred>] [--format json|text|md] [--commit <sha>]
   decision outcome <decisionId> deferred
@@ -552,6 +559,15 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         io,
         eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
       })
+    }
+    // `demand raise` resolves its journal via `resolveJournalOfReference` (spec DS-6: main checkout
+    // from a linked worktree, temp-root ceiling included, never falling back to `resolveTrackDir`).
+    if (cmd === 'demand' && rest[0] === 'raise') {
+      const ref = resolveJournalOfReference(resolveOpts)
+      if (ref.trackDir === null) {
+        throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
+      }
+      return cmdDemandRaise(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir) })
     }
     switch (cmd) {
       case '--version':
@@ -1297,6 +1313,60 @@ function cmdPriority(args: string[], ctx: Ctx): number {
   return 2
 }
 
+const DEMAND_TYPES = ['feature', 'defect', 'chore'] as const
+const DEMAND_SOURCE_KINDS = ['human', 'agent', 'h2a', 'import', 'external'] as const
+
+function cmdDemandRaise(args: string[], ctx: Ctx): number {
+  const { io } = ctx
+  const { positional, flags } = parseFlags(args)
+  if (positional.length > 0) {
+    throw new DomainError(`demand raise: unexpected positional argument(s): ${positional.join(' ')}`)
+  }
+  assertOnlyFlags(flags, ['text', 'stdin', 'title', 'type', 'workspace', 'source', 'key'])
+  for (const name of ['text', 'title', 'type', 'workspace', 'source', 'key']) assertValueFlag(flags, name)
+  const useStdin = assertBooleanFlag(flags, 'stdin')
+  const textFlag = opt(flags, 'text')
+  if (useStdin && textFlag !== undefined) {
+    throw new DomainError('demand raise: --text and --stdin are mutually exclusive')
+  }
+  if (!useStdin && textFlag === undefined) {
+    throw new DomainError('demand raise: requires --text <text> or --stdin')
+  }
+  const rawText = useStdin ? (io.stdin ?? readFileSync(0, 'utf8')).replace(/\r?\n$/u, '') : textFlag!
+  if (rawText.trim().length === 0) {
+    throw new DomainError('demand raise: text must be non-empty')
+  }
+  const title = opt(flags, 'title')
+  if (title !== undefined && title.trim().length === 0) {
+    throw new DomainError('demand raise: --title must be non-empty')
+  }
+  const type = oneOf(opt(flags, 'type') ?? 'feature', DEMAND_TYPES, '--type')
+  const sourceKind = oneOf(opt(flags, 'source') ?? 'human', DEMAND_SOURCE_KINDS, '--source')
+  const workspace = opt(flags, 'workspace') ?? projectIdentity(io.cwd)
+  if (workspace === undefined || workspace.trim().length === 0) {
+    throw new DomainError('demand raise: --workspace is required outside a git repository')
+  }
+  const key = opt(flags, 'key')
+  if (key !== undefined && key.trim().length === 0) {
+    throw new DomainError('demand raise: --key must be non-empty')
+  }
+
+  const track = writeTrack(ctx)
+  const result = track.raiseNumberedDemand({
+    type,
+    raw: {
+      text: rawText,
+      ...(title !== undefined ? { title: title.trim() } : {}),
+    },
+    source: { kind: sourceKind },
+    workspace: workspace.trim(),
+    ...(title !== undefined ? { summary: title.trim() } : {}),
+    ...(key !== undefined ? { key: key.trim() } : {}),
+  })
+  io.out(`${result.demandId} #${result.number}\n`)
+  return 0
+}
+
 function cmdDemand(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const sub = args[0]
@@ -1363,7 +1433,7 @@ function cmdDemand(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
-  io.err('usage: track demand <number|summary|archive|eta> <demandId> ...\n')
+  io.err('usage: track demand <raise|number|summary|archive|eta> ...\n')
   return 2
 }
 
