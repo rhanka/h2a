@@ -597,13 +597,10 @@ export function allocateWorkerRoot(receipt, env = process.env, options = {}) {
       H2A_NATIVE_SOCKET: join(workerRoot, "runtime", "host.sock"),
       H2A_NATIVE_HOST_LOG: hostLog,
       DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(workerRoot, "runtime", "no-bus")}`,
-      CODEX_HOME: join(workerRoot, "config", "codex"),
-      CLAUDE_CONFIG_DIR: join(workerRoot, "config", "claude"),
-      VIBE_HOME: join(workerRoot, "config", "vibe"),
       [TEST_STATE_ROOT_ENV]: receipt.root,
       [TEST_STATE_QUALIFICATION_ROOT_ENV]: receipt.root,
       [TEST_WORKER_ROOT_ENV]: workerRoot,
-      [TEST_WORKER_PID_ENV]: String(process.pid),
+      [TEST_WORKER_PID_ENV]: `${options.roleTag ?? "sup"}:${process.pid}`,
     },
   };
 }
@@ -641,10 +638,16 @@ function isSupervisorDefaultPath(value, root) {
 //   R/{home,tmp,...}), preserves that fixture environment verbatim.
 export function ensureWorkerEnvironment(receipt, targetEnv = process.env, options = {}) {
   const forceNewWorker = options.forceNewWorker === true;
-  const isNodeTestWorker = Boolean(targetEnv.NODE_TEST_CONTEXT);
+  const workerTag = targetEnv[TEST_WORKER_PID_ENV] ?? "";
+  // A fresh `node --test` test-file worker inherits `NODE_TEST_CONTEXT` from
+  // the test-runner supervisor (whose workerTag is unset or `sup:<pid>`).
+  // Helper children spawned BY an already-initialized test worker inherit
+  // `worker:<pid>` and must preserve their validated fixture/worker env.
+  const needsFreshNodeTestWorker =
+    Boolean(targetEnv.NODE_TEST_CONTEXT) && !workerTag.startsWith("worker:");
   const workerAlreadyInitializedHere =
     Boolean(targetEnv[TEST_WORKER_ROOT_ENV]) &&
-    targetEnv[TEST_WORKER_PID_ENV] === String(process.pid) &&
+    (workerTag === `sup:${process.pid}` || workerTag === `worker:${process.pid}`) &&
     isMainThread &&
     !forceNewWorker;
 
@@ -659,6 +662,9 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
     "H2A_ROOT",
     "H2A_NATIVE_SOCKET",
     "H2A_NATIVE_HOST_LOG",
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "VIBE_HOME",
   ]) {
     const value = targetEnv[key];
     if (value === undefined || value === "") continue;
@@ -682,7 +688,7 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
     (!targetEnv[TEST_WORKER_ROOT_ENV] ||
       resolve(targetEnv.HOME) !== join(resolve(targetEnv[TEST_WORKER_ROOT_ENV]), "home"));
 
-  if (!forceNewWorker && !isNodeTestWorker && hasCompleteFixtureEnv) {
+  if (!forceNewWorker && !needsFreshNodeTestWorker && hasCompleteFixtureEnv) {
     // Preserve fixture child's private environment verbatim.
     targetEnv[TEST_STATE_ROOT_ENV] = receipt.root;
     targetEnv[TEST_STATE_QUALIFICATION_ROOT_ENV] = receipt.root;
@@ -696,7 +702,7 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
   const inheritedWorkerRoot = targetEnv[TEST_WORKER_ROOT_ENV];
   if (
     !forceNewWorker &&
-    !isNodeTestWorker &&
+    !needsFreshNodeTestWorker &&
     inheritedWorkerRoot &&
     isPathWithinAttestedRoot(inheritedWorkerRoot, receipt) &&
     ISOLATED_ENV_KEYS.every((k) => Boolean(targetEnv[k]) && isPathWithinAttestedRoot(targetEnv[k], receipt))
@@ -707,7 +713,8 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
   }
 
   // Allocate a brand-new per-worker root.
-  const allocated = allocateWorkerRoot(receipt, targetEnv, options);
+  const roleTag = forceNewWorker || needsFreshNodeTestWorker ? "worker" : "sup";
+  const allocated = allocateWorkerRoot(receipt, targetEnv, { ...options, roleTag });
   // Preserve explicit H2A_NATIVE_SOCKET="" (fleet qualification dual-generation).
   const keepEmptySocket = targetEnv.H2A_NATIVE_SOCKET === "";
   for (const [k, v] of Object.entries(allocated.env)) {
