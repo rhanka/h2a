@@ -8,7 +8,10 @@
 // INTENTION §9 pin).
 
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+
+import { desyncFindings, type DesyncFinding } from '../cli/desync.js'
+import { resolveOwnerTablePolicyFile } from '../state-home.js'
 
 import { acceptanceStatus, criterionStatus, evidenceForCriterion } from '../accept/status.js'
 import type { AcceptanceStatus, CriterionStatus } from '../model/acceptance.js'
@@ -18,7 +21,7 @@ import { readHead } from '../events/head.js'
 import { EventStore } from '../events/store.js'
 import type { ActorId, EventType, Provenance, Sha256, TrackEvent } from '../events/types.js'
 import { validate, type IntegrityResult } from '../events/validate.js'
-import { isRoleContainer, type ItemId, type Realization } from '../model/item.js'
+import { DomainError, isRoleContainer, type ItemId, type Realization } from '../model/item.js'
 import type { VerificationRun } from '../model/verification.js'
 import { bucketOf, type Bucket } from '../report/buckets.js'
 import { statusByLevel, type StatusGroup, type StatusLevel } from '../report/status-by-level.js'
@@ -1255,20 +1258,75 @@ export class TrackReader {
    * Fait · À faire (qui) · Décision` + `Décisions qui t'attendent`) from the folded event log without
    * mutating or rewriting any stored events.
    */
-  ownerTable(options: ProjectOwnerTableOptions = {}): OwnerTableView {
-    const events = this.events()
-    const defaultPolicyPath = join(dirname(this.eventsPath), 'owner-report-policy.json')
-    const explicitPolicyPath =
-      options.policyPath ??
-      process.env['TRACK_OWNER_POLICY_FILE'] ??
-      process.env['TRACK_OWNER_REPORT_POLICY']
-    const policyPath =
-      explicitPolicyPath ?? (existsSync(defaultPolicyPath) ? defaultPolicyPath : undefined)
-    return projectOwnerTable(fold(events), events, {
-      ...options,
-      defaultPolicyPath,
-      ...(policyPath !== undefined ? { policyPath } : {}),
+  /** Project root folder holding this journal (the parent of `.track`, or the track dir itself). */
+  journalProjectDir(): string {
+    const trackDir = dirname(this.eventsPath)
+    return basename(trackDir) === '.track' ? dirname(trackDir) : trackDir
+  }
+
+  /**
+   * Read, verify integrity (G1), fold, compute desynchronisation findings against the journal folder
+   * (DS-7), and project the owner table view — all from a single read of the log.
+   */
+  ownerTableContext(options: ProjectOwnerTableOptions = {}): {
+    view: OwnerTableView
+    state: State
+    events: TrackEvent[]
+    desync: DesyncFinding[]
+    lastEventAt?: string
+    policyFound: boolean
+  } {
+    let events: TrackEvent[]
+    try {
+      events = this.events()
+    } catch {
+      throw new DomainError(
+        'REFUSED: owner table failed blocking gates:\n- [journal-integrity] 1 finding(s): malformed-line',
+      )
+    }
+    const integrity = validate(events, readHead(this.eventsPath))
+    if (!integrity.ok) {
+      const kinds = [...new Set(integrity.findings.map((f) => f.kind))].join(', ')
+      throw new DomainError(
+        `REFUSED: owner table failed blocking gates:\n- [journal-integrity] ${integrity.findings.length} finding(s): ${kinds}`,
+      )
+    }
+    const trackDir = dirname(this.eventsPath)
+    const resolvedPolicy = resolveOwnerTablePolicyFile({
+      flagPolicyPath: options.policyPath,
+      trackDir,
     })
+    const policyFound =
+      options.policy !== undefined ||
+      (resolvedPolicy.policyPath !== undefined && existsSync(resolvedPolicy.policyPath))
+    const folded = fold(events)
+    const desync = desyncFindings(folded, this.journalProjectDir())
+    let lastEventAt: string | undefined
+    for (const ev of events) {
+      if (typeof ev.at === 'string' && (lastEventAt === undefined || ev.at > lastEventAt)) {
+        lastEventAt = ev.at
+      }
+    }
+    const view = projectOwnerTable(folded, events, {
+      ...options,
+      ...(resolvedPolicy.defaultPolicyPath !== undefined
+        ? { defaultPolicyPath: resolvedPolicy.defaultPolicyPath }
+        : {}),
+      statePolicyPath: resolvedPolicy.statePolicyPath,
+      ...(resolvedPolicy.policyPath !== undefined ? { policyPath: resolvedPolicy.policyPath } : {}),
+    })
+    return {
+      view,
+      state: folded,
+      events,
+      desync,
+      ...(lastEventAt !== undefined ? { lastEventAt } : {}),
+      policyFound,
+    }
+  }
+
+  ownerTable(options: ProjectOwnerTableOptions = {}): OwnerTableView {
+    return this.ownerTableContext(options).view
   }
 
   /** Compare current BRANCH.md `content` against the last imported structure for `locator`. */

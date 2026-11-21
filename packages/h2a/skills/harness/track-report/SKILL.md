@@ -7,47 +7,31 @@ description: Use when the owner asks for a human contextual track report, status
 
 ## Default owner report: `track report --owner-table`
 
-When the owner asks for their status table or advancement report, serve the owner-validated table first with:
+When the owner asks for their status table or advancement report, serve the qualified owner table first with:
 
 ```bash
 node "$track_bin" report --owner-table --format md
 ```
 
-`--owner-table` is the default owner report surface. It renders:
+`--owner-table` renders everything the journal knows and qualifies every gap instead of refusing the whole table on a single element. Conductors and CI that require the all-or-nothing refusal pass `--strict` (`track report --owner-table --strict`). When a journal is clean, `--strict` renders the exact same output as default mode.
 
-1. **Eight columns in this exact order:**
-   `# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision`
-2. **One stable request number per demand (`1..N`), one row per lot (Owner Decision 15/11 « Une ligne par lot »):** across all owner requests (`demand.owner-numbered` / `ownerNumber`), a demand never disappears without an explicit owner archive event (`demand.owner-archived` backed by a settled `'go'` decision). A single-lot demand keeps one row (`kind: 'single'`). A multi-lot demand renders a title row (`kind: 'demand-title'`: verbatim `Ta demande`, demand-targeted decisions, no status/stage) followed by one row per lot (`kind: 'lot'`, `parentDemandId`, `↳ lot N — <title>`), each carrying its own status, stage, ETA, `Fait`, `À faire (qui)`, and lot-targeted decisions.
-3. **Statuses (one coloured emoji + a word, never a glyph alone):**
-   - `🔵 sur la voie` (`on-track`): requires a conformity witness at the current stage.
-   - `🟡 en attente` (`waiting`): a planned wait with a scheduled resume / milestone.
-   - `🟠 dérive` (`unforeseen`): regression, reopening, stale acceptance, or missed ETA.
-   - `🔴 bloqué` (`blocked`): the cause goes in `À faire (qui)` (an owner action, a named third party, or other).
-   - `⚪ pas commencé` or `⚪ en pause` (`not-started`): by the owner's choice.
-   - `✅ fait` (`done`): stage `done`, with production proof and acceptance.
-   - `⚫ retiré` (`withdrawn`): requires its withdrawal reason.
-   - `— sans témoin` (`not-qualified`): started, with no witness.
-   - `decision-awaited` is no longer a status (normalized at read time from historical events).
-4. **Twelve stages (proven only by recorded links; `merged` is never `fait`; legacy `deployed` without a `prod:` environment maps to `preprod`):**
-   `brainstorm · spec · plan · dev · test · pr · review · merged · published · preprod · prod · done`
-5. **ETA (étape cible):**
-   - The target stage is always named (`spec → 15/11 (mesuré)`, `prod (MEP) → 20/11 (engagé : Jean)`), and a row may carry up to two ETAs.
-   - The source is `mesuré` (`measured`), `engagé` (`committed`, with who), or `inconnu` (`unknown`).
-   - A missed ETA turns the row `🟠 dérive` and records the slip (`glissement depuis <date>`).
-6. **Décision column & block under the table:**
-   - Non-blocking decision: `D#`.
-   - Blocking decision: `🚩 D# bloquante`, which makes the row `🔴 bloqué` with `bloqué par D#` in `À faire (qui)`.
-   - Under the table: `**Décisions qui t'attendent**` with `D1…Dn` (question, options with consequence, `Reco : **<letter>** (<rationale>)`, optional `Dossier : <link>`), followed by one reply line: `` `Réponse : D1 A · D2 B` ``.
-7. **Blocking gates (`--owner-table` / `auditOwnerTable` / `renderOwnerTable` refuses fail-closed on any violation and never prints `Aucune décision en attente` / `Réponse : aucune décision en attente` when refused):**
-   - no `.track` journal resolves (`--owner-table` refuses with a non-zero exit instead of serving an empty view);
-   - zero owner-numbered demands (or zero active rows when all demands are archived) in the resolved journal (`no-owner-demands`);
-   - a missing, duplicate, or out-of-order row `#`;
-   - `🔴` without a cause in `À faire (qui)`;
-   - `✅` or `🔵` without a witness (or `✅` when `stage !== 'done'`, or `⚫` without a reason);
-   - an ETA without a target stage or a source (or `committed` without who, or more than two ETAs);
-   - a `D#` without a row, a row pointing to an unlisted `D#`, or a pending or deferred decision without options (`invalid-decision`);
-   - a commit hash, ULID, or internal jargon in owner text;
-   - a banned word or private identifier.
+1. **Header (declared scope):**
+   - `Journal : <label> · <resolution> · dernier événement <date>` (or `aucun événement`): names the journal of reference that was read (`--track-dir`, `TRACK_DIR`, `dépôt principal`, or `dossier` — from a linked worktree, always the main checkout's journal, never the worktree copy) and its last event date.
+   - `Périmètre partiel : <scope motifs> · <gap counts>`: lists first why the scope is partial (for example `captation inactive`, `politique de termes privés absente`), then each counted gap (`demandes à rattacher`, `lignes à compléter`, `décisions à compléter`, `décisions en attente`, `OWNER GATE ouvertes`, `questions de dossier sans réponse`, `cellules masquées`, `documents désynchronisés`). Overlapping qualifiers on one decision are never summed.
+   - `Copie locale : N événement(s) absent(s) du journal de référence`: shown only when run from a divergent local copy (such as a linked worktree holding events absent from the main checkout).
+2. **Sections in order:**
+   - **Numbered demands table** (omitted when zero active numbered demands): eight columns `# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision` with stable request numbers (`1..N`), one row per lot on multi-lot demands (`kind: 'demand-title'` + `↳ lot N — <title>`), 8 statuses (`🔵 sur la voie`, `🟡 en attente`, `🟠 dérive`, `🔴 bloqué`, `⚪ pas commencé`/`⚪ en pause`, `✅ fait`, `⚫ retiré`, `— sans témoin`), 12 stages (`brainstorm` to `done`), up to two target-stage ETAs (`mesuré`/`engagé`/`inconnu`), and `(non capté)` on uncaptured demand texts. Row-level gaps stay visible with a `⚠ <motif>` flag on their cell; text-gate hits mask the cell (`texte masqué (<motif>), à réécrire`) without ever rewriting or revealing the offending text.
+   - **« À rattacher »**: lists every known owner request that has no number (`- <date> · non capté · <text>`, or masked when it hits a text gate).
+   - **« Décisions qui t'attendent »**: opens with total, qualifier counts (`hors demande`, `sans dossier`, `à instruire`) and unanswered dossier question counts. Pending or deferred decisions without options render `à instruire` without a `D#` or option letters; `OWNER GATE` records render `à répondre dans la session <name>` without a `D#` and outside the reply line. When no decision is listed, the table prints `Aucune décision enregistrée au journal (périmètre partiel : <scope motifs>).` — the reserved absolute sentences `Aucune décision en attente` and `Réponse : aucune décision en attente` are never emitted in any mode.
+   - **`Réponse` line**: lists only numbered decisions carrying a recorded recommendation (`` `Réponse : D1 A · D2 B` ``), and is omitted otherwise.
+3. **Recording an answer from the table:**
+   - Markdown and text renderings (and `--strict` diagnostics) never print a decision identifier. To record the owner's answer, read the decision's `id` from the JSON form of the **same** rendering (`track report --owner-table --format json`) and act on that identifier — never guess from a positional `D#`.
+4. **Four global gates that still refuse (exit code 1 in every mode):**
+   - **G1 (`journal-integrity`)**: broken hash chain, head mismatch, or malformed line.
+   - **G2 (number registry)**: for numbers from 1 up, a vanished registered number without an archive event, a duplicate number, or a hole below the highest number (unnumbered rows `num = 0` never trip G2 and move to « À rattacher »).
+   - **G3 (unproven status)**: a row claiming `✅ fait` or `🔵 sur la voie` without its recorded witness or stage.
+   - **G4 (no readable source)**: no journal resolves and no capture is active (`dossier non couvert`).
+   - **Never recompose a refused table by hand.** When `--owner-table` (or `--owner-table --strict`) refuses, surface the refusal verbatim to the owner and fix the underlying journal or gate; never fabricate a replacement table from memory.
 
 ## The served route: `--status-table`, rolling window, user language
 
