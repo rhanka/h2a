@@ -200,7 +200,12 @@ export type RemoteCliConfig = {
   /** Native terminal status bar configuration (default enabled). */
   statusBar?: boolean | { enabled?: boolean };
   /** Native right panel (default disabled; opt-in only). */
-  rightPanel?: { enabled?: boolean; width?: number };
+  rightPanel?: {
+    enabled?: boolean;
+    width?: number;
+    /** Optional per-project journal-of-record override (`PANEL §4.3`). */
+    trackDirs?: Record<string, string>;
+  };
   /** P4 — default concurrency cap for delegated jobs (local AND remote). */
   maxConcurrent?: number;
   /**
@@ -475,11 +480,20 @@ export function readRemoteConfig(): RemoteCliConfig {
       }
       if (parsed.rightPanel && typeof parsed.rightPanel === "object") {
         const rp = parsed.rightPanel as Record<string, unknown>;
+        let trackDirs: Record<string, string> | undefined;
+        if (rp.trackDirs && typeof rp.trackDirs === "object" && !Array.isArray(rp.trackDirs)) {
+          const clean: Record<string, string> = {};
+          for (const [k, v] of Object.entries(rp.trackDirs as Record<string, unknown>)) {
+            if (typeof v === "string" && v.trim().length > 0) clean[k] = v.trim();
+          }
+          if (Object.keys(clean).length > 0) trackDirs = clean;
+        }
         config.rightPanel = {
           ...(typeof rp.enabled === "boolean" ? { enabled: rp.enabled } : {}),
           ...(typeof rp.width === "number" && Number.isFinite(rp.width)
             ? { width: rp.width }
             : {}),
+          ...(trackDirs ? { trackDirs } : {}),
         };
       }
       if (

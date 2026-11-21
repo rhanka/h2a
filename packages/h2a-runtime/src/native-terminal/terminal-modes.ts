@@ -27,6 +27,22 @@ export class TerminalModeTracker {
     return [1000, 1002, 1003].some((mode) => this.#enabled.has(mode));
   }
 
+  /** True when the child enabled bracketed paste mode (DECSET 2004). */
+  isBracketedPasteEnabled(): boolean {
+    return this.#enabled.has(2004);
+  }
+
+  /** True when the child pushed non-zero kitty keyboard flags on the active screen. */
+  isKittyKeyboardEnabled(): boolean {
+    const stack = this.#alternate ? this.#alternateKeyboard : this.#mainKeyboard;
+    return (stack[stack.length - 1] ?? 0) !== 0;
+  }
+
+  /** True when the child enabled application cursor keys (DECCKM, DECSET 1). */
+  isApplicationCursorKeysEnabled(): boolean {
+    return this.#enabled.has(1);
+  }
+
   feed(data: string): void {
     for (const c of data) {
       if (c === "\x18" || c === "\x1a") { this.#state = "text"; continue; }
