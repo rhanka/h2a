@@ -105,7 +105,7 @@ export function cmdEventsContains(args: string[], io: CliIO): number {
 }
 
 /** The set of event `id`s in a `.track` log (read-only; never validates the integrity chain). */
-function idsOf(path: string): Set<string> {
+export function idsOf(path: string): Set<string> {
   const ids = new Set<string>()
   for (const e of new EventStore(path).readAll()) ids.add(e.id)
   return ids

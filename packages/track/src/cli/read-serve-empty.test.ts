@@ -87,7 +87,7 @@ describe('CLI reads — serve-empty when no .track resolves (rc=0, hint, no crea
       expect(code).toBe(1)
       expect(out.join('')).toBe('')
       expect(err.join('')).toBe(
-        `error: REFUSED: aucun journal .track trouvé depuis ${sub} — tableau owner refusé ` +
+        `error: REFUSED: dossier non couvert — aucun journal .track trouvé depuis ${sub} et aucune captation active — tableau owner refusé ` +
           `(des demandes ou décisions owner ouvertes peuvent exister hors journal). ` +
           `Passe --track-dir <dossier> (ou TRACK_DIR) vers le journal concerné, ou initialise un journal avec \`track init\`.\n`,
       )
@@ -106,5 +106,22 @@ describe('CLI reads — serve-empty when no .track resolves (rc=0, hint, no crea
     expect(code).toBe(0)
     expect(err.join('')).toContain('Serving an empty view')
     expect(existsSync(join(sub, '.track'))).toBe(false)
+  })
+
+  it('with no journal and no active capture the table refuses as not covered (T1-s)', () => {
+    const sub = join(root, 'uncovered-owner-table')
+    mkdirSync(sub, { recursive: true })
+    for (const format of ['md', 'text', 'json'] as const) {
+      out = []
+      err = []
+      const code = runCli(['report', '--owner-table', '--format', format], io(sub))
+      expect(code).toBe(1)
+      expect(out.join('')).toBe('')
+      expect(err.join('')).toContain('non couvert')
+      expect(err.join('')).not.toContain('Serving an empty view')
+      expect(out.join('') + err.join('')).not.toContain('Aucune décision en attente')
+      expect(out.join('') + err.join('')).not.toContain('Réponse : aucune décision en attente')
+      expect(existsSync(join(sub, '.track'))).toBe(false)
+    }
   })
 })

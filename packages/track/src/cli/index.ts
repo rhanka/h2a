@@ -9,6 +9,8 @@ import { validate } from '../events/validate.js'
 import { cmdEventsContains } from './events-contains.js'
 import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
+import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
+import { resolveOwnerTablePolicyFile } from '../state-home.js'
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
@@ -486,9 +488,9 @@ function extractRepeatableFlag(args: string[], key: string): { values: string[];
   return { values, rest }
 }
 
-const REPORT_USAGE = `usage: track report [--owner-table] [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--owner-table [--strict]] [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
---owner-table is the default owner report: it renders the 8-column owner status table (# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision) followed by Décisions qui t'attendent and the single reply line, and enforces all blocking gates fail-closed.
+--owner-table is the default owner report: it renders the qualified owner status table with its declared scope header, 8-column table, unnumbered demands to attach, and pending decisions; --strict restores the all-or-nothing refusal on any per-element gap.
 
 --status-table selects the validated four-section report: À-FAIRE carries WP · av. · étape · statut · à faire · bloqué · prochaine action over a rolling last-week window by default (an explicit period always wins). Stage/status are neutral codes over recorded evidence; missing information is flagged, never colored. It preserves DÉCISIONS and supports scoped Markdown.
 
@@ -574,7 +576,25 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       // `resolveTrackDirOrNull`, so an unadopted repo yields rc=0 + an honest-empty view + a stderr
       // `track init` hint, never a boot crash. NEVER creates. A bad EXPLICIT override still throws
       // (user error → the outer catch → rc=1). The reader over a nonexistent log already reads empty.
-      case 'report':
+      case 'report': {
+        if (rest.includes('--owner-table')) {
+          const ref = resolveJournalOfReference(resolveOpts)
+          const ctx: Ctx = {
+            io,
+            eventsPath:
+              ref.trackDir !== null
+                ? eventsPathOf(ref.trackDir)
+                : eventsPathOf(join(resolve(io.cwd), '.track')),
+          }
+          return cmdReport(rest, ctx, ref.trackDir === null, ref)
+        }
+        const trackDir = resolveTrackDirOrNull(resolveOpts)
+        const ctx: Ctx = {
+          io,
+          eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
+        }
+        return cmdReport(rest, ctx, trackDir === null)
+      }
       case 'snapshot':
       case 'export-graph':
       case 'query':
@@ -584,7 +604,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       case 'audit':
       case 'workspace-activity': {
         const trackDir = resolveTrackDirOrNull(resolveOpts)
-        if (trackDir === null && cmd !== 'report') {
+        if (trackDir === null) {
           io.err(
             `track: no .track resolved from ${io.cwd}. Run \`track init\` to create one ` +
               `(the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.\n`,
@@ -597,8 +617,6 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
           eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
         }
         switch (cmd) {
-          case 'report':
-            return cmdReport(rest, ctx, trackDir === null)
           case 'snapshot':
             return cmdSnapshot(rest, ctx)
           case 'export-graph':
@@ -1334,14 +1352,23 @@ function cmdDemand(args: string[], ctx: Ctx): number {
   return 2
 }
 
-function cmdReport(args: string[], ctx: Ctx, noTrackDir = false): number {
+function cmdReport(
+  args: string[],
+  ctx: Ctx,
+  noTrackDir = false,
+  journalRef?: JournalReferenceResult,
+): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
   for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period', 'lang', 'policy']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
   const ownerTable = assertBooleanFlag(flags, 'owner-table')
+  const strict = assertBooleanFlag(flags, 'strict')
   const statusTable = assertBooleanFlag(flags, 'status-table')
+  if (strict && !ownerTable) {
+    throw new DomainError('--strict is only valid with --owner-table')
+  }
   if (ownerTable && statusTable) {
     throw new DomainError('--owner-table and --status-table are mutually exclusive')
   }
@@ -1424,7 +1451,7 @@ function cmdReport(args: string[], ctx: Ctx, noTrackDir = false): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table', 'owner-table', 'lang', 'policy',
+    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table', 'owner-table', 'strict', 'lang', 'policy',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
@@ -1493,27 +1520,43 @@ function cmdReport(args: string[], ctx: Ctx, noTrackDir = false): number {
   const reader = new TrackReader(ctx.eventsPath)
   if (ownerTable) {
     if (noTrackDir) {
-      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd))
+      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, journalRef?.reason))
     }
-    const defaultPolicyPath = join(dirname(ctx.eventsPath), 'owner-report-policy.json')
-    const explicitPolicyPath =
-      opt(flags, 'policy') ??
-      process.env['TRACK_OWNER_POLICY_FILE'] ??
-      process.env['TRACK_OWNER_REPORT_POLICY']
-    const policyPath =
-      explicitPolicyPath ?? (existsSync(defaultPolicyPath) ? defaultPolicyPath : undefined)
+    const resolvedPolicy = resolveOwnerTablePolicyFile({
+      flagPolicyPath: opt(flags, 'policy'),
+      trackDir: dirname(ctx.eventsPath),
+    })
     const ownerOpts = {
       baselineCommit: options.baselineCommit,
       now: periodClock,
-      defaultPolicyPath,
-      ...(policyPath !== undefined ? { policyPath } : {}),
+      ...(resolvedPolicy.defaultPolicyPath !== undefined
+        ? { defaultPolicyPath: resolvedPolicy.defaultPolicyPath }
+        : {}),
+      statePolicyPath: resolvedPolicy.statePolicyPath,
+      ...(resolvedPolicy.policyPath !== undefined ? { policyPath: resolvedPolicy.policyPath } : {}),
     }
-    const view = reader.ownerTable(ownerOpts)
-    const audit = auditOwnerTable(view, ownerOpts)
-    for (const notice of audit.notices ?? []) {
-      io.err(`Notice: ${notice}\n`)
+    if (strict) {
+      const view = reader.ownerTable(ownerOpts)
+      const audit = auditOwnerTable(view, ownerOpts)
+      for (const notice of audit.notices ?? []) {
+        io.err(`Notice: ${notice}\n`)
+      }
     }
-    io.out(ownerTableText(reader, ownerOpts, format))
+    io.out(
+      ownerTableText(
+        reader,
+        {
+          ...ownerOpts,
+          strict,
+          header: {
+            ...(journalRef?.label !== undefined ? { label: journalRef.label } : {}),
+            resolution: journalRef?.resolution ?? 'dossier',
+            localOnlyEventCount: journalRef?.localOnlyEventCount ?? 0,
+          },
+        },
+        format,
+      ),
+    )
     return 0
   }
   if (inline) {
@@ -1870,7 +1913,9 @@ function cmdValidate(args: string[], ctx: Ctx, noStore = false): number {
     return 0
   }
   const integrity = validate(events, readHead(ctx.eventsPath))
-  const desync = desyncFindings(new Track(s).state(), io.cwd)
+  const trackDir = dirname(ctx.eventsPath)
+  const journalFolder = basename(trackDir) === '.track' ? dirname(trackDir) : trackDir
+  const desync = desyncFindings(new Track(s).state(), journalFolder)
   const findings = [...integrity.findings.map((f) => ({ ...f })), ...desync]
   if (findings.length === 0) {
     io.out(`OK: ${events.length} events, integrity + desync clean\n`)
