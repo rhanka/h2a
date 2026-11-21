@@ -134,6 +134,12 @@ const STATE_POLL_MS = 1_000;
 const STATE_POLL_MAX_MS = 16_000;
 const RECONNECT_MIN_MS = 100;
 const RECONNECT_MAX_MS = 2_000;
+/**
+ * An absence proof takes the host publication lock. A long-lived station
+ * refreshes its inventory every second: it re-proves an absent endpoint at
+ * most this often, so it can never get in the way of a host being launched.
+ */
+const ABSENCE_PROOF_TTL_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Host surface
@@ -501,6 +507,8 @@ class Station {
   readonly #guards = new Map<string, GuardLease>();
   readonly #sizes = new Map<string, { cols: number; rows: number }>();
   readonly #stationUndo = new TerminalUndoRegistry();
+  /** Endpoints proven absent, with the station time of the proof. */
+  readonly #absence = new Map<string, number>();
   readonly #draftStatus = new Map<string, StationSessionDraftStatus>();
 
   /** Logical clock ordering inventories against lease acquisitions. */
@@ -681,8 +689,25 @@ class Station {
     const started = (this.#clock += 1);
     const inventory = await collectNativeInventory<StationHostClient>(
       this.#runtime.endpoints(),
-      (socketPath) => this.#runtime.connect(socketPath),
-      proveAbsent ? (socketPath, failure) => proveAbsent(socketPath, failure) : undefined,
+      async (socketPath) => {
+        const client = await this.#runtime.connect(socketPath);
+        // A host answers there now: any earlier absence proof is void.
+        this.#absence.delete(socketPath);
+        return client;
+      },
+      proveAbsent
+        ? async (socketPath, failure) => {
+            const code = (failure as NodeJS.ErrnoException | undefined)?.code;
+            if (code !== "ENOENT" && code !== "ECONNREFUSED") return false;
+            const provenAt = this.#absence.get(socketPath);
+            const now = this.#runtime.now();
+            if (provenAt !== undefined && now - provenAt < ABSENCE_PROOF_TTL_MS) return true;
+            const absent = await proveAbsent(socketPath, failure);
+            if (absent) this.#absence.set(socketPath, now);
+            else this.#absence.delete(socketPath);
+            return absent;
+          }
+        : undefined,
     );
     // A slower, older collection never overwrites a newer one.
     if (this.#inventory === undefined || this.#inventory.started < started) {
