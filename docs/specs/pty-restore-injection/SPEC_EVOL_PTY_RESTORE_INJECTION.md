@@ -1204,7 +1204,10 @@ Allowed files:
   - `packages/h2a/test/agy-claude-run.test.js`, `packages/h2a/test/mcp-focus.test.js`,
     `packages/h2a/test/mcp-run.test.js` (B2–B4: place workspace test scratch dirs under `<checkout>/tmp/` writable view rather than the read-only checkout root)
   - `packages/h2a/test/registry-bridge-lock-recovery.test.js` (B5: skip redundant `chmodSync(PKG_ROOT, 0o755)` when `PKG_ROOT` already has mode `0o755` on the read-only checkout)
-  - `scripts/test-sandbox.mjs` (already listed above; B6 adds pre-populated shadow views for `packages/h2a/.claude-plugin` and `packages/h2a/.codex-plugin` so `registry-plugin-declarations.test.js` exercises the real generator write path without writing to the host checkout)
+  - `scripts/test-sandbox.mjs` (already listed above; B6 adds pre-populated shadow views for `packages/h2a/.claude-plugin` and `packages/h2a/.codex-plugin` so `registry-plugin-declarations.test.js` exercises the real generator write path without writing to the host checkout, plus `src/.test-scratch` workspace view for `gateway-host/{config-file,daemon}.test.ts`)
+  - `packages/h2a-runtime/src/sync-incremental.test.ts`, `packages/h2a-runtime/src/sync-status.test.ts` (allocate Vitest scratch HOME under worker `tmpdir()` inside `R` instead of the read-only checkout root or legacy `packages/remote-cli/`)
+  - `packages/h2a-runtime/src/native-terminal/journal.test.ts` (place `r2-*` stack canonicalization sentinels under the attested `src/.stack-test/` shadow view)
+  - `packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts` (rewrite `test-sandbox-contract.mjs` and `native-isolation-core.js` imports in the copied `late-native-isolation.mjs` preload fixture per INJ-L0 Step 4)
   - `docs/specs/pty-restore-injection/SPEC_EVOL_PTY_RESTORE_INJECTION.md` (Step 0 / INJ:900 spec amendments before code)
 
   Any further writer discovered while landing the inventory is appended
