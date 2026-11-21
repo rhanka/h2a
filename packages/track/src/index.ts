@@ -12,6 +12,9 @@ export { Track, type ImportResult, type OpenBlockerInput, type TrackOptions } fr
 export { runCli, type CliIO } from './cli/index.js'
 // WP4 — durable, multi-worktree workspace id (pure core + git-I/O resolver), shipped byte-for-byte with h2a.
 export { computeDurableWorkspaceId, durableWorkspaceId } from './workspace-id.js'
+// Lot 4a — project/folder identities, local journal index, and inscription journal helper.
+export * from './journal/index.js'
+export { resolveJournalOfReference, type JournalReferenceResult, type JournalResolutionKind, type JournalResolutionStep, type JournalResolveOptions } from './cli/journal-reference.js'
 // Skill-facing, versioned, read-only contract (M2a, Lot v2.0).
 export * from './read/index.js'
 // Demand lifecycle (Mode A, Build 2) — the ephemeral lease side-store (the PRODUCER surface: mint/heartbeat/
