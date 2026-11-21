@@ -7928,7 +7928,7 @@ export async function cmdKeepalive(
 // par shell-out (le store `.track` est append-only single-writer : pas de 2ᵉ writer).
 // Verbes spécifiques, sans namespace `track` (dissous comme host/sub).
 export const TRACK_FACADE_VERBS = new Set([
-  "decision", "report", "accept", "blocker", "item", "query",
+  "decision", "demand", "report", "accept", "blocker", "item", "query",
   "consolidate", "priority", "branch", "focus", "ingest", "restructure", "snapshot"
 ]);
 
@@ -7956,7 +7956,7 @@ export const TRACK_NATIVE_READONLY_VERBS = new Set(["query", "report", "snapshot
 // through runCli's mutating switch as a plain sync `cmd…` returning a `number`.
 // `focus` is absent (async); `restructure`/`ingest` are sync file-plan applies.
 export const TRACK_NATIVE_WRITE_VERBS = new Set([
-  "decision", "item", "accept", "blocker",
+  "decision", "demand", "item", "accept", "blocker",
   "consolidate", "priority", "branch", "ingest", "restructure"
 ]);
 

@@ -28,7 +28,7 @@ test("les verbes h2a-natifs (dont collisions) → PAS de délégation", () => {
     "status", "connect", "conductor-launch", "loop", "negotiate", "discover", "report-context",
     "inbox", "sessions", "drumbeat", "mcp-serve", "keepalive", "remote", "drive", "sysml",
     // façade track (déléguée par runCli à la CLI track, PAS au runtime)
-    "item", "decision", "report", "snapshot", "query", "blocker", "focus"
+    "item", "decision", "demand", "report", "snapshot", "query", "blocker", "focus"
   ]) {
     assert.equal(shouldDispatchRuntime([v]), false, `${v} doit rester natif`);
   }

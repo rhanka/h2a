@@ -55,7 +55,8 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // (+501 bytes).
 // Focus MCP tools (Lot L1): `MCP tools:` line gains `, h2a_focus_build, h2a_focus_template` (+37 bytes).
 // Focus artifact gate (Lot FA-H1): adds `h2a focus check` usage line (+110 bytes) and `, h2a_focus_check` in `MCP tools:` (+17 bytes) = +127 bytes.
-const CORE_HELP_SHA256 = "5bbbf19fd768ff8c6e374e7dc7f889162a3708c995e85944b7c72d44c0ded66d";
+// Track owner table (Lot 2): Track facade line gains ` · h2a demand` (+14 bytes).
+const CORE_HELP_SHA256 = "f6755eb597c2a281006278b8b17231c4e1697d8d0f5c9239d0c6a942eb1fbbcb";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -163,7 +164,8 @@ function assertCoreHelp(result) {
   // + 501 for the LOT-3/LOT-5 registry verbs.
   // + 37 for `, h2a_focus_build, h2a_focus_template` in the MCP tools line (Lot L1).
   // + 127 for `h2a focus check` usage line (+110) and `, h2a_focus_check` in MCP tools (+17) (Lot FA-H1).
-  assert.equal(Buffer.byteLength(result.stdout), 15554);
+  // + 14 for ` · h2a demand` in the Track facade line (Track owner table Lot 2).
+  assert.equal(Buffer.byteLength(result.stdout), 15568);
 }
 
 function assertMissingRuntime(result, firstToken) {
@@ -232,6 +234,7 @@ test("parser golden: runtime routing keeps run, leading options, and terminators
 test("parser golden: every Track facade verb remains core-routed", async () => {
   const { shouldDispatchRuntime } = await import("../dist/bin-routing.js");
   const { TRACK_FACADE_VERBS } = await import("../dist/cli.js");
+  assert.ok(TRACK_FACADE_VERBS.has("demand"), "demand must remain in TRACK_FACADE_VERBS");
   for (const verb of TRACK_FACADE_VERBS) {
     assert.equal(shouldDispatchRuntime([verb]), false, verb);
   }
