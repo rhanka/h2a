@@ -69,6 +69,8 @@ import { publishAttachReset } from "./attach-recovery.js";
 import {
   ATTACH_PENDING_INPUT_MAX_BYTES,
   createSessionView,
+  isDefinitiveNativeTerminalAbsence,
+  isStateRequestTimeout,
   sessionExitCrashEntry,
   type NativeTerminalAttachClient,
 } from "./session-view.js";
@@ -417,24 +419,6 @@ function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
       process.removeListener("uncaughtExceptionMonitor", listener);
     },
   };
-}
-
-function isDefinitiveNativeTerminalAbsence(error: unknown): boolean {
-  if (
-    error instanceof NativeTerminalRemoteError &&
-    error.message.includes("unknown terminal session")
-  ) {
-    return true;
-  }
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === "ENOENT" || code === "ECONNREFUSED";
-}
-
-function isStateRequestTimeout(error: unknown): boolean {
-  return (
-    error instanceof NativeTerminalRequestTimeoutError ||
-    (error instanceof Error && error.name === "NativeTerminalRequestTimeoutError")
-  );
 }
 
 export type NativeAttachStatusBarOptions = Omit<

@@ -30,19 +30,22 @@ export async function readNativeTerminalSuccessor<T>(read: () => Promise<T>, pub
   }
 }
 
-export type NativeInventory = {
+/** What an inventory needs from a host client: the station passes its own narrow port. */
+export type NativeInventoryClient = Pick<NativeTerminalClient, "list" | "close">;
+
+export type NativeInventory<C extends NativeInventoryClient = NativeTerminalClient> = {
   complete: boolean;
   sessions: Array<NativeTerminalSessionState & { socketPath: string }>;
-  hosts: Array<{ socketPath: string; client?: NativeTerminalClient; absent?: true; reason?: string }>;
+  hosts: Array<{ socketPath: string; client?: C; absent?: true; reason?: string }>;
 };
 
 /** Every endpoint contributes separately; duplicate names are evidence. */
-export async function collectNativeInventory(
+export async function collectNativeInventory<C extends NativeInventoryClient = NativeTerminalClient>(
   endpoints: readonly string[],
-  connect: (socketPath: string) => Promise<NativeTerminalClient>,
+  connect: (socketPath: string) => Promise<C>,
   proveAbsent?: (socketPath: string, failure: unknown) => Promise<boolean>,
-): Promise<NativeInventory> {
-  const inventory: NativeInventory = { complete: true, sessions: [], hosts: [] };
+): Promise<NativeInventory<C>> {
+  const inventory: NativeInventory<C> = { complete: true, sessions: [], hosts: [] };
   for (const socketPath of endpoints) {
     try {
       const client = await connect(socketPath);
@@ -81,13 +84,13 @@ export async function collectNativeInventory(
   return inventory;
 }
 
-export type NativeOwnerResolution =
-  | { state: "found"; socketPath: string; client: NativeTerminalClient; session: NativeTerminalSessionState }
+export type NativeOwnerResolution<C extends NativeInventoryClient = NativeTerminalClient> =
+  | { state: "found"; socketPath: string; client: C; session: NativeTerminalSessionState }
   | { state: "ambiguous-owner"; sockets: string[] }
   | { state: "unknown"; reason: string }
   | { state: "absent" };
 
-export function resolveNativeOwner(id: string, inventory: NativeInventory): NativeOwnerResolution {
+export function resolveNativeOwner<C extends NativeInventoryClient = NativeTerminalClient>(id: string, inventory: NativeInventory<C>): NativeOwnerResolution<C> {
   const matches = inventory.sessions.filter(session => session.id === id);
   if (matches.length > 1) return { state: "ambiguous-owner", sockets: matches.map(session => session.socketPath) };
   const session = matches[0];
