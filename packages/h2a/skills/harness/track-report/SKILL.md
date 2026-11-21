@@ -45,7 +45,7 @@ node "$track_bin" report --owner-table --format md
    - `🔴` without a cause in `À faire (qui)`;
    - `✅` or `🔵` without a witness (or `✅` when `stage !== 'done'`, or `⚫` without a reason);
    - an ETA without a target stage or a source (or `committed` without who, or more than two ETAs);
-   - a `D#` without a row, or a row pointing to an unlisted `D#`;
+   - a `D#` without a row, a row pointing to an unlisted `D#`, or a pending or deferred decision without options (`invalid-decision`);
    - a commit hash, ULID, or internal jargon in owner text;
    - a banned word or private identifier.
 
