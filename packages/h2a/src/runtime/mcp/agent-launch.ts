@@ -350,8 +350,9 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
     throw new Error("incompatible h2a runtime: launch output is not an object");
   }
   const result = value as Record<string, unknown>;
-  if (result.kind === "h2a.run.completion" && request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) &&
-      result.version === 1 && result.state === "done" && result.exitCode === 0 && result.modelSource === "launch-argument" &&
+  if (result.kind === "h2a.run.completion" && request.profile === "agy" && request.headless &&
+      result.version === 1 && result.state === "done" && result.exitCode === 0 &&
+      result.modelSource === (request.model ? "launch-argument" : undefined) &&
       result.model === resolveAgyModel(request.model, request.effort) &&
       (result.effectiveModel === "unknown" || result.effectiveModel === result.model)) return result;
   const session = result.session as Record<string, unknown> | undefined;
@@ -564,6 +565,10 @@ export function executeH2aRunWithSpawn(
     try {
       const failure = JSON.parse(result.stdout ?? "") as Record<string, unknown>;
       if (isPreCreateNativeFailure(failure, request.name, result.stderr ?? "")) return failure;
+      if (request.profile === "agy" && failure.kind === "h2a.run.failure" && failure.version === 1 &&
+          failure.code === "agy-auth-required" && failure.launchId === request.name && failure.retrySafe === false &&
+          (request.headless ? failure.state === "failed" : failure.state === "host-modal" &&
+            typeof failure.stopped === "boolean" && (failure.prompt as { delivered?: unknown })?.delivered === false)) return failure;
       if (failure.kind === "h2a.run.failure" && request.profile === "agy" &&
           failure.retrySafe === false && typeof failure.code === "string" &&
           ["agy-effort-unsupported", "agy-claude-build-requires-opt-in", "agy-claude-quota-exhausted", "agy-output-missing", "agy-model-mismatch", "agy-process-failed"].includes(failure.code)) return failure;
@@ -661,6 +666,19 @@ export async function executeH2aRunWithAsyncSpawn(
 
 export const executeH2aRun: H2aRunExecutor = executeH2aRunWithAsyncSpawn;
 
+// Older Gemini supervisors wrote only the exit state and status. Accept the
+// exact shell receipt after the existing file-generation check on a same-name poll.
+function agyRunCompletion(value: Record<string, unknown>, model?: string): Record<string, unknown> | undefined {
+  if (value.kind === "h2a.run.failure" || value.kind === "h2a.run.completion") return value;
+  const { exitCode } = value;
+  if (isAgyClaudeModel(model) || Object.keys(value).length !== 2 ||
+      typeof exitCode !== "number" || !Number.isInteger(exitCode) || exitCode < 0 || exitCode > 255 ||
+      value.state !== (exitCode === 0 ? "done" : "failed")) return undefined;
+  if (exitCode === 0) return { ...value, kind: "h2a.run.completion", version: 1 };
+  return { ...value, kind: "h2a.run.failure", version: 1,
+    code: "agy-process-failed", error: `AGY exited with code ${exitCode}`, retrySafe: false };
+}
+
 /** Server lifetime registry: a caller cancellation never owns the runtime. */
 export function createH2aRunLauncher(
   execute: H2aRunExecutor = executeH2aRun,
@@ -671,6 +689,7 @@ export function createH2aRunLauncher(
   const previousResults = new Map<string, Stats>();
   const argumentsByName = new Map<string, string>();
   return request => {
+    const agyHeadless = request.profile === "agy" && request.headless;
     const { launchAuthority: _authority, ...initialArguments } = request;
     const digest = argumentsDigest(initialArguments);
     const existing = launches.get(request.name);
@@ -678,7 +697,7 @@ export function createH2aRunLauncher(
       if (argumentsByName.get(request.name) !== digest) throw new Error("launch_arguments_conflict");
       // A run-once launch outlives the initial MCP response. Read its durable
       // completion on polling; never launch again or return stale "started".
-      if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) && existing.state === "started") {
+      if (agyHeadless && existing.state === "started") {
         const resultPath = (existing.result as { path?: unknown } | undefined)?.path;
         if (typeof resultPath === "string") try {
           // Bind bytes and freshness to the same inode: a supervisor publishes
@@ -689,9 +708,8 @@ export function createH2aRunLauncher(
             const previous = previousResults.get(request.name);
             const unchanged = previous && previous.dev === current.dev && previous.ino === current.ino &&
               previous.mtimeMs === current.mtimeMs && previous.ctimeMs === current.ctimeMs && previous.size === current.size;
-            const completed = JSON.parse(readFileSync(fd, "utf8"));
-            if (!unchanged &&
-                ["h2a.run.failure", "h2a.run.completion"].includes(completed.kind)) {
+            const completed = unchanged ? undefined : agyRunCompletion(JSON.parse(readFileSync(fd, "utf8")), request.model);
+            if (completed) {
               const final = { ...completed, launchId: request.name, result: existing.result, logs: existing.logs };
               launches.set(request.name, final);
               return final;
@@ -704,7 +722,7 @@ export function createH2aRunLauncher(
     argumentsByName.set(request.name, digest);
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
     const canonicalResultPath = join(request.workspace, ".h2a", "runs", request.name, "result.json");
-    if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model)) {
+    if (agyHeadless) {
       // Compare file generations, never filesystem timestamps with Date.now():
       // a newly written inode can legitimately lag the wall clock on Linux.
       try { previousResults.set(request.name, statSync(canonicalResultPath)); }
@@ -715,7 +733,7 @@ export function createH2aRunLauncher(
       const current = result && typeof result === "object" ? result as Record<string, unknown>
         : { error: "h2a_run: launcher returned no structured result", state: "unknown", launchId: request.name, retrySafe: false };
       const resultPath = (current.result as { path?: unknown } | undefined)?.path;
-      if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) &&
+      if (agyHeadless &&
           current.state === "started" && typeof resultPath === "string" && resultPath !== canonicalResultPath) {
         // An injected executor's custom path is first known at handoff. Treat
         // any file already there as its baseline; an already finished executor

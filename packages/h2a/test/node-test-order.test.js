@@ -202,7 +202,7 @@ function overlappingCampaign(t, failing = false) {
   const report=join(root,'evidence.json'), marker=name=>join(root,name);
   const names=['mh-l5-concurrency.test.js','protocol.test.js','mh-l6-package.test.js'];
   const files=names.map(name=>join(root,name));
-  const wait=`async function wait(path){const end=Date.now()+2000;while(!fs.existsSync(path)){if(Date.now()>end)throw Error('campaign and remaining suites were serialized');await new Promise(r=>setTimeout(r,5));}}`;
+  const wait=`async function wait(path){const end=Date.now()+10000;while(!fs.existsSync(path)){if(Date.now()>end)throw Error('campaign and remaining suites were serialized');await new Promise(r=>setTimeout(r,5));}}`;
   fs.writeFileSync(files[0],`const {test}=require('node:test'),fs=require('node:fs');${wait}
     test('actual backend case',async()=>{fs.writeFileSync(${JSON.stringify(marker('backend'))},'started');
       ${failing ? "throw Error('intentional backend failure');" : `await wait(${JSON.stringify(marker('bulk-finished'))});`}

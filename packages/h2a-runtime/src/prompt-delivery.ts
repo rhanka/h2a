@@ -28,9 +28,11 @@
 
 import { agyClaudeQuotaError, detectAgyClaudeQuotaExhaustion, type AgyClaudeQuotaExhaustedError } from "./agy-claude.js";
 import { recordInjectionBestEffort } from "./injection-ledger.js";
+import { AGY_AUTH_REQUIRED, AGY_LOGIN_MENU } from "./agy-auth.js";
 
 /** A host modal that will never be answered inside a background lane. */
 export type HostModal = {
+  readonly code?: typeof AGY_AUTH_REQUIRED.code;
   readonly reason: string;
   readonly hint: string;
 };
@@ -99,7 +101,8 @@ const NAMED_MODALS: ReadonlyArray<{
  * Is the pane sitting on a host modal that consumes the brief? Returns the
  * exact reason so the launch can FAIL LOUDLY instead of waiting forever.
  */
-export function detectHostModal(capture: string): HostModal | undefined {
+export function detectHostModal(capture: string, profile?: string): HostModal | undefined {
+  if (profile === "agy" && AGY_LOGIN_MENU.test(capture)) return AGY_AUTH_REQUIRED;
   // Muse 1.4.2's native stream removes cursor positioning and joins the choices.
   if (/Do you trust this workspace\?/.test(capture) && /Trust and continue/.test(capture)) {
     return {
@@ -332,12 +335,10 @@ export type PromptDeliveryResult =
       readonly cpuDeltaMs: number;
       readonly evidence: LandedEvidence;
     }
-  | {
+  | (HostModal & {
       readonly state: "host-modal";
-      readonly reason: string;
-      readonly hint: string;
       readonly capture: string;
-    }
+    })
   | {
       readonly state: "undelivered";
       readonly reason: string;
@@ -420,7 +421,7 @@ function waitUntilReady(
     const capture = deps.capturePane(pane);
     // A blocking host decision is actionable immediately, even while its
     // MCP startup is consuming CPU. Never wait for it to become quiet.
-    if (capture !== undefined && detectHostModal(capture)) return { ok: true, idleRate: 0 };
+    if (capture !== undefined && detectHostModal(capture, options.profile)) return { ok: true, idleRate: 0 };
     if (capture === undefined) {
       unreadable += 1;
       if (unreadable >= 3) return { ok: false, unreadable: true };
@@ -528,13 +529,12 @@ export function deliverInitialPrompt(
 
   // 2. A modal will never be answered by a background lane.
   const before = deps.capturePane(pane) ?? "";
-  const modal = detectHostModal(before);
+  const modal = detectHostModal(before, options.profile);
   if (modal) {
     return {
       state: "host-modal",
-      reason: modal.reason,
-      hint: modal.hint,
-      capture: captureTail(before),
+      ...modal,
+      capture: modal.code === AGY_AUTH_REQUIRED.code ? "" : captureTail(before),
     };
   }
   if ((options.profile === "codex" || options.profile === "muse") &&
@@ -573,13 +573,12 @@ export function deliverInitialPrompt(
     after = deps.capturePane(pane) ?? after;
     // A modal raised by the paste hides the composer: name that case rather
     // than blaming a lost paste.
-    const pasteModal = detectHostModal(after);
+    const pasteModal = detectHostModal(after, options.profile);
     if (pasteModal) {
       return {
         state: "host-modal",
-        reason: pasteModal.reason,
-        hint: pasteModal.hint,
-        capture: captureTail(after),
+        ...pasteModal,
+        capture: pasteModal.code === AGY_AUTH_REQUIRED.code ? "" : captureTail(after),
       };
     }
     // A collapsed-paste marker takes PRECEDENCE over a fingerprint search: it is

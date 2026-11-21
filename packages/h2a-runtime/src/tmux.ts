@@ -182,16 +182,19 @@ fi
 if [ "$code" -eq 0 ]; then state=done; else state=failed; fi
 printf '{"state":"%s","exitCode":%s}\\n' "$state" "$code" >"$result"`;
 
-/** Keep both terminal hosts on the same quota-aware run-once contract. */
+/** Keep both terminal hosts on the same AGY run-once contract. */
 export function headlessCommand(
   profile: string, command: string, args: ReadonlyArray<string>, result: string, log: string,
   prompt: string, outputFile?: string,
 ): string[] {
   const modelIndex = args.indexOf("--model");
   const model = modelIndex < 0 ? undefined : args[modelIndex + 1];
-  if (profile === "agy" && model?.startsWith("claude-")) {
-    return [process.execPath, fileURLToPath(new URL("./agy-headless.js", import.meta.url)),
-      result, log, prompt, model, outputFile ?? "", command, ...args];
+  if (profile === "agy") {
+    const supervisor = [process.execPath, fileURLToPath(new URL("./agy-headless.js", import.meta.url)),
+      result, log, prompt, model ?? "", outputFile ?? "", command, ...args];
+    // Gemini launches resolve agy through the user's login PATH and scrub
+    // gateway overrides after shell initialization, just as HEADLESS_WRAPPER does.
+    return model?.startsWith("claude-") ? supervisor : ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, ...supervisor];
   }
   return ["/bin/bash", "-lc", HEADLESS_WRAPPER, result, log, prompt, command, ...args];
 }

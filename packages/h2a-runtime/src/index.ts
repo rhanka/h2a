@@ -6749,7 +6749,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             resultJson = join(runDir, "result.json");
             // Name admission above has completed. Retire the previous result
             // before returning a path or starting the new run-once supervisor.
-            if (profile === "agy" && isAgyClaudeModel(opts.model)) rmSync(resultJson, { force: true });
+            if (profile === "agy") rmSync(resultJson, { force: true });
             const headlessPromptInput =
               structuredLaunch && isAgentLaunchProfile(profile)
                 ? buildAgentLaunchStdin({
@@ -6998,7 +6998,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     : ""),
               );
               process.exitCode = 1;
-              if (opts.json && (promptDelivery.state === "provider-blocked" || quotaFailure)) {
+              if (opts.json && promptDelivery.state === "host-modal" && promptDelivery.code) {
+                process.stdout.write(`${JSON.stringify({
+                  kind: "h2a.run.failure", version: 1, state: "host-modal", code: promptDelivery.code,
+                  launchId: slug, error: promptDelivery.reason, hint: promptDelivery.hint,
+                  stopped, retrySafe: false, prompt: { delivered: false },
+                })}\n`);
+              } else if (opts.json && (promptDelivery.state === "provider-blocked" || quotaFailure)) {
                 process.stdout.write(`${JSON.stringify({ kind: "h2a.run.failure", version: 1,
                   state: "provider-blocked", launchId: slug, error: quotaFailure?.message ?? (promptDelivery.state === "submitted-idle" ? "agent idle after submission" : promptDelivery.reason),
                   stopped, retrySafe: false, prompt: { delivered: promptDelivery.state === "provider-blocked", ...("waitedMs" in promptDelivery ? { waitedMs: promptDelivery.waitedMs } : {}) },
@@ -7010,7 +7016,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
           }
           const reportAgyCompletion = (): boolean => {
-            if (!(profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson)) return false;
+            if (!(profile === "agy" && opts.headless && resultJson)) return false;
             try {
               const completed = JSON.parse(readFileSync(resultJson, "utf8"));
               // The previous result was removed before this supervisor started.
@@ -7023,7 +7029,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return true;
             } catch { return false; } // Still running; the durable result may appear later.
           };
-          if (profile === "agy" && isAgyClaudeModel(opts.model) && opts.headless && resultJson) {
+          if (profile === "agy" && opts.headless && resultJson) {
             // A fast provider refusal may finish before the host PID probe.
             // Return that typed completion rather than a misleading PID error.
             for (let attempt = 0; attempt < 5; attempt++) {
