@@ -1,10 +1,17 @@
 import { spawnSync } from "node:child_process";
+import { isAbsolute, relative, resolve } from "node:path";
 
 export const LEGACY_HOST_REF = "89bbd9af1033153b6654c272e126d91e0fa42683^";
 export const IDENTITY_BASE_REF = "e3fc1a52eb8bc8e5794ced5e17e201e1bcfa99d2";
 // MH L0 heritage snapshot (proc-identity leaf, runtime closure audit). The
 // legacy v0.98.5 marker reader reads that same commit era through IDENTITY_BASE_REF.
 export const L0_HERITAGE_REF = "0b9cf8862be689380c3bcb6e7cb35dc1e10b5cbf";
+
+function isWithinStateRoot(repo, stateRoot) {
+  if (!stateRoot || !isAbsolute(stateRoot)) return false;
+  const rel = relative(resolve(stateRoot), resolve(repo));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 export function ensureHistoricalGitRef(repo, ref) {
   const gitEnv = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
@@ -18,8 +25,12 @@ export function ensureHistoricalGitRef(repo, ref) {
   const sha = ref.endsWith("^") ? ref.slice(0, -1) : ref;
   const depth = ref.endsWith("^") ? 2 : 1;
   // Inside a D16 read-only checkout barrier, never attempt git fetch on the
-  // checkout under test: the launcher must prefetch before bwrap.
-  if (process.env.H2A_TEST_STATE_BARRIER === "1") {
+  // checkout under test: the launcher must prefetch before bwrap. Private
+  // fixture repos created inside H2A_TEST_STATE_ROOT retain normal fetch.
+  if (
+    process.env.H2A_TEST_STATE_BARRIER === "1" &&
+    !isWithinStateRoot(repo, process.env.H2A_TEST_STATE_ROOT)
+  ) {
     throw new Error(
       `historical ref ${ref} absent inside read-only D16 barrier; prefetch before barrier (git fetch --depth=${depth} origin ${sha})`,
     );

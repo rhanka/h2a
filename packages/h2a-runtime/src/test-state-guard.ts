@@ -262,23 +262,35 @@ export function assertConfinedTestEnvironment(
  */
 export function resolveEffectivePath(candidate: string): string {
   const absolute = resolve(candidate);
-  let current = absolute;
-  for (let depth = 0; depth < 64; depth += 1) {
-    try {
-      lstatSync(current);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    let current = absolute;
+    for (let depth = 0; depth < 64; depth += 1) {
+      try {
+        lstatSync(current);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+        const parent = dirname(current);
+        if (parent === current) break;
+        current = parent;
       }
-      const parent = dirname(current);
-      if (parent === current) break;
-      current = parent;
+    }
+    try {
+      const realBase = realpathSync(current);
+      const suffix = relative(current, absolute);
+      return suffix ? join(realBase, suffix) : realBase;
+    } catch (error) {
+      // A concurrent writer can unlink a transient lock file between lstatSync
+      // and realpathSync; retry resolution against the surviving parent.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT" && current !== "/") {
+        continue;
+      }
+      throw error;
     }
   }
-  const realBase = realpathSync(current);
-  const suffix = relative(current, absolute);
-  return suffix ? join(realBase, suffix) : realBase;
+  return realpathSync(dirname(absolute));
 }
 
 /**

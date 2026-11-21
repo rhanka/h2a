@@ -59,7 +59,8 @@ test("should provision and dispose a private suite without using inherited owner
 
 test("L0 R1: D16 preload refuses unconfined direct Node invocation before module evaluation", () => {
   const root = createPrivateTestDirectory("r1-unconfined-");
-  const marker = join(root, "evaluated.txt");
+  const markerGood = join(root, "evaluated-good.txt");
+  const markerBad = join(root, "evaluated-bad.txt");
   try {
     const unconfinedEnv = { ...process.env };
     delete unconfinedEnv.H2A_TEST_STATE_ROOT;
@@ -68,20 +69,21 @@ test("L0 R1: D16 preload refuses unconfined direct Node invocation before module
     delete unconfinedEnv.H2A_TEST_STATE_RECEIPT;
     const res = spawnSync(
       process.execPath,
-      ["--input-type=module", "-e", `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`],
+      ["--input-type=module", "-e", `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(markerGood)}, 'ran');`],
       { encoding: "utf8", timeout: 10_000, env: unconfinedEnv },
     );
-    // Note: prepareGuardedCall re-carries D16 env into children of confined tests;
-    // to test true unconfined preload entry, set contradictory/corrupt D16 nonce.
+    // prepareGuardedCall re-carries D16 env into children of confined tests;
+    // to test true unconfined preload entry, supply a contradictory D16 nonce.
     const badNonce = spawnSync(
       process.execPath,
-      ["--input-type=module", "-e", `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`],
+      ["--input-type=module", "-e", `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(markerBad)}, 'ran');`],
       { encoding: "utf8", timeout: 10_000, env: { ...process.env, H2A_TEST_SANDBOX_NONCE: "0".repeat(48) } },
     );
     assert.notEqual(badNonce.status, 0);
     assert.match(badNonce.stderr, /REFUSING unconfined test run/);
-    assert.equal(existsSync(marker), false);
+    assert.equal(existsSync(markerBad), false);
     assert.equal(res.status, 0);
+    assert.equal(existsSync(markerGood), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

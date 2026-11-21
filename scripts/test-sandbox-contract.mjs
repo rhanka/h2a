@@ -605,11 +605,15 @@ export function allocateWorkerRoot(receipt, env = process.env, options = {}) {
   };
 }
 
-const ISOLATED_ENV_KEYS = [
+const CORE_ISOLATED_ENV_KEYS = [
   "HOME",
+  "XDG_RUNTIME_DIR",
   "XDG_STATE_HOME",
   "XDG_CONFIG_HOME",
-  "XDG_RUNTIME_DIR",
+];
+
+const ISOLATED_ENV_KEYS = [
+  ...CORE_ISOLATED_ENV_KEYS,
   "TMPDIR",
 ];
 
@@ -668,6 +672,10 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
   ]) {
     const value = targetEnv[key];
     if (value === undefined || value === "") continue;
+    // Allow tests to pass intentionally relative H2A_ROOT (e.g. ".h2a") so
+    // production validation can reject it; the read-only OS barrier and
+    // test-state-guard.ts still block any write outside R.
+    if (key === "H2A_ROOT" && !isAbsolute(value)) continue;
     if (!isPathWithinAttestedRoot(value, receipt)) {
       throw new UnconfinedTestRunError(
         `inherited ${key}=${value} escapes attested root ${receipt.root}`,
@@ -679,19 +687,29 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
     return { reused: true, workerRoot: targetEnv[TEST_WORKER_ROOT_ENV] };
   }
 
-  // Does this child already carry a complete custom fixture environment inside R
-  // (e.g. a test spawned a child with its own mkdtemp fixture HOME/XDG/TMPDIR)?
-  const hasCompleteFixtureEnv =
-    ISOLATED_ENV_KEYS.every((k) => Boolean(targetEnv[k]) && isPathWithinAttestedRoot(targetEnv[k], receipt)) &&
+  // Does this child already carry a custom fixture environment inside R
+  // (e.g. a test spawned a child with its own mkdtemp fixture HOME/XDG,
+  // distinct from both supervisor default R/home and parent worker W/home)?
+  // Preserve it even when NODE_TEST_CONTEXT was inherited via ...process.env.
+  const hasCustomFixtureEnv =
+    CORE_ISOLATED_ENV_KEYS.every(
+      (k) => Boolean(targetEnv[k]) && isPathWithinAttestedRoot(targetEnv[k], receipt),
+    ) &&
     !isSupervisorDefaultPath(targetEnv.HOME, receipt.root) &&
-    !isSupervisorDefaultPath(targetEnv.TMPDIR, receipt.root) &&
     (!targetEnv[TEST_WORKER_ROOT_ENV] ||
       resolve(targetEnv.HOME) !== join(resolve(targetEnv[TEST_WORKER_ROOT_ENV]), "home"));
 
-  if (!forceNewWorker && !needsFreshNodeTestWorker && hasCompleteFixtureEnv) {
-    // Preserve fixture child's private environment verbatim.
+  if (!forceNewWorker && hasCustomFixtureEnv) {
+    // Preserve fixture child's private environment verbatim; only ensure TMPDIR if omitted.
     targetEnv[TEST_STATE_ROOT_ENV] = receipt.root;
     targetEnv[TEST_STATE_QUALIFICATION_ROOT_ENV] = receipt.root;
+    if (!targetEnv.TMPDIR) {
+      const fallbackTmp = join(resolve(targetEnv.XDG_RUNTIME_DIR), "tmp");
+      try { mkdirSync(fallbackTmp, { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
+      targetEnv.TMPDIR = fallbackTmp;
+      targetEnv.TMP = fallbackTmp;
+      targetEnv.TEMP = fallbackTmp;
+    }
     return { reused: true, workerRoot: targetEnv[TEST_WORKER_ROOT_ENV] ?? dirname(resolve(targetEnv.HOME)) };
   }
 

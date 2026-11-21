@@ -14,7 +14,7 @@ const root = join(lane, 'candidate');
 const files = process.argv.slice(2);
 if (!files.length || files.some(f => !/^packages\/h2a\/test\/[\w-]+\.test\.js$/.test(f)))
   throw new Error('explicit named h2a test files required');
-for (const name of ['home', 'runtime', 'config', 'state', 'tmp', 'bin']) fs.mkdirSync(join(lane, name), { mode: 0o700 });
+for (const name of ['home', 'runtime', 'config', 'state', 'cache', 'data', 'tmp', 'bin']) fs.mkdirSync(join(lane, name), { mode: 0o700 });
 fs.symlinkSync(process.execPath, join(lane, 'bin/node'));
 // `host setup --write` refuses git-tracked configs unless --allow-tracked is
 // explicit, and it fail-closes when tracked-ness cannot be verified — so the
@@ -58,11 +58,16 @@ for (const name of fs.readdirSync(join(repo, 'node_modules', '@sentropic'))) {
   fs.symlinkSync(own ? join(root, 'packages', name) : join(repo, 'node_modules', '@sentropic', name), join(root, 'node_modules', '@sentropic', name));
 }
 const env = { ...process.env, HOME: join(lane, 'home'), TMPDIR: join(lane, 'tmp'),
+  TMP: join(lane, 'tmp'), TEMP: join(lane, 'tmp'),
   PATH: join(lane, 'bin'),
   HOST_TEST_NPM_CLI: npmCli ? fs.realpathSync(npmCli) : '',
   npm_config_cache: join(lane, 'npm-cache'), npm_config_userconfig: join(lane, 'npmrc'),
   XDG_RUNTIME_DIR: join(lane, 'runtime'), XDG_CONFIG_HOME: join(lane, 'config'),
-  XDG_STATE_HOME: join(lane, 'state'), H2A_ROOT: join(lane, 'state', 'bus'), IDLOCK_LANE: lane,
+  XDG_STATE_HOME: join(lane, 'state'), XDG_CACHE_HOME: join(lane, 'cache'),
+  XDG_DATA_HOME: join(lane, 'data'), REMOTE_CLI_CONFIG_HOME: join(lane, 'config'),
+  H2A_NATIVE_SOCKET: join(lane, 'runtime', 'host.sock'),
+  H2A_NATIVE_HOST_LOG: join(lane, 'state', 'native-host.log'),
+  H2A_ROOT: join(lane, 'state', 'bus'), IDLOCK_LANE: lane,
   VIBE_HOME: '', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '',
   NODE_OPTIONS: '--import ' + join(repo, 'packages/h2a/test/helpers/identity-isolation-guard.mjs') };
 const d16Preload = join(repo, 'packages/h2a/test/helpers/native-isolation.js');
