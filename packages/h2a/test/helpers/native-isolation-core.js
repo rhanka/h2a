@@ -171,8 +171,14 @@ export function createNativeIsolationApi({ root, preloadUrl, receipt = null }) {
   }
 
   function assertPrivateQualificationPath(path, boundaryRoot = nativeQualificationRoot) {
-    const actualRoot = resolvedPath(boundaryRoot, 0, resolve(boundaryRoot));
-    assert.equal(actualRoot, resolve(boundaryRoot), "REFUSING aliased qualification root before mutation");
+    let expectedRoot = resolve(boundaryRoot);
+    if (receipt && expectedRoot !== "/tmp" && !expectedRoot.startsWith("/tmp/")) {
+      const translatedBoundary = resolveAttestedAlias(expectedRoot, receipt);
+      assert.ok(translatedBoundary !== null, `REFUSING unverified alias root before mutation: ${expectedRoot}`);
+      expectedRoot = resolve(translatedBoundary);
+    }
+    const actualRoot = resolvedPath(boundaryRoot, 0, expectedRoot);
+    assert.equal(actualRoot, expectedRoot, "REFUSING aliased qualification root before mutation");
     const actual = resolvedPath(path, 0, actualRoot);
     const rel = relative(actualRoot, actual);
     assert.ok(
@@ -230,7 +236,9 @@ export function createNativeIsolationApi({ root, preloadUrl, receipt = null }) {
     if (env.H2A_TEST_PROC_ROOT) return env;
     let procRoot = privateProcessRoots.get(env.XDG_RUNTIME_DIR);
     if (!procRoot) {
-      procRoot = createPrivateTestDirectory("proc-owned-", env.XDG_RUNTIME_DIR);
+      const procBase = join(nativeQualificationRoot, "proc-views");
+      mkdirSync(procBase, { recursive: true, mode: 0o700 });
+      procRoot = createPrivateTestDirectory("proc-owned-", procBase);
       privateProcessRoots.set(env.XDG_RUNTIME_DIR, procRoot);
     }
     return {
