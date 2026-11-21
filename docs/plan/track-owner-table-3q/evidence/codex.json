@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "cli": "codex",
+  "cliVersion": "0.163.0",
+  "qualifiedOn": "2026-11-20",
+  "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "hookPoint": "UserPromptSubmit",
+  "hookConfigLevel": "project",
+  "projectConfigPath": "<throwaway-git-project>/.codex/hooks.json",
+  "witnessProbe": {
+    "blockedBeforeModelCall": true,
+    "exitCode": 0,
+    "recordCount": 1,
+    "eventTags": ["message"],
+    "requiresGitRepo": true,
+    "requiresHookTrustOrFlag": "--dangerously-bypass-hook-trust",
+    "sentDigest": "1ba3f1492ba7db78d6f775a1261ba80740dbb5462bf7e05520f2e8644d1e146d",
+    "receivedDigest": "1ba3f1492ba7db78d6f775a1261ba80740dbb5462bf7e05520f2e8644d1e146d",
+    "byteIdentical": true,
+    "sentBytes": 92,
+    "receivedBytes": 92,
+    "topLevelKeys": [
+      "cwd",
+      "hook_event_name",
+      "model",
+      "permission_mode",
+      "prompt",
+      "session_id",
+      "transcript_path",
+      "turn_id"
+    ],
+    "payloadTextKey": "prompt",
+    "payloadSessionKey": "session_id",
+    "payloadFolderKey": "cwd",
+    "payloadTranscriptKey": "transcript_path"
+  },
+  "interactiveVsHeadless": {
+    "interactiveMode": "pty (--no-alt-screen --dangerously-bypass-hook-trust)",
+    "headlessMode": "exec --dangerously-bypass-hook-trust --skip-git-repo-check",
+    "envDiffs": [],
+    "payloadDiffs": [],
+    "note": "Only harness TERM differed (xterm-256color vs dumb); CODEX_* env vars and payload keys were identical",
+    "selectedHumanSessionEvidence": "none"
+  },
+  "subAgentProbe": {
+    "executed": true,
+    "subAgentToolsObserved": ["collaborationspawn_agent", "collaborationwait_agent"],
+    "messageHookCount": 1,
+    "messageHookFiredForSubAgent": false,
+    "subAgentMarker": "never-fires"
+  },
+  "transcriptProbe": {
+    "readable": true,
+    "location": "~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl",
+    "format": "jsonl",
+    "witnessByteIdenticalOnNonBlockedTurn": true
+  },
+  "nativeQuestionProbe": {
+    "toolName": "request_user_input",
+    "headlessObserved": true,
+    "hookPoint": "PreToolUse",
+    "nativeQuestionCapture": "hooked",
+    "observedTopLevelKeys": [
+      "cwd",
+      "hook_event_name",
+      "model",
+      "permission_mode",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_use_id",
+      "transcript_path",
+      "turn_id"
+    ],
+    "questionPayloadShape": "PreToolUse receives tool_name='request_user_input' and tool_input={questions:[{header,id,question,options:[{label,description}]}]}"
+  },
+  "classification": "direct",
+  "reason": "UserPromptSubmit in .codex/hooks.json (git repo with hook trust) delivers byte-identical UTF-8 witness text in prompt, blocks cleanly before model invocation, and never fires for collaborationspawn_agent sub-agents"
+}

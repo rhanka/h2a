@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "cli": "claude",
+  "cliVersion": "2.1.330",
+  "qualifiedOn": "2026-11-20",
+  "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "hookPoint": "UserPromptSubmit",
+  "hookConfigLevel": "project",
+  "projectConfigPath": "<throwaway-project>/.claude/settings.json",
+  "witnessProbe": {
+    "blockedBeforeModelCall": true,
+    "exitCode": 0,
+    "recordCount": 1,
+    "eventTags": ["message"],
+    "sentDigest": "9dd015118d4a7af0eb8b2dcaaedfa3e1e29bd65486bf0a1e9850463255dbf132",
+    "receivedDigest": "9dd015118d4a7af0eb8b2dcaaedfa3e1e29bd65486bf0a1e9850463255dbf132",
+    "byteIdentical": true,
+    "sentBytes": 92,
+    "receivedBytes": 92,
+    "topLevelKeys": [
+      "cwd",
+      "hook_event_name",
+      "permission_mode",
+      "prompt",
+      "prompt_id",
+      "session_id",
+      "transcript_path"
+    ],
+    "payloadTextKey": "prompt",
+    "payloadSessionKey": "session_id",
+    "payloadFolderKey": "cwd",
+    "payloadTranscriptKey": "transcript_path"
+  },
+  "interactiveVsHeadless": {
+    "interactiveMode": "pty",
+    "headlessMode": "-p --output-format json",
+    "envDiffs": [
+      {
+        "name": "CLAUDE_CODE_SESSION_ATTENDED",
+        "interactiveValue": "1",
+        "headlessValue": "0"
+      },
+      {
+        "name": "CLAUDE_CODE_ENTRYPOINT",
+        "interactiveValue": "cli",
+        "headlessValue": "sdk-cli"
+      }
+    ],
+    "payloadDiffs": [
+      {
+        "name": "scratchpad_dir",
+        "interactiveValue": "present (string)",
+        "headlessValue": "absent"
+      }
+    ],
+    "selectedHumanSessionEvidence": {
+      "source": "env",
+      "name": "CLAUDE_CODE_SESSION_ATTENDED",
+      "interactiveValue": "1"
+    }
+  },
+  "subAgentProbe": {
+    "executed": true,
+    "subAgentToolObserved": "Agent",
+    "subAgentEventsObserved": ["SubagentStart", "SubagentStop"],
+    "messageHookCount": 1,
+    "messageHookFiredForSubAgent": false,
+    "subAgentMarker": "never-fires"
+  },
+  "transcriptProbe": {
+    "readable": false,
+    "location": "~/.claude/projects/<encoded-cwd>/<session_id>.jsonl",
+    "format": "jsonl",
+    "note": "transcript_path is reported in payload; file was not persisted inside read-only ~/.claude confinement during probe"
+  },
+  "nativeQuestionProbe": {
+    "toolName": "AskUserQuestion",
+    "headlessObserved": false,
+    "interactiveObserved": true,
+    "hookPoint": "PreToolUse",
+    "nativeQuestionCapture": "hooked",
+    "observedTopLevelKeys": [
+      "cwd",
+      "effort",
+      "hook_event_name",
+      "permission_mode",
+      "prompt_id",
+      "scratchpad_dir",
+      "session_id",
+      "tool_input",
+      "tool_name",
+      "tool_use_id",
+      "transcript_path"
+    ],
+    "questionPayloadShape": "PreToolUse receives tool_name='AskUserQuestion' and tool_input={questions:[{question,header,options:[{label,description}],multiSelect}]} in interactive mode; tool is absent in -p headless mode"
+  },
+  "classification": "direct",
+  "reason": "UserPromptSubmit delivers byte-identical UTF-8 witness text in prompt, blocks cleanly before model invocation, never fires for Agent sub-agent calls, and exposes CLAUDE_CODE_SESSION_ATTENDED=1 in interactive sessions"
+}
