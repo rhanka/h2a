@@ -384,3 +384,144 @@ test('ships only runtime assets and builds from an extracted npm tarball', () =>
   assert.equal(result.status, 0, result.stderr)
   assert.match(readFileSync(output, 'utf8'), /data-focus-document/)
 }))
+
+test('FA-H1: writeFocusArtifactFile replaces publishFocusArtifact and build embeds un-enriched canonical documentDigest', async () => {
+  const mod = await import('../dist/focus-build.js')
+  assert.equal(typeof mod.writeFocusArtifactFile, 'function', 'writeFocusArtifactFile must be exported')
+  assert.equal(mod.publishFocusArtifact, undefined, 'publishFocusArtifact must be renamed and removed')
+
+  const { baseDigest, canonicalJson } = await import('@sentropic/focus/editing')
+  const { createHash } = await import('node:crypto')
+  isolated(root => {
+    const doc = fixture()
+    const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
+    const canonical = canonicalJson(doc)
+    assert.equal(canonical.endsWith('\n'), false)
+    writeFileSync(input, canonical, 'utf8')
+    const expectedDigest = `sha256:${createHash('sha256').update(Buffer.from(canonical, 'utf8')).digest('hex')}`
+    assert.equal(expectedDigest, baseDigest(doc))
+
+    const result = run(root, 'build', input, '-o', output)
+    assert.equal(result.status, 0, result.stderr)
+    const payload = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+    assert.equal(payload.build.documentDigest, expectedDigest, 'build.documentDigest must hash un-enriched canonical source')
+    assert.notEqual(payload.build.documentDigest, baseDigest(payload.document), 'enriched sections must not affect documentDigest')
+    assert.match(payload.build.envelopeSha256, /^[a-f0-9]{64}$/)
+    assert.match(payload.build.rendererSha256, /^[a-f0-9]{64}$/)
+    assert.match(payload.build.validatorSha256, /^[a-f0-9]{64}$/)
+  })
+})
+
+test('FA-H1: CLI focus check validates without mutation, enforces R2-R6/bounds, and matches build on local corpus', async () => {
+  const { createHash } = await import('node:crypto')
+  const { readdirSync } = await import('node:fs')
+  const { buildFocusArtifactManifest } = await import('@sentropic/focus/artifact')
+
+  isolated(root => {
+    const doc = fixture()
+    const input = join(root, 'dossier.json')
+    const output = join(root, 'decision.html')
+    const raw = JSON.stringify(doc, null, 2)
+    writeFileSync(input, raw, 'utf8')
+    const beforeFiles = readdirSync(root).sort()
+
+    // Valid check without previous manifest: zero mutation.
+    const okCheck = run(root, 'check', input)
+    assert.equal(okCheck.status, 0, okCheck.stderr)
+    const checked = JSON.parse(okCheck.stdout)
+    assert.equal(checked.ok, true)
+    assert.match(checked.documentDigest, /^sha256:[a-f0-9]{64}$/)
+    assert.equal(checked.bindingName, `focus:${doc.ref}`)
+    assert.equal(checked.revisionSeq, 1)
+    assert.deepEqual(readdirSync(root).sort(), beforeFiles, 'check must not create files')
+    assert.equal(readFileSync(input, 'utf8'), raw, 'check must not mutate input')
+
+    // Local corpus parity between check and build (R5, R6, bindingName, shared targetRef).
+    const sharedTarget = structuredClone(doc)
+    sharedTarget.sections.filter(s => s.kind === 'prose').forEach(s => { s.targetRef = 'shared:ref' })
+    writeFileSync(input, JSON.stringify(sharedTarget), 'utf8')
+    assert.equal(run(root, 'check', input).status, 0)
+    assert.equal(run(root, 'build', input, '-o', output).status, 0)
+    const intactHtml = readFileSync(output, 'utf8')
+
+    const localRefusals = [
+      ['R5 space in id', d => { d.sections[0].id = 'bad id' }, 'focus-anchor-not-anchorable', '$.sections[0].id'],
+      ['R5 space in ref', d => { d.ref = 'decision:bad ref' }, 'focus-anchor-not-anchorable', '$.ref'],
+      ['R6 id equals ref', d => { d.sections[0].id = d.ref }, 'focus-anchor-equals-document-ref', '$.sections[0].id'],
+      ['bindingName > 128', d => { d.ref = 'r'.repeat(123) }, 'focus-binding-name-too-long', '$.ref'],
+      ['R2 duplicate_id', d => { d.sections.at(-1).id = d.sections[0].id }, 'duplicate_id', '$.sections'],
+    ]
+    for (const [label, mutate, code, pathPrefix] of localRefusals) {
+      const bad = structuredClone(doc)
+      mutate(bad)
+      writeFileSync(input, JSON.stringify(bad), 'utf8')
+
+      const cRes = run(root, 'check', input)
+      assert.equal(cRes.status, 1, `check must refuse ${label}`)
+      const cPayload = JSON.parse(cRes.stdout)
+      assert.equal(cPayload.ok, false)
+      assert.ok(cPayload.refusals.some(r => r.code === code && r.path?.startsWith(pathPrefix)), `${label}: ${JSON.stringify(cPayload.refusals)}`)
+
+      const bRes = run(root, 'build', input, '-o', output)
+      assert.equal(bRes.status, 1, `build must refuse ${label}`)
+      assert.match(bRes.stderr, new RegExp(code), label)
+      assert.equal(readFileSync(output, 'utf8'), intactHtml, `build must preserve prior output on ${label}`)
+    }
+
+    // Oversized canonical dossier (> 1 048 576 bytes) refused by check.
+    const huge = evidenceFixture()
+    const payload = Buffer.alloc(790_000, 0x61)
+    huge.sources.push({
+      id: 'huge-blob',
+      title: 'Volume excessif',
+      origin: { uri: 'urn:fixture:huge' },
+      mediaType: 'text/plain',
+      encoding: 'base64',
+      data: payload.toString('base64'),
+      sha256: createHash('sha256').update(payload).digest('hex'),
+      size: payload.byteLength,
+    })
+    const hugeInput = join(root, 'huge.json')
+    writeFileSync(hugeInput, JSON.stringify(huge), 'utf8')
+    const hugeRes = run(root, 'check', hugeInput)
+    assert.equal(hugeRes.status, 1)
+    const hugePayload = JSON.parse(hugeRes.stdout)
+    assert.ok(hugePayload.refusals.some(r => r.code === 'focus-document-too-large' && r.path === '$'))
+
+    // R3 & R4 with --previous-manifest.
+    const manifest1 = buildFocusArtifactManifest({
+      document: doc,
+      renderer: { name: '@sentropic/design-system-elements', version: '0.3.0', entry: 'renderer/dossier.js', digest: `sha256:${'a'.repeat(64)}`, files: [], capabilities: [] },
+      validator: { name: '@sentropic/focus', version: '0.6.0', digest: `sha256:${'b'.repeat(64)}` },
+      generator: { name: '@sentropic/h2a', version: '0.98.11' },
+      createdAt: '2026-11-20T00:00:00Z',
+    })
+    const manifestPath = join(root, 'prev.manifest.json')
+    writeFileSync(manifestPath, JSON.stringify(manifest1), 'utf8')
+
+    const kindChanged = structuredClone(doc)
+    const idx = kindChanged.sections.findIndex(s => s.id === 'rationale')
+    kindChanged.sections[idx] = { kind: 'outcome', id: 'rationale', targetRef: 'rationale', modality: 'decision', statement: 'En bref : garder le portable.', questionId: 'format' }
+    writeFileSync(input, JSON.stringify(kindChanged), 'utf8')
+    const r3Res = run(root, 'check', input, '--previous-manifest', manifestPath)
+    assert.equal(r3Res.status, 1)
+    assert.ok(JSON.parse(r3Res.stdout).refusals.some(r => r.code === 'focus-anchor-kind-changed' && r.path === `$.sections[${idx}].id`))
+
+    // Retire rationale in rev 2, then reuse rationale against manifest2 -> R4.
+    const rev2 = structuredClone(doc)
+    rev2.sections = rev2.sections.filter(s => s.id !== 'rationale')
+    const manifest2 = buildFocusArtifactManifest({
+      document: rev2,
+      renderer: manifest1.renderer,
+      validator: manifest1.validator,
+      generator: manifest1.generator,
+      previousManifest: manifest1,
+      createdAt: '2026-11-20T01:00:00Z',
+    })
+    writeFileSync(manifestPath, JSON.stringify(manifest2), 'utf8')
+    writeFileSync(input, JSON.stringify(doc), 'utf8')
+    const r4Res = run(root, 'check', input, '--previous-manifest', manifestPath)
+    assert.equal(r4Res.status, 1)
+    assert.ok(JSON.parse(r4Res.stdout).refusals.some(r => r.code === 'focus-anchor-reused' && r.path === `$.sections[${idx}].id`))
+  })
+})

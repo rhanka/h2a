@@ -436,7 +436,11 @@ test("MCP stdio integration: tools/list advertises Focus tools, template & build
 });
 
 test("deny-manual-h2a-cli.mjs hook remains intact and still blocks `h2a focus build` from Bash", () => {
-  for (const command of ["h2a focus build dossier.json -o dossier.html", "h2a focus template -o dossier.json"]) {
+  for (const command of [
+    "h2a focus build dossier.json -o dossier.html",
+    "h2a focus template -o dossier.json",
+    "h2a focus check dossier.json"
+  ]) {
     const r = spawnSync(process.execPath, [DENY_HOOK], {
       input: JSON.stringify({ tool_input: { command } }),
       encoding: "utf8"
@@ -444,4 +448,116 @@ test("deny-manual-h2a-cli.mjs hook remains intact and still blocks `h2a focus bu
     assert.equal(r.status, 2, command);
     assert.match(r.stderr, /Blocked manual `h2a` CLI use/);
   }
+});
+
+test("FA-H1: h2a_focus_check descriptor, identity-independence, R2-R6/bounds, path policy and zero mutation", async () => {
+  const { createHash } = await import("node:crypto");
+  const { readdirSync } = await import("node:fs");
+  const { buildFocusArtifactManifest } = await import("@sentropic/focus/artifact");
+
+  await withWorkspaceAsync(async ({ workspaceRoot, workspace, outsideDir, storeRoot }) => {
+    const pendingIdentity = {
+      status: () => ({ state: "identity_pending", attemptId: "att-1", elapsedMs: 10, timeoutMs: 20_000 }),
+      start: () => {},
+      cancel: () => {},
+      retry: () => false
+    };
+    const server = createMcpServer({ root: storeRoot, workspaceRoot, identity: pendingIdentity });
+    const tools = server.listTools();
+    const checkDesc = tools.find((t) => t.name === "h2a_focus_check");
+    assert.ok(checkDesc, "h2a_focus_check must be listed");
+    assert.equal(checkDesc.inputSchema.additionalProperties, false);
+    assert.deepEqual(checkDesc.inputSchema.required, ["input"]);
+    assert.equal(checkDesc.inputSchema.properties.input.type, "string");
+    assert.equal(checkDesc.inputSchema.properties.previousManifest.type, "string");
+
+    const doc = readFixture("dossier.template.json");
+    const input = join(workspace, "dossier.json");
+    const output = join(workspace, "dossier.html");
+    const raw = JSON.stringify(doc, null, 2);
+    writeFileSync(input, raw, "utf8");
+    const beforeFiles = readdirSync(workspace).sort();
+
+    // Valid check without previousManifest, available while identity_pending, zero mutation.
+    const okRes = await server.callTool("h2a_focus_check", { input });
+    assert.equal(okRes.ok, true, JSON.stringify(okRes));
+    assert.match(okRes.documentDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(okRes.bindingName, `focus:${doc.ref}`);
+    assert.equal(okRes.revisionSeq, 1);
+    assert.deepEqual(okRes.retiredRefs, []);
+    assert.deepEqual(readdirSync(workspace).sort(), beforeFiles);
+    assert.equal(readFileSync(input, "utf8"), raw);
+
+    // Build embeds the exact same un-enriched canonical documentDigest.
+    const buildRes = await server.callTool("h2a_focus_build", { input, output });
+    assert.equal(buildRes.ok, true, JSON.stringify(buildRes));
+    const embedded = JSON.parse(
+      readFileSync(output, "utf8").match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1]
+    );
+    assert.equal(embedded.build.documentDigest, okRes.documentDigest);
+    const intactHtml = readFileSync(output, "utf8");
+
+    // R5 & R6 refused identically by check and build (preserving prior HTML).
+    const badR6 = structuredClone(doc);
+    badR6.sections[0].id = badR6.ref;
+    const badR6Path = join(workspace, "bad-r6.json");
+    writeFileSync(badR6Path, JSON.stringify(badR6), "utf8");
+    const cR6 = await server.callTool("h2a_focus_check", { input: badR6Path });
+    assert.equal(cR6.ok, false);
+    assert.ok(cR6.refusals.some((r) => r.code === "focus-anchor-equals-document-ref" && r.path === "$.sections[0].id"));
+    const bR6 = await server.callTool("h2a_focus_build", { input: badR6Path, output });
+    assert.equal(bR6.ok, false);
+    assert.ok(bR6.refusals.some((r) => r.code === "focus-anchor-equals-document-ref" && r.path === "$.sections[0].id"));
+    assert.equal(readFileSync(output, "utf8"), intactHtml);
+
+    // Oversized canonical dossier (> 1 048 576 bytes) refused by h2a_focus_check.
+    const huge = readFixture("dossier.evidence.template.json");
+    const blob = Buffer.alloc(790_000, 0x61);
+    huge.sources.push({
+      id: "huge-blob",
+      title: "Volume excessif",
+      origin: { uri: "urn:fixture:huge" },
+      mediaType: "text/plain",
+      encoding: "base64",
+      data: blob.toString("base64"),
+      sha256: createHash("sha256").update(blob).digest("hex"),
+      size: blob.byteLength
+    });
+    const hugePath = join(workspace, "huge.json");
+    writeFileSync(hugePath, JSON.stringify(huge), "utf8");
+    const cHuge = await server.callTool("h2a_focus_check", { input: hugePath });
+    assert.equal(cHuge.ok, false);
+    assert.ok(cHuge.refusals.some((r) => r.code === "focus-document-too-large" && r.path === "$"));
+
+    // R3 & R4 with previousManifest.
+    const manifest1 = buildFocusArtifactManifest({
+      document: doc,
+      renderer: { name: "@sentropic/design-system-elements", version: "0.3.0", entry: "renderer/dossier.js", digest: `sha256:${"a".repeat(64)}`, files: [], capabilities: [] },
+      validator: { name: "@sentropic/focus", version: "0.6.0", digest: `sha256:${"b".repeat(64)}` },
+      generator: { name: "@sentropic/h2a", version: "0.98.11" },
+      createdAt: "2026-11-20T00:00:00Z"
+    });
+    const rev2 = structuredClone(doc);
+    rev2.sections = rev2.sections.filter((s) => s.id !== "rationale");
+    const manifest2 = buildFocusArtifactManifest({
+      document: rev2,
+      renderer: manifest1.renderer,
+      validator: manifest1.validator,
+      generator: manifest1.generator,
+      previousManifest: manifest1,
+      createdAt: "2026-11-20T01:00:00Z"
+    });
+    const m2Path = join(workspace, "prev-manifest.json");
+    writeFileSync(m2Path, JSON.stringify(manifest2), "utf8");
+    const cR4 = await server.callTool("h2a_focus_check", { input, previousManifest: m2Path });
+    assert.equal(cR4.ok, false);
+    assert.ok(cR4.refusals.some((r) => r.code === "focus-anchor-reused" && r.path === "$.sections[4].id"));
+
+    // Path policy: outside workspace refused for both input and previousManifest.
+    const outsideManifest = join(outsideDir, "outside-manifest.json");
+    writeFileSync(outsideManifest, JSON.stringify(manifest2), "utf8");
+    const escManifest = await server.callTool("h2a_focus_check", { input, previousManifest: outsideManifest });
+    assert.equal(escManifest.ok, false);
+    assert.match(escManifest.error, /within the MCP startup workspace/i);
+  });
 });

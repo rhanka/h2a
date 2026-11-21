@@ -827,7 +827,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_focus_build",
     description:
-      "Validate a Focus DecisionDossierDocument (or ReportDocument) JSON file and build a single portable offline HTML dossier in-process, running the same focus-kit validator, diagram renderer and atomic publisher as `h2a focus build` without shelling out to the CLI. Both input and output must be absolute paths within the MCP server startup workspace (/tmp and OS temp directories are refused, symlinks escaping the workspace are refused, output must end with .html and never overwrites non-.html files or symlinks, and output must differ from input). Returns { ok: true, output, bytes, warnings } on success, or { ok: false, error, refusals } carrying all builder refusal messages verbatim.",
+      "Validate a Focus DecisionDossierDocument (or ReportDocument) JSON file and build a single portable offline HTML dossier in-process, running the same focus-kit validator, diagram renderer and atomic file writer as `h2a focus build` without shelling out to the CLI. Both input and output must be absolute paths within the MCP server startup workspace (/tmp and OS temp directories are refused, symlinks escaping the workspace are refused, output must end with .html and never overwrites non-.html files or symlinks, and output must differ from input). Returns { ok: true, output, bytes, warnings } on success, or { ok: false, error, refusals } carrying all builder refusal messages verbatim.",
     inputSchema: {
       type: "object",
       properties: {
@@ -845,6 +845,30 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         }
       },
       required: ["input", "output"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "h2a_focus_check",
+    description:
+      "Validate a Focus DecisionDossierDocument (or ReportDocument) JSON file against the common FA-H1 artifact gate (schema, readability, R2/R5/R6 anchors, doc.ref header anchor, focus:<ref> bindingName ceiling, 1 MiB canonical size ceiling, and R3/R4 revision rules when previousManifest is supplied) without mutating any file. All paths must be absolute paths within the MCP server startup workspace (/tmp and escaping symlinks are refused).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        input: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Absolute path to an existing Focus DecisionDossierDocument or ReportDocument JSON file within the MCP server startup workspace; /tmp is refused."
+        },
+        previousManifest: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Optional absolute path to a previous focus.manifest.json file within the MCP server startup workspace to enforce R3 (anchor kind/family stability) and R4 (no reuse of retired refs)."
+        }
+      },
+      required: ["input"],
       additionalProperties: false
     }
   },
