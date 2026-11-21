@@ -104,6 +104,7 @@ const USAGE = `usage: track <command>
   demand eta <demandId> --target-stage <stage> (--when <date> --source <measured|committed|unknown> | --delivered) [--target-label <l>] [--by <actor>] [--reason <r>] [--rebaseline-decision <id>]
   decision new --kind <orientation|commitment> --title <t> --workspace <w> --targets <id,id> --context <c> --options-json <json> --recommendation <optionId> --rationale <r> [--accountable <a>] [--engagement-ref <e>]
   decision ls [--workspace <w>] [--outcome <pending|go|no-go|deferred>] [--format json|text|md] [--commit <sha>]
+  decision number (<decisionId> | --all-unnumbered)
   decision outcome <decisionId> deferred
   decision select <decisionId> <optionId> [--outcome <go|no-go>]
   decision dossier <decisionId> [--context <c>] [--options-json <json> --recommendation <optionId> --rationale <r>]
@@ -560,14 +561,22 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
       })
     }
-    // `demand raise` resolves its journal via `resolveJournalOfReference` (spec DS-6: main checkout
-    // from a linked worktree, temp-root ceiling included, never falling back to `resolveTrackDir`).
+    // `demand raise` and `decision number` resolve their journal via `resolveJournalOfReference`
+    // (spec DS-6: main checkout from a linked worktree, temp-root ceiling included, never falling
+    // back to `resolveTrackDir`).
     if (cmd === 'demand' && rest[0] === 'raise') {
       const ref = resolveJournalOfReference(resolveOpts)
       if (ref.trackDir === null) {
         throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
       }
       return cmdDemandRaise(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir) })
+    }
+    if (cmd === 'decision' && rest[0] === 'number') {
+      const ref = resolveJournalOfReference(resolveOpts)
+      if (ref.trackDir === null) {
+        throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
+      }
+      return cmdDecisionNumber(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir) })
     }
     switch (cmd) {
       case '--version':
@@ -1062,6 +1071,35 @@ function cmdRestructure(args: string[], ctx: Ctx): number {
   return 0
 }
 
+function cmdDecisionNumber(args: string[], ctx: Ctx): number {
+  const { io } = ctx
+  const { positional, flags } = parseFlags(args)
+  assertOnlyFlags(flags, ['all-unnumbered'])
+  const allUnnumbered = assertBooleanFlag(flags, 'all-unnumbered')
+  if (allUnnumbered && positional.length > 0) {
+    throw new DomainError('decision number: --all-unnumbered does not accept a <decisionId> argument')
+  }
+  if (!allUnnumbered && positional.length !== 1) {
+    io.err('usage: track decision number (<decisionId> | --all-unnumbered)\n')
+    return 2
+  }
+  const track = writeTrack(ctx)
+  if (allUnnumbered) {
+    const numbered = track.numberAllUnnumberedDecisions()
+    if (numbered.length === 0) {
+      io.out('no-op: 0 unnumbered structured decision(s)\n')
+      return 0
+    }
+    for (const entry of numbered) {
+      io.out(`${entry.decisionId} D${entry.number}\n`)
+    }
+    return 0
+  }
+  const result = track.numberDecision(positional[0]!)
+  io.out(`${result.decisionId} D${result.number}\n`)
+  return 0
+}
+
 function cmdDecision(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const sub = args[0]
@@ -1166,7 +1204,7 @@ function cmdDecision(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
-  io.err('usage: track decision <new|outcome|select|dossier|disposition|add-artifact>\n')
+  io.err('usage: track decision <new|ls|number|outcome|select|dossier|disposition|add-artifact>\n')
   return 2
 }
 

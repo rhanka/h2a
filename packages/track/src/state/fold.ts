@@ -822,6 +822,15 @@ function applyEvent(state: State, event: TrackEvent, streamIndex: number): void 
       break
     }
 
+    case 'decision.owner-numbered': {
+      const decision = state.decisions.get(event.aggregateId)
+      const number = (event.payload as { number?: unknown }).number
+      if (decision && typeof number === 'number' && Number.isInteger(number) && number >= 1) {
+        decision.ownerNumber = number
+      }
+      break
+    }
+
     case 'acceptance.criterion.added': {
       const payload = event.payload as { criterionId: string; statement: string }
       state.criteria.set(payload.criterionId, {
