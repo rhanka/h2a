@@ -102,4 +102,69 @@ describe("terminal mode tracker", () => {
     expect(tracker.isApplicationCursorKeysEnabled()).toBe(false);
     expect(tracker.isKittyKeyboardEnabled()).toBe(false);
   });
+
+  it("L0.5b: registers all 8 mouse modes (9/1000/1002/1003/1005/1006/1015/1016) with subscription, encoding and focus accessors", () => {
+    const tracker = new TerminalModeTracker();
+    expect(tracker.isMouseTrackingEnabled()).toBe(false);
+    expect(tracker.mouseTrackingMode()).toBeNull();
+    expect(tracker.mouseEncoding()).toBe("x10");
+    expect(tracker.isFocusReportingEnabled()).toBe(false);
+
+    // X10 mode 9 + UTF-8 encoding 1005
+    tracker.feed(`${E}[?9;1005h`);
+    expect(tracker.isMouseTrackingEnabled()).toBe(true);
+    expect(tracker.mouseTrackingMode()).toBe(9);
+    expect(tracker.mouseEncoding()).toBe("utf8");
+
+    // Upgrade to button-event 1002 + urxvt 1015 + focus 1004
+    tracker.feed(`${E}[?1002;1015;1004h`);
+    expect(tracker.mouseTrackingMode()).toBe(1002);
+    expect(tracker.mouseEncoding()).toBe("urxvt");
+    expect(tracker.isFocusReportingEnabled()).toBe(true);
+
+    // SGR-pixel 1016 and any-event 1003
+    tracker.feed(`${E}[?1003;1016h`);
+    expect(tracker.mouseTrackingMode()).toBe(1003);
+    expect(tracker.mouseEncoding()).toBe("sgr-pixel");
+
+    // SGR 1006 after disabling 1016
+    tracker.feed(`${E}[?1016l${E}[?1006h`);
+    expect(tracker.mouseEncoding()).toBe("sgr");
+
+    // All remaining mouse modes reset cleanly
+    const reset = tracker.resetSequence();
+    for (const mode of [9, 1002, 1003, 1004, 1005, 1006, 1015]) {
+      expect(reset).toContain(`${E}[?${mode}l`);
+    }
+    expect(reset).not.toContain(`${E}[?1016l`);
+    tracker.feed(reset);
+    expect(tracker.resetSequence()).toBe("");
+    expect(tracker.isMouseTrackingEnabled()).toBe(false);
+    expect(tracker.mouseTrackingMode()).toBeNull();
+    expect(tracker.mouseEncoding()).toBe("x10");
+    expect(tracker.isFocusReportingEnabled()).toBe(false);
+  });
+
+  it("L0.5b: consumes child mouse DECSET/DECRST from relayed output while preserving non-mouse modes and syncing motion 1002/1003", () => {
+    const stream =
+      `pre${E}[?1004;1000;1006;2004hmid${E}[?1002hdrag${E}[?1002l${E}[?1000l${E}[?1006lpost`;
+    for (let split = 0; split <= stream.length; split += 1) {
+      const tracker = new TerminalModeTracker();
+      const part1 = tracker.feedAndFilterOuterMouse(stream.slice(0, split));
+      const part2 = tracker.feedAndFilterOuterMouse(stream.slice(split));
+      const tail = tracker.flushMouseFilterPending();
+      const relayed = part1 + part2 + tail;
+
+      // Non-mouse modes 1004 and 2004 survive; child 1000/1006 toggles never cut h2a mouse.
+      expect(relayed, `split ${split}`).toContain(`${E}[?1004;2004h`);
+      expect(relayed, `split ${split}`).not.toContain(`${E}[?1000l`);
+      expect(relayed, `split ${split}`).not.toContain(`${E}[?1006l`);
+      // Motion 1002 is forwarded only while child asks for it, then disabled with ?1000h?1006h re-asserted.
+      expect(relayed, `split ${split}`).toContain(`${E}[?1002h`);
+      expect(relayed, `split ${split}`).toContain(`${E}[?1002l${E}[?1000h${E}[?1006h`);
+      // Tracker itself accurately reflects the child's final mouse state (all disabled).
+      expect(tracker.isMouseTrackingEnabled(), `split ${split}`).toBe(false);
+      expect(tracker.isFocusReportingEnabled(), `split ${split}`).toBe(true);
+    }
+  });
 });
