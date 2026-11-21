@@ -603,7 +603,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       case 'audit':
       case 'workspace-activity': {
         const trackDir = resolveTrackDirOrNull(resolveOpts)
-        if (trackDir === null && cmd !== 'report') {
+        if (trackDir === null) {
           io.err(
             `track: no .track resolved from ${io.cwd}. Run \`track init\` to create one ` +
               `(the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.\n`,
@@ -616,8 +616,6 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
           eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
         }
         switch (cmd) {
-          case 'report':
-            return cmdReport(rest, ctx, trackDir === null)
           case 'snapshot':
             return cmdSnapshot(rest, ctx)
           case 'export-graph':
@@ -1894,7 +1892,9 @@ function cmdValidate(args: string[], ctx: Ctx, noStore = false): number {
     return 0
   }
   const integrity = validate(events, readHead(ctx.eventsPath))
-  const desync = desyncFindings(new Track(s).state(), io.cwd)
+  const trackDir = dirname(ctx.eventsPath)
+  const journalFolder = basename(trackDir) === '.track' ? dirname(trackDir) : trackDir
+  const desync = desyncFindings(new Track(s).state(), journalFolder)
   const findings = [...integrity.findings.map((f) => ({ ...f })), ...desync]
   if (findings.length === 0) {
     io.out(`OK: ${events.length} events, integrity + desync clean\n`)

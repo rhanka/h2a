@@ -107,6 +107,7 @@ export interface OwnerTableView {
   policy?: OwnerTablePolicy
   policyPath?: string
   defaultPolicyPath?: string
+  statePolicyPath?: string
 }
 
 export interface OwnerTablePolicyEntry {
@@ -124,6 +125,7 @@ export interface AuditOwnerTableOptions {
   policy?: OwnerTablePolicy
   policyPath?: string
   defaultPolicyPath?: string
+  statePolicyPath?: string
 }
 
 export type OwnerTableGateCode =
@@ -261,6 +263,15 @@ function resolveOwnerTablePolicy(
       existsSync(defaultLocalPolicy.trim())
     ) {
       const parsed = JSON.parse(readFileSync(defaultLocalPolicy.trim(), 'utf8')) as OwnerTablePolicy
+      return { policy: parsed }
+    }
+    const stateLocalPolicy = options?.statePolicyPath ?? view?.statePolicyPath
+    if (
+      stateLocalPolicy !== undefined &&
+      stateLocalPolicy.trim() !== '' &&
+      existsSync(stateLocalPolicy.trim())
+    ) {
+      const parsed = JSON.parse(readFileSync(stateLocalPolicy.trim(), 'utf8')) as OwnerTablePolicy
       return { policy: parsed }
     }
     return {
@@ -1320,6 +1331,7 @@ export interface ProjectOwnerTableOptions {
   policy?: OwnerTablePolicy
   policyPath?: string
   defaultPolicyPath?: string
+  statePolicyPath?: string
   /**
    * Optional velocity-estimator bindings (#376) keyed by demandId, itemId, or request number string.
    * Each binding is qualified via `qualifyVelocityEta`: labelled `mesuré` (`source: 'measured'`)
@@ -2156,5 +2168,6 @@ export function projectOwnerTable(
     ...(options.policy !== undefined ? { policy: options.policy } : {}),
     ...(options.policyPath !== undefined ? { policyPath: options.policyPath } : {}),
     ...(options.defaultPolicyPath !== undefined ? { defaultPolicyPath: options.defaultPolicyPath } : {}),
+    ...(options.statePolicyPath !== undefined ? { statePolicyPath: options.statePolicyPath } : {}),
   }
 }
