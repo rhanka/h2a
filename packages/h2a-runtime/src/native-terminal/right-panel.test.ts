@@ -360,7 +360,7 @@ describe("right panel keyboard", () => {
         { totalCols: 100, totalRows: 30, childCols: 99, open: false, statusBarMarker: marker },
         { cliMouseEnabled: false },
       ).zone,
-    ).toBe("cli");
+    ).toBe("status-bar");
   });
 
   it("/s /d /t switch views and Tab cycles meta-workspace tabs only in panel focus", () => {
@@ -442,6 +442,120 @@ describe("right panel mouse (SGR)", () => {
     const result = panel.handleInput("\x1b[<0;80;3M", { cliMouseEnabled: false });
     expect(result.consumed).toBe(true);
     expect(result.actions).toContainEqual({ type: "open-link", target: "docs/decisions/d1.md" });
+  });
+
+  it("L0.5b: transcodes CLI-zone SGR clicks to SGR/urxvt/utf8/x10 and filters unsubscribed classes", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: fixtureSnapshot(),
+    });
+    // SGR (1006) verbatim
+    const sgr = panel.handleInput("\x1b[<0;10;5M\x1b[<0;10;5m", {
+      cliMouseEnabled: true,
+      cliMouseMode: 1000,
+      cliMouseEncoding: "sgr",
+    });
+    expect(sgr.consumed).toBe(false);
+    expect(sgr.forward).toBe("\x1b[<0;10;5M\x1b[<0;10;5m");
+
+    // urxvt (1015): press button 0 => 32; release => 35
+    const urxvt = panel.handleInput("\x1b[<0;10;5M\x1b[<0;10;5m", {
+      cliMouseEnabled: true,
+      cliMouseMode: 1000,
+      cliMouseEncoding: "urxvt",
+    });
+    expect(urxvt.consumed).toBe(false);
+    expect(urxvt.forward).toBe("\x1b[32;10;5M\x1b[35;10;5M");
+
+    // X10 (default): press encoded as ESC [ M cb cx cy; mode 9 drops release & wheel & motion
+    const x10Mode9 = panel.handleInput("\x1b[<0;10;5M\x1b[<0;10;5m\x1b[<64;10;5M", {
+      cliMouseEnabled: true,
+      cliMouseMode: 9,
+      cliMouseEncoding: "x10",
+    });
+    expect(x10Mode9.consumed).toBe(false);
+    expect(x10Mode9.forward).toBe(`\x1b[M${String.fromCharCode(32, 42, 37)}`);
+
+    // Mode 1000 drops motion (button bit 32)
+    const motionUnder1000 = panel.handleInput("\x1b[<35;10;5M", {
+      cliMouseEnabled: true,
+      cliMouseMode: 1000,
+      cliMouseEncoding: "sgr",
+    });
+    expect(motionUnder1000.consumed).toBe(true);
+
+    // Mode 1002 forwards drag motion (button 32) and drops free motion (button 35)
+    const dragUnder1002 = panel.handleInput("\x1b[<32;10;5M\x1b[<35;10;5M", {
+      cliMouseEnabled: true,
+      cliMouseMode: 1002,
+      cliMouseEncoding: "sgr",
+    });
+    expect(dragUnder1002.consumed).toBe(false);
+    expect(dragUnder1002.forward).toBe("\x1b[<32;10;5M");
+
+    // Shift keeps native-selection: never acted on, never forwarded
+    const shiftClick = panel.handleInput("\x1b[<4;10;5M", {
+      cliMouseEnabled: true,
+      cliMouseMode: 1003,
+      cliMouseEncoding: "sgr",
+    });
+    expect(shiftClick.consumed).toBe(true);
+    expect(shiftClick.actions).toEqual([]);
+  });
+
+  it("L0.5b: routes last row to CLI/panel when status bar is inactive and consumes non-marker bar clicks when active", () => {
+    const geomInactive = {
+      totalCols: 100,
+      totalRows: 30,
+      childCols: 99,
+      open: false,
+      statusBarActive: false,
+    };
+    // Last row, CLI columns => CLI zone (not status-marker!)
+    const cliLastRow = routePanelMouse(
+      { button: 0, x: 96, y: 30, release: false, wheel: false, shift: false },
+      geomInactive,
+      { cliMouseEnabled: true },
+    );
+    expect(cliLastRow.zone).toBe("cli");
+    expect(cliLastRow.forwardToCli).toBe(true);
+    // Last row, marker column => panel zone
+    const markerLastRow = routePanelMouse(
+      { button: 0, x: 100, y: 30, release: false, wheel: false, shift: false },
+      geomInactive,
+      { cliMouseEnabled: true },
+    );
+    expect(markerLastRow.zone).toBe("panel");
+    expect(markerLastRow.forwardToCli).toBe(false);
+
+    // When status bar IS active, non-marker bar click never reaches CLI
+    const barMiddle = routePanelMouse(
+      { button: 0, x: 20, y: 30, release: false, wheel: false, shift: false },
+      { ...geomInactive, statusBarActive: true },
+      { cliMouseEnabled: true },
+    );
+    expect(barMiddle.forwardToCli).toBe(false);
+    expect(barMiddle.zone).toBe("status-bar");
+  });
+
+  it("L0.5b: buffers split SGR mouse sequences and never disables outer mouse on close", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: fixtureSnapshot(),
+    });
+    const part1 = panel.handleInput("\x1b[<0;100;", { cliMouseEnabled: true, cliMouseMode: 1000, cliMouseEncoding: "sgr" });
+    expect(part1.consumed).toBe(true);
+    const part2 = panel.handleInput("15M", { cliMouseEnabled: true, cliMouseMode: 1000, cliMouseEncoding: "sgr" });
+    expect(part2.consumed).toBe(true);
+    expect(panel.isOpen()).toBe(true);
+    out.chunks.length = 0;
+    panel.toggle();
+    expect(panel.isOpen()).toBe(false);
+    expect(out.text()).not.toContain("\x1b[?1000l");
+    expect(out.text()).not.toContain("\x1b[?1006l");
+    expect(out.text()).not.toContain("\x1b[?69l");
   });
 });
 
