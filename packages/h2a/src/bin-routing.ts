@@ -18,7 +18,7 @@ import { H2A_CLI_VERB_CONTRACTS } from "./cli-contract.js";
 // duplicates the canonical `TRACK_FACADE_VERBS` in `cli.js`; the
 // `anti-drift: façade track ⊆ verbes natifs` test pins them in sync.
 const TRACK_FACADE_VERBS: ReadonlySet<string> = new Set<string>([
-  "decision", "report", "accept", "blocker", "item", "query",
+  "decision", "demand", "report", "accept", "blocker", "item", "query",
   "consolidate", "priority", "branch", "focus", "ingest", "restructure", "snapshot",
 ]);
 
