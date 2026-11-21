@@ -2276,4 +2276,298 @@ describe("native attach right panel (L0)", () => {
     expect(resizes[0]).toEqual({ cols: 120, rows: 40 });
     expect(childWrites).toEqual(["\x1b[24~"]);
   });
+
+  it("production default (no injected snapshot) loads live 15-session group + 3 ungrouped projects and updates marker <= 2s with no child output (L0.5a Étape 1)", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "h2a-op-l05a-"));
+    try {
+      const registryPath = path.join(dir, "registry.json");
+      const h2aRoot = path.join(dir, ".h2a");
+      fs.mkdirSync(path.join(h2aRoot, "presence"), { recursive: true });
+      const entries: Array<Record<string, unknown>> = [];
+      const nativeSessions: Array<NativeTerminalSessionState & { socketPath: string }> = [];
+      for (let i = 1; i <= 15; i += 1) {
+        const id = `h2a-g-${String(i).padStart(2, "0")}`;
+        const cwd = path.join(dir, "src", "core");
+        fs.mkdirSync(cwd, { recursive: true });
+        entries.push({
+          id,
+          tool: "claude",
+          kind: "local-native",
+          cwd,
+          label: `core-${String(i).padStart(2, "0")}`,
+          tmuxSession: id,
+          source: "run",
+          sessionClass: "human",
+          enrolledAt: new Date(1_700_000_000_000 + i * 1000).toISOString(),
+          lastSeenAt: new Date(1_700_000_000_000 + i * 1000).toISOString(),
+        });
+        nativeSessions.push({
+          id,
+          generation: "g-1",
+          incarnation: "inc-1",
+          pid: process.pid,
+          status: "running",
+          latestSeq: 1,
+          exit: null,
+          stopSignal: null,
+          controlled: false,
+          socketPath: "/fake/h.sock",
+        });
+      }
+      entries.push({
+        id: "h2a-g-deleg",
+        tool: "claude",
+        kind: "local-native",
+        cwd: path.join(dir, "src", "core"),
+        label: "delegated-hidden",
+        tmuxSession: "h2a-g-deleg",
+        source: "run",
+        role: "job",
+        delegationOrigin: "mcp:h2a_run",
+        enrolledAt: new Date(1_700_000_099_000).toISOString(),
+        lastSeenAt: new Date(1_700_000_099_000).toISOString(),
+      });
+      for (const proj of ["zeta", "alpha", "mid"]) {
+        const id = `h2a-${proj}`;
+        const cwd = path.join(dir, "src", proj);
+        fs.mkdirSync(cwd, { recursive: true });
+        entries.push({
+          id,
+          tool: "codex",
+          kind: "local-native",
+          cwd,
+          label: proj,
+          tmuxSession: id,
+          source: "run",
+          sessionClass: "human",
+          enrolledAt: new Date(1_700_000_200_000).toISOString(),
+          lastSeenAt: new Date(1_700_000_200_000).toISOString(),
+        });
+        nativeSessions.push({
+          id,
+          generation: "g-1",
+          incarnation: "inc-1",
+          pid: process.pid,
+          status: "running",
+          latestSeq: 1,
+          exit: null,
+          stopSignal: null,
+          controlled: false,
+          socketPath: "/fake/h.sock",
+        });
+      }
+      fs.writeFileSync(registryPath, JSON.stringify({ version: 1, entries }), "utf8");
+
+      const stdin = new EventEmitter() as EventEmitter & {
+        isTTY: boolean;
+        resume: () => void;
+        pause: () => void;
+        setRawMode: () => void;
+      };
+      stdin.isTTY = false;
+      stdin.resume = () => {};
+      stdin.pause = () => {};
+      stdin.setRawMode = () => {};
+      const stdout = new FakeOutput();
+      (stdout as { columns: number }).columns = 120;
+      (stdout as { rows: number }).rows = 40;
+      let now = 10_000;
+      let readCount = 0;
+      const baseState = running(true);
+      const lease: NativeTerminalControllerLease = {
+        role: "controller",
+        id: "h2a-g-01",
+        generation: baseState.generation,
+        incarnation: baseState.incarnation,
+        controllerId: "ctrl-1",
+        epoch: baseState.controllerEpoch ?? 1,
+      };
+      let sawLitWhileCollapsed = false;
+      const client: AttachClient = {
+        async acquireController() { return lease; },
+        async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+        async readOutput() {
+          readCount += 1;
+          if (readCount === 2) {
+            // Source changes with ZERO child output
+            fs.writeFileSync(
+              path.join(h2aRoot, "presence", "g-02.json"),
+              JSON.stringify({
+                sessionId: "p2",
+                instance: "inst-g-02",
+                startedAt: new Date(now - 2_000).toISOString(),
+                heartbeatAt: new Date(now + 1_000).toISOString(),
+                state: "live",
+                workStatus: "blocked",
+                launchContext: { nativePty: { session: "h2a-g-02" } },
+              }),
+              "utf8",
+            );
+          }
+          if (readCount === 6) {
+            // <= 2 s after source change at readCount=2 with ZERO child output
+            sawLitWhileCollapsed = stdout.chunks.join("").includes("\x1b[41m*\x1b[0m");
+            // Open panel with F12 fragmented 1 byte at a time
+            for (const b of Buffer.from("\x1b[24~")) {
+              stdin.emit("data", Buffer.from([b]));
+            }
+          }
+          if (readCount === 8) {
+            stdin.emit("data", Buffer.from([0x1c]));
+          }
+          return {
+            generation: baseState.generation,
+            incarnation: baseState.incarnation,
+            chunks: [],
+            gap: null,
+            latestSeq: 1,
+          };
+        },
+        async state() { return baseState; },
+        async write() {},
+        async resize() {},
+        close() {},
+      };
+      const code = await runAttach(
+        "h2a-g-01",
+        {
+          connect: async () => client,
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          now: () => now,
+          delay: async (ms) => {
+            now += ms;
+            await new Promise<void>((r) => setImmediate(r));
+          },
+          onResize: () => {},
+          offResize: () => {},
+        },
+        {
+          statusBar: false,
+          rightPanel: {
+            enabled: true,
+            snapshotOptions: {
+              home: dir,
+              registryPath,
+              h2aRoot,
+              config: {
+                layout: {
+                  maxPerWindow: 12,
+                  groups: [{ title: "Core", projects: ["core"] }],
+                },
+              },
+              collectNative: async () => ({
+                complete: true,
+                sessions: nativeSessions,
+                hosts: [{ socketPath: "/fake/h.sock", client: { close() {} } as never }],
+              }),
+              trackSources: [],
+            },
+          },
+        },
+      );
+      expect(code).toBe(0);
+      expect(sawLitWhileCollapsed).toBe(true);
+      const rendered = stdout.chunks.join("");
+      expect(rendered).toContain("core-15");
+      expect(rendered).not.toContain("delegated-hidden");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves fragmented UTF-8 in CLI focus and ignores F12 inside bracketed paste (L0.5a Étape 2)", async () => {
+    const { buildRightPanelSnapshot } = await import("./right-panel.js");
+    const stdin = new EventEmitter() as EventEmitter & {
+      isTTY: boolean;
+      resume: () => void;
+      pause: () => void;
+      setRawMode: () => void;
+    };
+    stdin.isTTY = false;
+    stdin.resume = () => {};
+    stdin.pause = () => {};
+    stdin.setRawMode = () => {};
+    const stdout = new FakeOutput();
+    (stdout as { columns: number }).columns = 120;
+    (stdout as { rows: number }).rows = 40;
+    let now = 0;
+    let readCount = 0;
+    const childWrites: string[] = [];
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          // Child enables bracketed paste mode 2004
+          return replay(1, "\x1b[?2004h");
+        }
+        if (readCount === 2) {
+          // Fragmented 3-byte UTF-8 "€" (e2 82 ac) across 3 chunks
+          const euro = Buffer.from("€", "utf8");
+          stdin.emit("data", euro.subarray(0, 1));
+          stdin.emit("data", euro.subarray(1, 2));
+          stdin.emit("data", euro.subarray(2, 3));
+          // Bracketed paste containing F12 must NOT open the panel
+          const pasted = Buffer.from("\x1b[200~note \x1b[24~ end\x1b[201~", "utf8");
+          for (let i = 0; i < pasted.length; i += 1) {
+            stdin.emit("data", pasted.subarray(i, i + 1));
+          }
+          return replay(2, "");
+        }
+        if (readCount >= 3 && readCount < 35) {
+          return replay(2, "");
+        }
+        stdin.emit("data", Buffer.from([0x1c]));
+        return replay(3, "");
+      },
+      async state() { return running(true); },
+      async write(_l, data) { childWrites.push(data); },
+      async resize(_l, cols, rows) { resizes.push({ cols, rows }); },
+      close() {},
+    };
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      {
+        statusBar: false,
+        rightPanel: {
+          enabled: true,
+          snapshot: buildRightPanelSnapshot({
+            currentSessionId: "h2a-alpha",
+            groups: [{ title: "core", sessions: [{ id: "h2a-alpha", label: "alpha", status: "running" }] }],
+            decisions: [],
+          }),
+        },
+      },
+    );
+    expect(code).toBe(0);
+    // Panel never opened (no cols=88 resize)
+    expect(resizes.some((r) => r.cols === 88)).toBe(false);
+    const allWritten = childWrites.join("");
+    expect(allWritten).toContain("€");
+    expect(allWritten).not.toContain("\uFFFD");
+    expect(allWritten).toContain("\x1b[200~note \x1b[24~ end\x1b[201~");
+  });
 });

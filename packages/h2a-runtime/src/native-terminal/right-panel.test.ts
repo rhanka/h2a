@@ -14,6 +14,12 @@ import {
   RightPanelController,
   type RightPanelSnapshot,
 } from "./right-panel.js";
+import {
+  formatRightPanelBarMarker,
+  renderNativeStatusBarLine,
+  rightPanelStatusBarHitSpan,
+  type NativeStatusBarSnapshot,
+} from "../status-projection.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
 
 class FakeOut {
@@ -95,14 +101,104 @@ describe("right panel geometry (columns reserved like the bottom bar rows)", () 
 });
 
 describe("right panel snapshot projection", () => {
-  it("hides delegated sub-sessions by default and marks attention with *", () => {
+  it("hides delegated sub-sessions by default and marks attention with * (PANEL §4.5 dedup)", () => {
     const snap = fixtureSnapshot();
     const labels = snap.workspaces.flatMap((w) => w.sessions.map((s) => s.label));
     expect(labels).toEqual(["alpha", "beta", "gamma"]);
-    expect(snap.attentionCount).toBe(3);
+    // PANEL §4.5: deduplicated subjects — s-blocked (with d1 attributed to it) + s-q = 2
+    expect(snap.attentionCount).toBe(2);
     expect(sessionStatusGlyph("blocked").symbol).toBe("✖");
     expect(sessionStatusGlyph("question").attention).toBe(true);
     expect(sessionStatusGlyph("running").symbol).toBe("●");
+    // PANEL §10: unknown uses distinct glyph `·` (never `?`)
+    expect(sessionStatusGlyph("unknown").symbol).toBe("·");
+  });
+
+  it("table-tests PANEL §4.5 / PANEL:441 attentionCount and collapsedLit rules", () => {
+    // 18 old pending/deferred decisions already seen => unlit, attentionCount = 0
+    const oldDecisions = Array.from({ length: 13 }, (_, i) => ({
+      id: `d-old-${i}`,
+      title: `Old pending ${i}`,
+      kind: "decision" as const,
+      outcome: "pending" as const,
+    })).concat(
+      Array.from({ length: 5 }, (_, i) => ({
+        id: `d-def-${i}`,
+        title: `Deferred ${i}`,
+        kind: "decision" as const,
+        outcome: "deferred" as const,
+      })),
+    );
+    const seen = new Set(oldDecisions.map((d) => d.id));
+    const allSeen = buildRightPanelSnapshot({
+      currentSessionId: "s-1",
+      groups: [{ title: "core", sessions: [{ id: "s-1", label: "a", status: "running" }] }],
+      decisions: oldDecisions,
+      seenDecisionKeys: seen,
+    });
+    expect(allSeen.collapsedLit).toBe(false);
+    expect(allSeen.attentionCount).toBe(0);
+
+    // 1 new unseen pending decision => lit, attentionCount = 1
+    const withNew = buildRightPanelSnapshot({
+      currentSessionId: "s-1",
+      groups: [{ title: "core", sessions: [{ id: "s-1", label: "a", status: "running" }] }],
+      decisions: [
+        ...oldDecisions,
+        { id: "d-new", title: "New pending", kind: "decision", outcome: "pending" },
+      ],
+      seenDecisionKeys: seen,
+    });
+    expect(withNew.collapsedLit).toBe(true);
+    expect(withNew.attentionCount).toBe(1);
+
+    // Deferred decision alone (even unseen) => NEVER lit, NEVER counted
+    const deferredOnly = buildRightPanelSnapshot({
+      currentSessionId: "s-1",
+      groups: [{ title: "core", sessions: [{ id: "s-1", label: "a", status: "running" }] }],
+      decisions: [{ id: "d-def-only", title: "Deferred", kind: "decision", outcome: "deferred" }],
+    });
+    expect(deferredOnly.collapsedLit).toBe(false);
+    expect(deferredOnly.attentionCount).toBe(0);
+
+    // Another session blocked => lit; only attached session blocked => unlit
+    const otherBlocked = buildRightPanelSnapshot({
+      currentSessionId: "s-1",
+      groups: [
+        {
+          title: "core",
+          sessions: [
+            { id: "s-1", label: "a", status: "running" },
+            { id: "s-2", label: "b", status: "blocked" },
+          ],
+        },
+      ],
+      decisions: [],
+    });
+    expect(otherBlocked.collapsedLit).toBe(true);
+    expect(otherBlocked.attentionCount).toBe(1);
+
+    const selfBlocked = buildRightPanelSnapshot({
+      currentSessionId: "s-1",
+      groups: [{ title: "core", sessions: [{ id: "s-1", label: "a", status: "blocked" }] }],
+      decisions: [],
+    });
+    expect(selfBlocked.collapsedLit).toBe(false);
+    expect(selfBlocked.attentionCount).toBe(0);
+
+    // Unreadable source => degraded: true -> collapsed marker renders '?'
+    const degradedOut = new FakeOut();
+    const degradedPanel = new RightPanelController({
+      stdout: degradedOut as unknown as NodeJS.WriteStream,
+      snapshot: buildRightPanelSnapshot({
+        currentSessionId: "s-1",
+        groups: [],
+        decisions: [],
+        degraded: true,
+      }),
+    });
+    degradedPanel.paint();
+    expect(degradedOut.text()).toContain("?");
   });
 
   it("derives decisions/questions from Track rows, pending only, with dossier link", () => {
@@ -169,12 +265,102 @@ describe("right panel keyboard", () => {
 
     const esc = panel.handleInput("\x1b", { cliMouseEnabled: false });
     expect(esc.consumed).toBe(true);
+    // Bare ESC disambiguates via flushPending (so split ESC[A / ESC[24~ never leak)
+    panel.flushPending({ cliMouseEnabled: false });
     expect(panel.isOpen()).toBe(true);
     expect(panel.hasPanelFocus()).toBe(false);
 
     const plain = panel.handleInput("x", { cliMouseEnabled: false });
     expect(plain.consumed).toBe(false);
     expect(plain.forward).toBe("x");
+  });
+
+  it("supports key-by-key /s /d /t /a /c /gw, unknown /x, Shift+Tab, arrows, and distinct selection vs Enter activation (L0.5a)", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: fixtureSnapshot(),
+    });
+    panel.toggle();
+
+    // Key-by-key /d switches to decisions; /t to track; /s back to sessions
+    panel.handleInput("/", { cliMouseEnabled: false });
+    expect(panel.slashPrompt()).toBe("/");
+    panel.handleInput("d", { cliMouseEnabled: false });
+    expect(panel.view).toBe("decisions");
+    expect(panel.slashPrompt()).toBeUndefined();
+
+    panel.handleInput("/", { cliMouseEnabled: false });
+    panel.handleInput("z", { cliMouseEnabled: false });
+    expect(panel.notice()).toBe("unknown: /z");
+
+    panel.handleInput("/", { cliMouseEnabled: false });
+    panel.handleInput("g", { cliMouseEnabled: false });
+    panel.handleInput("w", { cliMouseEnabled: false });
+    panel.handleInput("\r", { cliMouseEnabled: false });
+    expect(panel.notice()).toContain("/gw");
+
+    panel.handleInput("/", { cliMouseEnabled: false });
+    panel.handleInput("s", { cliMouseEnabled: false });
+    expect(panel.view).toBe("sessions");
+
+    // Down arrow selects row 1 (does NOT activate); Enter activates row 1 (distinct actions)
+    const sel = panel.handleInput("\x1b[B", { cliMouseEnabled: false });
+    expect(sel.actions).toEqual([
+      { type: "select-session", index: 1, sessionId: "s-blocked" },
+    ]);
+    expect(panel.selectedSessionIndex()).toBe(1);
+
+    const act = panel.handleInput("\r", { cliMouseEnabled: false });
+    expect(act.actions).toEqual([
+      { type: "activate-session", index: 1, sessionId: "s-blocked" },
+    ]);
+
+    // Tab and Shift+Tab cycle meta-workspace tabs forward and backward
+    panel.handleInput("\t", { cliMouseEnabled: false });
+    expect(panel.activeTabIndex).toBe(1);
+    panel.handleInput("\x1b[Z", { cliMouseEnabled: false });
+    expect(panel.activeTabIndex).toBe(0);
+  });
+
+  it("renders visible bottom-bar toggle marker over its exact hit-test span (r2 :462, PANEL §4.4)", () => {
+    const base: NativeStatusBarSnapshot = {
+      cli: "claude",
+      sessionName: "h2a-alpha",
+      linkState: "attached",
+      role: "dev",
+      workload: {
+        j: { open: 0, attention: 0, degraded: false },
+        i: { waiting: 0, degraded: false },
+        l: { active: 0, attention: 0, degraded: false },
+      },
+      delegatedSessions: 0,
+      gateway: { state: "off", clientSessionId: "h2a-alpha" },
+    };
+    // Panel off: no marker glyph
+    expect(renderNativeStatusBarLine(base, 100)).not.toContain("▸▸");
+
+    // Panel on + lit: `▸▸*` rendered at exact rightPanelStatusBarHitSpan columns
+    const marker = { enabled: true, lit: true, degraded: false };
+    expect(formatRightPanelBarMarker(marker)).toBe("▸▸*");
+    const line = renderNativeStatusBarLine({ ...base, rightPanelMarker: marker }, 100);
+    expect(line.endsWith(" ▸▸* ")).toBe(true);
+    const span = rightPanelStatusBarHitSpan(100, marker)!;
+    expect(span).toEqual({ startCol: 96, endCol: 100 });
+    expect(
+      routePanelMouse(
+        { button: 0, x: span.startCol, y: 30, release: false, wheel: false, shift: false },
+        { totalCols: 100, totalRows: 30, childCols: 99, open: false, statusBarMarker: marker },
+        { cliMouseEnabled: false },
+      ).zone,
+    ).toBe("status-marker");
+    expect(
+      routePanelMouse(
+        { button: 0, x: span.startCol - 1, y: 30, release: false, wheel: false, shift: false },
+        { totalCols: 100, totalRows: 30, childCols: 99, open: false, statusBarMarker: marker },
+        { cliMouseEnabled: false },
+      ).zone,
+    ).toBe("cli");
   });
 
   it("/s /d /t switch views and Tab cycles meta-workspace tabs only in panel focus", () => {
