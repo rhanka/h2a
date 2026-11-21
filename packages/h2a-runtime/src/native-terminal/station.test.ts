@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import xtermMod from "@xterm/headless";
 
 import type { RemoteCliConfig } from "../config.js";
 import type { RegistryEntry } from "../registry.js";
@@ -26,6 +27,16 @@ import {
   type StationStatusBar,
 } from "./station.js";
 import { STATION_STATE_FILE_NAME, readStationState } from "./station-state.js";
+
+const XtermTerminal = (
+  (xtermMod as unknown as { default?: typeof xtermMod }).default ?? xtermMod
+).Terminal;
+type HeadlessTerm = InstanceType<typeof XtermTerminal>;
+
+async function writeTerm(term: HeadlessTerm, data: string): Promise<void> {
+  if (data.length === 0) return;
+  await new Promise<void>((resolve) => term.write(data, resolve));
+}
 
 // ---------------------------------------------------------------------------
 // Fake fleet: several owner hosts, each with its own sessions and lease table.
@@ -137,6 +148,8 @@ class FakeHost {
   /** Fails every request of every connection (host muted or restarting). */
   down = false;
   connects = 0;
+  /** Lease-relevant operations in the order the host served them. */
+  readonly log: string[] = [];
   now: () => number = () => 0;
 
   constructor(socketPath: string, generation: string) {
@@ -278,6 +291,7 @@ class FakeClient implements StationHostClient {
     session.lastHumanActivityAt = this.host.now();
     const lease = session.leaseFor(controllerId);
     this.held.set(id, lease);
+    this.host.log.push(`acquire:${id}${options.takeover ? ":takeover" : ""}`);
     return lease;
   }
 
@@ -312,6 +326,7 @@ class FakeClient implements StationHostClient {
     session.controllerId = null;
     session.controller = null;
     this.held.delete(lease.id);
+    this.host.log.push(`release:${lease.id}`);
     return {
       id: session.id,
       generation: this.host.generation,
@@ -328,12 +343,14 @@ class FakeClient implements StationHostClient {
     this.#requireLease(lease);
     session.lastHumanActivityAt = this.host.now();
     session.writes.push(data);
+    this.host.log.push(`write:${lease.id}`);
   }
 
   async resize(lease: NativeTerminalControllerLease, cols: number, rows: number): Promise<void> {
     this.#guard();
     const session = this.#requireLease(lease);
     session.resizes.push({ cols, rows });
+    this.host.log.push(`resize:${lease.id}`);
   }
 
   close(): void {
@@ -410,6 +427,8 @@ class FakeOutput {
   rows: number;
   isTTY: boolean;
   readonly chunks: string[] = [];
+  /** Simulated terminal side: observes every write (to answer the sentinel…). */
+  onWrite: ((chunk: string) => void) | undefined;
 
   constructor(columns: number, rows: number, isTTY: boolean) {
     this.columns = columns;
@@ -419,6 +438,7 @@ class FakeOutput {
 
   write(chunk: string): boolean {
     this.chunks.push(String(chunk));
+    this.onWrite?.(String(chunk));
     return true;
   }
 
@@ -548,6 +568,11 @@ class Harness {
   #held: Array<{ match: (ms: number) => boolean; waiters: Array<() => void> }> = [];
   readonly #options: HarnessOptions;
   autoDetach = true;
+  /** Every `delay(ms)` the station asked for, in order. */
+  readonly delays: number[] = [];
+  readonly listeners: Array<(event: StationEvent) => void> = [];
+  /** Tab the panel cursor is on, as the harness drives it. */
+  panelTab = 0;
 
   constructor(options: HarnessOptions = {}) {
     this.#options = options;
@@ -617,12 +642,16 @@ class Harness {
       stdout: this.stdout as unknown as NodeJS.WriteStream,
       now: () => this.now,
       delay: async (ms) => {
+        this.delays.push(ms);
         const held = this.#held.find((entry) => entry.match(ms));
         if (held) {
           await new Promise<void>((resolve) => held.waiters.push(resolve));
           return;
         }
         this.now += ms;
+        // A real delay is a timer: everything already queued (input pump,
+        // pending writes) settles before the station resumes.
+        await new Promise<void>((resolve) => setImmediate(resolve));
       },
       onResize: (listener) => {
         this.resizeListener = listener;
@@ -671,6 +700,12 @@ class Harness {
       },
       onEvent: (event) => {
         this.events.push(event);
+        for (const listener of this.listeners) listener(event);
+        if (event.type === "displayed") {
+          const tabs = this.lastSnapshot().workspaces.map((workspace) => workspace.title);
+          const tab = tabs.indexOf(event.tab ?? "");
+          if (tab >= 0) this.panelTab = tab;
+        }
         if (event.type === "idle") this.#onIdle();
       },
       ...this.#options.station,
@@ -685,14 +720,69 @@ class Harness {
     }
     const step = this.#steps.shift();
     if (step) {
-      step(this);
+      try {
+        step(this);
+      } catch (error) {
+        // A failed assertion inside a step fails the test: close and rethrow.
+        this.stepError ??= error;
+        this.#steps.length = 0;
+        this.stdin.type(Buffer.from([0x1c]));
+      }
       return;
     }
     if (this.autoDetach) this.stdin.type(Buffer.from([0x1c]));
   }
 
+  stepError: unknown;
+
   async run(): Promise<number> {
-    return runStation(this.runtime(), this.options());
+    const code = await runStation(this.runtime(), this.options());
+    if (this.stepError !== undefined) throw this.stepError;
+    return code;
+  }
+
+  // --- driving helpers -------------------------------------------------------
+
+  /** Click an empty panel cell: the panel takes the keyboard, nothing else. */
+  focusPanel(): void {
+    const x = this.stdout.columns;
+    const y = this.stdout.rows - 3;
+    this.stdin.type(`\x1b[<0;${x};${y}M`);
+    this.stdin.type(`\x1b[<0;${x};${y}m`);
+  }
+
+  /** Activate a session from the panel: focus, Tab to its tab, its digit. */
+  activate(sessionId: string): void {
+    const workspaces = this.lastSnapshot().workspaces;
+    const tab = workspaces.findIndex((workspace) =>
+      workspace.sessions.some((session) => session.id === sessionId),
+    );
+    if (tab < 0) throw new Error(`session ${sessionId} is not listed`);
+    const row = workspaces[tab]!.sessions.findIndex((session) => session.id === sessionId);
+    this.focusPanel();
+    const count = workspaces.length;
+    for (let i = 0; i < (tab - this.panelTab + count) % count; i += 1) this.stdin.type("\t");
+    this.panelTab = tab;
+    this.stdin.type(String(row + 1));
+  }
+
+  /** Station-owned controller id (pid 9001 in the harness). */
+  readonly stationController = "h2a-station-9001";
+
+  heldByStation(): string[] {
+    return this.fleet
+      .all()
+      .filter((session) => session.controllerId === this.stationController)
+      .map((session) => session.id)
+      .sort();
+  }
+
+  row(sessionId: string) {
+    for (const workspace of this.lastSnapshot().workspaces) {
+      const row = workspace.sessions.find((session) => session.id === sessionId);
+      if (row) return row;
+    }
+    throw new Error(`no row ${sessionId}`);
   }
 
   // --- observation helpers -------------------------------------------------
@@ -846,5 +936,745 @@ describe("S1.1 launch: one window, every live session, no PTY started or stopped
     expect(h.displayed()).toEqual([]);
     expect(h.stdin.setRawMode).not.toHaveBeenCalled();
     expect(h.of("notice").map((e) => e.key)).toContain("station.refusal.noSession");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 3 — S1.2 leases, A→A, refusals
+// ---------------------------------------------------------------------------
+
+/** Wait one idle tick without doing anything. */
+const tick: Step = () => {};
+
+describe("S1.2 lease: hold B before leaving A, one active lease, A→A is a no-op", () => {
+  it("should release A on a host that announces the composer broker, adapter or not", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const host = h.fleet.host("/fake/host-1.sock");
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api"]);
+        expect(x.heldByStation()).toEqual(["h2a-api"]);
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+        // Outside a transition the station holds exactly one lease: the active one.
+        expect(x.heldByStation()).toEqual(["h2a-tracker"]);
+        expect(x.fleet.session("h2a-api").controllerId).toBeNull();
+      },
+    );
+    await h.run();
+
+    // B was held before A was let go.
+    const order = host.log.filter((entry) => /^(acquire|release):/.test(entry));
+    expect(order.indexOf("acquire:h2a-tracker")).toBeGreaterThan(-1);
+    expect(order.indexOf("acquire:h2a-tracker")).toBeLessThan(order.indexOf("release:h2a-api"));
+    expect(h.of("lease-released").map((e) => e.sessionId)).toEqual(["h2a-api"]);
+    expect(h.of("guard")).toEqual([]);
+    expect(h.persisted().state.compatGuards).toEqual({});
+    expect(h.persisted().state).toMatchObject({
+      activeTab: "core",
+      lastSessionByTab: { core: "h2a-tracker" },
+    });
+  });
+
+  it.each([
+    ["absent", undefined],
+    ["a newer version", 2],
+    ["a string", "1"],
+    ["a boolean", true],
+    ["null", null],
+  ])("should keep A as a compatibility guard when composerBrokerVersion is %s", async (_label, value) => {
+    const h = new Harness();
+    for (const host of h.fleet.hosts.values()) host.composerBrokerVersion = value;
+    const api = h.fleet.session("h2a-api");
+    let writesAtGuard = -1;
+    let resizesAtGuard = -1;
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+        // A is still held by the station, as a guard.
+        expect(x.heldByStation()).toEqual(["h2a-api", "h2a-tracker"]);
+        writesAtGuard = api.writes.length;
+        resizesAtGuard = api.resizes.length;
+        expect(x.row("h2a-api")).toMatchObject({
+          compatGuard: true,
+          controlledElsewhere: false,
+          displayedHere: false,
+          draftCapability: "refused-no-capability",
+        });
+        expect(x.row("h2a-tracker")).toMatchObject({ displayedHere: true, compatGuard: false });
+        // Typing and a window resize reach the displayed session only.
+        x.stdin.type("typed-for-b");
+        x.stdout.columns = 150;
+        x.resizeListener?.();
+      },
+      tick,
+    );
+    await h.run();
+
+    // No byte and no resize ever reaches a session under a guard lease.
+    expect(api.writes.length).toBe(writesAtGuard);
+    expect(api.resizes.length).toBe(resizesAtGuard);
+    expect(h.fleet.session("h2a-tracker").writes.join("")).toBe("typed-for-b");
+    expect(h.of("guard").map((e) => [e.action, e.sessionId])).toEqual([["kept", "h2a-api"]]);
+    expect(h.of("lease-released")).toEqual([]);
+    // The guard is persisted with the identity of its lease, nothing else.
+    expect(h.persisted().state.compatGuards).toEqual({
+      "h2a-api": { generation: "gen-/fake/host-1.sock", incarnation: "inc-1" },
+    });
+  });
+
+  it("should promote a guard after a fresh comparison, with no new acquisition request", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        expect(api.acquireRequests).toBe(1);
+        x.activate("h2a-api");
+      },
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api", "h2a-tracker", "h2a-api"]);
+        // A came back through its guard: the same lease, no request to the host.
+        expect(api.acquireRequests).toBe(1);
+        expect(tracker.acquireRequests).toBe(1);
+        expect(x.heldByStation()).toEqual(["h2a-api", "h2a-tracker"]);
+        expect(x.row("h2a-tracker").compatGuard).toBe(true);
+        expect(x.row("h2a-api").compatGuard).toBe(false);
+      },
+    );
+    await h.run();
+    expect(h.of("guard").map((e) => [e.action, e.sessionId])).toEqual([
+      ["kept", "h2a-api"],
+      ["promoted", "h2a-api"],
+      ["kept", "h2a-tracker"],
+    ]);
+  });
+
+  it("should retire a stale guard alone and keep the shared host client open", async () => {
+    const h = new Harness();
+    const host = h.fleet.host("/fake/host-1.sock");
+    const api = h.fleet.session("h2a-api");
+    let stationClient: FakeClient | undefined;
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        stationClient = [...host.clients].find((client) => client.held.has("h2a-tracker"));
+        expect(stationClient?.held.has("h2a-api")).toBe(true);
+        // Another terminal takes A by force: the guard lease is now stale.
+        api.controlElsewhere({ pid: 555, tty: "/dev/pts/4" });
+        x.now += 2_000;
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.row("h2a-api")).toMatchObject({ compatGuard: false, controlledElsewhere: true });
+        // The displayed session kept its lease on the very same connection.
+        expect(stationClient?.closed).toBe(false);
+        expect(x.heldByStation()).toEqual(["h2a-tracker"]);
+        x.stdin.type("still-b");
+      },
+      tick,
+    );
+    await h.run();
+    expect(h.of("guard").map((e) => [e.action, e.sessionId])).toEqual([
+      ["kept", "h2a-api"],
+      ["stale", "h2a-api"],
+    ]);
+    expect(h.fleet.session("h2a-tracker").writes.join("")).toBe("still-b");
+    expect(h.persisted().state.compatGuards).toEqual({});
+    // One long-lived connection per owner host was enough for the whole run.
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+  });
+
+  it("should do nothing on A→A: no acquisition request, no card, focus back to the CLI", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const logBefore: string[] = [];
+    h.step(
+      (x) => {
+        logBefore.push(...x.fleet.host("/fake/host-1.sock").log);
+        const mark = x.stdout.mark();
+        x.activate("h2a-api");
+        // Handled synchronously: no neutral reset, no clear, nothing repainted for A.
+        expect(x.stdout.since(mark)).not.toContain("\x1b[!p");
+        expect(x.stdout.since(mark)).not.toContain("\x1b[2J");
+        // The keyboard is back on the CLI: this goes to A, not to the panel.
+        x.stdin.type("j1/");
+      },
+      tick,
+    );
+    await h.run();
+    expect(api.acquireRequests).toBe(1);
+    expect(h.of("same-session")).toEqual([{ type: "same-session", sessionId: "h2a-api" }]);
+    expect(h.of("card")).toEqual([]);
+    expect(h.of("switch-refused")).toEqual([]);
+    expect(h.displayed()).toEqual(["h2a-api"]);
+    expect(api.writes.join("")).toBe("j1/");
+    expect(
+      h.fleet.host("/fake/host-1.sock").log.filter((entry) => entry.startsWith("acquire")),
+    ).toEqual(logBefore.filter((entry) => entry.startsWith("acquire")));
+  });
+
+  it.each([
+    [
+      "controlled by another terminal",
+      (x: Harness) => void x.fleet.session("h2a-tracker").controlElsewhere({ pid: 4321, tty: "/dev/pts/7" }),
+      "controlled-elsewhere",
+      "tracker: controlled by pid 4321 tty /dev/pts/7 since 2026-11-21T08:00:00.000Z",
+    ],
+    [
+      "exited",
+      (x: Harness) => void x.fleet.session("h2a-tracker").end(3),
+      "ended",
+      "tracker: session ended (exit code 3)",
+    ],
+    [
+      "gone from its host",
+      (x: Harness) => void x.fleet.host("/fake/host-1.sock").sessions.delete("h2a-tracker"),
+      "absent",
+      "tracker: absent",
+    ],
+  ] as const)("should stay on A with its lease intact when B is %s", async (_label, arrange, reason, card) => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    let epoch = -1;
+    h.step(
+      (x) => {
+        epoch = api.controllerEpoch;
+        arrange(x);
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        expect(x.of("switch-refused")).toEqual([{ type: "switch-refused", sessionId: "h2a-tracker", reason }]);
+        expect(x.of("card").map((e) => e.text)).toEqual([card]);
+        // The card is painted in the panel (wrapped to its width).
+        expect(plain(x.stdout.text())).toContain(card.slice(0, 20));
+        // The lease of A is the very same one: never released, never retaken.
+        expect(api.controllerEpoch).toBe(epoch);
+        expect(x.heldByStation()).toEqual(["h2a-api"]);
+        // Esc closes the card; a second Esc gives the keyboard back to the CLI.
+        x.stdin.type("\x1b");
+      },
+      (x) => x.stdin.type("\x1b"),
+      tick,
+      (x) => x.stdin.type("after-refusal"),
+      tick,
+    );
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api"]);
+    expect(api.acquireRequests).toBe(1);
+    expect(api.writes.join("")).toBe("after-refusal");
+    expect(h.of("guard")).toEqual([]);
+  });
+
+  it("should stay on A when the host of B is silent", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    h.step(
+      (x) => {
+        // h2a-guide lives on the second owner host.
+        x.fleet.host("/fake/host-2.sock").down = true;
+        x.activate("h2a-guide");
+      },
+      (x) => {
+        expect(x.of("switch-refused").map((e) => e.reason)).toEqual(["host-silent"]);
+        expect(x.heldByStation()).toEqual(["h2a-api"]);
+        x.stdin.type("\x1b");
+      },
+      (x) => x.stdin.type("\x1b"),
+      tick,
+      (x) => x.stdin.type("still-a"),
+      tick,
+    );
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api"]);
+    expect(api.writes.join("")).toBe("still-a");
+    expect(h.of("card").map((e) => e.text)).toEqual(["guide: host did not answer, no switch"]);
+    expect(plain(h.stdout.text())).toContain("guide: host did not answer");
+  });
+
+  it("should show the card at once for a human holder and retry once for a lease without terminal identity", async () => {
+    const human = new Harness();
+    const tracker = human.fleet.session("h2a-tracker");
+    human.step(
+      (x) => {
+        tracker.controlElsewhere({ pid: 4321, tty: "/dev/pts/7" });
+        x.activate("h2a-tracker");
+      },
+      tick,
+    );
+    await human.run();
+    expect(tracker.acquireRequests).toBe(1);
+    expect(human.delays).not.toContain(250);
+
+    const anonymous = new Harness();
+    const target = anonymous.fleet.session("h2a-tracker");
+    anonymous.fleet.host("/fake/host-1.sock").hooks.beforeAcquire = (session) => {
+      // The short-lived automation lease ends before the retry.
+      if (session.id === "h2a-tracker" && session.acquireRequests === 2) session.releaseElsewhere();
+    };
+    anonymous.step(
+      (x) => {
+        target.controlElsewhere({ pid: null, tty: "unknown" });
+        x.activate("h2a-tracker");
+      },
+      tick,
+    );
+    await anonymous.run();
+    expect(target.acquireRequests).toBe(2);
+    expect(anonymous.delays.filter((ms) => ms === 250)).toHaveLength(1);
+    expect(anonymous.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    expect(anonymous.of("switch-refused")).toEqual([]);
+
+    const stuck = new Harness();
+    const held = stuck.fleet.session("h2a-tracker");
+    stuck.step(
+      (x) => {
+        held.controlElsewhere({ pid: null, tty: "unknown" });
+        x.activate("h2a-tracker");
+      },
+      tick,
+    );
+    await stuck.run();
+    // Exactly one retry, then the card: the station stays on A.
+    expect(held.acquireRequests).toBe(2);
+    expect(stuck.displayed()).toEqual(["h2a-api"]);
+    expect(stuck.of("switch-refused").map((e) => e.reason)).toEqual(["controlled-elsewhere"]);
+  });
+
+  it("should take a session held elsewhere only after the confirmation", async () => {
+    const h = new Harness();
+    const tracker = h.fleet.session("h2a-tracker");
+    let other: NativeTerminalControllerLease | undefined;
+    h.step(
+      (x) => {
+        other = tracker.controlElsewhere({ pid: 4321, tty: "/dev/pts/7" });
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        expect(plain(x.stdout.text())).toContain("Enter: take control · Esc: stay");
+        // Esc: nothing is taken.
+        x.stdin.type("\x1b");
+      },
+      tick,
+      (x) => {
+        expect(tracker.controllerId).toBe(other?.controllerId);
+        expect(tracker.acquireRequests).toBe(1);
+        x.activate("h2a-tracker");
+      },
+      // Enter on the card is the explicit, confirmed gesture.
+      (x) => x.stdin.type("\r"),
+      tick,
+    );
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    expect(h.fleet.host("/fake/host-1.sock").log).toContain("acquire:h2a-tracker:takeover");
+    // The other terminal lost its lease: its next request is refused as stale.
+    expect(tracker.controllerEpoch).toBeGreaterThan(other!.epoch);
+    expect(h.of("switch-refused")).toHaveLength(2);
+  });
+
+  it("should abandon the switch when a human write to A is still in flight after 250 ms", async () => {
+    const h = new Harness();
+    const host = h.fleet.host("/fake/host-1.sock");
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    let release: (() => void) | undefined;
+    host.hooks.beforeWrite = (session) =>
+      session.id === "h2a-api"
+        ? new Promise<void>((resolve) => {
+            release = resolve;
+          })
+        : undefined;
+    h.step(
+      (x) => {
+        x.stdin.type("slow");
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        expect(x.of("switch-refused").map((e) => e.reason)).toEqual(["input-in-flight"]);
+        // B was given back, A kept its lease and its size.
+        expect(tracker.controllerId).toBeNull();
+        expect(x.heldByStation()).toEqual(["h2a-api"]);
+        expect(tracker.resizes).toEqual([]);
+        release?.();
+        host.hooks.beforeWrite = undefined;
+        x.stdin.type("\x1b");
+      },
+      tick,
+    );
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api"]);
+    expect(h.delays).toContain(250);
+    expect(api.resizes).toHaveLength(1);
+    expect(api.writes).toEqual(["slow"]);
+    expect(host.log.filter((entry) => entry.endsWith("h2a-tracker"))).toEqual([
+      "acquire:h2a-tracker",
+      "release:h2a-tracker",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 4 — S1.3 input, S1.5 replay and sentinel, S1.6 size
+// ---------------------------------------------------------------------------
+
+/** Deterministic PRNG (mulberry32): the 50 switches are the same on every run. */
+function prng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+describe("S1.3 input (I4): a byte typed for A never reaches B", () => {
+  it("should deliver or drop 1 000 keystrokes across 50 deterministic switches with zero misrouted byte", async () => {
+    const h = new Harness();
+    const random = prng(0x5eed2611);
+    const ids = FIXTURE_SESSIONS.map((session) => session.id);
+    let current = "";
+    let switching = false;
+    let typed = 0;
+    const idle: Array<{ token: string; target: string }> = [];
+    const transition: Array<{ token: string; target: string }> = [];
+    const type = (bucket: Array<{ token: string; target: string }>): void => {
+      const token = `<${typed}:${current}>`;
+      typed += 1;
+      bucket.push({ token, target: current });
+      h.stdin.type(token);
+    };
+    h.listeners.push((event) => {
+      if (event.type === "displayed") {
+        current = event.sessionId;
+        switching = false;
+      }
+    });
+    // While a switch is running, keystrokes meant for the session still shown
+    // arrive at every await point of the transition.
+    for (const host of h.fleet.hosts.values()) {
+      host.hooks.beforeAcquire = () => {
+        if (switching) for (let i = 0; i < 3; i += 1) type(transition);
+      };
+      host.hooks.beforeState = () => {
+        if (switching) for (let i = 0; i < 2; i += 1) type(transition);
+      };
+      host.hooks.beforeRead = (_session, afterSeq) => {
+        if (switching && afterSeq === 0) for (let i = 0; i < 3; i += 1) type(transition);
+      };
+    }
+    for (let k = 0; k < 50; k += 1) {
+      h.step(
+        () => {
+          for (let i = 0; i < 4; i += 1) type(idle);
+        },
+        (x) => {
+          const others = ids.filter((id) => id !== current);
+          const target = others[Math.floor(random() * others.length)]!;
+          switching = true;
+          x.activate(target);
+          // Typed right after the gesture, before the switch is over.
+          for (let i = 0; i < 2; i += 1) type(transition);
+        },
+      );
+    }
+    // Top up to exactly 1 000 keystrokes, a burst per idle pause.
+    for (let burst = 0; burst < 40; burst += 1) {
+      h.step(() => {
+        for (let i = 0; i < 10 && typed < 1_000; i += 1) type(idle);
+      });
+    }
+    h.step(tick);
+
+    await h.run();
+
+    expect(typed).toBe(1_000);
+    expect(h.displayed()).toHaveLength(51);
+    expect(new Set(h.displayed()).size).toBeGreaterThan(3);
+    const delivered = new Map<string, string>();
+    for (const session of h.fleet.all()) {
+      const stream = session.writes.join("");
+      const tokens = stream.match(/<\d+:[^>]+>/g) ?? [];
+      // Only whole tokens, and only tokens typed for this very session.
+      expect(stream.replace(/<\d+:[^>]+>/g, ""), session.id).toBe("");
+      for (const token of tokens) {
+        expect(token.endsWith(`:${session.id}>`), `${token} reached ${session.id}`).toBe(true);
+        expect(delivered.has(token), `${token} delivered twice`).toBe(false);
+        delivered.set(token, session.id);
+      }
+      // Order is preserved within a session.
+      const order = tokens.map((token) => Number(token.slice(1, token.indexOf(":"))));
+      expect(order).toEqual([...order].sort((a, b) => a - b));
+    }
+    // Typed while the input was open: every keystroke arrived.
+    for (const { token, target } of idle) expect(delivered.get(token), token).toBe(target);
+    // Typed during a transition: dropped, or delivered to the session it was typed for.
+    expect(transition.length).toBeGreaterThan(300);
+    for (const { token, target } of transition) {
+      const reached = delivered.get(token);
+      expect(reached === undefined || reached === target, token).toBe(true);
+    }
+    const droppedBytes = h.of("input-dropped").reduce((sum, event) => sum + event.bytes, 0);
+    expect(droppedBytes).toBeGreaterThan(0);
+    expect(new Set(h.of("input-dropped").map((event) => event.reason))).toEqual(new Set(["transition"]));
+  });
+
+  it("should purge the queue still pending for A and wait for its write in flight", async () => {
+    const h = new Harness();
+    const host = h.fleet.host("/fake/host-1.sock");
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    let release: (() => void) | undefined;
+    host.hooks.beforeWrite = (session) =>
+      session.id === "h2a-api"
+        ? new Promise<void>((resolve) => {
+            release = resolve;
+          })
+        : undefined;
+    // The write to A settles while the station is holding B (within the 250 ms).
+    host.hooks.beforeAcquire = (session) => {
+      if (session.id === "h2a-tracker") setTimeout(() => release?.(), 0);
+    };
+    const held = h.holdDelays((ms) => ms === 250);
+    h.step(
+      (x) => {
+        x.stdin.type("first");
+        x.stdin.type("second");
+        x.stdin.type("third");
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        held.release();
+        x.stdin.type("for-b");
+      },
+      tick,
+    );
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    // The chunk in flight reached A; what was queued behind it was dropped.
+    expect(api.writes).toEqual(["first"]);
+    expect(tracker.writes.join("")).toBe("for-b");
+    expect(h.of("input-purged")).toEqual([
+      { type: "input-purged", bytes: "secondthird".length, reason: "transition" },
+    ]);
+  });
+
+  it("should close the station when the detach byte is typed during a transition", async () => {
+    const h = new Harness();
+    const tracker = h.fleet.session("h2a-tracker");
+    h.fleet.host("/fake/host-1.sock").hooks.beforeAcquire = (session) => {
+      if (session.id === "h2a-tracker") h.stdin.type(DETACH);
+    };
+    h.step((x) => x.activate("h2a-tracker"));
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.of("closed")).toEqual([{ type: "closed", reason: "detach" }]);
+    expect(h.displayed()).toEqual(["h2a-api"]);
+    // B was held for a moment and given back; nothing stays controlled.
+    expect(tracker.controllerId).toBeNull();
+    expect(h.heldByStation()).toEqual([]);
+    expect(h.fleet.all().flatMap((session) => session.writes)).toEqual([]);
+  });
+});
+
+describe("S1.5 replay: no terminal request, no reply, no side effect is replayed", () => {
+  const ESC = "\x1b";
+  const QUERIES = [
+    `${ESC}[6n`, `${ESC}[?6n`, `${ESC}[5n`, `${ESC}[c`, `${ESC}[>c`, `${ESC}[=c`, `${ESC}[>q`,
+    `${ESC}[?u`, `${ESC}[14t`, `${ESC}[16t`, `${ESC}[18t`, `${ESC}[21t`, `${ESC}[?2026$p`,
+    `${ESC}P$qm${ESC}\\`, `${ESC}P+q544e${ESC}\\`, `${ESC}]4;1;?${ESC}\\`, `${ESC}]10;?\x07`,
+    `${ESC}]11;?\x07`, `${ESC}]12;?\x07`, `${ESC}]52;c;?\x07`, "\x05",
+  ];
+  const SIDE_EFFECTS = [`${ESC}]52;c;aGVsbG8=\x07`, "\x07", `${ESC}]9;done\x07`, `${ESC}]777;notify;a;b\x07`];
+
+  it("should filter the catch-up bytes and leave the live output untouched", async () => {
+    const h = new Harness();
+    const tracker = h.fleet.session("h2a-tracker");
+    const k = 9;
+    // History of B: k cursor-position requests, every family, a clipboard write, a bell.
+    for (let i = 0; i < k; i += 1) tracker.emit(`history ${i}${ESC}[6n\r\n`);
+    tracker.emit(QUERIES.join("q"));
+    tracker.emit(SIDE_EFFECTS.join("s"));
+    tracker.emit("history-end\r\n");
+    let afterSwitch = -1;
+    let beforeSwitch = -1;
+    h.step(
+      (x) => {
+        beforeSwitch = x.stdout.mark();
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        afterSwitch = x.stdout.mark();
+        // Live output of B, after the catch-up: this request must go through.
+        tracker.emit(`live${ESC}[6n${ESC}]52;c;bGl2ZQ==\x07\x07`);
+      },
+      tick,
+      tick,
+    );
+    await h.run();
+
+    const catchUp = h.stdout.chunks.slice(beforeSwitch, afterSwitch).join("");
+    const live = h.stdout.chunks.slice(afterSwitch).join("");
+    expect(plain(catchUp)).toContain("history-end");
+
+    // A terminal that answers everything is the oracle.
+    const answering = async (data: string) => {
+      const term = new XtermTerminal({ cols: 160, rows: 40, allowProposedApi: true });
+      const replies: string[] = [];
+      const clipboard: string[] = [];
+      const notifications: string[] = [];
+      let bells = 0;
+      term.onData((reply) => replies.push(reply));
+      term.onBell(() => {
+        bells += 1;
+      });
+      term.parser.registerOscHandler(52, (payload) => {
+        clipboard.push(payload);
+        return true;
+      });
+      for (const code of [9, 99, 777]) {
+        term.parser.registerOscHandler(code, (payload) => {
+          notifications.push(`${code};${payload}`);
+          return true;
+        });
+      }
+      await writeTerm(term, data);
+      term.dispose();
+      return { replies, clipboard, notifications, bells };
+    };
+    // Zero request emitted during the catch-up ⇒ zero reply, zero side effect.
+    expect(await answering(catchUp)).toEqual({ replies: [], clipboard: [], notifications: [], bells: 0 });
+    for (const query of QUERIES.filter((q) => q.length > 1)) {
+      expect(catchUp.includes(query), JSON.stringify(query)).toBe(false);
+    }
+    // Zero reply byte transmitted to the resumed CLI.
+    expect(tracker.writes).toEqual([]);
+    // The live output is not filtered: request, clipboard write and bell go out.
+    const liveOutcome = await answering(live);
+    expect(liveOutcome.replies.length).toBeGreaterThan(0);
+    expect(liveOutcome.clipboard).toEqual(["c;bGl2ZQ=="]);
+    expect(liveOutcome.bells).toBe(1);
+    expect(live).toContain(`live${ESC}[6n`);
+    // Off a TTY the station emits no sentinel of its own.
+    expect(h.stdout.text()).not.toContain(`${ESC}[5n`);
+    expect(h.of("sentinel").map((event) => event.outcome)).toEqual(["skipped", "skipped"]);
+  });
+
+  it("should open the input as soon as the terminal answers the sentinel", async () => {
+    const h = new Harness({ tty: true });
+    const tracker = h.fleet.session("h2a-tracker");
+    h.stdout.onWrite = (chunk) => {
+      // Garbage that precedes the reply is dropped with it.
+      if (chunk.includes(`${ESC}[5n`)) h.stdin.type(`junk${ESC}[0n`);
+    };
+    h.step((x) => x.activate("h2a-tracker"), (x) => x.stdin.type("after"), tick);
+    await h.run();
+    expect(h.of("sentinel").map((event) => event.outcome)).toEqual(["answered", "answered"]);
+    expect(h.delays).toContain(150);
+    expect(tracker.writes.join("")).toBe("after");
+    expect(h.fleet.session("h2a-api").writes).toEqual([]);
+  });
+
+  it("should open the input at the bounded delay when nothing answers, and swallow a late reply", async () => {
+    const h = new Harness({ tty: true });
+    const tracker = h.fleet.session("h2a-tracker");
+    let sentinels = 0;
+    let waiting: { release(): void; waiting(): number } | undefined;
+    h.stdout.onWrite = (chunk) => {
+      if (!chunk.includes(`${ESC}[5n`)) return;
+      sentinels += 1;
+      if (sentinels === 2) {
+        // Second sentinel (the switch): hold its delay, type while it waits.
+        waiting = h.holdDelays((ms) => ms === 150);
+        setTimeout(() => {
+          h.stdin.type("typed-too-early");
+          waiting?.release();
+        }, 0);
+      }
+    };
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        expect(x.of("sentinel").map((event) => event.outcome)).toEqual(["timeout", "timeout"]);
+        // Two late replies are still owed: both are swallowed, even split.
+        x.stdin.type(`ab${ESC}[0ncd`);
+        x.stdin.type(`x${ESC}[`);
+        x.stdin.type("0ny");
+      },
+      tick,
+      (x) => {
+        // No reply is owed any more: these bytes are plain input again.
+        x.stdin.type(`${ESC}[0n`);
+      },
+      tick,
+    );
+    await h.run();
+    expect(sentinels).toBe(2);
+    expect(h.of("sentinel").map((event) => event.outcome)).toEqual([
+      "timeout",
+      "timeout",
+      "late-swallowed",
+      "late-swallowed",
+    ]);
+    // Nothing typed before the delay reached B; the late replies never did.
+    expect(tracker.writes.join("")).toBe(`abcdxy${ESC}[0n`);
+  });
+
+  it("should deliver a lone Esc typed while a late reply is still owed", async () => {
+    const h = new Harness({ tty: true });
+    const api = h.fleet.session("h2a-api");
+    h.step((x) => x.stdin.type(ESC), tick, tick, (x) => x.stdin.type("z"), tick);
+    await h.run();
+    expect(h.of("sentinel").map((event) => event.outcome)).toEqual(["timeout"]);
+    expect(api.writes.join("")).toBe(`${ESC}z`);
+  });
+});
+
+describe("S1.6 size: only the displayed session is resized", () => {
+  it("should resize B once at the switch, never A, and A again only after the window changed", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      (x) => {
+        expect(api.resizes).toEqual([{ cols: 128, rows: 40 }]);
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        // One resize of B, none of A.
+        expect(tracker.resizes).toEqual([{ cols: 128, rows: 40 }]);
+        expect(api.resizes).toHaveLength(1);
+        x.activate("h2a-api");
+      },
+      (x) => {
+        // Same geometry as when A was left: no resize request at all.
+        expect(api.resizes).toHaveLength(1);
+        // The window is resized while A is displayed: A alone follows.
+        x.stdout.columns = 140;
+        x.stdout.rows = 30;
+        x.resizeListener?.();
+      },
+      (x) => {
+        expect(api.resizes).toEqual([{ cols: 128, rows: 40 }, { cols: 108, rows: 30 }]);
+        expect(tracker.resizes).toHaveLength(1);
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        // B gets the new geometry when it comes back, not before.
+        expect(tracker.resizes).toEqual([{ cols: 128, rows: 40 }, { cols: 108, rows: 30 }]);
+        expect(api.resizes).toHaveLength(2);
+      },
+    );
+    await h.run();
+    for (const other of h.fleet.all().filter((s) => !["h2a-api", "h2a-tracker"].includes(s.id))) {
+      expect(other.resizes, other.id).toEqual([]);
+    }
   });
 });

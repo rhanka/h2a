@@ -539,9 +539,15 @@ export class NativeSessionView {
    * number of bytes dropped.
    */
   purgePendingInput(): number {
-    const dropped = this.pendingInputBytes;
-    this.pendingInput.length = 0;
-    this.pendingInputBytes = 0;
+    // The chunk being written stays: it is already on its way to this
+    // session, and the pump accounts for it when the write settles.
+    const keep = this.#inputPump !== undefined && this.pendingInput.length > 0 ? 1 : 0;
+    let dropped = 0;
+    for (let i = keep; i < this.pendingInput.length; i += 1) {
+      dropped += this.pendingInput[i]!.length;
+    }
+    this.pendingInput.length = keep;
+    this.pendingInputBytes -= dropped;
     return dropped;
   }
 
