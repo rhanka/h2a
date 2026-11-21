@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { Hono, type MiddlewareHandler } from "hono";
 import { mount } from "hono/mount";
 import { SignJWT } from "jose";
@@ -46,12 +50,17 @@ const LINE_TERMINATOR_TARGETS = [
 
 let savedAuth: string | undefined;
 let savedSecret: string | undefined;
+let savedDataDir: string | undefined;
+let testDataDir: string | undefined;
 
 beforeEach(() => {
   savedAuth = process.env.REMOTE_AUTH;
   savedSecret = process.env.REMOTE_AUTH_SECRET;
+  savedDataDir = process.env.DATA_DIR;
+  testDataDir = mkdtempSync(join(tmpdir(), "h2a-cp-ghsa-"));
   process.env.REMOTE_AUTH = "bearer";
   process.env.REMOTE_AUTH_SECRET = AUTH_SECRET;
+  process.env.DATA_DIR = testDataDir;
 });
 
 afterEach(() => {
@@ -59,6 +68,12 @@ afterEach(() => {
   else process.env.REMOTE_AUTH = savedAuth;
   if (savedSecret === undefined) delete process.env.REMOTE_AUTH_SECRET;
   else process.env.REMOTE_AUTH_SECRET = savedSecret;
+  if (savedDataDir === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = savedDataDir;
+  if (testDataDir) {
+    rmSync(testDataDir, { recursive: true, force: true });
+    testDataDir = undefined;
+  }
 });
 
 async function userToken(sub: string): Promise<string> {
