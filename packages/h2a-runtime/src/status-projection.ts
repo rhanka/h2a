@@ -718,6 +718,13 @@ export interface NativeStatusBarSnapshot {
     };
   };
   readonly delegatedSessions: number | "unknown";
+  /**
+   * Delegated session names for the currently selected right-panel session
+   * (`PANEL §4.4`, L1). Undefined when no panel session is selected (closed or
+   * deselected), preserving byte-identical count rendering (`deleg <n>`).
+   * `"unknown"` renders `deleg ?` when provenance is degraded.
+   */
+  readonly selectedDelegatedNames?: readonly string[] | "unknown";
   readonly gateway: H2AGatewayStatusV1;
   /** Visible toggle marker for the right panel (`PANEL §4.4`, r2 :462); omitted when panel is off. */
   readonly rightPanelMarker?: NativeStatusBarRightPanelMarker;
@@ -998,7 +1005,7 @@ function resolveInstanceRoleFromStore(
   }
 }
 
-function readMcpAttestationsFromStore(
+export function readMcpAttestationsFromStore(
   h2aRoot: string | undefined,
 ): { values: H2AMcpDelegationAttestationV1[]; known: boolean } {
   if (!h2aRoot || !existsSync(h2aRoot)) {
@@ -1505,6 +1512,22 @@ function formatCounter(
   return `${prefix}${count}`;
 }
 
+function truncateDisplayWithEllipsis(value: string, maxCols: number): string | undefined {
+  if (maxCols < 4) return undefined;
+  if (terminalDisplayColumns(value) <= maxCols) return value;
+  const budget = maxCols - 1; // reserve 1 col for "…"
+  let out = "";
+  let used = 0;
+  for (const scalar of value) {
+    const w = terminalDisplayColumns(scalar);
+    if (used + w > budget) break;
+    out += scalar;
+    used += w;
+  }
+  if (used === 0) return undefined;
+  return `${out}…`;
+}
+
 export function renderNativeStatusBarLine(
   snapshot: NativeStatusBarSnapshot,
   cols: number,
@@ -1556,22 +1579,78 @@ export function renderNativeStatusBarLine(
     }
   }
 
-  const delegToken = `deleg ${snapshot.delegatedSessions === "unknown" ? "?" : snapshot.delegatedSessions}`;
   const markerToken = formatRightPanelBarMarker(snapshot.rightPanelMarker);
   const markerSuffix = markerToken ? ` ${markerToken} ` : " ";
   const markerSep = markerToken ? ` ·${markerSuffix}` : markerSuffix;
-
-  const candidates = [
-    `${workloadToken} · ${roleToken} · ${gwState}${routeToken ? ` · ${routeToken}` : ""} · ${delegToken}${markerSep}`,
-    ...(routeToken
-      ? [`${workloadToken} · ${roleToken} · ${gwState} · ${delegToken}${markerSep}`]
-      : []),
-    `${workloadToken} · ${gwState} · ${delegToken}${markerSep}`,
-    `${workloadToken} · ${gwState}${markerSep}`,
-    ...(markerToken ? [markerSuffix] : []),
-  ];
-
   const leftCols = terminalDisplayColumns(left);
+
+  const selectedCleanNames = Array.isArray(snapshot.selectedDelegatedNames)
+    ? snapshot.selectedDelegatedNames
+        .map((n) => cleanDisplay(n, 64))
+        .filter((n) => n.length > 0)
+    : undefined;
+
+  let candidates: string[];
+  if (selectedCleanNames && selectedCleanNames.length > 0) {
+    // PANEL §4.4 degradation order: route drops before delegated names, then
+    // names truncate with "…", then fall back to the count.
+    const fullNames = selectedCleanNames.join(",");
+    const fullDeleg = `deleg ${fullNames}`;
+    const countDeleg = `deleg ${selectedCleanNames.length}`;
+    const built: string[] = [
+      `${workloadToken} · ${roleToken} · ${gwState}${routeToken ? ` · ${routeToken}` : ""} · ${fullDeleg}${markerSep}`,
+    ];
+    if (routeToken) {
+      built.push(`${workloadToken} · ${roleToken} · ${gwState} · ${fullDeleg}${markerSep}`);
+    }
+    const rolePrefix = `${workloadToken} · ${roleToken} · ${gwState} · deleg `;
+    const roleAvail =
+      safeCols -
+      leftCols -
+      2 -
+      terminalDisplayColumns(rolePrefix) -
+      terminalDisplayColumns(markerSep);
+    const roleTrunc = truncateDisplayWithEllipsis(fullNames, roleAvail);
+    if (roleTrunc && roleTrunc !== fullNames) {
+      built.push(`${rolePrefix}${roleTrunc}${markerSep}`);
+    }
+    built.push(`${workloadToken} · ${gwState} · ${fullDeleg}${markerSep}`);
+    const compactPrefix = `${workloadToken} · ${gwState} · deleg `;
+    const compactAvail =
+      safeCols -
+      leftCols -
+      2 -
+      terminalDisplayColumns(compactPrefix) -
+      terminalDisplayColumns(markerSep);
+    const compactTrunc = truncateDisplayWithEllipsis(fullNames, compactAvail);
+    if (compactTrunc && compactTrunc !== fullNames) {
+      built.push(`${compactPrefix}${compactTrunc}${markerSep}`);
+    }
+    built.push(
+      `${workloadToken} · ${roleToken} · ${gwState} · ${countDeleg}${markerSep}`,
+      `${workloadToken} · ${gwState} · ${countDeleg}${markerSep}`,
+      `${workloadToken} · ${gwState}${markerSep}`,
+      ...(markerToken ? [markerSuffix] : []),
+    );
+    candidates = built;
+  } else {
+    const delegToken =
+      snapshot.selectedDelegatedNames === "unknown"
+        ? "deleg ?"
+        : selectedCleanNames !== undefined
+          ? "deleg 0"
+          : `deleg ${snapshot.delegatedSessions === "unknown" ? "?" : snapshot.delegatedSessions}`;
+    candidates = [
+      `${workloadToken} · ${roleToken} · ${gwState}${routeToken ? ` · ${routeToken}` : ""} · ${delegToken}${markerSep}`,
+      ...(routeToken
+        ? [`${workloadToken} · ${roleToken} · ${gwState} · ${delegToken}${markerSep}`]
+        : []),
+      `${workloadToken} · ${gwState} · ${delegToken}${markerSep}`,
+      `${workloadToken} · ${gwState}${markerSep}`,
+      ...(markerToken ? [markerSuffix] : []),
+    ];
+  }
+
   for (const right of candidates) {
     const rightCols = terminalDisplayColumns(right);
     if (leftCols + 2 + rightCols <= safeCols) {

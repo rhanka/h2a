@@ -2710,4 +2710,124 @@ describe("native attach right panel (L0)", () => {
     expect(afterDetach).toContain("\x1b[?1006l");
     expect(afterDetach).toContain("\x1b[?1000l");
   });
+
+  it("L1: renders selected session delegated names in bottom bar and restores byte-identical count form on CLI-zone click and panel close", async () => {
+    const { buildRightPanelSnapshot } = await import("./right-panel.js");
+    const stdin = new EventEmitter() as EventEmitter & {
+      isTTY: boolean;
+      resume: () => void;
+      pause: () => void;
+      setRawMode: () => void;
+    };
+    stdin.isTTY = false;
+    stdin.resume = () => {};
+    stdin.pause = () => {};
+    stdin.setRawMode = () => {};
+    const stdout = {
+      isTTY: true,
+      columns: 120,
+      rows: 24,
+      chunks: [] as string[],
+      write(chunk: string): boolean {
+        this.chunks.push(String(chunk));
+        return true;
+      },
+    };
+    let now = 1_760_000_000_000;
+    let readCount = 0;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const capturedRows: string[] = [];
+    const readBarRow = async () => {
+      const { default: xterm } = await import("@xterm/headless");
+      const t = new xterm.Terminal({ cols: 120, rows: 24, scrollback: 0, allowProposedApi: true });
+      try {
+        await new Promise<void>((r) => t.write(stdout.chunks.join(""), r));
+        return t.buffer.active.getLine(23)?.translateToString(false) ?? "";
+      } finally {
+        t.dispose();
+      }
+    };
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) return replay(1, "boot\r\n");
+        if (readCount === 2) {
+          capturedRows.push(await readBarRow()); // collapsed
+          stdin.emit("data", Buffer.from("\x1b[24~")); // open -> alpha selected
+          return replay(1, "");
+        }
+        if (readCount === 3) {
+          capturedRows.push(await readBarRow()); // alpha selected -> deleg w-a,w-b
+          stdin.emit("data", Buffer.from("\x1b[<0;10;5M")); // click CLI zone -> deselect
+          return replay(1, "");
+        }
+        if (readCount === 4) {
+          capturedRows.push(await readBarRow()); // deselected -> byte-identical to collapsed
+          stdin.emit("data", Buffer.from("\x1b[24~")); // close
+          return replay(1, "");
+        }
+        if (readCount === 5) {
+          capturedRows.push(await readBarRow()); // closed -> byte-identical to collapsed
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(1, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      {
+        statusBar: { enabled: true, env: {} },
+        rightPanel: {
+          enabled: true,
+          snapshot: buildRightPanelSnapshot({
+            currentSessionId: "h2a-alpha",
+            groups: [
+              {
+                title: "core",
+                sessions: [
+                  {
+                    id: "h2a-alpha",
+                    label: "alpha",
+                    status: "running",
+                    delegatedNames: ["w-a", "w-b"],
+                    delegatedChildren: [
+                      { id: "j1", label: "w-a", tool: "claude", state: "running", origin: "cli:h2a-delegate" },
+                      { id: "j2", label: "w-b", tool: "codex", state: "running", origin: "cli:h2a-delegate" },
+                    ],
+                  },
+                ],
+              },
+            ],
+            decisions: [],
+          }),
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(capturedRows[1]).toContain("deleg w-a,w-b");
+    expect(capturedRows[2]).toBe(capturedRows[0]);
+    expect(capturedRows[3]).toBe(capturedRows[0]);
+  });
 });

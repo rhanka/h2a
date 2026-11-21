@@ -36,7 +36,7 @@ import {
   type RemoteCliConfig,
 } from "../config.js";
 import type { HostViewSnapshot } from "../launch-layout.js";
-import { loadRegistry } from "../registry.js";
+import { loadRegistry, type RegistryEntry } from "../registry.js";
 import {
   isRestorableDiscoveredSession,
   managedLiveLookupFromSnapshot,
@@ -46,6 +46,11 @@ import {
   type DiscoveredSession,
   type LegacySessionEvidence,
 } from "../restore.js";
+import {
+  projectDelegatedExecutions,
+  readMcpAttestationsFromStore,
+} from "../status-projection.js";
+import { localSessionAgentPanePid } from "../tmux.js";
 import { NativeTerminalClient } from "./client.js";
 import {
   collectNativeInventory,
@@ -59,9 +64,11 @@ import {
   decisionSeenKey,
   decisionsFromTrackDecisions,
   type RightPanelDecision,
+  type RightPanelDelegatedChild,
   type RightPanelDossierLinkClass,
   type RightPanelDraftCapabilityState,
   type RightPanelDraftRecoveryState,
+  type RightPanelProjectDecisionsDegraded,
   type RightPanelSession,
   type RightPanelSessionStatus,
   type RightPanelSnapshot,
@@ -620,6 +627,9 @@ export class TrackJournalCache {
       const finalDecision: RightPanelDecision = {
         ...base,
         kind,
+        project: source.project,
+        journalOfRecord: source.trackDir,
+        source: base.isOwnerGate ? "owner-gate" : "track",
         ...(dossierLink ? { dossierLink } : {}),
         ...(dossierLinkClass ? { dossierLinkClass } : {}),
         revisionKey: `${base.id}:${base.outcome ?? "pending"}:${base.title}:${dossierLink ?? ""}:${kind}`,
@@ -781,6 +791,9 @@ export type PanelLiveSession = Readonly<{
   compatGuard: boolean;
   draftCapability: RightPanelDraftCapabilityState;
   draftRecovery: RightPanelDraftRecoveryState;
+  delegatedNames?: readonly string[];
+  delegatedChildren?: readonly RightPanelDelegatedChild[];
+  delegatedDegraded?: boolean;
 }>;
 
 /**
@@ -811,6 +824,9 @@ export function groupPanelSessions(
     compatGuard: s.compatGuard,
     draftCapability: s.draftCapability,
     draftRecovery: s.draftRecovery,
+    ...(s.delegatedNames !== undefined ? { delegatedNames: s.delegatedNames } : {}),
+    ...(s.delegatedChildren !== undefined ? { delegatedChildren: s.delegatedChildren } : {}),
+    ...(s.delegatedDegraded !== undefined ? { delegatedDegraded: s.delegatedDegraded } : {}),
     project: s.project,
     tool: s.tool,
   });
@@ -936,6 +952,175 @@ export type BuildLiveRightPanelSnapshotOptions = Readonly<{
 function extractOwnerGateSession(title: string): string | undefined {
   const match = /\((?:session\s+)?([A-Za-z0-9_.:-]+)\)/i.exec(title);
   return match?.[1];
+}
+
+const OWNER_INBOX_DIR_RE = /^(?:owner|human(?:__.*)?|principal)$/i;
+const OWNER_INSTANCE_RE = /^(?:owner|human(?::.*)?|principal)$/i;
+
+function sanitizeSingleLine(raw: string, maxChars = 160): string {
+  const cleaned = raw
+    .replace(/[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const scalars = Array.from(cleaned);
+  return scalars.length > maxChars
+    ? `${scalars.slice(0, maxChars - 1).join("")}…`
+    : cleaned;
+}
+
+function extractH2aQuestionText(body: Record<string, unknown>): string {
+  const payload = body.payload;
+  if (typeof payload === "string" && payload.trim()) return sanitizeSingleLine(payload);
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    const p = payload as { question?: unknown; text?: unknown; title?: unknown };
+    if (typeof p.question === "string" && p.question.trim()) return sanitizeSingleLine(p.question);
+    if (typeof p.text === "string" && p.text.trim()) return sanitizeSingleLine(p.text);
+    if (typeof p.title === "string" && p.title.trim()) return sanitizeSingleLine(p.title);
+  }
+  if (typeof body.question === "string" && body.question.trim()) {
+    return sanitizeSingleLine(body.question);
+  }
+  if (typeof body.text === "string" && body.text.trim()) {
+    return sanitizeSingleLine(body.text);
+  }
+  if (typeof body.title === "string" && body.title.trim()) {
+    return sanitizeSingleLine(body.title);
+  }
+  return "(h2a question)";
+}
+
+/**
+ * Read-only scan of `<h2aRoot>/inbox/` for h2a-message question sources
+ * (`PANEL §4.3`, `PANEL:451`, `14-L1.md` Étape 3):
+ * - Admits `escalate` envelopes and owner-addressed `question` envelopes.
+ * - Zero writes, bounded 64 KiB reads, deduplicated by envelope id.
+ * - Matches `actor.instance` to a unique live session without guessing.
+ */
+function readH2aMessageQuestions(
+  h2aRoot: string | undefined,
+  liveCandidates: readonly {
+    readonly id: string;
+    readonly project: string;
+    readonly instances: readonly string[];
+  }[],
+): { questions: RightPanelDecision[]; degraded: boolean } {
+  if (!h2aRoot || !existsSync(h2aRoot)) {
+    return { questions: [], degraded: false };
+  }
+  const inboxRoot = join(h2aRoot, "inbox");
+  if (!existsSync(inboxRoot)) {
+    return { questions: [], degraded: false };
+  }
+  const seenIds = new Set<string>();
+  const questions: RightPanelDecision[] = [];
+  let degraded = false;
+
+  try {
+    const dirEntries = readdirSync(inboxRoot, { withFileTypes: true });
+    for (const entry of dirEntries) {
+      if (!entry.isDirectory()) continue;
+      const recipientDir = entry.name;
+      const dirPath = join(inboxRoot, recipientDir);
+      let files: string[];
+      try {
+        files = readdirSync(dirPath);
+      } catch {
+        degraded = true;
+        continue;
+      }
+      for (const file of files) {
+        if (!file.endsWith(".json")) continue;
+        const text = readBoundedUtf8(join(dirPath, file));
+        if (text === undefined) {
+          degraded = true;
+          continue;
+        }
+        try {
+          const env = JSON.parse(text) as {
+            protocol?: unknown;
+            id?: unknown;
+            type?: unknown;
+            actor?: { instance?: unknown; role?: unknown; scope?: unknown };
+            target?: { instance?: unknown; role?: unknown; scope?: unknown };
+            body?: unknown;
+            createdAt?: unknown;
+          };
+          if (
+            env.protocol !== "sentropic.h2a" ||
+            typeof env.id !== "string" ||
+            env.id.length === 0 ||
+            typeof env.type !== "string" ||
+            !env.body ||
+            typeof env.body !== "object" ||
+            Array.isArray(env.body) ||
+            typeof env.createdAt !== "string" ||
+            !Number.isFinite(Date.parse(env.createdAt))
+          ) {
+            degraded = true;
+            continue;
+          }
+          if (seenIds.has(env.id)) continue;
+
+          const body = env.body as Record<string, unknown>;
+          const isEscalate = env.type === "escalate";
+          const isQuestionBody =
+            body.kind === "question" ||
+            body.type === "question" ||
+            env.type === "question";
+          const addressedToOwner =
+            OWNER_INBOX_DIR_RE.test(recipientDir) ||
+            env.target?.role === "PRINCIPAL" ||
+            (typeof env.target?.instance === "string" &&
+              OWNER_INSTANCE_RE.test(env.target.instance));
+
+          if (!isEscalate && !(isQuestionBody && addressedToOwner)) {
+            continue;
+          }
+
+          seenIds.add(env.id);
+          const title = extractH2aQuestionText(body);
+          const actorInstance =
+            typeof env.actor?.instance === "string" ? env.actor.instance : undefined;
+          let sessionId: string | undefined;
+          let workspace: string | undefined =
+            typeof env.actor?.scope === "string" && env.actor.scope.trim()
+              ? env.actor.scope.trim()
+              : undefined;
+          if (actorInstance) {
+            const matches = liveCandidates.filter(
+              (c) => c.id === actorInstance || c.instances.includes(actorInstance),
+            );
+            if (matches.length === 1) {
+              sessionId = matches[0]!.id;
+              workspace = matches[0]!.project;
+            }
+          }
+          questions.push({
+            id: env.id,
+            title,
+            kind: "question",
+            outcome: "pending",
+            source: "h2a-message",
+            createdAt: env.createdAt,
+            ...(sessionId ? { sessionId } : {}),
+            ...(workspace ? { workspace } : {}),
+            revisionKey: `h2a-msg:${env.id}:${env.createdAt}:${title}`,
+          });
+        } catch {
+          degraded = true;
+        }
+      }
+    }
+  } catch {
+    degraded = true;
+  }
+
+  return { questions, degraded };
+}
+
+function delegatedLabelOf(entry: RegistryEntry | undefined, fallbackId: string): string {
+  const raw = entry?.label ?? entry?.tmuxSession ?? fallbackId;
+  return sanitizeSingleLine(raw, 64) || fallbackId;
 }
 
 /**
@@ -1113,39 +1298,52 @@ export async function buildLiveRightPanelSnapshot(
       }
     }
 
-    // Resolve Track journals of record for projects represented in live sessions
-    // (or explicit `opts.trackSources`), deduplicated by `trackDir`.
+    // Resolve Track journals of record for EVERY project represented in live sessions
+    // (or explicit `opts.trackSources`), deduplicated by `(project, trackDir)`.
+    // Missing/unreadable stores are NEVER silently omitted (`PANEL §4.3`, L1.4):
+    // they emit a per-project `decisionsDegraded` entry while other stores stay intact.
     const trackSources: TrackProjectSource[] = (() => {
       if (opts.trackSources !== undefined) return [...opts.trackSources];
-      const byTrackDir = new Map<string, TrackProjectSource>();
+      const byKey = new Map<string, TrackProjectSource>();
       for (const c of liveCandidates) {
         const resolved = resolveJournalOfRecord(
           c.project,
           c.cwd,
           config?.rightPanel?.trackDirs,
         );
-        if (!existsSync(resolved.eventsPath)) continue;
-        if (!byTrackDir.has(resolved.trackDir)) {
-          byTrackDir.set(resolved.trackDir, {
+        const key = `${c.project}\u0000${resolved.trackDir}`;
+        if (!byKey.has(key)) {
+          byKey.set(key, {
             project: c.project,
             trackDir: resolved.trackDir,
             repoRoot: resolved.repoRoot,
           });
         }
       }
-      return [...byTrackDir.values()];
+      return [...byKey.values()];
     })();
 
     const trackCache =
       opts.trackCache ?? new TrackJournalCache({ env });
     const trackResults = await Promise.all(
-      trackSources.map((src) => trackCache.readDecisions(src)),
+      trackSources.map(async (src) => ({
+        source: src,
+        result: await trackCache.readDecisions(src),
+      })),
     );
 
     const allAttributions: TrackDecisionWithAttribution[] = [];
-    for (const res of trackResults) {
-      if (res.degraded) degraded = true;
-      allAttributions.push(...res.attributions);
+    const decisionsDegraded: RightPanelProjectDecisionsDegraded[] = [];
+    for (const { source, result } of trackResults) {
+      if (result.degraded) {
+        degraded = true;
+        decisionsDegraded.push({
+          project: source.project,
+          trackDir: source.trackDir,
+          reason: result.reason ?? "unreadable",
+        });
+      }
+      allAttributions.push(...result.attributions);
     }
 
     // Resolve decision -> live session per `PANEL §7.3` tiers (b)/(c) without guessing.
@@ -1201,7 +1399,51 @@ export async function buildLiveRightPanelSnapshot(
       }
     }
 
-    // Derive per-session status (`PANEL §4.2` first-match-wins) & Step 5 fields.
+    // h2a-message question sources (`PANEL §4.3`, `PANEL:451`, L1 Étape 3).
+    const h2aQuestions = readH2aMessageQuestions(h2aRoot, liveCandidates);
+    if (h2aQuestions.degraded) degraded = true;
+    for (const q of h2aQuestions.questions) {
+      decisions.push(q);
+    }
+
+    // F9-provenanced delegated executions per live parent session (`PANEL §4.2`, §4.4, L1.2).
+    const mcpAttestations = readMcpAttestationsFromStore(h2aRoot);
+    const registryById = new Map<string, RegistryEntry>(
+      registryEntries.map((e) => [e.id, e]),
+    );
+    const nativePidBySession = new Map<string, number>();
+    for (const ns of nativeInventory.sessions) {
+      if (ns.status === "running" && typeof ns.pid === "number" && ns.pid > 0) {
+        nativePidBySession.set(ns.id, ns.pid);
+      }
+    }
+    const resolveNativeWorkerPid = (workerSession: string): number | undefined => {
+      const fromHost = nativePidBySession.get(workerSession);
+      if (fromHost !== undefined) return fromHost;
+      const workerRow = registryEntries.find(
+        (e) =>
+          e.kind === "local-native" &&
+          e.endedAt === undefined &&
+          e.tmuxSession === workerSession &&
+          e.pid !== undefined &&
+          isPidAlive(e.pid),
+      );
+      return workerRow?.pid;
+    };
+    const hasActiveDelegationCandidates = registryEntries.some(
+      (e) =>
+        (e.sessionClass === "background" || e.role === "job") &&
+        e.jobState !== "done" &&
+        !(
+          e.sessionClass === "background" &&
+          e.endedAt !== undefined &&
+          e.jobState !== "failed"
+        ),
+    );
+    const liveTmuxSessions = tmuxView.known ? tmuxView.sessions : [];
+    let unattributedDelegatedDegraded = false;
+
+    // Derive per-session status (`PANEL §4.2` first-match-wins) & Step 5 / L1 fields.
     const liveSessions: PanelLiveSession[] = liveCandidates.map((c) => {
       let status: RightPanelSessionStatus;
       if (c.ambiguous) {
@@ -1222,6 +1464,32 @@ export async function buildLiveRightPanelSnapshot(
         status = "idle";
       }
 
+      const ownerInstance = c.instances.length === 1 ? c.instances[0] : undefined;
+      let delegatedChildren: RightPanelDelegatedChild[] = [];
+      let delegatedDegraded = false;
+      if (hasActiveDelegationCandidates || !mcpAttestations.known) {
+        const projected = projectDelegatedExecutions(
+          registryEntries,
+          registryRead.state === "ok",
+          liveTmuxSessions,
+          c.id,
+          ownerInstance,
+          mcpAttestations.values,
+          mcpAttestations.known,
+          localSessionAgentPanePid,
+          resolveNativeWorkerPid,
+        );
+        delegatedChildren = projected.executions.map((exec) => ({
+          id: exec.id,
+          label: delegatedLabelOf(registryById.get(exec.id), exec.id),
+          tool: exec.tool,
+          state: exec.state,
+          origin: exec.origin,
+        }));
+        delegatedDegraded = projected.degraded;
+        if (delegatedDegraded) unattributedDelegatedDegraded = true;
+      }
+
       return {
         id: c.id,
         label: c.label,
@@ -1237,6 +1505,9 @@ export async function buildLiveRightPanelSnapshot(
           opts.draftDoubles?.draftCapabilityForSession?.(c.id) ??
           "refused-no-capability",
         draftRecovery: opts.draftDoubles?.draftRecoveryForSession?.(c.id) ?? "none",
+        delegatedNames: delegatedChildren.map((ch) => ch.label),
+        delegatedChildren,
+        delegatedDegraded,
       };
     });
 
@@ -1245,6 +1516,8 @@ export async function buildLiveRightPanelSnapshot(
       currentSessionId: opts.currentSessionId,
       groups,
       decisions,
+      ...(decisionsDegraded.length > 0 ? { decisionsDegraded } : {}),
+      ...(unattributedDelegatedDegraded ? { unattributedDelegatedDegraded: true } : {}),
       ...(opts.seenDecisionKeys ? { seenDecisionKeys: opts.seenDecisionKeys } : {}),
       degraded,
     });
@@ -1307,6 +1580,12 @@ export class RightPanelSnapshotRefresher {
       ...(this.#currentSessionId ? { currentSessionId: this.#currentSessionId } : {}),
       groups: this.#snapshot.workspaces,
       decisions: this.#snapshot.decisions,
+      ...(this.#snapshot.decisionsDegraded
+        ? { decisionsDegraded: this.#snapshot.decisionsDegraded }
+        : {}),
+      ...(this.#snapshot.unattributedDelegatedDegraded
+        ? { unattributedDelegatedDegraded: true }
+        : {}),
       seenDecisionKeys: this.#seenDecisionKeys,
       degraded: this.#snapshot.degraded,
     });
