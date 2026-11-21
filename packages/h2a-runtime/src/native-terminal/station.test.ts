@@ -15,6 +15,7 @@ import type {
   NativeTerminalReplay,
   NativeTerminalSessionState,
 } from "./host.js";
+import { createNativeStatusBar } from "./op.js";
 import { NativeTerminalRemoteError } from "./protocol.js";
 import type { RightPanelSnapshot } from "./right-panel.js";
 import type { SessionViewStatusBar } from "./session-view.js";
@@ -436,8 +437,12 @@ class FakeOutput {
     this.isTTY = isTTY;
   }
 
+  /** Receipts and writes in the order they happened (receipt-before-mode proofs). */
+  readonly timeline: Array<{ kind: "write" | "receipt"; data: string }> = [];
+
   write(chunk: string): boolean {
     this.chunks.push(String(chunk));
+    this.timeline.push({ kind: "write", data: String(chunk) });
     this.onWrite?.(String(chunk));
     return true;
   }
@@ -667,6 +672,7 @@ class Harness {
       },
       saveTerminalReset: (sequence) => {
         this.receipts.push(sequence);
+        this.stdout.timeline.push({ kind: "receipt", data: sequence });
       },
       endpoints: () => [...this.fleet.hosts.keys()],
       connect: async (socketPath) => {
@@ -1676,5 +1682,308 @@ describe("S1.6 size: only the displayed session is resized", () => {
     for (const other of h.fleet.all().filter((s) => !["h2a-api", "h2a-tracker"].includes(s.id))) {
       expect(other.resizes, other.id).toEqual([]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 4 — S1.4 modes oracle, S1.10 containment during the replay
+// Step 5 — synthetic focus and mouse release, receipt before mode, no RIS
+// ---------------------------------------------------------------------------
+
+/** The real attach bar (disabled): its child-sized model contains the output. */
+const realBar = (stdout: FakeOutput, sessionId: string): StationStatusBar =>
+  createNativeStatusBar(sessionId, stdout as unknown as NodeJS.WriteStream, () => 0, false);
+
+const E = "\x1b";
+/** A child using every tracked mode and the untracked state of r2 annex D. */
+const MODE_HEAVY =
+  `${E}[?1049h${E}[?1000h${E}[?1006h${E}[?2004h${E}[?1004h${E}[>1u${E}[?25l` +
+  `${E}[2;10r${E}[?7l${E}[?6h${E}[4h${E}(0${E}[4 q${E}]10;#ffffff\x07` +
+  `${E}[1;1HALPHA-SCREEN`;
+const PLAIN_B = `bravo line 1\r\nbravo line 2\r\n${E}[?2004h`;
+
+function cellSignature(term: HeadlessTerm, y: number, x: number): string {
+  const cell = term.buffer.active.getLine(y)?.getCell(x);
+  if (!cell) return "<missing>";
+  const fg = cell.isFgRGB() ? `rgb:${cell.getFgColor()}` : cell.isFgPalette() ? `pal:${cell.getFgColor()}` : "def";
+  const bg = cell.isBgRGB() ? `rgb:${cell.getBgColor()}` : cell.isBgPalette() ? `pal:${cell.getBgColor()}` : "def";
+  return `${JSON.stringify(cell.getChars() || " ")}/w${cell.getWidth()}/${fg}/${bg}/b${cell.isBold()}/i${cell.isInverse()}`;
+}
+
+function screenSignature(term: HeadlessTerm, fromCol = 0, toCol = term.cols): string[] {
+  const rows: string[] = [];
+  for (let y = 0; y < term.rows; y += 1) {
+    let row = "";
+    for (let x = fromCol; x < toCol; x += 1) row += cellSignature(term, y, x) + "|";
+    rows.push(row);
+  }
+  return rows;
+}
+
+function terminalState(term: HeadlessTerm) {
+  return {
+    buffer: term.buffer.active.type,
+    cursor: [term.buffer.active.cursorX, term.buffer.active.cursorY],
+    modes: { ...term.modes },
+    screen: screenSignature(term),
+  };
+}
+
+async function outerAfter(data: string, cols = 160, rows = 40): Promise<HeadlessTerm> {
+  const term = new XtermTerminal({ cols, rows, allowProposedApi: true, scrollback: 0 });
+  await writeTerm(term, data);
+  return term;
+}
+
+function modeFixture(overrides: Partial<HarnessOptions> = {}): Harness {
+  const h = new Harness({ brokerProtected: true, statusBar: realBar, ...overrides });
+  h.fleet.session("h2a-api").emit(MODE_HEAVY);
+  h.fleet.session("h2a-tracker").emit(PLAIN_B);
+  return h;
+}
+
+describe("S1.4 modes: A→B→A leaves the terminal as a fresh attach on A would", () => {
+  it("should equal a fresh attach after A→B→A, with no mode of A active while B is shown", async () => {
+    const h = modeFixture();
+    const marks: number[] = [];
+    h.listeners.push((event) => {
+      if (event.type === "displayed") marks.push(h.stdout.mark());
+    });
+    h.step((x) => x.activate("h2a-tracker"), (x) => x.activate("h2a-api"), tick);
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker", "h2a-api"]);
+
+    const freshOn = async (sessionId: string) => {
+      const tab = "core";
+      const fresh = modeFixture({
+        state: JSON.stringify({ version: 1, activeTab: tab, lastSessionByTab: { [tab]: sessionId }, compatGuards: {} }),
+      });
+      let mark = -1;
+      fresh.listeners.push((event) => {
+        if (event.type === "displayed") mark = fresh.stdout.mark();
+      });
+      await fresh.run();
+      expect(fresh.displayed()).toEqual([sessionId]);
+      return terminalState(await outerAfter(fresh.stdout.chunks.slice(0, mark).join("")));
+    };
+
+    const onB = terminalState(await outerAfter(h.stdout.chunks.slice(0, marks[1]).join("")));
+    const backOnA = terminalState(await outerAfter(h.stdout.chunks.slice(0, marks[2]).join("")));
+    const freshA = await freshOn("h2a-api");
+    const freshB = await freshOn("h2a-tracker");
+
+    // Oracle: full-width headless terminal, state and screen, cell by cell.
+    expect(backOnA).toEqual(freshA);
+    expect(onB).toEqual(freshB);
+    // The fixture really exercises the modes: A is in the alternate screen…
+    expect(freshA.buffer).toBe("alternate");
+    expect(freshA.modes).toMatchObject({
+      bracketedPasteMode: true,
+      sendFocusMode: true,
+      insertMode: true,
+      originMode: true,
+      wraparoundMode: false,
+    });
+    // …and none of that is active while B is displayed.
+    expect(onB.buffer).toBe("normal");
+    expect(onB.modes).toMatchObject({
+      sendFocusMode: false,
+      insertMode: false,
+      originMode: false,
+      wraparoundMode: true,
+    });
+    // The h2a-owned mouse survives every switch: a panel click is received.
+    expect(onB.modes.mouseTrackingMode).not.toBe("none");
+    expect(backOnA.modes.mouseTrackingMode).not.toBe("none");
+    // Never a full reset.
+    expect(h.stdout.text()).not.toContain(`${E}c`);
+    expect(h.stdout.text()).toContain(`${E}[!p`);
+  });
+
+  it("should apply the t4 order of annex D: A undone, soft reset, neutral base, clear, h2a mouse", async () => {
+    const h = modeFixture();
+    let mark = -1;
+    h.step((x) => {
+      mark = x.stdout.mark();
+      x.activate("h2a-tracker");
+    }, tick);
+    await h.run();
+    const out = h.stdout.since(mark);
+    const at = (needle: string): number => {
+      const index = out.indexOf(needle);
+      expect(index, JSON.stringify(needle)).toBeGreaterThan(-1);
+      return index;
+    };
+    const undoA = at(`${E}[?1049l`);
+    const soft = at(`${E}[!p`);
+    const base = at(`${E}[?7h${E}[?25h${E}[?6l${E}[4l${E}[0m${E}[0 q${E}(B\x0f`);
+    const clear = at(`${E}[2J${E}[3J${E}[H`);
+    const mouse = out.indexOf(`${E}[?1000h${E}[?1006h`, clear);
+    const replay = at("bravo line 1");
+    expect(undoA).toBeLessThan(soft);
+    expect(soft).toBeLessThan(base);
+    expect(base).toBeLessThan(clear);
+    expect(clear).toBeLessThan(mouse);
+    expect(mouse).toBeLessThan(replay);
+    // The h2a mouse is never switched off by the switch itself.
+    expect(out.slice(0, replay)).not.toContain(`${E}[?1000l`);
+  });
+});
+
+describe("S1.10 containment during the replay (PANEL §4.1 (i) and (ii))", () => {
+  it("should hold after the catch-up and after every live batch, panel open", async () => {
+    const childCols = 160 - 32;
+    const childRows = 40;
+    const near = childCols - 2;
+    // Corpus of PANEL L0.5.5: overlong lines, wide glyphs at the boundary,
+    // out-of-range cursor moves, EL/ECH/ICH/DCH/REP, scrolls, ED, alt screen.
+    const corpus = [
+      `${E}[1;1H${"A".repeat(childCols)}OVERFLOW_WRAP_LINE\r\n${"B".repeat(childCols)}\bZ`,
+      `${E}[4;1H${"X".repeat(childCols - 1)}中AFTER${E}[?7l${E}[6;1H${"Y".repeat(childCols + 5)}${E}[?7h`,
+      `${E}[7;${near}H\tT${E}[8;${childCols + 20}HCUP${E}[${childRows + 10};${childCols + 15}HCLAMP${E}[9;1H${E}[${childCols + 25}GCHA`,
+      `${E}[1;1H${E}[44m${E}[1;10H${E}[K${E}[2;15H${E}[1K${E}[3;5H${E}[2K${E}[4;${childCols - 4}H${E}[30X${E}[0m`,
+      `${E}[5;1H${"0123456789".repeat(13).slice(0, childCols)}${E}[5;3H${E}[5@${E}[5;3H${E}[5P`,
+      `${E}[6;${childCols - 3}HR${E}[15b`,
+      `${E}[2;12r${E}[3;1HLINE_A${E}[2L${E}[1M${E}[2S${E}[1T${E}[r`,
+      `${E}[4;10H${E}[J${E}[2;5H${E}[1J${E}[2J${E}[!p${E}[1;1HAFTER_DECSTR`,
+      `${E}[?1049h${E}[1;1H${"M".repeat(childCols + 12)}${E}[3;1H${E}[2KALT_OK${E}[?1049l${E}[2;1HBACK_NORMAL`,
+    ];
+    const replayed = 5;
+    const h = new Harness({ brokerProtected: true, statusBar: realBar });
+    const tracker = h.fleet.session("h2a-tracker");
+    for (const batch of corpus.slice(0, replayed)) tracker.emit(batch);
+    const checkpoints: Array<{ label: string; mark: number; chunks: number }> = [];
+    const checkpoint = (label: string): void => {
+      checkpoints.push({ label, mark: h.stdout.mark(), chunks: tracker.chunks.length });
+    };
+    h.step((x) => x.activate("h2a-tracker"));
+    h.step(() => checkpoint("catch-up"));
+    corpus.slice(replayed).forEach((batch, index) => {
+      h.step(() => tracker.emit(batch), () => checkpoint(`live-${replayed + index + 1}`));
+    });
+    await h.run();
+    expect(checkpoints).toHaveLength(1 + corpus.length - replayed);
+
+    let baseline: string[] | undefined;
+    for (const point of checkpoints) {
+      const outer = await outerAfter(h.stdout.chunks.slice(0, point.mark).join(""));
+      const reference = await outerAfter(
+        tracker.chunks.slice(0, point.chunks).map((chunk) => chunk.data).join(""),
+        childCols,
+        childRows,
+      );
+      // (ii) child cells equal the child-sized model.
+      expect(outer.buffer.active.type, point.label).toBe(reference.buffer.active.type);
+      expect(screenSignature(outer, 0, childCols), `${point.label}: child area`).toEqual(
+        screenSignature(reference),
+      );
+      expect(outer.buffer.active.cursorX, `${point.label}: cursor stays in the child area`).toBeLessThan(childCols);
+      // (i) reserved cells equal the panel render: stable across every batch.
+      const reserved = screenSignature(outer, childCols, 160);
+      baseline ??= reserved;
+      expect(reserved, `${point.label}: reserved area`).toEqual(baseline);
+      outer.dispose();
+      reference.dispose();
+    }
+    // The reserved area really is the panel, not blank cells.
+    const final = await outerAfter(h.stdout.chunks.slice(0, checkpoints.at(-1)!.mark).join(""));
+    let header = "";
+    for (let x = childCols; x < 160; x += 1) header += final.buffer.active.getLine(0)?.getCell(x)?.getChars() || " ";
+    expect(header).toContain("[core] docs lab other");
+    final.dispose();
+  });
+});
+
+describe("Step 5 — synthetic focus and mouse release, receipt before mode", () => {
+  it.each([
+    ["SGR", `${E}[?1000h${E}[?1006h`, `${E}[<0;10;5M`, `${E}[<0;10;5m`],
+    ["urxvt", `${E}[?1000h${E}[?1015h`, `${E}[32;10;5M`, `${E}[35;10;5M`],
+    ["X10 default", `${E}[?1000h`, `${E}[M${String.fromCharCode(32, 42, 37)}`, `${E}[M${String.fromCharCode(35, 42, 37)}`],
+  ])("should release a held press in its %s encoding, then send focus-out, before leaving A", async (_label, modes, press, release) => {
+    const h = new Harness({ brokerProtected: true });
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    api.emit(`${modes}${E}[?1004h`);
+    tracker.emit(`${E}[?1004h`);
+    h.step(
+      (x) => {
+        // A press in the CLI zone is forwarded to A; its release never comes.
+        x.stdin.type(`${E}[<0;10;5M`);
+      },
+      (x) => {
+        // t6 of the first display already told A that the terminal has the focus.
+        expect(api.writes.join("")).toBe(`${E}[I${press}`);
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        // Same button, same coordinates, the encoding the press went out in.
+        expect(api.writes.join("")).toBe(`${E}[I${press}${release}${E}[O`);
+        // B asked for focus reporting and the terminal focus is not known lost.
+        expect(tracker.writes.join("")).toBe(`${E}[I`);
+        x.activate("h2a-api");
+      },
+      (x) => {
+        expect(tracker.writes.join("")).toBe(`${E}[I${E}[O`);
+        // No press is held any more: only focus-in on the way back.
+        expect(api.writes.join("")).toBe(`${E}[I${press}${release}${E}[O${E}[I`);
+      },
+    );
+    await h.run();
+  });
+
+  it("should send no synthetic focus-in while the outer terminal reported focus lost", async () => {
+    const h = new Harness({ brokerProtected: true });
+    const tracker = h.fleet.session("h2a-tracker");
+    h.fleet.session("h2a-api").emit(`${E}[?1004h`);
+    tracker.emit(`${E}[?1004h`);
+    h.step(
+      // The window lost the focus: the terminal says so (mode 1004 of A).
+      (x) => x.stdin.type(`${E}[O`),
+      (x) => x.activate("h2a-tracker"),
+      (x) => expect(tracker.writes.join("")).toBe(""),
+    );
+    await h.run();
+    // A: focus-in at its first display, the terminal's own focus-out (plain
+    // input, forwarded), then the synthetic focus-out of the switch.
+    expect(h.fleet.session("h2a-api").writes.join("")).toBe(`${E}[I${E}[O${E}[O`);
+  });
+
+  it("should publish the undo receipt before every h2a or child mode goes on", async () => {
+    const h = modeFixture();
+    h.step((x) => x.activate("h2a-tracker"), (x) => x.activate("h2a-api"), tick);
+    await h.run();
+    const timeline = h.stdout.timeline;
+    const lastReceiptBefore = (index: number): string => {
+      for (let i = index - 1; i >= 0; i -= 1) {
+        if (timeline[i]!.kind === "receipt") return timeline[i]!.data;
+      }
+      return "<none>";
+    };
+    const activations: Array<[string, string]> = [
+      [`${E}[22;0t`, `${E}[23;0t`], // title pushed ⇒ pop published first
+      [`${E}[?1000h`, `${E}[?1000l`], // h2a mouse
+      [`${E}[?1049h`, `${E}[?1049l`], // child alternate screen
+      [`${E}[?2004h`, `${E}[?2004l`], // child bracketed paste
+      [`${E}[?1004h`, `${E}[?1004l`], // child focus reporting
+      [`${E}[?25l`, `${E}[?25h`], // child hidden cursor
+    ];
+    for (const [activation, undo] of activations) {
+      const hits = timeline
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry.kind === "write" && entry.data.includes(activation));
+      expect(hits.length, JSON.stringify(activation)).toBeGreaterThan(0);
+      for (const { index } of hits) {
+        expect(lastReceiptBefore(index), `receipt before ${JSON.stringify(activation)}`).toContain(undo);
+      }
+    }
+    // While the station runs the receipt always knows the h2a mouse and title.
+    const receipts = h.receipts.slice(0, -1);
+    expect(receipts.length).toBeGreaterThan(4);
+    for (const receipt of receipts) {
+      expect(receipt).toContain(`${E}[?1000l`);
+      expect(receipt).toContain(`${E}[23;0t`);
+    }
+    // A clean close leaves nothing to undo.
+    expect(h.receipts.at(-1)).toBe("");
   });
 });
