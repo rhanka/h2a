@@ -1846,7 +1846,7 @@ test('L0 R3: importing run-tests.mjs and run-test-gates.mjs has zero filesystem 
       delete env.H2A_TEST_QUALIFICATION_ROOT
       const res = spawnSync(
         process.execPath,
-        ['-e', `import(${JSON.stringify(pathToFileURL(resolve(REPO_ROOT, mod)).href)}).then(() => console.log(JSON.stringify({ tmpdir: process.env.TMPDIR, qual: process.env.H2A_TEST_QUALIFICATION_ROOT ?? null })))`],
+        ['-e', `process.env.HOME = ${JSON.stringify(fakeHome)}; process.env.TMPDIR = ${JSON.stringify(fakeTmp)}; delete process.env.H2A_TEST_QUALIFICATION_ROOT; import(${JSON.stringify(pathToFileURL(resolve(REPO_ROOT, mod)).href)}).then(() => console.log(JSON.stringify({ tmpdir: process.env.TMPDIR, qual: process.env.H2A_TEST_QUALIFICATION_ROOT ?? null })))`],
         { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: 15_000 },
       )
       assert.equal(res.status, 0, `${mod}: ${res.stderr}`)

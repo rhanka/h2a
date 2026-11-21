@@ -570,6 +570,12 @@ function buildCheckoutOverlayArgs(repoRoot, runRoot, ciImports) {
   addDirView("tmp/test-runtime", "aliases/test-runtime");
   addDirView(".tmp", "views/dot-tmp");
   addDirView(".qual-tmp", "aliases/qual-tmp");
+  if (existsSync(join(repoRoot, "packages/h2a/.claude-plugin"))) {
+    addDirView("packages/h2a/.claude-plugin", "views/h2a-claude-plugin", { prePopulate: true });
+  }
+  if (existsSync(join(repoRoot, "packages/h2a/.codex-plugin"))) {
+    addDirView("packages/h2a/.codex-plugin", "views/h2a-codex-plugin", { prePopulate: true });
+  }
 
   if (existsSync(join(repoRoot, "node_modules"))) {
     addDirView("node_modules/.vite", "views/vite-root");
