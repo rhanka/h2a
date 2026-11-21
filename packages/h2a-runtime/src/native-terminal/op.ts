@@ -27,6 +27,10 @@
  *                                     fenced owner stop for explicit restart
  *   attach  --id X [--takeover]       interactive raw bridge on this terminal
  *                                     (detach: Ctrl-\\ ; exits when session exits)
+ *   station [--state-file F] [--dead-count N]
+ *                                     every live session on this terminal, one
+ *                                     displayed at a time (`h2a restore --station`;
+ *                                     detach: Ctrl-\\ ; sessions keep running)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
 import { existsSync, readFileSync, readlinkSync } from "node:fs";
@@ -69,9 +73,12 @@ import { publishAttachReset } from "./attach-recovery.js";
 import {
   ATTACH_PENDING_INPUT_MAX_BYTES,
   createSessionView,
+  isDefinitiveNativeTerminalAbsence,
+  isStateRequestTimeout,
   sessionExitCrashEntry,
   type NativeTerminalAttachClient,
 } from "./session-view.js";
+import { runStation, type StationRuntime, type StationStatusBar } from "./station.js";
 import { appendCrashLog, installCrashHandlers } from "../crash-log.js";
 import type {
   NativeStatusBarLinkState,
@@ -385,14 +392,11 @@ const ATTACH_IDLE_POLL_MAX_MS = 500;
 const ATTACH_RECONNECT_MIN_MS = 100;
 const ATTACH_RECONNECT_MAX_MS = 2_000;
 
-function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
+/** Terminal half shared by the attach and the station runtimes. */
+function defaultTerminalRuntime(): Omit<NativeTerminalAttachRuntime, "connect"> {
   const signals = { SIGTERM: 15, SIGHUP: 1, SIGINT: 2, SIGQUIT: 3 } as const;
   const handlers = new Map<NodeJS.Signals, () => void>();
   return {
-    // runAttach owns and closes every reconnecting client. Keeping these
-    // long-lived clients in the one-shot op registry would retain each closed
-    // connection until the user eventually detaches.
-    connect: () => connectExisting(socketPath, false),
     stdin: process.stdin,
     stdout: process.stdout,
     now: () => Date.now(),
@@ -419,22 +423,27 @@ function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
   };
 }
 
-function isDefinitiveNativeTerminalAbsence(error: unknown): boolean {
-  if (
-    error instanceof NativeTerminalRemoteError &&
-    error.message.includes("unknown terminal session")
-  ) {
-    return true;
-  }
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === "ENOENT" || code === "ECONNREFUSED";
+function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
+  return {
+    ...defaultTerminalRuntime(),
+    // runAttach owns and closes every reconnecting client. Keeping these
+    // long-lived clients in the one-shot op registry would retain each closed
+    // connection until the user eventually detaches.
+    connect: () => connectExisting(socketPath, false),
+  };
 }
 
-function isStateRequestTimeout(error: unknown): boolean {
-  return (
-    error instanceof NativeTerminalRequestTimeoutError ||
-    (error instanceof Error && error.name === "NativeTerminalRequestTimeoutError")
-  );
+/**
+ * Station runtime: every owner endpoint of this machine, one untracked
+ * connection per request of the station (it owns and closes them).
+ */
+function defaultStationRuntime(pinnedSocket?: string): StationRuntime {
+  return {
+    ...defaultTerminalRuntime(),
+    endpoints: () => (pinnedSocket ? [pinnedSocket] : knownNativeTerminalSocketPaths()),
+    connect: (socketPath) => connectExisting(socketPath, false),
+    proveAbsent: proveNativeTerminalEndpointAbsent,
+  };
 }
 
 export type NativeAttachStatusBarOptions = Omit<
@@ -604,6 +613,16 @@ type StatusBarRightPanelHost = {
   isOpen(): boolean;
   paint(): void;
 };
+
+/** One bottom bar per displayed session: the station builds its own (S1). */
+export function createNativeStatusBar(
+  id: string,
+  stdout: NodeJS.WriteStream,
+  now: () => number,
+  option?: boolean | NativeAttachStatusBarOptions,
+): StationStatusBar {
+  return new NativeStatusBarController(id, stdout, now, option);
+}
 
 class NativeStatusBarController {
   readonly #id: string;
@@ -2688,6 +2707,19 @@ export async function runNativeTerminalOp(
       owner.client.close();
       // Reconnects retain this owner for the entire interactive operation.
       return runAttach(id, defaultAttachRuntime(owner.socketPath), { takeover: parsed.flags.get("takeover") === "true" });
+    }
+    case "station": {
+      // Internal entry of `h2a restore --station` (no new CLI verb).
+      const rawDead = Number(parsed.flags.get("dead-count") ?? 0);
+      const statePath = parsed.flags.get("state-file");
+      let tty = "not-a-tty";
+      try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
+      return runStation(defaultStationRuntime(parsed.flags.get("socket")), {
+        createStatusBar: (id) => createNativeStatusBar(id, process.stdout, () => Date.now()),
+        ...(statePath ? { statePath } : {}),
+        deadCount: Number.isSafeInteger(rawDead) && rawDead > 0 ? rawDead : 0,
+        tty,
+      });
     }
     case "host-stop": {
       let client: NativeTerminalClient;

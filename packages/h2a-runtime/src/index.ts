@@ -212,6 +212,7 @@ import {
   readLastLayout,
   reconcileRunConvIds,
   restore as restoreLayout,
+  restoreStation,
   type LegacySessionEvidence,
   type RestoreOptions,
 } from "./restore.js";
@@ -10240,6 +10241,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option("--dry-run", "affiche le layout calculé sans ouvrir de terminaux")
     .option(
+      "--station",
+      "ouvre le poste: toutes les sessions natives vivantes dans CE terminal, une affichée à la fois, avec le panneau latéral (TTY requis; aucune session relancée ni arrêtée; Ctrl-\\ ferme le poste)",
+    )
+    .option(
       "--reattach",
       "rouvre les sessions tmux déjà visibles; côté PTY natif, rattache une session non contrôlée mais refuse toujours un second contrôleur concurrent",
     )
@@ -10258,6 +10263,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         group: string | undefined,
         opts: {
           dryRun?: boolean;
+          station?: boolean;
           reattach?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
@@ -10274,6 +10280,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const needRemote = cfg.groups.some(
           (g) => g.remote && (!group || norm(g.title) === norm(group)),
         );
+
+        // Panel lot S1: the station opens no window and launches nothing, so
+        // it needs neither the remote listing nor a gateway prewarm. With
+        // --dry-run the usual plan preview is printed instead (same plan).
+        if (opts.station && !opts.dryRun) {
+          process.exitCode = restoreStation(group ? { group } : {});
+          return;
+        }
 
         const restoreOpts: RestoreOptions = {};
         if (group) restoreOpts.group = group;
