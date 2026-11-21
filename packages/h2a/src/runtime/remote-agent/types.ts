@@ -1,38 +1,15 @@
 /**
- * LH-00 local fixture types for link, catalogue and terminal records.
+ * LH-00 / LH-07 local fixture types for link, instance, catalogue and terminal records.
  *
  * These are h2a-owned stand-ins for the trunk contract until the published
  * library subpath lands (DB-01). They never import the private terminal
  * vocabulary package.
- *
- * Q-18 (name alignment): the `cat.*` / `term.*` / `err` names below are
- * ALIGNED WITH the vocabulary package event names (`terminal.*`), never a
- * one-to-one copy. DB-01 records whether the package is published as the
- * shared source or kept private beside these local types.
- *
- * Q-02 (record size bound, settled in spec r6 section 7.1): trunk-owned
- * `TRUNK_RECORD_MAX_BYTES = 32768` with base64-carried terminal bytes
- * (`dataB64`, ≤ 16384 raw bytes for `term.out`, ≤ 4096 for `term.in`).
- * Q-03 (sequence, channel, epoch, settled in spec r6 sections 7.1–7.3):
- * `term.out` carries required `firstSeq`/`lastSeq` (+ `seg`/`segLast` for one
- * oversized chunk, never `seq`); resume is `afterSeq` (+ `afterSeqBytes`) in
- * `term.open`; `granted` carries `epoch`; `term.opened`, `resume` and
- * `term.in` carry `generation`; `term.in.ack` carries `uncertain`; channels
- * are allocated by `ch` in `term.open` (0 link, 1 catalogue, ≥ 2 terminal).
- * Q-06 (fingerprint encoding): the fingerprint is an opaque fixture string
- * in LH-00; no byte encoding is fixed here.
  */
 
 import { createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
 import { canonicalize } from "../../canonical.js";
 
 export const TRUNK_PROTOCOL_VERSION = 1 as const;
-// Q-02 (settled, spec r6 section 7.1): the trunk carries its own record bound,
-// 32768 encoded bytes — the relay's 8192 cap is not reused. Terminal bytes are
-// carried base64 (`dataB64`): `term.out` ≤ 16384 raw bytes (21848 base64 chars,
-// envelope ≤ 512 → still under 32768), `term.in` ≤ 4096 raw bytes, every other
-// record schema-bounded to ≤ 8192 encoded bytes. The encoder splits and never
-// throws; escape-dense vectors are an RM-C gate.
 export const TRUNK_RECORD_MAX_BYTES = 32768 as const;
 export const TRUNK_TERMINAL_TEXT_MAX_BYTES = 16384 as const;
 export const CATALOGUE_MAX_ROWS = 512 as const;
@@ -73,18 +50,80 @@ export interface TrunkAuthPayload {
   readonly clientTime: number;
 }
 
-export type TrunkLinkRecord = TrunkEnvelope & (
-  | { readonly t: "hello" }
-  | { readonly t: "auth"; readonly nodeId: string; readonly enrolmentRef: string; readonly protocolVersions: readonly number[]; readonly clientTime: number; readonly signature: string }
-  | { readonly t: "ready"; readonly linkGeneration: number; readonly serverTime: number }
-  | { readonly t: "ping"; readonly at: number }
-  | { readonly t: "pong"; readonly at: number }
-  | { readonly t: "revoked"; readonly reason?: string }
-  | { readonly t: "superseded"; readonly reason?: string }
-  | { readonly t: "kill"; readonly reason?: string }
-  | { readonly t: "bye" }
-  | { readonly t: "err"; readonly code: string; readonly retryable: boolean }
-);
+export interface TrunkNegotiatedLimits {
+  readonly maxCreditRecords?: number;
+  readonly maxCreditBytes?: number;
+  readonly maxCatalogueRecordBytes?: number;
+}
+
+export interface TrunkHelloRecord extends TrunkEnvelope {
+  readonly t: "hello";
+  readonly protocolVersions: readonly number[];
+  readonly nonce: string;
+  readonly meshId: string;
+  readonly endpoint: string;
+  readonly tenantId: string;
+  readonly serverTime: number;
+}
+
+export interface TrunkAuthRecord extends TrunkEnvelope {
+  readonly t: "auth";
+  readonly nodeId: string;
+  readonly enrolmentRef: string;
+  readonly protocolVersions: readonly number[];
+  readonly clientTime: number;
+  readonly signature: string;
+}
+
+export interface TrunkReadyRecord extends TrunkEnvelope {
+  readonly t: "ready";
+  readonly linkGeneration: number;
+  readonly serverTime: number;
+  readonly bindNonce: string;
+  readonly revokedInstances: readonly string[];
+  readonly limits?: TrunkNegotiatedLimits;
+}
+
+export interface InstanceBindRecord extends TrunkEnvelope {
+  readonly t: "instance.bind";
+  readonly instanceId: string;
+  readonly instancePublicKey: string;
+  readonly instanceFingerprint: string;
+  readonly bindNonce: string;
+  readonly sig: string;
+}
+
+export interface InstanceBoundRecord extends TrunkEnvelope {
+  readonly t: "instance.bound";
+  readonly instanceId: string;
+  readonly status: "live" | "refused";
+  readonly reason?: string;
+  readonly bindNonce: string;
+}
+
+export interface InstanceRevokedRecord extends TrunkEnvelope {
+  readonly t: "instance.revoked";
+  readonly instanceId: string;
+  readonly revokedAt: number;
+  readonly revokedBy: string;
+}
+
+export type TrunkInstanceRecord =
+  | InstanceBindRecord
+  | InstanceBoundRecord
+  | InstanceRevokedRecord;
+
+export type TrunkLinkRecord =
+  | TrunkHelloRecord
+  | TrunkAuthRecord
+  | TrunkReadyRecord
+  | (TrunkEnvelope & { readonly t: "ping"; readonly at: number })
+  | (TrunkEnvelope & { readonly t: "pong"; readonly at: number })
+  | (TrunkEnvelope & { readonly t: "revoked"; readonly reason?: string })
+  | (TrunkEnvelope & { readonly t: "superseded"; readonly reason?: string })
+  | (TrunkEnvelope & { readonly t: "kill"; readonly reason?: string })
+  | (TrunkEnvelope & { readonly t: "bye" })
+  | (TrunkEnvelope & { readonly t: "err"; readonly code: string; readonly retryable: boolean; readonly retryAfterMs?: number });
 
 export type InventoryHostKind = "native" | "tmux" | "unknown";
 export type CatalogueInstanceStatus = "live" | "revoked";
@@ -116,6 +155,8 @@ export interface CatalogueInstanceStatusUpdate {
   readonly instanceId: string;
   readonly instanceStatus: CatalogueInstanceStatus;
 }
+
+export type CatalogueRowStatusUpdate = CatalogueInstanceStatusUpdate;
 
 export type CatalogueRowUpdate = CatalogueSessionRow | CatalogueInstanceStatusUpdate;
 
@@ -285,6 +326,7 @@ export interface TermExit {
   readonly sid: string;
   readonly incarnation: string;
   readonly exitCode?: number;
+  readonly signal?: number;
 }
 
 export interface TermClose {
@@ -314,6 +356,12 @@ export interface TrunkErrorRecord {
   readonly s: number;
   readonly code: string;
   readonly retryable: boolean;
+  readonly retryAfterMs?: number;
+}
+
+export interface TrunkExtensionRecord extends TrunkEnvelope {
+  readonly t: `x-${string}`;
+  readonly [key: string]: unknown;
 }
 
 export type TrunkTerminalRecord =
@@ -332,12 +380,217 @@ export type TrunkTerminalRecord =
   | CreditRecord
   | TrunkErrorRecord;
 
-export type TrunkRecord = TrunkLinkRecord | TrunkCatalogueRecord | TrunkTerminalRecord;
+export type TrunkRecord =
+  | TrunkLinkRecord
+  | TrunkInstanceRecord
+  | TrunkCatalogueRecord
+  | TrunkTerminalRecord
+  | TrunkExtensionRecord;
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0;
+}
+
+function isSafeNonNegInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+}
+
+function isSafePosInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 1;
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function isStringArray(v: unknown): v is readonly string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function isPosIntArray(v: unknown): v is readonly number[] {
+  return Array.isArray(v) && v.length > 0 && v.every((x) => isSafePosInt(x));
+}
 
 export function isTrunkRecord(value: unknown): value is TrunkRecord {
-  if (!value || typeof value !== "object") return false;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const rec = value as Record<string, unknown>;
-  return rec["v"] === TRUNK_PROTOCOL_VERSION && typeof rec["t"] === "string" && typeof rec["ch"] === "number" && typeof rec["s"] === "number";
+  if (rec["v"] !== TRUNK_PROTOCOL_VERSION) return false;
+  if (!isNonEmptyString(rec["t"])) return false;
+  if (!isSafeNonNegInt(rec["ch"])) return false;
+  if (!isSafePosInt(rec["s"])) return false;
+  const t = rec["t"];
+  const ch = rec["ch"];
+
+  // Extension types (`x-*`) are accepted after validating envelope, ch and s.
+  if (t.startsWith("x-")) {
+    return true;
+  }
+
+  switch (t) {
+    case "hello":
+      return (
+        ch === 0 &&
+        isPosIntArray(rec["protocolVersions"]) &&
+        isNonEmptyString(rec["nonce"]) &&
+        isNonEmptyString(rec["meshId"]) &&
+        isNonEmptyString(rec["endpoint"]) &&
+        isNonEmptyString(rec["tenantId"]) &&
+        isFiniteNumber(rec["serverTime"])
+      );
+    case "auth":
+      return (
+        ch === 0 &&
+        isNonEmptyString(rec["nodeId"]) &&
+        isNonEmptyString(rec["enrolmentRef"]) &&
+        isPosIntArray(rec["protocolVersions"]) &&
+        isFiniteNumber(rec["clientTime"]) &&
+        isNonEmptyString(rec["signature"])
+      );
+    case "ready":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["linkGeneration"]) &&
+        isFiniteNumber(rec["serverTime"]) &&
+        isNonEmptyString(rec["bindNonce"]) &&
+        isStringArray(rec["revokedInstances"]) &&
+        (rec["limits"] === undefined || (typeof rec["limits"] === "object" && rec["limits"] !== null && !Array.isArray(rec["limits"])))
+      );
+    case "ping":
+    case "pong":
+      return ch === 0 && isFiniteNumber(rec["at"]);
+    case "revoked":
+    case "superseded":
+    case "kill":
+      return ch === 0 && (rec["reason"] === undefined || typeof rec["reason"] === "string");
+    case "bye":
+      return ch === 0;
+    case "err":
+      return (
+        isNonEmptyString(rec["code"]) &&
+        typeof rec["retryable"] === "boolean" &&
+        (rec["retryAfterMs"] === undefined || isSafeNonNegInt(rec["retryAfterMs"]))
+      );
+    case "instance.bind":
+      return (
+        ch === 0 &&
+        isNonEmptyString(rec["instanceId"]) &&
+        isNonEmptyString(rec["instancePublicKey"]) &&
+        isNonEmptyString(rec["instanceFingerprint"]) &&
+        isNonEmptyString(rec["bindNonce"]) &&
+        isNonEmptyString(rec["sig"])
+      );
+    case "instance.bound":
+      return (
+        ch === 0 &&
+        isNonEmptyString(rec["instanceId"]) &&
+        (rec["status"] === "live" || rec["status"] === "refused") &&
+        (rec["reason"] === undefined || typeof rec["reason"] === "string") &&
+        isNonEmptyString(rec["bindNonce"])
+      );
+    case "instance.revoked":
+      return (
+        ch === 0 &&
+        isNonEmptyString(rec["instanceId"]) &&
+        isFiniteNumber(rec["revokedAt"]) &&
+        isNonEmptyString(rec["revokedBy"])
+      );
+    case "watch.start":
+    case "watch.stop":
+      return ch === 1;
+    case "cat.snapshot":
+      return (
+        ch === 1 &&
+        isFiniteNumber(rec["at"]) &&
+        Array.isArray(rec["rows"]) &&
+        (rec["truncatedRows"] === undefined || isSafeNonNegInt(rec["truncatedRows"]))
+      );
+    case "cat.delta":
+      return (
+        ch === 1 &&
+        isFiniteNumber(rec["at"]) &&
+        Array.isArray(rec["adds"]) &&
+        Array.isArray(rec["updates"]) &&
+        isStringArray(rec["removes"])
+      );
+    case "credit":
+      return (
+        ch >= 1 &&
+        isSafeNonNegInt(rec["receivedThroughSeq"]) &&
+        isSafeNonNegInt(rec["receivedThroughBytes"]) &&
+        isSafeNonNegInt(rec["sendLimitSeq"]) &&
+        isSafeNonNegInt(rec["sendLimitBytes"])
+      );
+    case "term.open":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        (rec["mode"] === "observe" || rec["mode"] === "control") &&
+        (rec["afterSeq"] === null || isSafeNonNegInt(rec["afterSeq"])) &&
+        isSafeNonNegInt(rec["afterSeqBytes"]) &&
+        (rec["cols"] === undefined || isSafePosInt(rec["cols"])) &&
+        (rec["rows"] === undefined || isSafePosInt(rec["rows"]))
+      );
+    case "term.opened":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["generation"]) &&
+        isNonEmptyString(rec["incarnation"]) &&
+        isNonEmptyString(rec["status"]) &&
+        isSafeNonNegInt(rec["latestSeq"]) &&
+        (rec["holderKind"] === "none" || rec["holderKind"] === "human" || rec["holderKind"] === "automation" || rec["holderKind"] === "remote") &&
+        typeof rec["size"] === "object" && rec["size"] !== null
+      );
+    case "term.out":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["incarnation"]) &&
+        isSafeNonNegInt(rec["firstSeq"]) &&
+        isSafeNonNegInt(rec["lastSeq"]) &&
+        typeof rec["dataB64"] === "string"
+      );
+    case "term.gap":
+      return ch >= 2 && isNonEmptyString(rec["sid"]) && isSafeNonNegInt(rec["fromSeq"]) && isSafeNonNegInt(rec["toSeq"]);
+    case "term.in":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["generation"]) &&
+        isNonEmptyString(rec["incarnation"]) &&
+        isSafeNonNegInt(rec["epoch"]) &&
+        isSafePosInt(rec["inSeq"]) &&
+        (rec["origin"] === "user" || rec["origin"] === "terminal-reply") &&
+        typeof rec["dataB64"] === "string"
+      );
+    case "term.in.ack":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isSafePosInt(rec["inSeq"]) &&
+        (rec["result"] === "applied" || rec["result"] === "refused" || rec["result"] === "uncertain")
+      );
+    case "term.ctl":
+      return ch >= 2 && isNonEmptyString(rec["sid"]) && (rec["action"] === "acquire" || rec["action"] === "release");
+    case "term.ctl.state":
+      return ch >= 2 && isNonEmptyString(rec["sid"]) && isNonEmptyString(rec["state"]);
+    case "term.resize":
+      return ch >= 2 && isNonEmptyString(rec["sid"]) && isSafePosInt(rec["cols"]) && isSafePosInt(rec["rows"]);
+    case "term.stop":
+      return ch >= 2 && isNonEmptyString(rec["sid"]) && isNonEmptyString(rec["incarnation"]);
+    case "term.exit":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["incarnation"]) &&
+        (rec["exitCode"] === undefined || typeof rec["exitCode"] === "number") &&
+        (rec["signal"] === undefined || typeof rec["signal"] === "number")
+      );
+    case "term.close":
+      return ch >= 2 && isNonEmptyString(rec["sid"]);
+    default:
+      return false;
+  }
 }
 
 /** Stable JSON for signing: reuses the repo's `canonicalize` (sorted keys,
@@ -354,10 +607,28 @@ function asPublicKey(publicKeyPem: string | KeyObject): KeyObject {
   return typeof publicKeyPem === "string" ? createPublicKey(publicKeyPem) : publicKeyPem;
 }
 
+/** Shared Ed25519 signing over raw canonical bytes, base64-encoded. */
+export function signTrunkBytes(bytes: Uint8Array, privateKeyPem: string | KeyObject): string {
+  return sign(null, bytes, asPrivateKey(privateKeyPem)).toString("base64");
+}
+
+/** Shared Ed25519 verification over raw canonical bytes. */
+export function verifyTrunkBytes(
+  bytes: Uint8Array,
+  signatureBase64: string,
+  publicKeyPem: string | KeyObject
+): boolean {
+  try {
+    return verify(null, bytes, asPublicKey(publicKeyPem), Buffer.from(signatureBase64, "base64"));
+  } catch {
+    return false;
+  }
+}
+
 /** Ed25519 signature over the canonical JSON of an auth payload, base64-encoded. */
 export function signTrunkAuthPayload(payload: TrunkAuthPayload | Record<string, unknown>, privateKeyPem: string | KeyObject): string {
   const bytes = Buffer.from(canonicalTrunkJson(payload), "utf8");
-  return sign(null, bytes, asPrivateKey(privateKeyPem)).toString("base64");
+  return signTrunkBytes(bytes, privateKeyPem);
 }
 
 export function verifyTrunkAuthPayload(
@@ -367,7 +638,7 @@ export function verifyTrunkAuthPayload(
 ): boolean {
   try {
     const bytes = Buffer.from(canonicalTrunkJson(payload), "utf8");
-    return verify(null, bytes, asPublicKey(publicKeyPem), Buffer.from(signatureBase64, "base64"));
+    return verifyTrunkBytes(bytes, signatureBase64, publicKeyPem);
   } catch {
     return false;
   }

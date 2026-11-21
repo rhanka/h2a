@@ -1,5 +1,5 @@
 /**
- * In-memory fake trunk endpoint and enrolment verifier (LH-00 / LH-06).
+ * In-memory fake trunk endpoint and enrolment verifier (LH-00 / LH-06 / LH-07).
  *
  * TEST-ONLY: lives under test/helpers, outside dist/, and is never re-exported
  * from the package root. Both fakes refuse unless the LH-00 flag is on AND
@@ -35,6 +35,8 @@ export const FIXTURE_CONTRACT_METADATA = Object.freeze({
   contractVersion: "WET-2",
   wet2TextHash: WET2_TEXT_HASH
 });
+
+export const FIXTURE_METADATA = FIXTURE_CONTRACT_METADATA;
 
 export function assertFixtureContractVersion(metadata) {
   const actual = metadata?.wet2TextHash;
@@ -73,6 +75,7 @@ export class FakeTrunkEndpoint {
   #keys = new Map();
   #challenges = new Map();
   #links = new Map();
+  #liveGenByScope = new Map();
   #generation = 0;
 
   constructor(options) {
@@ -90,14 +93,28 @@ export class FakeTrunkEndpoint {
     });
   }
 
+  wet2TextHash() {
+    return this.#wet2TextHash;
+  }
+
   registerFixtureKey(input) {
     const publicKey = toPublicKey(input.publicKeyPem);
     this.#keys.set(input.enrolmentRef, {
       nodeId: input.nodeId,
       publicKey,
       enrolmentRef: input.enrolmentRef,
-      fingerprint: input.fingerprint ?? "fixture-fingerprint"
+      userId: input.userId ?? "owner",
+      fingerprint: input.fingerprint ?? "fixture-fingerprint",
+      revoked: Boolean(input.revoked),
+      notProvisioned: Boolean(input.notProvisioned),
+      renewBy: input.renewBy,
+      usages: input.usages
     });
+  }
+
+  revokeEnrolment(enrolmentRef) {
+    const fixture = this.#keys.get(enrolmentRef);
+    if (fixture) fixture.revoked = true;
   }
 
   issueChallenge(challenge) {
@@ -138,14 +155,52 @@ export class FakeTrunkEndpoint {
     }
     const fixture = this.#keys.get(input.payload.enrolmentRef);
     if (!fixture) return { ok: false, reason: "unknown-enrolment" };
+    if (fixture.notProvisioned) return { ok: false, reason: "not-provisioned" };
+    if (fixture.revoked) return { ok: false, reason: "enrolment-revoked" };
     if (fixture.nodeId !== input.payload.nodeId) return { ok: false, reason: "identity-mismatch" };
+    if (fixture.renewBy !== undefined && input.now !== undefined && input.now > fixture.renewBy) {
+      return { ok: false, reason: "record-expired" };
+    }
     if (!verifyTrunkAuthPayload(input.payload, input.signature, fixture.publicKey)) {
       return { ok: false, reason: "invalid-signature" };
     }
     stored.used = true;
+    const scopeKey = `${this.#meshId}|${this.#tenantId}|${fixture.userId}|${input.payload.nodeId}|${input.payload.enrolmentRef}`;
+    let supersededGeneration;
+    const previousGen = this.#liveGenByScope.get(scopeKey);
+    if (previousGen !== undefined && this.#links.has(previousGen)) {
+      const prevLink = this.#links.get(previousGen);
+      this.#links.delete(previousGen);
+      supersededGeneration = previousGen;
+      if (typeof prevLink.onSuperseded === "function") {
+        prevLink.onSuperseded(previousGen);
+      }
+    }
     this.#generation += 1;
-    this.#links.set(this.#generation, { linkGeneration: this.#generation, nodeId: input.payload.nodeId, enrolmentRef: input.payload.enrolmentRef });
-    return { ok: true, linkGeneration: this.#generation };
+    this.#links.set(this.#generation, {
+      linkGeneration: this.#generation,
+      scopeKey,
+      userId: fixture.userId,
+      nodeId: input.payload.nodeId,
+      enrolmentRef: input.payload.enrolmentRef,
+      onSuperseded: input.onSuperseded
+    });
+    this.#liveGenByScope.set(scopeKey, this.#generation);
+    return {
+      ok: true,
+      linkGeneration: this.#generation,
+      ...(supersededGeneration !== undefined ? { supersededGeneration } : {})
+    };
+  }
+
+  closeLink(linkGeneration) {
+    const existing = this.#links.get(linkGeneration);
+    if (!existing) return false;
+    this.#links.delete(linkGeneration);
+    if (this.#liveGenByScope.get(existing.scopeKey) === linkGeneration) {
+      this.#liveGenByScope.delete(existing.scopeKey);
+    }
+    return true;
   }
 
   liveLinkCount() {
@@ -176,6 +231,10 @@ export class FakeEnrolmentVerifier {
       contractVersion: "WET-2",
       wet2TextHash: this.#wet2TextHash
     });
+  }
+
+  wet2TextHash() {
+    return this.#wet2TextHash;
   }
 
   registerNode(input) {
