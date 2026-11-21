@@ -1055,6 +1055,11 @@ async function main() {
         stdio: ["inherit", "inherit", "inherit", "pipe", "pipe"],
       });
 
+      // Extra pipe fds are AF_UNIX socketpairs on Linux; bwrap reads 1 byte
+      // from block-fd and closes both fds, which may emit ECONNRESET/EPIPE.
+      child.stdio[3].on("error", () => {});
+      child.stdio[4].on("error", () => {});
+
       let infoBuf = "";
       let released = false;
       let childInitPid = null;
@@ -1102,7 +1107,8 @@ async function main() {
             closeSync(fd);
           }
           chmodSync(receiptHost, 0o444);
-          child.stdio[4].end("1\n");
+          // bwrap reads exactly 1 byte from --block-fd before closing it.
+          child.stdio[4].end(Buffer.from([0x31]));
         } catch (err) {
           try { child.kill("SIGKILL"); } catch { /* ignore */ }
           process.stderr.write(`test-sandbox: failed to publish receipt: ${err.message}\n`);
@@ -1121,7 +1127,11 @@ async function main() {
 
       const exitInfo = await new Promise((resolveExit, rejectExit) => {
         child.once("error", rejectExit);
-        child.once("close", (code, signal) => resolveExit({ code, signal }));
+        child.once("close", (code, signal) => {
+          try { child.stdio[3].destroy(); } catch { /* ignore */ }
+          try { child.stdio[4].destroy(); } catch { /* ignore */ }
+          resolveExit({ code, signal });
+        });
       });
 
       // Wait until the bwrap child init of this exact birth is gone.
