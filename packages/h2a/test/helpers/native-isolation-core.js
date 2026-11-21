@@ -31,6 +31,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { verifyImage } from "../../src/runtime/handover/image.js";
 import { digest } from "../../src/runtime/handover/wire.js";
+import { resolveAttestedAlias } from "../../../../scripts/test-sandbox-contract.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../../..");
 const guardInstalled = Symbol.for("h2a.test.nativeSpawnGuard");
@@ -130,7 +131,14 @@ export function createNativeIsolationApi({ root, preloadUrl, receipt = null }) {
   }
 
   function resolvedPath(path, depth = 0, boundary) {
-    const absolute = resolve(path);
+    let absolute = resolve(path);
+    // Translate attested checkout aliases (.qual-tmp, tmp/test-runtime) via the
+    // live-verified receipt, while keeping `/tmp` refused as an isolation root.
+    if (receipt && absolute !== "/tmp" && !absolute.startsWith("/tmp/")) {
+      const translated = resolveAttestedAlias(absolute, receipt);
+      assert.ok(translated !== null, `REFUSING unverified alias path before filesystem access: ${absolute}`);
+      absolute = resolve(translated);
+    }
     rejectOwnerPath(absolute);
     if (boundary) {
       const rel = relative(boundary, absolute);
@@ -491,6 +499,8 @@ export function createNativeIsolationApi({ root, preloadUrl, receipt = null }) {
       "H2A_TEST_SANDBOX_NONCE",
       "H2A_TEST_STATE_RECEIPT",
       "H2A_TEST_OWNER_HOME",
+      "H2A_TEST_WORKER_ROOT",
+      "H2A_TEST_WORKER_PID",
     ]) {
       if (carried[key] === undefined && process.env[key] !== undefined) {
         carried[key] = process.env[key];

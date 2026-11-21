@@ -128,7 +128,7 @@ test("L0 R3: closed-image preload omission is per-call and never leaks via a reu
   writeFileSync(foreignScript, `import { spawnSync } from 'node:child_process'; spawnSync(process.execPath, [${JSON.stringify(entry)}], { env: {} });`);
   try {
     // Register the image receipt via the global receipt symbol (same as mh-l2-image builder).
-    globalThis[Symbol.for("h2a.test.closedBuildReceipt")]({ kind: "image", digest: image.digest, entrypoints: [image.entrypoint] });
+    globalThis[Symbol.for("h2a.test.closedBuildReceipt")]({ kind: "image", digest: image.manifestDigest, entrypoints: [image.entrypoint] });
     const sharedEnv = { ...process.env };
     delete sharedEnv.NODE_OPTIONS;
 

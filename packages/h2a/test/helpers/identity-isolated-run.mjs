@@ -81,8 +81,10 @@ for (const label of (process.env.IDLOCK_BUILD_ONLY==='1' ? ['candidate'] : ['can
   for(const pkg of ['h2a','h2a-runtime','track','remote-protocol'])fs.copyFileSync(join(repo,'packages',pkg,'tsconfig.json'),join(dest,'packages',pkg,'tsconfig.json'));
   compile(dest);
 }
-const env = { ...process.env, HOME: join(lane, 'home'), TMPDIR: join(lane, 'tmp'), XDG_CACHE_HOME: join(lane, 'cache'),
+const env = { ...process.env, HOME: join(lane, 'home'), TMPDIR: join(lane, 'tmp'), TMP: join(lane, 'tmp'), TEMP: join(lane, 'tmp'), XDG_CACHE_HOME: join(lane, 'cache'),
   XDG_RUNTIME_DIR: join(lane, 'runtime'), XDG_CONFIG_HOME: join(lane, 'config'), XDG_STATE_HOME: join(lane, 'state'),
+  XDG_DATA_HOME: join(lane, 'home', '.local', 'share'), REMOTE_CLI_CONFIG_HOME: join(lane, 'config'),
+  H2A_NATIVE_SOCKET: join(lane, 'runtime', 'host.sock'), H2A_NATIVE_HOST_LOG: join(lane, 'state', 'native-host.log'),
   H2A_ROOT: join(lane, 'state', 'store'), IDLOCK_LANE: lane, NODE_OPTIONS: '--import '+join(repo,'packages/h2a/test/helpers/identity-isolation-guard.mjs') };
 fs.writeFileSync(join(lane, 'environment.json'), JSON.stringify(Object.fromEntries(['HOME','TMPDIR','XDG_CACHE_HOME','XDG_RUNTIME_DIR','XDG_CONFIG_HOME','XDG_STATE_HOME','H2A_ROOT','IDLOCK_LANE'].map(k=>[k,env[k]])), null, 2));
 const files = process.argv.slice(2);
