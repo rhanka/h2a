@@ -120,7 +120,7 @@ test('CI shards the Node suite across a duration-balanced matrix with a fail-clo
 test('CI shard negative controls reject skipped-green producers and missing shard evidence', () => {
   for (const [before, after] of [
     ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
-    ['run: node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}', 'run: node scripts/run-test-gates.mjs'],
+    ['run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}', 'run: node scripts/run-test-gates.mjs'],
     ['run: test "$M17_RESULT" = success\n      - name: Require both complete bulk qualifications\n        env:\n          BULK_RESULT: ${{ needs.bulk-qualification.result }}\n        run: test "$BULK_RESULT" = success\n      - uses: actions/checkout@v4',
       'run: true\n      - name: Require both complete bulk qualifications\n        env:\n          BULK_RESULT: ${{ needs.bulk-qualification.result }}\n        run: test "$BULK_RESULT" = success\n      - uses: actions/checkout@v4'],
     ['run: test "$BULK_RESULT" = success\n      - uses: actions/checkout@v4', 'run: true\n      - uses: actions/checkout@v4'],

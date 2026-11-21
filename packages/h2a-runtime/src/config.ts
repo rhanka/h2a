@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 import { homedir } from "node:os";
 
 import type { SessionTarget } from "./protocol-local.js";
@@ -393,23 +394,31 @@ export function migrateConfigHomeIfNeeded(now: number): ConfigHomeMigration {
   // Backup BEFORE any move — must succeed first.
   const backup = join(home, `${LEGACY_CONFIG_DIR}.bak.${now}`);
   try {
+    guardTestStateWrite(home);
+    guardTestStateWrite(legacy);
+    guardTestStateWrite(canonical);
+    guardTestStateWrite(backup);
     cpSync(legacy, backup, { recursive: true });
   } catch (e) {
     return { migrated: false, reason: `backup failed: ${(e as Error).message}` };
   }
 
   try {
+    guardTestStateMove(legacy, canonical);
     renameSync(legacy, canonical);
   } catch (e) {
     return { migrated: false, reason: `rename failed: ${(e as Error).message}`, backup };
   }
 
   try {
+    guardTestStateWrite(legacy);
+    guardTestStateWrite(canonical);
     symlinkSync(canonical, legacy, "dir");
   } catch (e) {
     // Data is safe at canonical; without the symlink the legacy `remote` bin
     // would miss it. Roll back the rename so both bins stay on the legacy path.
     try {
+      guardTestStateMove(canonical, legacy);
       renameSync(canonical, legacy);
     } catch {
       /* leave data at canonical (still readable by h2a) */
@@ -551,6 +560,8 @@ export function isStatusBarEnabled(
 
 export function writeRemoteConfig(config: RemoteCliConfig): void {
   const path = resolveConfigPath();
+  guardTestStateWrite(dirname(path));
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2), "utf8");
 }

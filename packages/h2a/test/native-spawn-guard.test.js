@@ -115,3 +115,40 @@ test("should fail the test process even when production catches an unsafe native
     assert.notEqual(child.status, 0, "a caught unsafe native launch must still fail qualification");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("L0 R3: closed-image preload omission is per-call and never leaks via a reused env object", () => {
+  const fixture = installationFixture();
+  const root = fixture.layout.canonicalPrefix;
+  const entry = join(root, "native-terminal/op.js");
+  const marker = join(root, "executed");
+  mkdirSync(join(root, "native-terminal"), { recursive: true });
+  writeFileSync(entry, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'unsafe');`);
+  const image = fixture.image("closed-valid", 1, `console.log("closed-ok:" + (process.execArgv.some(a => a.includes("native-isolation")) ? "PRELOADED" : "CLEAN"));`);
+  const foreignScript = join(root, "foreign-after-closed.mjs");
+  writeFileSync(foreignScript, `import { spawnSync } from 'node:child_process'; spawnSync(process.execPath, [${JSON.stringify(entry)}], { env: {} });`);
+  try {
+    // Register the image receipt via the global receipt symbol (same as mh-l2-image builder).
+    globalThis[Symbol.for("h2a.test.closedBuildReceipt")]({ kind: "image", digest: image.digest, entrypoints: [image.entrypoint] });
+    const sharedEnv = { ...process.env };
+    delete sharedEnv.NODE_OPTIONS;
+
+    // 1. Verified closed image runs cleanly WITHOUT preload.
+    const first = spawnSync(process.execPath, [join(image.root, image.entrypoint)], { env: sharedEnv, encoding: "utf8" });
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.stdout, /closed-ok:CLEAN/);
+
+    // 2. Reusing the EXACT same `sharedEnv` object for a non-closed script MUST still preload & guard!
+    const second = spawnSync(process.execPath, [foreignScript], { env: sharedEnv, encoding: "utf8" });
+    assert.notEqual(second.status, 0, "reused env must not inherit closed-image preload omission");
+    assert.match(second.stderr, /REFUSING/);
+    assert.equal(existsSync(marker), false);
+
+    // 3. Tampering with a closed image's bytes restores the preload guard immediately.
+    writeFileSync(join(image.root, image.entrypoint), `console.log("tampered:" + (process.execArgv.some(a => a.includes("native-isolation")) ? "PRELOADED" : "CLEAN"));`);
+    const tampered = spawnSync(process.execPath, [join(image.root, image.entrypoint)], { env: sharedEnv, encoding: "utf8" });
+    assert.equal(tampered.status, 0, tampered.stderr);
+    assert.match(tampered.stdout, /tampered:PRELOADED/);
+  } finally {
+    fixture.close();
+  }
+});

@@ -74,12 +74,14 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Prepare the private M17 data volume
         run: node scripts/ci-m17-temp.mjs setup
       - name: Execute the complete M17 backend qualification
-        run: node scripts/ci-m17-proof.mjs run
+        run: node scripts/test-sandbox.mjs -- node scripts/ci-m17-proof.mjs run
       - name: Remove the private M17 data volume
         if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
         run: node scripts/ci-m17-temp.mjs cleanup
@@ -115,12 +117,14 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Verify bulk acceptance independently of the aggregate runner
-        run: node --test packages/h2a/test/bulk-ci-evidence.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
-        run: node scripts/ci-bulk-proof.mjs
+        run: node scripts/test-sandbox.mjs -- node scripts/ci-bulk-proof.mjs
         env:
           H2A_TEST_CI_BULK_OUTPUT: ${{ github.workspace }}/tmp/bulk-export
       - uses: actions/upload-artifact@v4
@@ -164,6 +168,8 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && inputs.pin-node-24 || inputs.pin-node-22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Install the mandatory configuration oracles
@@ -185,9 +191,9 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Execute one duration-balanced Node shard
-        run: node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
+        run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
           H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
