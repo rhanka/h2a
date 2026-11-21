@@ -8,7 +8,9 @@ import {
   createMcpServer,
   createUiRenderModule,
   fallbackContent,
+  findNonLocalSchemaRefs,
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
+  inlineExternalSchemaRefs,
   UI_RENDER_RESOURCE_URI,
   UI_RENDER_TOOL_NAMES,
   utf8ByteLength
@@ -51,7 +53,8 @@ test("tools/list: the seven ui-render descriptors match the spec _meta and input
     visibility: ["model", "app"],
     csp: { resourceDomains: ["https://cdn.jsdelivr.net"], connectDomains: [] }
   });
-  assert.deepEqual(barChart.inputSchema, module.assets.schemas.BarChart);
+  assert.deepEqual(barChart.inputSchema, inlineExternalSchemaRefs(module.assets.schemas.BarChart));
+  assert.deepEqual(findNonLocalSchemaRefs(barChart.inputSchema), []);
 
   const submitIntent = byName.get("submit_intent");
   assert.ok(submitIntent);
@@ -156,7 +159,7 @@ test("get_schema: returns the standalone schema and example envelope, capped at 
   };
   assert.deepEqual(result.structuredContent, {
     catalogId: module.assets.catalog.catalogId,
-    schema: module.assets.schemas.BarChart,
+    schema: inlineExternalSchemaRefs(module.assets.schemas.BarChart),
     example: expectedExample
   });
   const text = firstText(result);
