@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   RIGHT_PANEL_TOGGLE_SEQUENCE,
+  RIGHT_PANEL_WHEEL_STEP,
   buildRightPanelSnapshot,
   decisionsFromTrackDecisions,
+  panelDisplayColumns,
   parseSgrMouse,
   resolveRightPanelEnabled,
   resolveRightPanelWidth,
+  resolveStatusGlyph,
   rightPanelReservedCols,
   routePanelMouse,
   sessionStatusGlyph,
@@ -567,5 +570,88 @@ describe("child mouse tracking detection", () => {
     expect(tracker.isMouseTrackingEnabled()).toBe(true);
     tracker.feed("\x1b[?1002l");
     expect(tracker.isMouseTrackingEnabled()).toBe(false);
+  });
+});
+
+describe("PANEL L1 unit helpers (hit spans, expander state, wheel step, width accounting)", () => {
+  it("exposes exact tab hit spans matching rendered columns and falls back cleanly on glyph oracle disagreement", () => {
+    expect(RIGHT_PANEL_WHEEL_STEP).toBe(3);
+    expect(panelDisplayColumns("a\u0301中文")).toBe(5);
+    expect(panelDisplayColumns("\x1b[33m⏸\x1b[0m")).toBe(1);
+    expect(resolveStatusGlyph("paused").symbol).toBe("⏸");
+    expect(resolveStatusGlyph("paused", () => 2).symbol).toBe("||");
+    expect(resolveStatusGlyph("running", () => 2).symbol).toBe("o");
+
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: fixtureSnapshot(),
+      width: 32,
+    });
+    panel.toggle();
+    // [core] (6 cols: 69..74), space (75), docs (4 cols: 76..79)
+    expect(panel.tabHitSpans()).toEqual([
+      { index: 0, startCol: 69, endCol: 74 },
+      { index: 1, startCol: 76, endCol: 79 },
+    ]);
+  });
+
+  it("toggles delegated expander via right/left/Space keys and never leaks draft state into selectedDelegatedNamesForBar", () => {
+    const out = new FakeOut();
+    const snap = buildRightPanelSnapshot({
+      currentSessionId: "s-1",
+      groups: [
+        {
+          title: "core",
+          sessions: [
+            {
+              id: "s-1",
+              label: "alpha",
+              status: "running",
+              draftRecovery: "saved-for-recovery",
+              draftCapability: "refused-no-draft-adapter",
+              delegatedNames: ["w-1"],
+              delegatedChildren: [
+                { id: "j-1", label: "w-1", tool: "claude", state: "running", origin: "cli:h2a-delegate" },
+              ],
+            },
+            {
+              id: "s-2",
+              label: "beta",
+              status: "idle",
+              delegatedDegraded: true,
+            },
+          ],
+        },
+      ],
+      decisions: [],
+    });
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: snap,
+      width: 32,
+    });
+    // Closed: undefined (byte-identical count form)
+    expect(panel.selectedDelegatedNamesForBar()).toBeUndefined();
+
+    panel.toggle();
+    expect(panel.selectedDelegatedNamesForBar()).toEqual(["w-1"]);
+    const exp = panel.handleInput("\x1b[C", { cliMouseEnabled: false }); // Right arrow
+    expect(exp.actions).toEqual([
+      { type: "toggle-delegated-expander", sessionId: "s-1", expanded: true },
+    ]);
+    expect(out.text()).toContain("w-1 (claude · running)");
+    const col = panel.handleInput("\x1b[D", { cliMouseEnabled: false }); // Left arrow
+    expect(col.actions).toEqual([
+      { type: "toggle-delegated-expander", sessionId: "s-1", expanded: false },
+    ]);
+
+    // Move to beta (delegatedDegraded) -> bar receives "unknown" (`deleg ?`)
+    panel.handleInput("\x1b[B", { cliMouseEnabled: false });
+    expect(panel.selectedDelegatedNamesForBar()).toBe("unknown");
+
+    // Clear selection -> undefined (byte-identical count form)
+    panel.clearSelection();
+    expect(panel.selectedDelegatedNamesForBar()).toBeUndefined();
   });
 });
