@@ -135,7 +135,7 @@ An OWNER GATE is not a gap: it is listed in its own form (§5), carries no quali
 **`--strict`.** The table refuses when at least one gap of classes E1 to E9 exists.
 
 - Its refusal text is the one the strict reader of lot 0 produces for the same gaps, in the same order. Two gaps that reader does not know add their own line after it: `[document-desync]` for class E8, `[decision-unnumbered]` for class E9.
-- **Byte identity (T1-b)** is claimed for a journal that is intact, has no desynchronisation finding and no OWNER GATE, rendered with a fixed clock, a fixed baseline commit and no policy variable set. It holds until lot 2 changes decision references; lot 2 regenerates the frozen expectation once, the difference being decision references only.
+- **Byte identity (T1-b)** is claimed for a journal that is intact, has no desynchronisation finding and no OWNER GATE, rendered with a fixed clock, a fixed baseline commit and no policy variable set. It holds until lot 2 changes decision references; lot 2 regenerates the frozen expectation once, changing only decision labels and adding E9 lines. Attachment, blocking causes and all other checks stay unchanged.
 - When no gap exists, `--strict` renders exactly what the default mode renders. `--strict` changes the refusal policy only: V1 applies to it, so it never emits the reserved strings either.
 
 **Exit codes.** 0: rendered, with or without per-element gaps. 1: a global refusal, any gap under `--strict`, or invalid arguments, as today.
@@ -163,9 +163,10 @@ Copie locale : N événements absents du journal de référence   (only from a d
 - **« Décisions qui t'attendent »** opens with its total, its qualifier counts — `hors demande`, `sans dossier`, `à instruire`, and `à numéroter` from lot 2 — and the number of dossier questions without an answer with the number of decisions that hold them. Each decision line gives its number when it has one, its qualifiers, its age, its subject, and its dossier or `Dossier : absent`. A deferred decision says `reportée`.
 - **Dossier questions.** A dossier question counts as unanswered when its answer is absent or blank, on a decision that is pending or deferred. The count is displayed; the questions are not listed.
 - **OWNER GATE.** A pending or deferred decision whose title starts with `OWNER GATE` is rendered `à répondre dans la session <name>`, with no `D` number and outside the `Réponse` line. `<name>` is the value of the first line of the recorded context of the form `Target instance and session: <value>` — the field name of the 2026-11-07 spec, matched without regard to case. When that line is absent the form of annex F for an unnamed session is used. The 2026-11-07 spec may later append ` · question <evidence level>`; nothing else is appended.
+- **Attachment and blocking are identities, not display numbers.** From lot 1, rows carry additive `decisionIds`, `blockingDecisionIds` and `sansObjetDecisionIds`, including OWNER GATE links. The audit resolves these against decisions by `id`, retains target/lot boundaries, and checks blocking and withdrawn-row consistency even when no `D<n>` exists. OWNER GATE records stay available to that lookup but bypass E4–E6; they never enter positional numbering or the reply line. A gate alone on an otherwise valid targeted demand keeps its blocked status, has the cause and cells of annex F, and passes `--strict` (T1-e). Text gates and unrelated gaps remain enforced.
 - **`Réponse` line.** It lists only decisions that carry a number and a recorded recommendation, in number order. It is omitted when there is none.
-- **Decision numbers before lot 2.** Numbers stay positional. The JSON form carries each decision's identifier; the Markdown and text forms never print it. The skill requires an answer to be recorded by the identifier taken from the JSON form of the rendering shown to the owner.
-- **Decision numbers from lot 2.** A decision carries the number registered at its creation. A structured decision that has none yet is class E9.
+- **Decision numbers before lot 2.** Numbers stay positional among non-gate decisions only; adding an OWNER GATE never shifts them. The JSON form carries each decision's identifier; the Markdown and text forms, including strict diagnostics, never print it. The skill requires an answer to be recorded by the identifier taken from the JSON form of the rendering shown to the owner.
+- **Decision numbers from lot 2.** A decision carries the number registered at its creation. A structured decision that has none yet is class E9. E5/E9 decisions use an empty internal `ref` (JSON `null`), with no fabricated number; E5 hides even a recorded number until its dossier is complete. Only nonempty `D<n>` references participate in duplicate-number checks. E4 and blocking checks use identities, so several unnumbered decisions neither collide nor lose their rows or causes. Strict diagnostics use the label of annex F when `ref` is empty, with `decisionId` retained only in machine fields (T2-g).
 
 **The « Ta demande » cell** (V7).
 
@@ -243,6 +244,7 @@ Aucune décision enregistrée au journal (périmètre partiel : captation inacti
 - **What.** Per identity: the root folder of the project; the designated journal of reference, if any, with who designated it and when; the known copies; the conductor identity a satellite is attached to.
 - **Known copy.** A copy becomes known when a capture, an inscription or a designation command resolves it at step 5 — whether or not the command then writes. A refused inscription makes its copy known. A read never does.
 - **Designation is never guessed.** It comes from an explicit flag or environment variable for one invocation, or it is persisted by the designation command — called by a conductor's claim (lot 4b) or as a one-time declaration. [JUDGEMENT] A « first copy seen » rule would designate a review clone as soon as a session passes there before the main checkout.
+- **Claim folder (lot 4b).** CLI: use the invocation's working directory only when `--workspace` is absent; use an explicit path when supplied; with `--workspace ws:...`, skip designation and say why. MCP: use only an explicit, existing absolute `workspacePath`, never the server's working directory or `root`; a missing path, a `ws:` value or an invalid path skips designation with a reason. If both MCP fields are supplied, check `workspaceId` against the existing claim resolver's identity for that path and skip on disagreement. Resolve only that repository's journal (the main checkout for a linked worktree), ignoring inherited `TRACK_DIR`; no journal means no designation. The claim remains recorded even when designation is skipped or fails (T4b-a).
 - **Numbering.** The next number is the highest registered number of the entire journal plus one, taken under the lock. A satellite takes the next numbers of its conductor's journal.
 - **Diagnostic.** `track journal which` prints the identity, each resolution step tried, the journal retained and why; its JSON form is fixed by lot 4a's plan.
 
@@ -352,6 +354,8 @@ Accountable actors follow `docs/governance/RACI.md`, which has no authority unti
 
 **Order.** S; then 0, D and 3q in parallel; then 1; then 2 and 4a; then 3a, then 3b; then 3c; then 4b. Lot 4a may start beside lot 2 and rebases on it; lot 3b consumes the origin classes of 3a and the table of 3q. Lot 5a runs from lot 1 on. Lot 3c does not start before 3a and 3b are merged and the declaration of §7.4 is made (DS-4).
 
+**Conductor recommendations accepted after review.** G1 stays at lot 1; lot 0 keeps its narrow fix. DS-10 stays deferred until T3q-c supplies real per-CLI payloads for a dedicated amendment. A manual session remains visible as `doubtful` unless lot 3q proves a reliable native human-session marker. Existing verbs retain `resolveTrackDir` for all eleven lots; any migration is a separate follow-up after 4a/4b. Journals stay open by default; this repository declares its holder immediately after 3a, and another repository activates exclusivity only on its conductor's explicit initiative; lot 4b aligns `working-mode.md`. Keep at most six pull requests open at once: correct and merge lot S first; worktrees for 0/D/3q may be prepared in parallel, but a PR waits for a free slot. Keep the eleven root `plan/` files without `track branch import` on a PR branch; only this repository's conductor may record them outside the PR.
+
 **What touches what.** Track code: lots 0, 1, 2, 3a, 4a, 5a. The `harness/track-report` skill: lots 0, D, 1, 2, 3c. Host CLIs: lots D, 3q, 3c on the six. h2a code: lots 2 (facade), 3b, 4b.
 
 **Two packages that cannot import each other.** [FACT] The h2a core package must stay a leaf and the runtime package does not depend on it or on Track. Wherever a lot needs both sides to agree — the record of injected lines (lot 3b), the journal given to a launched session (lot 4b) — the agreement is a **file contract** with its own conformance test on each side, never a shared import.
@@ -389,7 +393,7 @@ Test identifiers are defined, with their file and title, in the plan of the lot 
 | V8 | Confidentiality | T1-l, T3a-a, T3a-b, T3a-c, T3a-e, T3a-i, T3a-k |
 | V9 | Attribution | T3a-o, T3b-a, T3b-b, T3b-c, T3b-d, T3b-e |
 | V10 | Track stands alone | T3a-f, T4a-a |
-| V11 | Stable numbers | T2-a, T2-c, T2-d, T2-e, T2-g |
+| V11 | Stable numbers | T1-e, T2-a, T2-c, T2-d, T2-e, T2-g |
 | G1 | Journal integrity | T1-f |
 | G2 | Number registry | T1-n, T2-d |
 | G3 | Unproven status | T1-o |
@@ -397,7 +401,7 @@ Test identifiers are defined, with their file and title, in the plan of the lot 
 | E1 | Demand without a number | T1-a |
 | E2 | No demand, or all archived | T1-c, T1-i |
 | E3 | Row-level gap | T1-t |
-| E4 | Decision attached to no row | T1-a |
+| E4 | Decision attached to no row | T1-a, T2-g |
 | E5 | Decision to instruct | T0-a, T1-d |
 | E6 | Decision without a dossier | T1-a |
 | E7 | Masked text | T1-h |
@@ -420,7 +424,7 @@ Other tests, by subject:
 
 ### B. Classification of every check of the strict audit
 
-Per DS-5. The message of each check is the one emitted today by `auditOwnerTable`; `--strict` keeps all of them as refusals. To attribute a gap to the right element, each violation carries, besides its code and message, a stable check identifier, the identifier of its row or decision, and the cell concerned.
+Per DS-5. The message of each check is the one emitted today by `auditOwnerTable`, subject to the decision-label changes of §4 and §5; `--strict` keeps all applicable checks as refusals. OWNER GATE records bypass E4–E6, not text or row consistency checks. To attribute a gap to the right element, each violation carries, besides its code and message, a stable check identifier, the identifier of its row or decision, and the cell concerned. The acceptance script cross-checks the code vocabulary against `OwnerTableGateCode`; multiple rows can classify distinct checks sharing one code.
 
 <details>
 <summary>Classification table</summary>
@@ -448,7 +452,7 @@ Per DS-5. The message of each check is the one emitted today by `auditOwnerTable
 | `invalid-decision` | Decision referenced by no row | E4 |
 | `invalid-decision` | Decision without a question, two options or a valid recommendation | E5 |
 | `invalid-decision` | Decision without a dossier link | E6 |
-| `invalid-decision` | Duplicate decision reference; « sans objet » and blocking at once | E3, flagged on the decision |
+| `invalid-decision` | Duplicate nonempty `D<n>` reference; « sans objet » and blocking at once (checked by identity even without a number) | E3, flagged on the decision |
 | `internal-jargon` | Commit hash, internal identifier or jargon in an owner text | E7 |
 | `banned-word` | Banned word, private term, private path or private digest | E7 |
 | `journal-integrity` (new) | Integrity finding — not checked on this path today | **G1** |
@@ -541,6 +545,8 @@ Build measured: 0.98.11, from sources identical to `origin/main`.
 | Nearest-ancestor resolution with its temporary-root ceiling; `init` the only creator | `cli/resolve.ts:12-13, 45-68`; `cli/index.ts:552-558` |
 | Workspace identity; git capped at the temporary root; outside git excluded | `workspace-id.ts:7-27`, `:43-54`, `:65-67`, `:78-92` |
 | Cross-process append lock; no stealing; in-place re-chaining | `events/lock.ts:6-31, 93-134`; `events/store.ts:119, 222` |
+| Demand creation retry across newly minted identifiers | `track.ts:296-307` (`withClientToken` under-lock `dedupe`); `events/store.ts:268-298` (default key includes aggregate identity) |
+| Restructure write bypasses the CLI store factory; lot 3a must pass its token option too | `packages/track/src/cli/restructure-apply.ts:84` (`new EventStore`); `cli/index.ts:1011` (caller); both are allowed by plan/07 |
 | Lease side file | `lease/store.ts:1-16`; `packages/track/docs/plan/demand-lifecycle-modeA-DESIGN.md:99-103` |
 | h2a facade verbs, and their duplicate for light routing | `packages/h2a/src/cli.ts:7897-7933`; `packages/h2a/src/bin-routing.ts:18-23` |
 | The core package must stay a leaf | `scripts/check-public-contract.sh:37-41` |
@@ -571,7 +577,7 @@ Build measured: 0.98.11, from sources identical to `origin/main`.
 - Sessions on another machine: outside this spec.
 - The origin of the events held only by the copies of annex C, and of the duplicate event identifiers of J9.
 - Open question OQ-1: whether the existing write verbs should adopt the resolver of §6.1 (DS-6). Until it is decided, a write verb that existed before this spec, run from a linked worktree, still writes into that worktree's copy.
-- Open question OQ-2: the documented reach of the single-writer rule differs between `working-mode.md` (three repositories) and the more recent owner rule (this repository only). This spec applies the more recent rule and leaves other journals open.
+- OQ-2 resolved by the more recent owner rule: mandatory exclusive declaration on this repository only, other journals open unless their conductor explicitly declares exclusivity. Lot 4b corrects the older wording of `working-mode.md`; no owner arbitration remains.
 
 ### F. Closed table of owner-facing strings
 
@@ -634,8 +640,12 @@ Normative for lots 1, 2, 3a and 4a. `N`, `M` are counts; a form with `(s)` below
 | `<age clause>` | `attend depuis <age>`; deferred: `reportée, attend depuis <age>` |
 | `<dossier>` | `Dossier : <link>` or `Dossier : absent` |
 | Decision to instruct, last part | `pas d'options enregistrées` |
-| OWNER GATE line | `- OWNER GATE <id> · à répondre dans la session <name> · attend depuis <age> · <action>` |
+| OWNER GATE line | `- OWNER GATE · à répondre dans la session <name> · <age clause>`; the unnamed-session form replaces the session phrase; only the evidence suffix permitted in §5 may follow |
 | OWNER GATE, session not named | `à répondre dans la session requise (non nommée dans l'enregistrement)` |
+| Decision cell, one linked decision | `D<n>` for a displayed numbered decision; `OWNER GATE` for a gate; `à instruire` for E5; `à numéroter` for E9 |
+| Todo cell, one blocking decision | `bloqué par D<n> (owner)`; `bloqué par OWNER GATE (session <name>)`, or `bloqué par OWNER GATE (session requise non nommée)`; `bloqué par décision à instruire (owner)` for E5; `bloqué par décision à numéroter (owner)` for E9 |
+| Several linked/blocking decisions | Decision tokens joined by ` · `; todo causes joined by ` ; ` before any existing non-decision cause/action. Preserve projection order and one token/cause per decision identity, including repeated unnumbered labels; never deduplicate by display label. A link alone does not make a decision blocking. Title rows keep their existing empty todo cell; child rows keep their own links |
+| Strict diagnostic label when `ref` is empty | `décision à instruire` for E5; `décision à numéroter` for E9; `OWNER GATE` for a gate. Substitute the label at each existing decision-reference interpolation, without changing code/order or exposing an identifier. Repeated labels are allowed; machine fields distinguish identities |
 | `Réponse` line | `Réponse : D<n> <letter> · D<n> <letter> …`, in a code span as today |
 | Request cell, not captured | `<text> (non capté)` |
 | Request cell, captured, origin `owner` | `<title> — « <text> »`, or `« <text> »` without a title |

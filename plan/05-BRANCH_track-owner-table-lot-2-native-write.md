@@ -98,6 +98,8 @@
     - [ ] `T2-g` — `packages/track/src/report/owner-table-qualified.test.ts` — a structured decision without a number is listed to number, stays out of the reply line, and refuses under strict (T2-g)
     - [ ] `T2-h` — `packages/track/src/demand-write.test.ts` — from a linked worktree both commands write to the main checkout journal and leave the worktree copy untouched (T2-h)
   - [ ] T2-b spawns two real processes of the built CLI on one temporary journal and asserts the numbers are `n` and `n+1` and the journal validates clean.
+  - [ ] T2-a also retries the same key from fresh CLI processes, sequentially and concurrently: both return the original identifier and number, with exactly one creation/number batch and an unchanged journal on subsequent replay.
+  - [ ] T2-g covers two linked E9 decisions, two linked E5 decisions, a mix with numbered decisions and OWNER GATE, an orphan E9, and blocking versus nonblocking links. Assert distinct `decisionIds`, exact annex-F cells and strict labels, no duplicate-ref or blocked-without-cause false finding, and genuine duplicate nonempty `D<n>` refs still refused under strict. Re-run T1-a: the legacy fixture still has exactly 16 outside-demand decisions, not 18, and its two attached decisions retain their links and any blocking cause.
   - [ ] T2-d reads the journal after the command and asserts the two events share one command identifier; it also asserts that a recheck failure appends neither event.
   - [ ] T2-h builds a throwaway repository with a journal and a linked worktree under the temporary root, runs each command from the worktree, and compares the fingerprints of both journals before and after.
   - [ ] Red today: `track demand raise` is a usage error (exit 2); decisions carry no number; `h2a demand` is not a facade verb; a write verb run from a linked worktree writes into the worktree's copy.
@@ -112,10 +114,11 @@
 
 - [ ] **Lot 2 — `track demand raise`**
   - [ ] Add a facade method that appends `demand.raised` and `demand.owner-numbered` in one `emitBatch`, under the existing demand recheck hook: the number is the highest registered number of the entire journal plus one; on a recheck conflict it recomputes and retries a bounded number of times, then fails loud.
+  - [ ] Wrap that batch in `this.withClientToken(key, fn, { dedupe })`. The under-lock hook searches all existing `demand.raised` events of the journal for `clientToken === key`, independent of the newly minted aggregate identifier, and returns that original demand's batch; derive the returned identifier and number from the persisted events. The store's default `(clientToken, aggregateId)` deduplication cannot detect a replay after `newId()` and is not sufficient. Preserve the demand-number recheck after deduplication; no store or ingest edit is needed.
   - [ ] Add the sub-command `raise` to `cmdDemand`: `--text` or `--stdin` for the text, `--title`, `--type`, `--workspace`, `--source`, `--key`. With `--title` the owner summary is part of the same batch.
   - [ ] Dispatch `demand raise` before the branch that resolves write verbs with `resolveTrackDir`, and resolve its journal with `resolveJournalOfReference`; the other `demand` sub-commands keep their resolution.
   - [ ] `--workspace` defaults to `projectIdentity` of the current folder; outside git it is required until lot 4a provides a folder identity.
-  - [ ] `--key` is the idempotency key: a replay returns the original identifier and number and appends nothing.
+  - [ ] `--key` is the journal-wide idempotency key for this creation command: a replay, including a concurrent one through the hook above, returns the original identifier and number and appends nothing.
   - [ ] Output: the demand identifier and its number on one line; update the `usage:` line of `cmdDemand` and the top-level usage.
   - [ ] Make `OWNER_TABLE_NO_DEMANDS_MESSAGE` cite `track demand raise --text <text>` in place of the ingest route, and update the pinned copies of that message in `owner-table.test.ts` (near lines 2080-2087); T0-c keeps proving that the quoted commands run.
   - [ ] Lot gate:
@@ -132,9 +135,11 @@
     - [ ] `npm test -w @sentropic/track -- src/cli/decision-ls.test.ts src/report/validated-report-shape.test.ts` — unchanged and green.
 
 - [ ] **Lot 4 — Reader**
-  - [ ] In the qualified reader, a decision with a recorded number renders `D<number>`; positional numbering is removed. Row cells that reference decisions use the recorded numbers.
+  - [ ] In the qualified reader, a complete decision with a recorded number renders `D<number>`; positional numbering is removed. E5/E9 decisions and OWNER GATE have internal `ref: ''` and JSON `ref: null`. E5 hides even a recorded number until its dossier is complete. Only nonempty `D<n>` refs participate in duplicate-reference checks; an empty ref is never a key in `decisionMap`.
+  - [ ] Retain lot 1's lookup by `d.id` and row `decisionIds`, `blockingDecisionIds`, `sansObjetDecisionIds`: E4 uses the referenced identity set, and blocking/withdrawn-row checks use identities even without a number. Do not reconstruct attachment or causes from display refs. Each linked unnumbered decision keeps annex F's `à numéroter` or `à instruire` cell and its own blocking cause; repeat labels for distinct identities. Synthetic `:expectation` decisions also retain identity and qualify as E5 without invented numbering.
+  - [ ] Every strict message interpolation uses a nonempty ref or annex F's deterministic diagnostic label; machine violations retain `decisionId`. Never print internal identifiers or use an empty ref as a diagnostic label. Preserve check codes, occurrence counts and ordering, including E4's 16 findings on the legacy fixture.
   - [ ] A structured decision without a number is class E9: listed `à numéroter`, out of the `Réponse` line, counted among the decisions to complete; under `--strict` it adds the line `[decision-unnumbered]` after the strict audit's text. Add the code to `OwnerTableGateCode` and the strings of annex F to `owner-table-strings.ts`.
-  - [ ] Regenerate `__fixtures__/owner-table-strict-refusal.txt` once, with the procedure of lot 1 (fixed clock, fixed commit, policy variables unset); the difference must be decision references and the added E9 lines only. Put the diff in the pull request.
+  - [ ] Regenerate `__fixtures__/owner-table-strict-refusal.txt` once, with the procedure of lot 1 (fixed clock, fixed commit, policy variables unset); only decision labels and the added E9 lines may differ. No added duplicate-reference, unreferenced-decision or blocked-without-cause finding is allowed. Put the diff and the unchanged attachment counts in the pull request.
   - [ ] Lot gate:
     - [ ] `npm test -w @sentropic/track -- src/report/owner-table-qualified.test.ts src/report/owner-table.test.ts` — T2-g green; T1-b green on the regenerated file.
 

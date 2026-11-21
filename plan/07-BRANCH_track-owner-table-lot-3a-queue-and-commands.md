@@ -34,6 +34,7 @@
 ## Branch Scope Boundaries (MANDATORY)
 
 - **Allowed Paths (implementation scope)**:
+  - `packages/track/src/cli/restructure-apply.ts`
   - `packages/track/src/capture/**`
   - `packages/track/src/write-policy.ts`
   - `packages/track/src/write-policy.test.ts`
@@ -111,7 +112,7 @@
   - [ ] T3a-b searches the whole temporary state home and the journal for the raw secret bytes after capture, classification and inscription.
   - [ ] T3a-c and T3a-i inject the clock; no test sleeps.
   - [ ] T3a-f runs with a module resolution in which no h2a package can be found, and asserts the command still inscribes.
-  - [ ] T3a-g uses two processes of the built CLI: one holding the token, one not; it covers an ordinary write verb and the in-place re-chaining.
+  - [ ] T3a-g uses two processes of the built CLI: one holding the token, one not; it covers an ordinary write verb, `restructure apply` and the in-place re-chaining. Exercise both `TRACK_WRITER_TOKEN` and `--writer-token-file`; the latter must succeed without the environment variable, and a missing or stale token must leave the journal unchanged.
   - [ ] Red today: none of these commands or files exists.
   - [ ] Lot gate:
     - [ ] The fifteen tests fail on absence; outputs saved.
@@ -142,6 +143,7 @@
   - [ ] Create `packages/track/src/write-policy.ts`: the side file `write-policy.json` beside `events.jsonl`, holding `mode` (`open` or `exclusive`), `holder`, `epoch`, the digest of the token, and a short history of declarations and takeovers. No file means open, epoch 0.
   - [ ] In `events/store.ts`, inside the existing lock and before the integrity check, read the policy on every path that changes the journal — `appendCommand` and the in-place re-chaining: in exclusive mode refuse unless the presented token matches the recorded digest. The refusal names the holder and the epoch.
   - [ ] The token is presented by the environment variable `TRACK_WRITER_TOKEN`, or by a global flag `--writer-token-file <path>` extracted from anywhere in the command line the way `--track-dir` is, and handed to the store by the CLI.
+  - [ ] Pass that same parsed token option from `cmdRestructure` to `applyRestructurePlan` and its direct `new EventStore(eventsPath)` in `cli/restructure-apply.ts`; it bypasses `store(ctx)`. Audit all CLI store constructors for the same propagation so `--writer-token-file` protects every existing write path.
   - [ ] Add to `cli/journal.ts`: `journal declare-writer --holder <name> [--token-file <path>]` (prints the token once, or writes it to the given file with mode 0600), `journal takeover --holder <name> --reason <text>` (raises the epoch, issues a new token), `journal release` (holder only; back to open, epoch raised), `journal status [--format json]` (a read: mode, holder, epoch).
   - [ ] Add `.track/write-policy.json` to the repository `.gitignore`: the declaration is local to a machine and must not show as an untracked file.
   - [ ] Lot gate:
@@ -151,6 +153,7 @@
   - [ ] Register two additive event types: `demand.owner-message-added` and `decision.owner-message-added`, each carrying the capture identifier, the time, the origin and the text; fold them into the demand and the decision as an ordered list of owner messages. Add `capture` to the provenance transports; a `demand.raised` event written from the queue carries it together with the origin.
   - [ ] Add `track capture classify <captureId> --as new-demand --title <short title>`, `--as follow-up --demand <number>`, `--as decision-answer --decision <number|id>`, `--as not-a-demand`. The first three are refused for an entry of origin `injected`, `subagent` or `background`.
   - [ ] On an open journal, classification inscribes at once through the resolver of lot 4a: a new demand uses the one-command path of lot 2 with the capture identifier as idempotency key; a follow-up and a decision answer append their event with the same key. The journal outside the repository is created when needed.
+  - [ ] Reuse lot 2's journal-wide `withClientToken(..., { dedupe })` hook for new demands; do not substitute the store's aggregate-scoped default. T3a-j retries after a simulated interruption between the committed journal batch and queue acknowledgement, from a new process, and asserts exactly one demand and number.
   - [ ] On a journal that refuses the write (exclusive mode, or a non-designated copy), the entry stays `classified` and is reported as captured, not yet inscribed.
   - [ ] Add `track capture inscribe <captureId>` and `track capture inscribe --all` for the holder: they inscribe one, or every, `classified` entry of the journal.
   - [ ] Masking at inscription: when the journal is versioned (its `events.jsonl` is in a git work tree and not ignored), apply the private-term policy of the reader to the text; replace a private term by `[terme masqué]` and mark the demand `masqué`.
