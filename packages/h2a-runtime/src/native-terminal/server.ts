@@ -16,6 +16,7 @@ import {
   type NativeTerminalOwnerHostProbe,
 } from "./host.js";
 import {
+  APPLICATION_FACET_VERSION,
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
   NATIVE_TERMINAL_MAX_CONNECTIONS,
   NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS,
@@ -246,6 +247,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
   switch (request.operation) {
     case "ping":
       return {
+        applicationFacetVersion: APPLICATION_FACET_VERSION,
         launchFence: true,
         softRespawn: true,
         generation: host.generation,
