@@ -31,6 +31,7 @@ import {
   type NativeTerminalProcessGroupReaper,
 } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
+import { NATIVE_TERMINAL_RESET_MARKER } from "./reset-relay.js";
 import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
 
@@ -341,6 +342,44 @@ function createSession(host: NativeTerminalHost, id: string): void {
 }
 
 describe("NativeTerminalHost", () => {
+  it("invalidates the foreground revision on a fragmented reset without inferring a shell", () => {
+    const { spawner, ptys } = stubSpawner();
+    const registryPath = join(createPrivateTestDirectory("facet-reset"), "registry.json");
+    const readApplicationForeground = vi.fn(() => ({
+      foregroundProcessGroup: 81_001,
+      application: { pid: 81_002, birth: "2", state: "S", processGroup: 81_001 },
+    }));
+    const host = new NativeTerminalHost({
+      generation: "facet-reset",
+      spawner,
+      registryPath,
+      replayBytesPerSession: 1024,
+      readLeaderStartTime: () => 1,
+      readApplicationForeground,
+    });
+    const changed = vi.fn();
+    const unsubscribe = host.onApplicationForegroundChange(changed);
+    try {
+      createSession(host, "fixture-reset");
+      const first = host.state("fixture-reset");
+      const pty = ptys.get("fixture-reset")!;
+      pty.emitData(NATIVE_TERMINAL_RESET_MARKER.slice(0, 7));
+      expect(changed).toHaveBeenCalledTimes(1);
+      pty.emitData(NATIVE_TERMINAL_RESET_MARKER.slice(7));
+      expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({
+        applicationFacet: "unknown",
+        foregroundRevision: first.foregroundRevision! + 1,
+      }));
+      expect(host.state("fixture-reset")).toMatchObject({
+        applicationFacet: "cli",
+        applicationIncarnation: first.applicationIncarnation,
+        foregroundRevision: first.foregroundRevision! + 2,
+      });
+    } finally {
+      unsubscribe();
+      host.stopAll();
+    }
+  });
   it("should use reserved launch ownership and reject a different host before spawning", () => {
     const { spawner } = stubSpawner();
     const spawn = vi.fn(spawner);
@@ -406,6 +445,10 @@ describe("NativeTerminalHost", () => {
         controller: null,
         controllerEpoch: 0,
         lastHumanActivityAt: null,
+        applicationFacet: "unknown",
+        applicationIncarnation: null,
+        foregroundProcessGroup: null,
+        foregroundRevision: 1,
       },
       {
         id: "beta",
@@ -424,6 +467,10 @@ describe("NativeTerminalHost", () => {
         controller: null,
         controllerEpoch: 0,
         lastHumanActivityAt: null,
+        applicationFacet: "unknown",
+        applicationIncarnation: null,
+        foregroundProcessGroup: null,
+        foregroundRevision: 0,
       },
     ]);
   });
