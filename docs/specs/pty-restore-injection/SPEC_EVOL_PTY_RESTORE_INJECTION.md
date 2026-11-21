@@ -1208,6 +1208,7 @@ Allowed files:
   - `packages/h2a-runtime/src/sync-incremental.test.ts`, `packages/h2a-runtime/src/sync-status.test.ts` (allocate Vitest scratch HOME under worker `tmpdir()` inside `R` instead of the read-only checkout root or legacy `packages/remote-cli/`)
   - `packages/h2a-runtime/src/native-terminal/journal.test.ts` (place `r2-*` stack canonicalization sentinels under the attested `src/.stack-test/` shadow view)
   - `packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts` (rewrite `test-sandbox-contract.mjs` and `native-isolation-core.js` imports in the copied `late-native-isolation.mjs` preload fixture per INJ-L0 Step 4)
+  - `apps/control-plane/src/backslash-path-ghsa.test.ts`, `apps/control-plane/src/router-wildcard-ghsa.test.ts` (isolate `DATA_DIR` under worker `tmpdir()` inside `R` so `ArchiveStaging` does not attempt `mkdir <checkout>/staging` on the read-only checkout)
   - `docs/specs/pty-restore-injection/SPEC_EVOL_PTY_RESTORE_INJECTION.md` (Step 0 / INJ:900 spec amendments before code)
 
   Any further writer discovered while landing the inventory is appended
