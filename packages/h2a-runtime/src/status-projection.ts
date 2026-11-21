@@ -30,6 +30,13 @@ import {
 } from "./tmux.js";
 import type { LaunchContext } from "./launch-context.js";
 import { legacyClientSessionIdForMigratedSession } from "./tmux-name-migration.js";
+import {
+  formatRightPanelBarMarker,
+  rightPanelStatusBarHitSpan,
+  type RightPanelBarMarkerState,
+} from "./native-terminal/right-panel.js";
+
+export { formatRightPanelBarMarker, rightPanelStatusBarHitSpan };
 
 export type H2AGatewayStatusState =
   | "off"
@@ -687,6 +694,8 @@ export async function projectStatusForH2a(
 
 export type NativeStatusBarLinkState = "attached" | "reconnecting" | "exited";
 
+export type NativeStatusBarRightPanelMarker = RightPanelBarMarkerState;
+
 export interface NativeStatusBarSnapshot {
   readonly cli: string | "unknown";
   readonly sessionName: string;
@@ -710,6 +719,8 @@ export interface NativeStatusBarSnapshot {
   };
   readonly delegatedSessions: number | "unknown";
   readonly gateway: H2AGatewayStatusV1;
+  /** Visible toggle marker for the right panel (`PANEL §4.4`, r2 :462); omitted when panel is off. */
+  readonly rightPanelMarker?: NativeStatusBarRightPanelMarker;
 }
 
 export interface ReadNativeStatusBarOptions {
@@ -1546,14 +1557,18 @@ export function renderNativeStatusBarLine(
   }
 
   const delegToken = `deleg ${snapshot.delegatedSessions === "unknown" ? "?" : snapshot.delegatedSessions}`;
+  const markerToken = formatRightPanelBarMarker(snapshot.rightPanelMarker);
+  const markerSuffix = markerToken ? ` ${markerToken} ` : " ";
+  const markerSep = markerToken ? ` ·${markerSuffix}` : markerSuffix;
 
   const candidates = [
-    `${workloadToken} · ${roleToken} · ${gwState}${routeToken ? ` · ${routeToken}` : ""} · ${delegToken} `,
+    `${workloadToken} · ${roleToken} · ${gwState}${routeToken ? ` · ${routeToken}` : ""} · ${delegToken}${markerSep}`,
     ...(routeToken
-      ? [`${workloadToken} · ${roleToken} · ${gwState} · ${delegToken} `]
+      ? [`${workloadToken} · ${roleToken} · ${gwState} · ${delegToken}${markerSep}`]
       : []),
-    `${workloadToken} · ${gwState} · ${delegToken} `,
-    `${workloadToken} · ${gwState} `,
+    `${workloadToken} · ${gwState} · ${delegToken}${markerSep}`,
+    `${workloadToken} · ${gwState}${markerSep}`,
+    ...(markerToken ? [markerSuffix] : []),
   ];
 
   const leftCols = terminalDisplayColumns(left);
@@ -1562,6 +1577,23 @@ export function renderNativeStatusBarLine(
     if (leftCols + 2 + rightCols <= safeCols) {
       const pad = " ".repeat(safeCols - leftCols - rightCols);
       return `${left}${pad}${right}`;
+    }
+  }
+
+  if (markerToken) {
+    const markerCols = terminalDisplayColumns(markerSuffix);
+    if (markerCols <= safeCols) {
+      const budget = safeCols - markerCols;
+      const prefix = `${left}  ${candidates[0]!.trimEnd()}`;
+      let out = "";
+      let used = 0;
+      for (const scalar of prefix) {
+        const w = terminalDisplayColumns(scalar);
+        if (used + w > budget) break;
+        out += scalar;
+        used += w;
+      }
+      return `${out}${" ".repeat(Math.max(0, budget - used))}${markerSuffix}`;
     }
   }
 
