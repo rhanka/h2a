@@ -1,22 +1,65 @@
-/** DC-1 diagram views for the Focus dossier: the design-system card/zone renderers turn
- * every diagram entity into an embedded SVG at build time; the view only places them.
- * One source for both sides, so the frame the build renders into SVG is the exact box the
- * renderer applies at view time. Cards are fixed 460x200 and refuse instead of truncating;
- * containers with children are zones, and their folded form is rendered here for DC-3.
- * The interim grid keeps the Focus engine numbers: 2 columns, 60px gutter, 50px row gap. */
+/**
+ * Focus dossier diagram rendering module.
+ *
+ * Default renderer (interim until DS FA-D2 + h2a FA-H3): static `r7` offline inline SVG
+ * (`renderR7Diagram`, `createR7Kit`), built over the pure Design System card/zone SVG painters
+ * already bundled from `@sentropic/design-system-svelte@0.37.0`.
+ *
+ * Legacy DC-1 2-column grid view exports (`containmentOf`, `projectionOf`, `interimLayout`,
+ * `renderDiagramViews`) are kept for backward compatibility with existing unit tests only.
+ */
 import { renderCardSvg, renderZoneSvg } from '@sentropic/design-system-svelte/diagram-render';
+import {
+  CARD_GEOMETRY,
+  ZONE_GEOMETRY,
+  defaultCardMeasure,
+} from '../node_modules/@sentropic/design-system-svelte/dist/diagramCardModel.js';
+import { DIAGRAM_GLYPHS } from '../node_modules/@sentropic/design-system-svelte/dist/diagram-icons/registry.js';
+import { CARD_W, CARD_H, EDGE_STYLES, createR7Kit } from './r7-diagram-kit.js';
+import { renderR7Diagram as renderR7DiagramWithDs } from './r7-scene-renderer.js';
 
+export const DS_RENDER_PRIMITIVES = {
+  renderCardSvg,
+  renderZoneSvg,
+  DIAGRAM_GLYPHS,
+  CARD_GEOMETRY,
+  ZONE_GEOMETRY,
+  defaultCardMeasure,
+};
+
+/** Default interim r7 static offline inline SVG renderer for generic@1 scenes. */
+export function renderR7Diagram(document, options = {}) {
+  return renderR7DiagramWithDs(document, DS_RENDER_PRIMITIVES, options);
+}
+
+export {
+  CARD_W,
+  CARD_H,
+  EDGE_STYLES,
+  createR7Kit,
+  renderCardSvg,
+  renderZoneSvg,
+  DIAGRAM_GLYPHS,
+  CARD_GEOMETRY,
+  ZONE_GEOMETRY,
+  defaultCardMeasure,
+};
+
+// ---------------------------------------------------------------------------
+// Legacy DC-1 2-column grid card/zone views (kept for existing unit tests only).
+// ---------------------------------------------------------------------------
 const CARD = { width: 460, height: 200 };
 const ZONE_INSET = 16;
 const GRID = { columns: 2, columnGap: 60, rowGap: 50 };
 
+/** @deprecated Legacy DC-1 helper; default Focus builds use `renderR7Diagram`. */
 export function containmentOf(document) {
   const children = new Map([[undefined, []]]);
   const parents = new Map();
   for (const relation of Object.values(document.relations)) {
     if (relation.type !== 'contains') continue;
-    const parent = relation.endpoints.find(e => e.role === 'parent').target;
-    const child = relation.endpoints.find(e => e.role === 'child').target;
+    const parent = relation.endpoints.find((e) => e.role === 'parent').target;
+    const child = relation.endpoints.find((e) => e.role === 'child').target;
     parents.set(child, parent);
   }
   for (const entity of Object.values(document.entities)) {
@@ -27,20 +70,19 @@ export function containmentOf(document) {
   return { children, parents };
 }
 
-/** DC-1 projection of a generic@1 element: the element kind is the kicker, the name the
- * title. No other slot: no invented icon, footer, tone or subtitle. */
+/** @deprecated Legacy DC-1 projection; default Focus builds use `renderR7Diagram`. */
 export function projectionOf(entity) {
   return { entityId: entity.id, kicker: entity.type, title: entity.attributes.name.value };
 }
 
-/** Interim placement: xyflow nodes plus the DC-1 frame sizes. Zone headers are measured
- * by the design-system renderer itself (the probe layout), never by a hand-tuned inset.
- * A refused probe (for example a title too wide even for two lines) aborts placement. */
+/** @deprecated Legacy DC-1 2-column placement; default Focus builds use `renderR7Diagram`. */
 export function interimLayout(document) {
   const { children, parents } = containmentOf(document);
-  const zones = new Set(Object.values(document.entities)
-    .filter(entity => entity.type === 'container' && (children.get(entity.id)?.length ?? 0) > 0)
-    .map(entity => entity.id));
+  const zones = new Set(
+    Object.values(document.entities)
+      .filter((entity) => entity.type === 'container' && (children.get(entity.id)?.length ?? 0) > 0)
+      .map((entity) => entity.id),
+  );
   const widths = new Map();
   const widthOf = (entityId) => {
     if (widths.has(entityId)) return widths.get(entityId);
@@ -62,7 +104,10 @@ export function interimLayout(document) {
   const refusals = [];
   const contentTops = new Map();
   for (const zoneId of zones) {
-    const probe = renderZoneSvg({ ...projectionOf(document.entities[zoneId]), collapsed: false, x: 0, y: 0, width: widthOf(zoneId) }, { children: [] });
+    const probe = renderZoneSvg(
+      { ...projectionOf(document.entities[zoneId]), collapsed: false, x: 0, y: 0, width: widthOf(zoneId) },
+      { children: [] },
+    );
     if (probe.kind === 'refused') refusals.push(...probe.diagnostics);
     else contentTops.set(zoneId, probe.layout.header.contentTop);
   }
@@ -80,10 +125,14 @@ export function interimLayout(document) {
         : CARD;
       if (zones.has(entity.id)) boxes.set(entity.id, size);
       if (index % GRID.columns === 0 && index) { rowY += rowHeight + GRID.rowGap; x = parented ? ZONE_INSET : 0; rowHeight = 0; }
-      nodes.push({ id: entity.id, type: 'ecosystem', position: { x, y: rowY },
+      nodes.push({
+        id: entity.id,
+        type: 'ecosystem',
+        position: { x, y: rowY },
         ...(parented ? { parentId, extent: 'parent' } : {}),
         ...(zones.has(entity.id) ? { style: `width: ${size.width}px; height: ${size.height}px;` } : {}),
-        data: { label: entity.attributes.name.value, container: zones.has(entity.id) } });
+        data: { label: entity.attributes.name.value, container: zones.has(entity.id) },
+      });
       x += size.width + GRID.columnGap;
       rowHeight = Math.max(rowHeight, size.height);
     }
@@ -94,8 +143,7 @@ export function interimLayout(document) {
   return { nodes, boxes, contentTops, refusals };
 }
 
-/** Every diagram entity as an embedded DC-1 view, or a typed refusal. Nodes and childless
- * containers are cards; containers with children are zones with their folded card face. */
+/** @deprecated Legacy DC-1 per-entity SVG view renderer; default Focus builds use `renderR7Diagram`. */
 export function renderDiagramViews(document, options = {}) {
   const layout = interimLayout(document);
   if (layout.refusals.length) return { kind: 'refused', diagnostics: layout.refusals };

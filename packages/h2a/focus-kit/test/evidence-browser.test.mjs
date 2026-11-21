@@ -64,8 +64,10 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       const evidence = page.getByRole('region', { name: 'Pièces justificatives', exact: true });
       assert.equal(await evidence.count(), 1, 'H1 must expose the evidence index');
       await page.getByRole('button', { name: /Fichier portable/ }).click();
-      await page.locator('.svelte-flow__controls-zoomin').click();
-      const camera = await page.locator('.svelte-flow__viewport').getAttribute('style');
+      const variant = width < 1200 ? 'narrow' : 'wide';
+      const diagramSvg = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
+      await diagramSvg.waitFor({ state: 'visible' });
+      const diagramViewBox = await diagramSvg.getAttribute('viewBox');
       const opener = page.getByRole('button', { name: 'Consulter Source long', exact: true });
       await opener.focus(); await page.keyboard.press('Enter');
       const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
@@ -90,7 +92,7 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       assert.equal(digest(readFileSync(await saved.path())), doc.sources[0].sha256);
       await panel.getByRole('button', { name: 'Retour au contexte' }).click();
       assert.equal(await opener.evaluate(e => e === document.activeElement), true);
-      assert.equal(await page.locator('.svelte-flow__viewport').getAttribute('style'), camera);
+      assert.equal(await diagramSvg.getAttribute('viewBox'), diagramViewBox);
       assert.equal(await page.getByRole('button', { name: /Fichier portable/ }).getAttribute('aria-pressed'), 'true');
       await activate(evidence.getByRole('button', { name: 'Consulter Source hostile', exact: true }));
       assert.match(await panel.innerText(), /<img src=x onerror=/);
