@@ -35,6 +35,40 @@ export type ProcIdentity = {
   readonly startTime: string;
 };
 
+export type PtyProcess = Readonly<{
+  pid: number;
+  parent: number;
+  session: number;
+  tty: number;
+  processGroup: number;
+  foregroundProcessGroup: number;
+  birth: string;
+  state: string;
+}>;
+
+/** Linux's kernel view of the PTY. CPU and comm play no part in it. */
+export function readPtyProcess(pid: number): PtyProcess | undefined {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  try {
+    const contents = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const close = contents.lastIndexOf(")");
+    if (close < 0 || Number(contents.slice(0, contents.indexOf(" "))) !== pid) return undefined;
+    const fields = contents.slice(close + 1).trim().split(/\s+/);
+    const state = fields[0];
+    const [parent, processGroup, session, tty, foregroundProcessGroup] = fields.slice(1, 6).map(Number);
+    const birth = fields[19];
+    if (!state || !birth || !/^\d+$/.test(birth) ||
+        parent === undefined || processGroup === undefined || session === undefined ||
+        tty === undefined || foregroundProcessGroup === undefined ||
+        ![parent, processGroup, session, tty, foregroundProcessGroup].every(Number.isSafeInteger)) {
+      return undefined;
+    }
+    return { pid, parent, processGroup, session, tty, foregroundProcessGroup, birth, state };
+  } catch {
+    return undefined;
+  }
+}
+
 /** One fleet-wide /proc view, suitable for pure lease projections. */
 export type ProcView = {
   readonly currentBootId: string;
