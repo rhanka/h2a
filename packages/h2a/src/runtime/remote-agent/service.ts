@@ -1,26 +1,24 @@
 /**
- * LH-02 shared remote-control service: the one code path the CLI (here),
- * the skill (LH-03) and the MCP tools (LH-03) all call.
+ * LH-02 / LH-06 shared remote-control service: the one code path the CLI,
+ * the skill and the MCP tools all call.
  *
- * Most reversible choices behind the LH-00 flag:
- * - The eight new verbs stay OUT of the frozen CLI contract (DEC-034):
- *   they are flag-gated and unstable until LH-10/LH-11. Freezing them
- *   (contract + golden) is a later step; only the help text names them now.
- * - `revoke` is gated like `enrol`/`up`/`on`: it deletes key material.
- * - Terminal gate (Q-07): an interactive terminal means stdin+stdout are
- *   TTYs; a non-human pseudo-terminal cannot be told apart portably, so
- *   the refusal text names the site-side approval as the human boundary.
- *   Typed confirmation is `--confirm <verb>` with the verb word itself.
- * - Agent wiring is a stub until LH-07..LH-11: gated verbs that pass the
- *   gate reach the stub service and return `state: "stubbed"`. `kill`
- *   already sets the local flag; `status` reports it. No link, catalogue
- *   or bridge code runs here.
+ * Control order for `off` / `on` (LH-06):
+ * 1. Unknown subcommand
+ * 2. Feature flag (`H2A_REMOTE_CONTROL=1`)
+ * 3. Terminal gate + typed confirmation (`on`, `enrol`, `up`, `revoke`)
+ * 4. Target validation (`invalid-session`, zero disk access)
+ * 5. Disk exclusion read/write (`exclusions.ts`)
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isRemoteControlEnabled, REMOTE_CONTROL_DISABLED_MESSAGE } from "./flag.js";
+import {
+  clearSessionExcluded,
+  setSessionExcluded,
+  validateSessionTarget
+} from "./exclusions.js";
 
 export const REMOTE_CONTROL_VERBS = [
   "enrol",
@@ -66,10 +64,6 @@ export function remoteControlKillFlagFile(root: string): string {
   return join(root, "remote-control", "kill");
 }
 
-function isKillSet(root: string): boolean {
-  return existsSync(remoteControlKillFlagFile(root));
-}
-
 export function setRemoteControlKillFlag(root: string): string {
   const dir = join(root, "remote-control");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -95,19 +89,29 @@ export function readRemoteControlKillFlag(root: string): { readonly kill: boolea
 }
 
 export type RemoteControlResult =
-  | { readonly ok: true; readonly verb: RemoteControlVerb; readonly state: "stubbed" | "ok"; readonly killFlagFile?: string; readonly kill?: boolean; readonly at?: string }
+  | {
+      readonly ok: true;
+      readonly verb: RemoteControlVerb;
+      readonly state: "stubbed" | "ok";
+      readonly killFlagFile?: string;
+      readonly kill?: boolean;
+      readonly at?: string;
+      readonly sessionId?: string;
+      readonly excluded?: boolean;
+    }
   | { readonly ok: false; readonly verb: string; readonly reason: string; readonly message: string };
 
 export interface RemoteControlRunOptions {
   readonly root: string;
+  readonly configDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly isInteractive?: boolean;
   readonly confirm?: string;
+  readonly session?: string;
 }
 
 /**
- * Run one new remote-control verb against the stub service. Pure with
- * respect to the network: the only write is the local kill flag.
+ * Run one remote-control verb against the shared service.
  */
 export function runRemoteControlVerb(
   verb: string,
@@ -142,6 +146,43 @@ export function runRemoteControlVerb(
           `confirmation (--confirm ${verb}); site-side approval is the human boundary`
       };
     }
+  }
+  if (verb === "off" || verb === "on") {
+    if (!validateSessionTarget(options.session)) {
+      return {
+        ok: false,
+        verb,
+        reason: "invalid-session",
+        message: `h2a remote ${verb}: invalid-session (exactly one non-empty session target is required)`
+      };
+    }
+    const mutation =
+      verb === "off"
+        ? setSessionExcluded(options.session, {
+            root: options.root,
+            configDir: options.configDir,
+            env
+          })
+        : clearSessionExcluded(options.session, {
+            root: options.root,
+            configDir: options.configDir,
+            env
+          });
+    if (!mutation.ok) {
+      return {
+        ok: false,
+        verb,
+        reason: mutation.reason,
+        message: `h2a remote ${verb}: ${mutation.message}`
+      };
+    }
+    return {
+      ok: true,
+      verb,
+      state: "ok",
+      sessionId: mutation.sessionId,
+      excluded: mutation.excluded
+    };
   }
   if (verb === "kill") {
     const killFlagFile = setRemoteControlKillFlag(options.root);

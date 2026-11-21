@@ -1,5 +1,6 @@
-// LH-03 skill and the three MCP tools. Temporary store root from TMPDIR;
-// no live state and no network.
+// LH-03 skill and the three MCP tools (updated in LH-06 for private
+// XDG_CONFIG_HOME confinement and real h2a_remote_off persistence check).
+// Temporary store root and config dir from TMPDIR; no live state and no network.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,15 +13,22 @@ import {
   createMcpServer,
   createLocalStore
 } from "../dist/index.js";
+import { runRemoteControlVerb } from "../dist/runtime/remote-agent/index.js";
 
 function makeRoot() {
   const base = mkdtempSync(join(process.env.TMPDIR, "lh03-"));
   const root = join(base, "store");
-  mkdirSync(root, { recursive: true });
-  return { base, root };
+  const config = join(base, "config");
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  mkdirSync(config, { recursive: true, mode: 0o700 });
+  const prevXdgConfigHome = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = config;
+  return { base, root, config, prevXdgConfigHome };
 }
 
 function cleanup(dirs) {
+  if (dirs.prevXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = dirs.prevXdgConfigHome;
   rmSync(dirs.base, { recursive: true, force: true });
 }
 
@@ -84,6 +92,29 @@ test("each handler calls the same service as the matching CLI verb", () => {
     const off = server.callTool("h2a_remote_off", { session: "sess-1" });
     assert.equal(off.ok, true);
     assert.equal(off.verb, "off");
+    assert.equal(off.state, "ok");
+    assert.equal(off.excluded, true);
+    const exclPath = join(dirs.config, "sentropic", "h2a", "remote-control", "exclusions.json");
+    assert.equal(existsSync(exclPath), true, "h2a_remote_off must write exclusions under private XDG_CONFIG_HOME");
+    const stored = JSON.parse(readFileSync(exclPath, "utf8"));
+    assert.equal(stored.entries.some((e) => e.sid === off.sessionId), true);
+
+    // Explicit configDir takes priority over XDG_CONFIG_HOME
+    const explicitConfigDir = join(dirs.base, "private-explicit-config");
+    mkdirSync(explicitConfigDir, { recursive: true, mode: 0o700 });
+    const explicitOff = runRemoteControlVerb("off", {
+      root: dirs.root,
+      configDir: explicitConfigDir,
+      env: { H2A_REMOTE_CONTROL: "1", XDG_CONFIG_HOME: dirs.config },
+      isInteractive: false,
+      session: "sess-explicit"
+    });
+    assert.equal(explicitOff.ok, true);
+    const explicitExclPath = join(explicitConfigDir, "remote-control", "exclusions.json");
+    assert.equal(existsSync(explicitExclPath), true, "explicit configDir must take priority over XDG_CONFIG_HOME");
+    const xdgAfter = JSON.parse(readFileSync(exclPath, "utf8"));
+    assert.equal(xdgAfter.entries.some((e) => e.sid === explicitOff.sessionId), false);
+
     const kill = server.callTool("h2a_remote_kill", {});
     assert.equal(kill.ok, true);
     assert.equal(kill.verb, "kill");
@@ -115,6 +146,7 @@ test("the skill prints the terminal commands for the gated verbs instead of runn
   for (const verb of ["enrol", "up", "on", "revoke"]) {
     assert.match(text, new RegExp(`h2a remote ${verb}`), `skill must print the terminal command for ${verb}`);
   }
+  assert.match(text, /h2a remote on <session> --confirm on/, "skill must print the required <session> target for on");
   for (const verb of ["enrol", "up", "on"]) {
     assert.match(text, new RegExp(`--confirm ${verb}`), `skill must name the typed confirmation for ${verb}`);
   }

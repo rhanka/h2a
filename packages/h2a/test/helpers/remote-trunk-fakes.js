@@ -1,31 +1,58 @@
 /**
- * In-memory fake trunk endpoint and enrolment verifier (LH-00).
+ * In-memory fake trunk endpoint and enrolment verifier (LH-00 / LH-06).
  *
  * TEST-ONLY: lives under test/helpers, outside dist/, and is never re-exported
  * from the package root. Both fakes refuse unless the LH-00 flag is on AND
- * the test harness explicitly sealed them in with `H2A_TEST_FAKES=1` — the
- * production flag alone can never open them. The trunk fake binds the
- * signature to the full challenge (WET-2 clause 17) and consumes each
- * challenge nonce once; the enrolment fake checks the flag, binds
- * (meshId, tenantId, endpoint), consumes nonces, requires a prior
- * proof-of-possession `verifyRequest` before `approve`, and enforces the
- * clause 12 assurance, client binding and 10-minute `authTime` bound.
+ * the test harness explicitly sealed them in with `H2A_TEST_FAKES=1` AND the
+ * fixture contract version matches the pinned WET-2 text hash — the production
+ * flag alone can never open them.
  */
 
 import { createPublicKey } from "node:crypto";
 import { isRemoteControlEnabled, REMOTE_CONTROL_DISABLED_REASON } from "../../dist/runtime/remote-agent/flag.js";
-import { verifyTrunkAuthPayload } from "../../dist/runtime/remote-agent/types.js";
+import {
+  TRUNK_PROTOCOL_VERSION,
+  canonicalTrunkJson,
+  verifyTrunkAuthPayload
+} from "../../dist/runtime/remote-agent/types.js";
 
 const TEST_FAKES_ENV = "H2A_TEST_FAKES";
 const FAKES_SEALED_REASON = "fakes-sealed";
+const WET2_HASH_MISMATCH_REASON = "wet2-hash-mismatch";
 const OPERATE_ASSURANCE_CLIENT = "urn:sentropic:loa:passkey-fresh";
 const OPERATE_ASSURANCE_FACTORS = ["hwk", "user", "mfa"];
 const REMOTE_CLIENT = "remote";
 const AUTH_TIME_MAX_AGE_MS = 10 * 60 * 1000;
 
-function assertSealed(env) {
+/**
+ * SHA-256 of the UTF-8 bytes of SPEC_EVOL_REMOTE_FASTLANE.md (r7) from the
+ * section 6 heading inclusive through the section 7 heading exclusive.
+ */
+export const WET2_TEXT_HASH =
+  "0c0069544d0efbc115f142b9435d14a780c401a43b1b77aa49066048516ac050";
+
+export const FIXTURE_CONTRACT_METADATA = Object.freeze({
+  contractVersion: "WET-2",
+  wet2TextHash: WET2_TEXT_HASH
+});
+
+export function assertFixtureContractVersion(metadata) {
+  const actual = metadata?.wet2TextHash;
+  if (actual !== WET2_TEXT_HASH) {
+    return {
+      ok: false,
+      reason: WET2_HASH_MISMATCH_REASON,
+      expected: WET2_TEXT_HASH,
+      actual
+    };
+  }
+  return { ok: true, wet2TextHash: WET2_TEXT_HASH };
+}
+
+function assertSealed(env, wet2TextHash = WET2_TEXT_HASH) {
   if (!isRemoteControlEnabled(env)) return { ok: false, reason: REMOTE_CONTROL_DISABLED_REASON };
   if (env[TEST_FAKES_ENV] !== "1") return { ok: false, reason: FAKES_SEALED_REASON };
+  if (wet2TextHash !== WET2_TEXT_HASH) return { ok: false, reason: WET2_HASH_MISMATCH_REASON };
   return { ok: true };
 }
 
@@ -42,6 +69,7 @@ export class FakeTrunkEndpoint {
   #endpoint;
   #meshId;
   #env;
+  #wet2TextHash;
   #keys = new Map();
   #challenges = new Map();
   #links = new Map();
@@ -52,6 +80,14 @@ export class FakeTrunkEndpoint {
     this.#endpoint = options.endpoint;
     this.#meshId = options.meshId;
     this.#env = options.env ?? process.env;
+    this.#wet2TextHash = options.wet2TextHash ?? WET2_TEXT_HASH;
+  }
+
+  metadata() {
+    return Object.freeze({
+      contractVersion: "WET-2",
+      wet2TextHash: this.#wet2TextHash
+    });
   }
 
   registerFixtureKey(input) {
@@ -73,7 +109,7 @@ export class FakeTrunkEndpoint {
   }
 
   openLink(input) {
-    const sealed = assertSealed(this.#env);
+    const sealed = assertSealed(this.#env, this.#wet2TextHash);
     if (!sealed.ok) return sealed;
     const stored = this.#challenges.get(input.payload.nonce);
     if (!stored) return { ok: false, reason: "unknown-challenge" };
@@ -122,6 +158,7 @@ export class FakeEnrolmentVerifier {
   #endpoint;
   #meshId;
   #env;
+  #wet2TextHash;
   #nodes = new Map();
   #consumedNonces = new Set();
   #verified = new Set();
@@ -131,6 +168,14 @@ export class FakeEnrolmentVerifier {
     this.#endpoint = options.endpoint;
     this.#meshId = options.meshId;
     this.#env = options.env ?? process.env;
+    this.#wet2TextHash = options.wet2TextHash ?? WET2_TEXT_HASH;
+  }
+
+  metadata() {
+    return Object.freeze({
+      contractVersion: "WET-2",
+      wet2TextHash: this.#wet2TextHash
+    });
   }
 
   registerNode(input) {
@@ -140,7 +185,7 @@ export class FakeEnrolmentVerifier {
   }
 
   verifyRequest(input) {
-    const sealed = assertSealed(this.#env);
+    const sealed = assertSealed(this.#env, this.#wet2TextHash);
     if (!sealed.ok) return sealed;
     const node = this.#nodes.get(input.payload.nodeId);
     if (!node) return { ok: false, reason: "unknown-node" };
@@ -174,7 +219,7 @@ export class FakeEnrolmentVerifier {
   }
 
   approve(input) {
-    const sealed = assertSealed(this.#env);
+    const sealed = assertSealed(this.#env, this.#wet2TextHash);
     if (!sealed.ok) return sealed;
     const node = this.#nodes.get(input.nodeId);
     if (!node) return { ok: false, reason: "unknown-node" };
@@ -221,4 +266,105 @@ export class FakeEnrolmentVerifier {
   meshId() {
     return this.#meshId;
   }
+}
+
+/**
+ * Simulated trunk contract provider for catalogue framing (LH-06 / LH-07).
+ * Encodes a logical snapshot (<= 256 KiB) into a prefix `cat.snapshot` plus
+ * trailing `cat.delta` (`adds`) records, each <= `maxCatalogueRecordBytes`
+ * (8192 by default in the test provider).
+ */
+export function createFakeCatalogueTrunkProvider(options = {}) {
+  const env = options.env ?? process.env;
+  const wet2TextHash = options.wet2TextHash ?? WET2_TEXT_HASH;
+  const maxCatalogueRecordBytes = options.maxCatalogueRecordBytes ?? 8192;
+  const metadata = Object.freeze({ contractVersion: "WET-2", wet2TextHash });
+
+  function encodeLogicalSnapshot(snapshot, { startS = 1, ch = snapshot.ch ?? 1 } = {}) {
+    const sealed = assertSealed(env, wet2TextHash);
+    if (!sealed.ok) return { ...sealed, records: [], nextS: startS };
+
+    const allRows = [...snapshot.rows];
+    const truncatedRows = snapshot.truncatedRows ?? 0;
+    const records = [];
+    let s = startS;
+
+    // 1. Largest prefix fitting in `cat.snapshot`
+    const firstRows = [];
+    let cursor = 0;
+    while (cursor < allRows.length) {
+      const candidate = {
+        v: TRUNK_PROTOCOL_VERSION,
+        t: "cat.snapshot",
+        ch,
+        s,
+        at: snapshot.at,
+        rows: [...firstRows, allRows[cursor]],
+        truncatedRows
+      };
+      if (Buffer.byteLength(canonicalTrunkJson(candidate), "utf8") > maxCatalogueRecordBytes) {
+        break;
+      }
+      firstRows.push(allRows[cursor]);
+      cursor += 1;
+    }
+    const snapRecord = {
+      v: TRUNK_PROTOCOL_VERSION,
+      t: "cat.snapshot",
+      ch,
+      s,
+      at: snapshot.at,
+      rows: firstRows,
+      truncatedRows
+    };
+    if (Buffer.byteLength(canonicalTrunkJson(snapRecord), "utf8") > maxCatalogueRecordBytes) {
+      return { ok: false, reason: "record-too-large", records: [], nextS: startS };
+    }
+    records.push(snapRecord);
+    s += 1;
+
+    // 2. Remaining rows as `cat.delta` with `adds`
+    while (cursor < allRows.length) {
+      const batch = [];
+      while (cursor < allRows.length) {
+        const candidate = {
+          v: TRUNK_PROTOCOL_VERSION,
+          t: "cat.delta",
+          ch,
+          s,
+          at: snapshot.at,
+          adds: [...batch, allRows[cursor]],
+          updates: [],
+          removes: []
+        };
+        if (Buffer.byteLength(canonicalTrunkJson(candidate), "utf8") > maxCatalogueRecordBytes) {
+          break;
+        }
+        batch.push(allRows[cursor]);
+        cursor += 1;
+      }
+      if (batch.length === 0) {
+        return { ok: false, reason: "record-too-large", records: [], nextS: startS };
+      }
+      records.push({
+        v: TRUNK_PROTOCOL_VERSION,
+        t: "cat.delta",
+        ch,
+        s,
+        at: snapshot.at,
+        adds: batch,
+        updates: [],
+        removes: []
+      });
+      s += 1;
+    }
+
+    return { ok: true, records, nextS: s };
+  }
+
+  return {
+    maxCatalogueRecordBytes,
+    metadata,
+    encodeLogicalSnapshot
+  };
 }
