@@ -7109,15 +7109,10 @@ function renderSkillAsGeminiToml(skill: ParsedSkill): string {
   const promptHeader = `You are the ${skill.name} custom command for Gemini CLI.\n\n`;
   const promptBody = `${promptHeader}${skill.body}`;
   // TOML multiline literal: '''...''' is verbatim, no escaping needed beyond
-  // disallowing the closing triple-quote in content. The bundled skills do
-  // not contain '''.
-  return [
-    `description = "${escapedDescription}"`,
-    `prompt = '''`,
-    promptBody,
-    `'''`,
-    ""
-  ].join("\n");
+  // disallowing the closing triple-quote in content. Keep the trailing newline
+  // of `skill.body` exact without appending an extra blank line before '''.
+  const trailing = promptBody.endsWith("\n") ? "" : "\n";
+  return `description = "${escapedDescription}"\nprompt = '''\n${promptBody}${trailing}'''\n`;
 }
 
 interface HostSkillTargetSpec {
@@ -7439,36 +7434,57 @@ function collectInstallableSkills(): SkillCollection {
     dir: string | undefined,
     source: SkillProvenance,
     names: readonly string[] | undefined,
+    pathPrefix: string,
     renameTo?: (name: string) => string
-  ): { count: number; error?: { message: string; exit: number } } => {
-    if (!dir || !existsSync(dir)) return { count: 0 };
+  ): {
+    count: number;
+    entries: Array<{ name: string; path: string; sha256: string }>;
+    error?: { message: string; exit: number };
+  } => {
+    if (!dir || !existsSync(dir)) return { count: 0, entries: [] };
     const dirNames =
       names ??
       readdirSync(dir, { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name);
     let count = 0;
+    const entries: Array<{ name: string; path: string; sha256: string }> = [];
     for (const name of dirNames) {
       const outcome = readSkillFrom(dir, name, source, renameTo?.(name));
       if (outcome.kind === "skip") continue;
       if (outcome.kind === "error") {
-        return { count, error: { message: outcome.message, exit: outcome.exit } };
+        return { count, entries, error: { message: outcome.message, exit: outcome.exit } };
       }
       skills.push(outcome.skill);
+      entries.push({
+        name: outcome.skill.installName,
+        path: `${pathPrefix}/${name}/SKILL.md`,
+        sha256: nativeDigest(outcome.skill.parsed.body)
+      });
       count++;
     }
-    return { count };
+    return { count, entries };
   };
 
   // 1) h2a — this plugin's own bundled skill(s).
-  const h2aRes = collectFromDir(SKILLS_DIR, "h2a", undefined);
-  sources.push({ source: "h2a", dir: existsSync(SKILLS_DIR) ? SKILLS_DIR : null, count: h2aRes.count });
+  const h2aRes = collectFromDir(SKILLS_DIR, "h2a", undefined, "skills");
+  sources.push({
+    source: "h2a",
+    dir: existsSync(SKILLS_DIR) ? SKILLS_DIR : null,
+    count: h2aRes.count,
+    skills: h2aRes.entries
+  });
   if (h2aRes.error) return { skills, sources, error: h2aRes.error };
 
   // 2) track — rendered from the installed @sentropic/track package (native names).
   const trackDir = resolvePackageSkillSource("@sentropic/track").dir;
-  const trackRes = collectFromDir(trackDir, "track", undefined);
-  sources.push({ source: "track", dir: trackDir ?? null, count: trackRes.count });
+  const trackRes = collectFromDir(trackDir, "track", undefined, "skills");
+  sources.push({
+    source: "track",
+    dir: trackDir ?? null,
+    count: trackRes.count,
+    skills: trackRes.entries
+  });
   if (trackRes.error) return { skills, sources, error: trackRes.error };
 
   // 3) harness — rendered from the h2a vendored harness package, prefixed
@@ -7478,9 +7494,15 @@ function collectInstallableSkills(): SkillCollection {
     harnessDir,
     "harness",
     HARNESS_SKILLS.map((s) => s.name),
+    "skills/harness",
     (name) => `harness-${name}`
   );
-  sources.push({ source: "harness", dir: harnessDir ?? null, count: harnessRes.count });
+  sources.push({
+    source: "harness",
+    dir: harnessDir ?? null,
+    count: harnessRes.count,
+    skills: harnessRes.entries
+  });
   if (harnessRes.error) return { skills, sources, error: harnessRes.error };
 
   const engram = resolvePackageSkillSource('@sentropic/engram');
@@ -7567,7 +7589,11 @@ function cmdInstallSkills(
         prunedLegacy: [], skipped: 'conflicts' in result ? result.conflicts.map(path => ({ path, reason: 'customized or unknown provenance; preserved' })) : [],
         ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
         ...(host === 'vibe' ? { verifyHint: 'vibe   # skills load at session open; nouvelle session ou reprise propre' } : {}),
-        ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);
+        ...(host === 'agy' ? {
+          skillSurface: 'command only',
+          skillSurfaceReason: 'agy CLI (1.5.13) exposes no skill-listing command; skills install as shared Gemini TOML commands under .gemini/commands and require `agy plugin import gemini`',
+          importHint: 'agy plugin import gemini   # then: agy plugin enable h2a'
+        } : {}) }, null, 2)}\n`);
       return result.ok ? 0 : 2;
     } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
   }
@@ -7636,7 +7662,11 @@ function cmdInstallSkills(
         // The TOML above is written to the shared ~/.gemini location; the user
         // then pulls it into agy with `agy plugin import gemini`.
         ...(host === "agy"
-          ? { importHint: "agy plugin import gemini   # then: agy plugin enable h2a" }
+          ? {
+              skillSurface: "command only",
+              skillSurfaceReason: "agy CLI (1.5.13) exposes no skill-listing command; skills install as shared Gemini TOML commands under .gemini/commands and require `agy plugin import gemini`",
+              importHint: "agy plugin import gemini   # then: agy plugin enable h2a"
+            }
           : {}),
         // muse owns its store ($CONFIG_DIR/skills for user scope); no import
         // step — verify pickup with `muse skills list`.
