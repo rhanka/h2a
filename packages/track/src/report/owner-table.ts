@@ -24,6 +24,13 @@ import {
   qualifyVelocityEta,
   type VelocityEtaBindingInput,
 } from './velocity-eta.js'
+import {
+  formatBlockingDecisionTodoCause,
+  formatPartialScopeNoDecisionsSentence,
+  formatStrictEmptyRefLabel,
+  MOTIF_CAPTURE_INACTIVE,
+  MOTIF_POLICY_ABSENT,
+} from './owner-table-strings.js'
 
 export const OWNER_TABLE_HEADERS = [
   '#',
@@ -69,10 +76,18 @@ export interface OwnerTableRow {
   sansObjetDecisionRefs?: string[] | undefined
   /** Subset of `decisionRefs` that have an active decision blocker on this row (`🚩 D# bloquante`). */
   blockingDecisionRefs?: string[] | undefined
+  /** Additive identity links to decisions targeting this row (including OWNER GATEs). */
+  decisionIds?: string[] | undefined
+  /** Subset of `decisionIds` that have an active decision blocker on this row. */
+  blockingDecisionIds?: string[] | undefined
+  /** Subset of `decisionIds` whose targets are all withdrawn or archived. */
+  sansObjetDecisionIds?: string[] | undefined
   /** True when at least one referenced decision blocks the row (`🚩 D# bloquante`). */
   decisionBlocking?: boolean | undefined
   /** True when a conformity witness is recorded at the current stage. */
   hasWitness?: boolean | undefined
+  /** Earliest recorded creation timestamp for this row's demand or item (ISO-8601). */
+  createdAt?: string | undefined
 }
 
 export interface OwnerTableDecisionOption {
@@ -81,9 +96,12 @@ export interface OwnerTableDecisionOption {
   consequence: string
 }
 
+export type OwnerTableDecisionKind = 'decision' | 'owner-gate'
+
 export interface OwnerTableDecision {
   ref: string
   id: string
+  kind?: OwnerTableDecisionKind | undefined
   question: string
   options: OwnerTableDecisionOption[]
   recommendedLetter: string
@@ -92,6 +110,14 @@ export interface OwnerTableDecision {
   blocking?: boolean | undefined
   /** True when every target of this unanswered decision is withdrawn (`⚫ retiré`) or archived (`décision sans objet`). */
   sansObjet?: boolean | undefined
+  /** ISO-8601 timestamp when the decision (or source item for synthetic expectations) was created. */
+  createdAt?: string | undefined
+  /** True when the decision outcome is `deferred`. */
+  deferred?: boolean | undefined
+  /** Number of unanswered dossier questions (`dossier.qa` entries with empty/missing `answer`). */
+  openQuestionCount?: number | undefined
+  /** Target session name extracted for an OWNER GATE decision (`Target instance and session: <value>`). */
+  session?: string | undefined
 }
 
 export interface OwnerTableView {
@@ -494,6 +520,14 @@ function checkTextGates(
   }
 }
 
+/** Check whether a label or arbitrary display string trips any text gate (for label fallback). */
+export function hasTextGateViolation(text: string, options?: AuditOwnerTableOptions): boolean {
+  const { policy } = resolveOwnerTablePolicy(options)
+  const probe: OwnerTableGateViolation[] = []
+  checkTextGates(text, { field: 'label' }, probe, policy)
+  return probe.length > 0
+}
+
 function isBlankOrDash(value: string | undefined): boolean {
   if (value === undefined) return true
   const trimmed = value.trim()
@@ -756,20 +790,25 @@ export function auditOwnerTable(
     }
   }
 
+  const decisionById = new Map<string, OwnerTableDecision>()
   const decisionMap = new Map<string, OwnerTableDecision>()
   for (const d of view.decisions) {
-    if (decisionMap.has(d.ref)) {
-      violations.push({
-        code: 'invalid-decision',
-        check: 'decision.duplicate-ref',
-        decisionRef: d.ref,
-        decisionId: d.id,
-        message: `duplicate decision ref ${d.ref}`,
-      })
+    decisionById.set(d.id, d)
+    if (d.ref.trim() !== '') {
+      if (decisionMap.has(d.ref)) {
+        violations.push({
+          code: 'invalid-decision',
+          check: 'decision.duplicate-ref',
+          decisionRef: d.ref,
+          decisionId: d.id,
+          message: `duplicate decision ref ${d.ref}`,
+        })
+      }
+      decisionMap.set(d.ref, d)
     }
-    decisionMap.set(d.ref, d)
   }
 
+  const referencedDecisionIds = new Set<string>()
   const referencedDecisions = new Set<string>()
 
   for (const row of view.rows) {
@@ -855,11 +894,17 @@ export function auditOwnerTable(
           message: `demand-title row #${row.num} must not carry hasWitness`,
         })
       }
-      const expectedTitleBlocking = (row.blockingDecisionRefs?.length ?? 0) > 0 ? true : undefined
+      const expectedTitleBlocking =
+        (row.blockingDecisionIds?.length ?? 0) > 0 || (row.blockingDecisionRefs?.length ?? 0) > 0
+          ? true
+          : undefined
+      const hasUnlistedBlockingId =
+        row.decisionIds !== undefined &&
+        (row.blockingDecisionIds ?? []).some((id) => !row.decisionIds!.includes(id))
       const hasUnlistedBlockingRef = (row.blockingDecisionRefs ?? []).some(
         (ref) => !row.decisionRefs.includes(ref),
       )
-      if (row.decisionBlocking !== expectedTitleBlocking || hasUnlistedBlockingRef) {
+      if (row.decisionBlocking !== expectedTitleBlocking || hasUnlistedBlockingId || hasUnlistedBlockingRef) {
         violations.push({
           code: 'invalid-decision',
           check: 'row.title-blocking-inconsistent',
@@ -906,9 +951,9 @@ export function auditOwnerTable(
         }
       }
 
-      // Gate: blocking decision must make row 🔴 bloqué with "bloqué par D#" in À faire
+      // Gate: blocking decision must make row 🔴 bloqué with "bloqué par ..." in À faire
       if (row.decisionBlocking === true) {
-        if (row.decisionRefs.length === 0) {
+        if ((row.decisionIds?.length ?? 0) === 0 && row.decisionRefs.length === 0) {
           violations.push({
             code: 'invalid-decision',
             check: 'row.blocking-no-ref',
@@ -928,7 +973,7 @@ export function auditOwnerTable(
             message: `row #${row.num} has a blocking decision (🚩) and must be 🔴 bloqué`,
           })
         }
-        if (!/bloqué par D\d+/u.test(row.todo)) {
+        if (!/bloqué par (?:D\d+|OWNER GATE|décision à (?:instruire|numéroter))/u.test(row.todo)) {
           violations.push({
             code: 'blocked-without-cause',
             check: 'row.blocking-no-cause',
@@ -994,7 +1039,7 @@ export function auditOwnerTable(
             message: `row #${row.num} is ⚫ retiré without a reason in "Fait"`,
           })
         }
-        if ((row.blockingDecisionRefs?.length ?? 0) > 0) {
+        if ((row.blockingDecisionIds?.length ?? 0) > 0 || (row.blockingDecisionRefs?.length ?? 0) > 0) {
           violations.push({
             code: 'invalid-decision',
             check: 'row.withdrawn-blocking',
@@ -1030,7 +1075,101 @@ export function auditOwnerTable(
       auditRowEtaEntries(row, violations, policy, true)
     }
 
-    // Gate: row pointing to an unlisted D# or inconsistent sansObjet / withdrawn decision refs
+    // Gate: row pointing to unlisted decisions or inconsistent sansObjet / withdrawn decision links (by identity + explicit refs)
+    const emittedRowDecisionKeys = new Set<string>()
+    const rowSansObjetIdSet = new Set(row.sansObjetDecisionIds ?? [])
+    const rowBlockingIdSet = new Set(row.blockingDecisionIds ?? [])
+    if (row.decisionIds !== undefined) {
+      for (const dId of rowSansObjetIdSet) {
+        const dec = decisionById.get(dId)
+        const dLabel = dec !== undefined
+          ? (dec.ref !== '' ? dec.ref : formatStrictEmptyRefLabel(dec.kind ?? 'decision'))
+          : 'décision'
+        if (!row.decisionIds.includes(dId)) {
+          violations.push({
+            code: 'invalid-decision',
+            check: 'decision.sans-objet-inconsistent',
+            rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
+            ...(dec?.ref ? { decisionRef: dec.ref } : {}),
+            decisionId: dId,
+            message: `row #${row.num} lists ${dLabel} in sansObjetDecisionIds without including it in decisionIds`,
+          })
+        }
+        if (rowBlockingIdSet.has(dId)) {
+          emittedRowDecisionKeys.add(`decision.sans-objet-blocking:${dId}`)
+          violations.push({
+            code: 'invalid-decision',
+            check: 'decision.sans-objet-blocking',
+            rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
+            ...(dec?.ref ? { decisionRef: dec.ref } : {}),
+            decisionId: dId,
+            message: `row #${row.num} cannot mark decision ${dLabel} as both sansObjet and blocking`,
+          })
+        }
+      }
+      for (const dId of row.decisionIds) {
+        referencedDecisionIds.add(dId)
+        const dec = decisionById.get(dId)
+        if (dec === undefined) {
+          violations.push({
+            code: 'invalid-decision',
+            check: 'decision.unlisted',
+            rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
+            decisionId: dId,
+            message: `row #${row.num} points to unlisted decision`,
+          })
+        } else {
+          if (dec.ref !== '') referencedDecisions.add(dec.ref)
+          const dLabel = dec.ref !== '' ? dec.ref : formatStrictEmptyRefLabel(dec.kind ?? 'decision')
+          if (row.status === 'withdrawn' && dec.sansObjet !== true) {
+            emittedRowDecisionKeys.add(`withdrawn-not-sans-objet:${dId}`)
+            violations.push({
+              code: 'invalid-decision',
+              check: 'decision.sans-objet-inconsistent',
+              rowNum: row.num,
+              rowId: row.id,
+              cell: 'decision',
+              ...(dec.ref !== '' ? { decisionRef: dec.ref } : {}),
+              decisionId: dec.id,
+              message: `row #${row.num} is ⚫ retiré and references decision ${dLabel} which is not marked sansObjet`,
+            })
+          }
+          if (rowSansObjetIdSet.has(dId) && dec.sansObjet !== true) {
+            emittedRowDecisionKeys.add(`row-marks-non-sans-objet:${dId}`)
+            violations.push({
+              code: 'invalid-decision',
+              check: 'decision.sans-objet-inconsistent',
+              rowNum: row.num,
+              rowId: row.id,
+              cell: 'decision',
+              ...(dec.ref !== '' ? { decisionRef: dec.ref } : {}),
+              decisionId: dec.id,
+              message: `row #${row.num} marks decision ${dLabel} in sansObjetDecisionRefs, but decision ${dLabel} is not sansObjet`,
+            })
+          }
+          if (dec.sansObjet === true && !rowSansObjetIdSet.has(dId)) {
+            emittedRowDecisionKeys.add(`missing-sans-objet-mark:${dId}`)
+            violations.push({
+              code: 'invalid-decision',
+              check: 'decision.sans-objet-inconsistent',
+              rowNum: row.num,
+              rowId: row.id,
+              cell: 'decision',
+              ...(dec.ref !== '' ? { decisionRef: dec.ref } : {}),
+              decisionId: dec.id,
+              message: `row #${row.num} references sans-objet decision ${dLabel} without listing it in sansObjetDecisionRefs`,
+            })
+          }
+        }
+      }
+    }
+
     const rowSansObjetSet = new Set(row.sansObjetDecisionRefs ?? [])
     for (const ref of rowSansObjetSet) {
       if (!row.decisionRefs.includes(ref)) {
@@ -1045,15 +1184,19 @@ export function auditOwnerTable(
         })
       }
       if ((row.blockingDecisionRefs ?? []).includes(ref)) {
-        violations.push({
-          code: 'invalid-decision',
-          check: 'decision.sans-objet-blocking',
-          rowNum: row.num,
-          rowId: row.id,
-          cell: 'decision',
-          decisionRef: ref,
-          message: `row #${row.num} cannot mark decision ${ref} as both sansObjet and blocking`,
-        })
+        const dec = decisionMap.get(ref)
+        if (dec === undefined || !emittedRowDecisionKeys.has(`decision.sans-objet-blocking:${dec.id}`)) {
+          violations.push({
+            code: 'invalid-decision',
+            check: 'decision.sans-objet-blocking',
+            rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
+            decisionRef: ref,
+            ...(dec !== undefined ? { decisionId: dec.id } : {}),
+            message: `row #${row.num} cannot mark decision ${ref} as both sansObjet and blocking`,
+          })
+        }
       }
     }
     for (const ref of row.decisionRefs) {
@@ -1070,7 +1213,12 @@ export function auditOwnerTable(
           message: `row #${row.num} points to unlisted decision ${ref}`,
         })
       } else {
-        if (row.status === 'withdrawn' && dec.sansObjet !== true) {
+        referencedDecisionIds.add(dec.id)
+        if (
+          row.status === 'withdrawn' &&
+          dec.sansObjet !== true &&
+          !emittedRowDecisionKeys.has(`withdrawn-not-sans-objet:${dec.id}`)
+        ) {
           violations.push({
             code: 'invalid-decision',
             check: 'decision.sans-objet-inconsistent',
@@ -1082,7 +1230,11 @@ export function auditOwnerTable(
             message: `row #${row.num} is ⚫ retiré and references decision ${ref} which is not marked sansObjet`,
           })
         }
-        if (rowSansObjetSet.has(ref) && dec.sansObjet !== true) {
+        if (
+          rowSansObjetSet.has(ref) &&
+          dec.sansObjet !== true &&
+          !emittedRowDecisionKeys.has(`row-marks-non-sans-objet:${dec.id}`)
+        ) {
           violations.push({
             code: 'invalid-decision',
             check: 'decision.sans-objet-inconsistent',
@@ -1094,7 +1246,11 @@ export function auditOwnerTable(
             message: `row #${row.num} marks decision ${ref} in sansObjetDecisionRefs, but decision ${ref} is not sansObjet`,
           })
         }
-        if (dec.sansObjet === true && !rowSansObjetSet.has(ref)) {
+        if (
+          dec.sansObjet === true &&
+          !rowSansObjetSet.has(ref) &&
+          !emittedRowDecisionKeys.has(`missing-sans-objet-mark:${dec.id}`)
+        ) {
           violations.push({
             code: 'invalid-decision',
             check: 'decision.sans-objet-inconsistent',
@@ -1115,24 +1271,44 @@ export function auditOwnerTable(
     checkTextGates(row.todo, { rowNum: row.num, rowId: row.id, cell: 'todo', field: `row #${row.num} "À faire (qui)"` }, violations, policy)
   }
 
-  // Gate: D# without a row, or D# missing question / options / recommendation / dossierLink
+  // Gate: decision without a row, or decision missing question / options / recommendation / dossierLink
   for (const d of view.decisions) {
-    if (!referencedDecisions.has(d.ref) && d.sansObjet !== true) {
-      violations.push({
-        code: 'invalid-decision',
-        check: 'decision.no-row',
-        decisionRef: d.ref,
-        decisionId: d.id,
-        message: `decision ${d.ref} is not referenced by any row`,
-      })
-    }
+    const isOwnerGate = d.kind === 'owner-gate'
+    const dLabel = d.ref.trim() !== '' ? d.ref : formatStrictEmptyRefLabel(d.kind ?? 'decision')
+    const dRefOpt = d.ref.trim() !== '' ? { decisionRef: d.ref } : {}
+
     if (d.sansObjet === true && d.blocking === true) {
       violations.push({
         code: 'invalid-decision',
         check: 'decision.sans-objet-blocking',
-        decisionRef: d.ref,
+        ...dRefOpt,
         decisionId: d.id,
-        message: `decision ${d.ref} is sans objet and must not be marked blocking`,
+        message: `decision ${dLabel} is sans objet and must not be marked blocking`,
+      })
+    }
+
+    if (isOwnerGate) {
+      // OWNER GATE bypasses E4-E6 decision checks; text gates still apply to displayed fields.
+      if (d.session !== undefined && d.session.trim() !== '') {
+        checkTextGates(
+          d.session,
+          { decisionId: d.id, field: `decision ${dLabel} session` },
+          violations,
+          policy,
+        )
+      }
+      continue
+    }
+
+    const isReferenced =
+      referencedDecisionIds.has(d.id) || (d.ref.trim() !== '' && referencedDecisions.has(d.ref))
+    if (!isReferenced && d.sansObjet !== true) {
+      violations.push({
+        code: 'invalid-decision',
+        check: 'decision.no-row',
+        ...dRefOpt,
+        decisionId: d.id,
+        message: `decision ${dLabel} is not referenced by any row`,
       })
     }
     const validRecommendedLetter =
@@ -1146,29 +1322,29 @@ export function auditOwnerTable(
       violations.push({
         code: 'invalid-decision',
         check: 'decision.to-instruct',
-        decisionRef: d.ref,
+        ...dRefOpt,
         decisionId: d.id,
-        message: `decision ${d.ref} must carry a question, at least 2 options with consequences, and a valid recommendation`,
+        message: `decision ${dLabel} must carry a question, at least 2 options with consequences, and a valid recommendation`,
       })
     }
     if (isBlankOrDash(d.dossierLink)) {
       violations.push({
         code: 'invalid-decision',
         check: 'decision.no-dossier',
-        decisionRef: d.ref,
+        ...dRefOpt,
         decisionId: d.id,
-        message: `decision ${d.ref} is missing a dossier link`,
+        message: `decision ${dLabel} is missing a dossier link`,
       })
     }
-    checkTextGates(d.question, { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} question` }, violations, policy)
-    checkTextGates(d.recommendation, { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} recommendation` }, violations, policy)
+    checkTextGates(d.question, { ...dRefOpt, decisionId: d.id, field: `decision ${dLabel} question` }, violations, policy)
+    checkTextGates(d.recommendation, { ...dRefOpt, decisionId: d.id, field: `decision ${dLabel} recommendation` }, violations, policy)
     if (d.dossierLink !== undefined) {
-      checkTextGates(d.dossierLink, { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} dossierLink` }, violations, policy)
+      checkTextGates(d.dossierLink, { ...dRefOpt, decisionId: d.id, field: `decision ${dLabel} dossierLink` }, violations, policy)
     }
     for (const opt of d.options) {
       checkTextGates(
         `${opt.label} ${opt.consequence}`,
-        { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} option ${opt.letter}` },
+        { ...dRefOpt, decisionId: d.id, field: `decision ${dLabel} option ${opt.letter}` },
         violations,
         policy,
       )
@@ -1231,7 +1407,11 @@ export function renderOwnerTable(
   lines.push("**Décisions qui t'attendent**")
   lines.push('')
   if (view.decisions.length === 0) {
-    lines.push('Aucune décision en attente.')
+    const scopeMotifs =
+      audit.notices !== undefined && audit.notices.length > 0
+        ? [MOTIF_CAPTURE_INACTIVE, MOTIF_POLICY_ABSENT]
+        : [MOTIF_CAPTURE_INACTIVE]
+    lines.push(formatPartialScopeNoDecisionsSentence(scopeMotifs))
   } else {
     for (const d of view.decisions) {
       const refHeading = d.sansObjet === true ? `**${d.ref}** (décision sans objet)` : `**${d.ref}**`
@@ -1246,8 +1426,11 @@ export function renderOwnerTable(
       lines.push(`  - Reco : **${d.recommendedLetter}** (${cleanDisplayText(d.recommendation)})${dossierSuffix}`)
     }
   }
-  lines.push('')
-  lines.push(`\`${view.replyLine}\``)
+  const hasReservedReply = view.replyLine.includes('aucune décision en attente')
+  if (view.replyLine !== '' && !hasReservedReply) {
+    lines.push('')
+    lines.push(`\`${view.replyLine}\``)
+  }
 
   return lines.join('\n') + '\n'
 }
@@ -1364,6 +1547,7 @@ export function projectOwnerTable(
   const everOwnerItemIds = new Set<string>()
   const historicalItemNumbers = new Map<string, number>()
   const historicalItemRequests = new Map<string, string>()
+  const createdAtByAggregate = new Map<string, string>()
 
   const promotedItemIds = new Set<string>()
   for (const demand of state.demands.values()) {
@@ -1371,6 +1555,16 @@ export function projectOwnerTable(
   }
 
   for (const ev of events) {
+    if (
+      typeof ev.at === 'string' &&
+      !createdAtByAggregate.has(ev.aggregateId) &&
+      (ev.type === 'demand.raised' ||
+        ev.type === 'item.created' ||
+        ev.type === 'decision.created' ||
+        ev.type === 'item.report-updated')
+    ) {
+      createdAtByAggregate.set(ev.aggregateId, ev.at)
+    }
     if (ev.type === 'demand.owner-numbered') {
       const demand = state.demands.get(ev.aggregateId)
       if (options.workspace !== undefined && demand !== undefined && demand.workspace !== options.workspace) continue
@@ -1567,10 +1761,26 @@ export function projectOwnerTable(
     pendingDecisions.push(decision)
   }
 
+  const isOwnerGateTitle = (title: string): boolean => title.trimStart().startsWith('OWNER GATE')
+
+  const extractOwnerGateSession = (context: string | undefined): string | undefined => {
+    if (context === undefined) return undefined
+    for (const line of context.split('\n')) {
+      const match = /^\s*Target instance and session:\s*(.+?)\s*$/iu.exec(line)
+      if (match !== null && match[1] !== undefined && match[1].trim() !== '') {
+        return match[1].trim()
+      }
+    }
+    return undefined
+  }
+
   const sansObjetDecisionIds = new Set<string>()
   const decisionRefById = new Map<string, string>()
-  const ownerDecisions: OwnerTableDecision[] = pendingDecisions.map((d, idx) => {
-    const ref = `D${idx + 1}`
+  const ownerDecisionById = new Map<string, OwnerTableDecision>()
+  let nextDecisionNum = 1
+  const ownerDecisions: OwnerTableDecision[] = pendingDecisions.map((d) => {
+    const isGate = isOwnerGateTitle(d.title)
+    const ref = isGate ? '' : `D${nextDecisionNum++}`
     decisionRefById.set(d.id, ref)
     const sansObjet =
       d.targets.length > 0 && d.targets.every((targetId) => isTargetWithdrawnOrArchived(targetId))
@@ -1599,9 +1809,16 @@ export function projectOwnerTable(
       [...state.blockers.values()].some(
         (b) => b.open && b.kind === 'decision' && b.ref === d.id,
       )
-    return {
+    const rawQa = Array.isArray(d.dossier?.qa) ? d.dossier.qa : []
+    const openQuestionCount = rawQa.filter(
+      (q) => q.answer === undefined || q.answer.trim() === '',
+    ).length
+    const createdAt = createdAtByAggregate.get(d.id)
+    const session = isGate ? extractOwnerGateSession(d.dossier?.context) : undefined
+    const entry: OwnerTableDecision = {
       ref,
       id: d.id,
+      kind: isGate ? 'owner-gate' : 'decision',
       question: cleanDisplayText(shortDecisionSubject(d.title)),
       options: optionsList,
       recommendedLetter,
@@ -1609,7 +1826,13 @@ export function projectOwnerTable(
       ...(artifactLink !== undefined ? { dossierLink: artifactLink } : {}),
       blocking: hasOpenBlocker,
       ...(sansObjet ? { sansObjet: true } : {}),
+      ...(createdAt !== undefined ? { createdAt } : {}),
+      deferred: d.outcome === 'deferred',
+      openQuestionCount,
+      ...(session !== undefined ? { session } : {}),
     }
+    ownerDecisionById.set(d.id, entry)
+    return entry
   })
 
   const decisionTargetsItem = (
@@ -1693,10 +1916,13 @@ export function projectOwnerTable(
         }
       }
     }
+    const rowDecisionIds: string[] = [...linkedDecisionIds]
     const explicitRefs = status === 'withdrawn' ? [] : (report?.decisionRefs ?? [])
     const rowDecisionRefs = [
       ...explicitRefs,
-      ...[...linkedDecisionIds].map((id) => decisionRefById.get(id)).filter((r): r is string => r !== undefined),
+      ...rowDecisionIds
+        .map((id) => decisionRefById.get(id))
+        .filter((r): r is string => r !== undefined && r !== ''),
     ]
     const uniqueDecisionRefs = [...new Set(rowDecisionRefs)]
 
@@ -1717,11 +1943,10 @@ export function projectOwnerTable(
             })
           })()
 
+    const blockingDecisionIdSet = new Set<string>()
     const blockingDecisionRefSet = new Set<string>()
     if (status !== 'withdrawn') {
       for (const dId of linkedDecisionIds) {
-        const ref = decisionRefById.get(dId)
-        if (ref === undefined) continue
         const isBlockingThisRow =
           openDecisionBlockers.some((b) => b.ref === undefined || b.ref === dId) ||
           (rowKind === 'single' &&
@@ -1729,18 +1954,31 @@ export function projectOwnerTable(
             [...state.blockers.values()].some(
               (b) => b.open && b.kind === 'decision' && b.targetId === demand.id && b.ref === dId,
             ))
-        if (isBlockingThisRow) blockingDecisionRefSet.add(ref)
+        if (isBlockingThisRow) {
+          blockingDecisionIdSet.add(dId)
+          const ref = decisionRefById.get(dId)
+          if (ref !== undefined && ref !== '') blockingDecisionRefSet.add(ref)
+        }
       }
       if (!pausedByOwner && report?.decisionBlocking === true) {
+        for (const dId of rowDecisionIds) blockingDecisionIdSet.add(dId)
         for (const ref of uniqueDecisionRefs) blockingDecisionRefSet.add(ref)
       }
     }
 
     // Also incorporate item.report.decisionExpectations if set and no native Decision exists
-    if (status !== 'withdrawn' && report?.decisionExpectations !== undefined && uniqueDecisionRefs.length === 0) {
-      const ref = `D${ownerDecisions.length + 1}`
+    if (
+      status !== 'withdrawn' &&
+      report?.decisionExpectations !== undefined &&
+      rowDecisionIds.length === 0 &&
+      uniqueDecisionRefs.length === 0
+    ) {
+      const ref = `D${nextDecisionNum++}`
+      const syntheticId = `${rowId}:expectation`
+      rowDecisionIds.push(syntheticId)
       uniqueDecisionRefs.push(ref)
       if (report.decisionBlocking === true || openDecisionBlockers.length > 0) {
+        blockingDecisionIdSet.add(syntheticId)
         blockingDecisionRefSet.add(ref)
       }
       const opts = report.decisionExpectations.options.map((o, idx) => ({
@@ -1748,30 +1986,47 @@ export function projectOwnerTable(
         label: cleanDisplayText(o.label),
         consequence: cleanDisplayText(o.consequence),
       }))
-      ownerDecisions.push({
+      const syntheticCreatedAt =
+        createdAtByAggregate.get(item?.id ?? rowId) ?? createdAtByAggregate.get(rowId)
+      const syntheticEntry: OwnerTableDecision = {
         ref,
-        id: `${rowId}:expectation`,
+        id: syntheticId,
+        kind: 'decision',
         question: cleanDisplayText(report.decisionExpectations.question),
         options: opts,
         recommendedLetter: '',
         recommendation: '',
-        dossierLink: report.decisionExpectations.dossier,
-        blocking: blockingDecisionRefSet.has(ref),
-      })
+        ...(report.decisionExpectations.dossier !== undefined
+          ? { dossierLink: report.decisionExpectations.dossier }
+          : {}),
+        blocking: blockingDecisionIdSet.has(syntheticId),
+        ...(syntheticCreatedAt !== undefined ? { createdAt: syntheticCreatedAt } : {}),
+        deferred: false,
+        openQuestionCount: 0,
+      }
+      decisionRefById.set(syntheticId, ref)
+      ownerDecisionById.set(syntheticId, syntheticEntry)
+      ownerDecisions.push(syntheticEntry)
     }
 
+    const sansObjetDecisionIdSet = new Set<string>()
     const sansObjetDecisionRefSet = new Set<string>()
     for (const dId of linkedDecisionIds) {
       if (sansObjetDecisionIds.has(dId)) {
+        sansObjetDecisionIdSet.add(dId)
         const ref = decisionRefById.get(dId)
-        if (ref !== undefined) sansObjetDecisionRefSet.add(ref)
+        if (ref !== undefined && ref !== '') sansObjetDecisionRefSet.add(ref)
       }
     }
+    const rowSansObjetIds = rowDecisionIds.filter((dId) => sansObjetDecisionIdSet.has(dId))
+    const rowBlockingIds = rowDecisionIds.filter((dId) => blockingDecisionIdSet.has(dId))
     const sansObjetDecisionRefs = uniqueDecisionRefs.filter((ref) => sansObjetDecisionRefSet.has(ref))
     const blockingDecisionRefs = uniqueDecisionRefs.filter((ref) => blockingDecisionRefSet.has(ref))
     const decisionBlocking =
       status !== 'withdrawn' &&
-      (blockingDecisionRefs.length > 0 || (!pausedByOwner && report?.decisionBlocking === true))
+      (rowBlockingIds.length > 0 ||
+        blockingDecisionRefs.length > 0 ||
+        (!pausedByOwner && report?.decisionBlocking === true))
 
     if (decisionBlocking) {
       status = 'blocked'
@@ -1962,8 +2217,29 @@ export function projectOwnerTable(
         .filter((r) => r.length > 0)
 
       const baseTodoParts: string[] = []
-      if (blockingDecisionRefs.length > 0) {
-        baseTodoParts.push(`bloqué par ${blockingDecisionRefs.join(' · ')} (owner)`)
+      if (rowBlockingIds.length > 0) {
+        for (const dId of rowBlockingIds) {
+          const dec = ownerDecisionById.get(dId)
+          if (dec === undefined) continue
+          baseTodoParts.push(
+            formatBlockingDecisionTodoCause({
+              kind: dec.kind ?? 'decision',
+              ref: dec.ref !== '' ? dec.ref : null,
+              isToInstruct: false,
+              session: dec.session ?? null,
+            }),
+          )
+        }
+      } else if (blockingDecisionRefs.length > 0) {
+        for (const ref of blockingDecisionRefs) {
+          baseTodoParts.push(
+            formatBlockingDecisionTodoCause({
+              kind: 'decision',
+              ref,
+              isToInstruct: false,
+            }),
+          )
+        }
       }
       if (blockerReasons.length > 0) {
         baseTodoParts.push(...new Set(blockerReasons))
@@ -1993,6 +2269,10 @@ export function projectOwnerTable(
       todoText = baseTodoParts.length > 0 ? baseTodoParts.join(' ; ') : '—'
     }
 
+    const rowCreatedAt =
+      createdAtByAggregate.get(rowId) ??
+      (item !== undefined ? createdAtByAggregate.get(item.id) : undefined)
+
     return {
       kind: rowKind,
       ...(parentDemandId !== undefined ? { parentDemandId } : {}),
@@ -2009,8 +2289,12 @@ export function projectOwnerTable(
       decisionRefs: uniqueDecisionRefs,
       ...(sansObjetDecisionRefs.length > 0 ? { sansObjetDecisionRefs } : {}),
       ...(blockingDecisionRefs.length > 0 ? { blockingDecisionRefs } : {}),
+      decisionIds: rowDecisionIds,
+      ...(rowBlockingIds.length > 0 ? { blockingDecisionIds: rowBlockingIds } : {}),
+      ...(rowSansObjetIds.length > 0 ? { sansObjetDecisionIds: rowSansObjetIds } : {}),
       ...(decisionBlocking ? { decisionBlocking: true } : {}),
       hasWitness,
+      ...(rowCreatedAt !== undefined ? { createdAt: rowCreatedAt } : {}),
     }
   }
 
@@ -2024,29 +2308,29 @@ export function projectOwnerTable(
       const titleRequest = cleanDisplayText(rawTitleRequest)
 
       // Decisions targeting the demand itself (not individual lots)
-      const titleDecisionIds = new Set<string>()
+      const titleDecisionIds: string[] = []
       for (const d of pendingDecisions) {
         if (d.targets.includes(demand.id)) {
-          titleDecisionIds.add(d.id)
+          titleDecisionIds.push(d.id)
         }
       }
-      const titleDecisionRefs = [...titleDecisionIds]
+      const titleDecisionRefs = titleDecisionIds
         .map((id) => decisionRefById.get(id))
-        .filter((r): r is string => r !== undefined)
-      const titleSansObjetRefs = [...titleDecisionIds]
-        .filter((dId) => sansObjetDecisionIds.has(dId))
+        .filter((r): r is string => r !== undefined && r !== '')
+      const titleSansObjetIds = titleDecisionIds.filter((dId) => sansObjetDecisionIds.has(dId))
+      const titleSansObjetRefs = titleSansObjetIds
         .map((dId) => decisionRefById.get(dId))
-        .filter((r): r is string => r !== undefined)
-      const titleBlockingRefs = [...titleDecisionIds]
-        .filter(
-          (dId) =>
-            !sansObjetDecisionIds.has(dId) &&
-            [...state.blockers.values()].some(
-              (b) => b.open && b.kind === 'decision' && b.targetId === demand.id && b.ref === dId,
-            ),
-        )
+        .filter((r): r is string => r !== undefined && r !== '')
+      const titleBlockingIds = titleDecisionIds.filter(
+        (dId) =>
+          !sansObjetDecisionIds.has(dId) &&
+          [...state.blockers.values()].some(
+            (b) => b.open && b.kind === 'decision' && b.targetId === demand.id && b.ref === dId,
+          ),
+      )
+      const titleBlockingRefs = titleBlockingIds
         .map((dId) => decisionRefById.get(dId))
-        .filter((r): r is string => r !== undefined)
+        .filter((r): r is string => r !== undefined && r !== '')
 
       // Demand-level ETA (demand.eta-set) shows on the title row only if set, with its own slip/rebaseline logic
       const activeDemandEtas = (demand.etaJournal ?? []).filter((j) => j.delivered !== true)
@@ -2079,6 +2363,7 @@ export function projectOwnerTable(
               .map((ev) => ev.eta)
           : []
 
+      const titleCreatedAt = createdAtByAggregate.get(demand.id)
       rows.push({
         kind: 'demand-title',
         num: c.num,
@@ -2090,9 +2375,13 @@ export function projectOwnerTable(
         todo: '—',
         decisionRefs: titleDecisionRefs,
         ...(titleSansObjetRefs.length > 0 ? { sansObjetDecisionRefs: titleSansObjetRefs } : {}),
-        ...(titleBlockingRefs.length > 0
-          ? { blockingDecisionRefs: titleBlockingRefs, decisionBlocking: true }
+        ...(titleBlockingRefs.length > 0 ? { blockingDecisionRefs: titleBlockingRefs } : {}),
+        decisionIds: titleDecisionIds,
+        ...(titleSansObjetIds.length > 0 ? { sansObjetDecisionIds: titleSansObjetIds } : {}),
+        ...(titleBlockingIds.length > 0
+          ? { blockingDecisionIds: titleBlockingIds, decisionBlocking: true }
           : {}),
+        ...(titleCreatedAt !== undefined ? { createdAt: titleCreatedAt } : {}),
       })
 
       c.items.forEach((lotItem, idx) => {
@@ -2150,13 +2439,17 @@ export function projectOwnerTable(
     }
   }
 
-  const hasActiveNumberedRow = rows.some((row) => Number.isInteger(row.num) && row.num >= 1)
+  const replyEligible = ownerDecisions.filter(
+    (d) =>
+      d.kind !== 'owner-gate' &&
+      d.ref !== '' &&
+      d.recommendedLetter !== '' &&
+      d.recommendation !== '',
+  )
   const replyLine =
-    ownerDecisions.length > 0
-      ? `Réponse : ${ownerDecisions.map((d) => `${d.ref} ${d.recommendedLetter}`).join(' · ')}`
-      : hasActiveNumberedRow
-        ? 'Réponse : aucune décision en attente'
-        : ''
+    replyEligible.length > 0
+      ? `Réponse : ${replyEligible.map((d) => `${d.ref} ${d.recommendedLetter}`).join(' · ')}`
+      : ''
 
   return {
     kind: 'owner-table-report',
