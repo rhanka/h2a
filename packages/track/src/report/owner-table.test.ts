@@ -2082,9 +2082,6 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
       'enregistre et numérote les demandes avec `track demand raise` puis `track demand number <id> <n>`, ' +
       'ou utilise `track report --status-table` pour la vue technique)'
-    const expectedAllArchivedMsg =
-      'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
-      'tableau owner vide refusé'
 
     // (b1) Journal exists with non-demand events (0 demand.* events)
     track.createItem({ kind: 'chore', title: 'Tâche technique sans demande owner', workspace: 'ws-empty' })
@@ -2161,7 +2158,58 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     expect(outOrphan.join('') + errOrphan.join('')).not.toContain('Aucune décision en attente')
     expect(outOrphan.join('') + errOrphan.join('')).not.toContain('Réponse : aucune décision en attente')
 
-    // (b3) Journal where all owner-numbered demands are archived -> still refuses empty table
+    // (b4) Fresh `track init` directory (empty .track, 0 events) and unnumbered `demand.raised` (0 `demand.owner-numbered`)
+    const initDir = mkdtempSync(join(tmpdir(), 'track-owner-fresh-init-'))
+    try {
+      expect(runCli(['init'], { cwd: initDir, out: () => {}, err: () => {} })).toBe(0)
+      const initOut: string[] = []
+      const initErr: string[] = []
+      const initCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: initDir,
+        out: (s) => initOut.push(s),
+        err: (s) => initErr.push(s),
+      })
+      expect(initCode).toBe(1)
+      expect(initOut.join('')).toBe('')
+      expect(initErr.join('')).toContain(
+        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}\n`,
+      )
+      expect(initOut.join('') + initErr.join('')).not.toContain('Aucune décision en attente')
+      expect(initOut.join('') + initErr.join('')).not.toContain('Réponse : aucune décision en attente')
+
+      // Raising a demand without numbering it still has zero owner-numbered demands
+      const unnumberedTrack = new Track(new EventStore(join(initDir, '.track', 'events.jsonl')), {
+        by: 'test-owner-table',
+        now: () => clock,
+      })
+      unnumberedTrack.raiseDemand({
+        type: 'feature',
+        workspace: 'ws-init',
+        raw: { text: 'Demande non numérotée' },
+        source: { kind: 'human' },
+      })
+      const unnumOut: string[] = []
+      const unnumErr: string[] = []
+      const unnumCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+        cwd: initDir,
+        out: (s) => unnumOut.push(s),
+        err: (s) => unnumErr.push(s),
+      })
+      expect(unnumCode).toBe(1)
+      expect(unnumOut.join('')).toBe('')
+      expect(unnumErr.join('')).toContain(`[no-owner-demands] ${expectedNoDemandsMsg}`)
+      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Aucune décision en attente')
+      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Réponse : aucune décision en attente')
+    } finally {
+      rmSync(initDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a journal whose numbered demands are all archived with its own message and never the absolute sentence (T0-b)', () => {
+    const expectedAllArchivedMsg =
+      'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
+      'tableau owner vide refusé'
+
     const archivedDir = mkdtempSync(join(tmpdir(), 'track-owner-all-archived-'))
     try {
       const archivedStore = new EventStore(join(archivedDir, '.track', 'events.jsonl'))
@@ -2208,52 +2256,6 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       expect(archOut.join('') + archErr.join('')).not.toContain('Réponse : aucune décision en attente')
     } finally {
       rmSync(archivedDir, { recursive: true, force: true })
-    }
-
-    // (b4) Fresh `track init` directory (empty .track, 0 events) and unnumbered `demand.raised` (0 `demand.owner-numbered`)
-    const initDir = mkdtempSync(join(tmpdir(), 'track-owner-fresh-init-'))
-    try {
-      expect(runCli(['init'], { cwd: initDir, out: () => {}, err: () => {} })).toBe(0)
-      const initOut: string[] = []
-      const initErr: string[] = []
-      const initCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
-        cwd: initDir,
-        out: (s) => initOut.push(s),
-        err: (s) => initErr.push(s),
-      })
-      expect(initCode).toBe(1)
-      expect(initOut.join('')).toBe('')
-      expect(initErr.join('')).toContain(
-        `error: REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}\n`,
-      )
-      expect(initOut.join('') + initErr.join('')).not.toContain('Aucune décision en attente')
-      expect(initOut.join('') + initErr.join('')).not.toContain('Réponse : aucune décision en attente')
-
-      // Raising a demand without numbering it still has zero owner-numbered demands
-      const unnumberedTrack = new Track(new EventStore(join(initDir, '.track', 'events.jsonl')), {
-        by: 'test-owner-table',
-        now: () => clock,
-      })
-      unnumberedTrack.raiseDemand({
-        type: 'feature',
-        workspace: 'ws-init',
-        raw: { text: 'Demande non numérotée' },
-        source: { kind: 'human' },
-      })
-      const unnumOut: string[] = []
-      const unnumErr: string[] = []
-      const unnumCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
-        cwd: initDir,
-        out: (s) => unnumOut.push(s),
-        err: (s) => unnumErr.push(s),
-      })
-      expect(unnumCode).toBe(1)
-      expect(unnumOut.join('')).toBe('')
-      expect(unnumErr.join('')).toContain(`[no-owner-demands] ${expectedNoDemandsMsg}`)
-      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Aucune décision en attente')
-      expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Réponse : aucune décision en attente')
-    } finally {
-      rmSync(initDir, { recursive: true, force: true })
     }
   })
 })
