@@ -159,7 +159,8 @@ function selectHostTempBase(env = process.env) {
 
 function probeBwrapNamespace({ unshareNet = false, probeDir }) {
   const witness = join(probeDir, "probe-ro");
-  writeFileSync(witness, "ro\n", { mode: 0o444 });
+  rmSync(witness, { force: true });
+  writeFileSync(witness, "ro\n", { mode: 0o644 });
   const rwDir = join(probeDir, "probe-rw");
   mkdirSync(rwDir, { recursive: true, mode: 0o700 });
 
@@ -936,6 +937,7 @@ async function main() {
       COMPAT_TMP_TARGET,
       "aliases/qual-tmp",
       "aliases/test-runtime",
+      ...(roleInfo.role === "m17-run" ? ["m17"] : []),
     ]) {
       mkdirSync(join(hostH, sub), { recursive: true, mode: 0o700 });
     }
@@ -948,7 +950,7 @@ async function main() {
 
     const nonce = randomBytes(24).toString("hex");
     const roWitnessHost = join(controlDir, "ro-witness");
-    writeFileSync(roWitnessHost, `h2a-d16-ro-witness:${nonce}\n`, { mode: 0o444 });
+    writeFileSync(roWitnessHost, `h2a-d16-ro-witness:${nonce}\n`, { mode: 0o644 });
     const receiptHost = join(controlDir, "receipt.json");
     writeFileSync(receiptHost, "{}\n", { mode: 0o600 });
 
