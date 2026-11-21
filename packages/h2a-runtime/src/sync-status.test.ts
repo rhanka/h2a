@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   rmSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -31,10 +32,7 @@ import {
 // Scratch dir & HOME isolation
 // ---------------------------------------------------------------------------
 
-const SCRATCH_BASE = join(
-  process.cwd(),
-  "packages/remote-cli/.test-scratch/sync-status",
-);
+const SCRATCH_BASE = join(tmpdir(), "sync-status");
 
 let tmpHome: string;
 let prevHome: string | undefined;
