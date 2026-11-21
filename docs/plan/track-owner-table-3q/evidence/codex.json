@@ -4,6 +4,10 @@
   "cliVersion": "0.163.0",
   "qualifiedOn": "2026-11-20",
   "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
   "hookPoint": "UserPromptSubmit",
   "hookConfigLevel": "project",
   "projectConfigPath": "<throwaway-git-project>/.codex/hooks.json",
@@ -11,7 +15,9 @@
     "blockedBeforeModelCall": true,
     "exitCode": 0,
     "recordCount": 1,
-    "eventTags": ["message"],
+    "eventTags": [
+      "message"
+    ],
     "requiresGitRepo": true,
     "requiresHookTrustOrFlag": "--dangerously-bypass-hook-trust",
     "sentDigest": "1ba3f1492ba7db78d6f775a1261ba80740dbb5462bf7e05520f2e8644d1e146d",
@@ -44,7 +50,10 @@
   },
   "subAgentProbe": {
     "executed": true,
-    "subAgentToolsObserved": ["collaborationspawn_agent", "collaborationwait_agent"],
+    "subAgentToolsObserved": [
+      "collaborationspawn_agent",
+      "collaborationwait_agent"
+    ],
     "messageHookCount": 1,
     "messageHookFiredForSubAgent": false,
     "subAgentMarker": "never-fires"

@@ -4,6 +4,10 @@
   "cliVersion": "2.1.330",
   "qualifiedOn": "2026-11-20",
   "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
   "hookPoint": "UserPromptSubmit",
   "hookConfigLevel": "project",
   "projectConfigPath": "<throwaway-project>/.claude/settings.json",
@@ -11,7 +15,9 @@
     "blockedBeforeModelCall": true,
     "exitCode": 0,
     "recordCount": 1,
-    "eventTags": ["message"],
+    "eventTags": [
+      "message"
+    ],
     "sentDigest": "9dd015118d4a7af0eb8b2dcaaedfa3e1e29bd65486bf0a1e9850463255dbf132",
     "receivedDigest": "9dd015118d4a7af0eb8b2dcaaedfa3e1e29bd65486bf0a1e9850463255dbf132",
     "byteIdentical": true,
@@ -62,7 +68,10 @@
   "subAgentProbe": {
     "executed": true,
     "subAgentToolObserved": "Agent",
-    "subAgentEventsObserved": ["SubagentStart", "SubagentStop"],
+    "subAgentEventsObserved": [
+      "SubagentStart",
+      "SubagentStop"
+    ],
     "messageHookCount": 1,
     "messageHookFiredForSubAgent": false,
     "subAgentMarker": "never-fires"

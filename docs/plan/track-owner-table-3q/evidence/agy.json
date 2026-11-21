@@ -4,6 +4,10 @@
   "cliVersion": "1.5.13",
   "qualifiedOn": "2026-11-20",
   "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
   "hookPoint": "PreInvocation",
   "hookConfigLevel": "project",
   "projectConfigPath": "<throwaway-project>/.agents/hooks.json",
@@ -11,7 +15,10 @@
     "blockedBeforeModelCall": false,
     "exitCode": 0,
     "recordCount": 2,
-    "eventTags": ["message", "stop"],
+    "eventTags": [
+      "message",
+      "stop"
+    ],
     "sentDigest": "a5113be374f978ce39c6f848183602e7fdcc418010ffcfbd60744a91858db8e9",
     "receivedDigest": "a5113be374f978ce39c6f848183602e7fdcc418010ffcfbd60744a91858db8e9",
     "byteIdentical": true,
