@@ -43,6 +43,11 @@ import type { RegistryEntry } from "../registry/descriptors.js";
 import { ensureLocalBinH2aFallback, readPluginDeclaration, rebootstrapMissingPluginLock, type LocalBinFallbackDiagnostics } from "../registry/host-bootstrap.js";
 import { registryPackageManifest } from "../registry/manifest.js";
 import { CLAUDE_NATIVE_MCP_ROOT_KEY } from "./installation-doctor-contract.js";
+import {
+  collectExpectedDirectHostSkills,
+  convergeDirectHostSkillsAndCommand,
+  trackSlashCommandTarget
+} from "./native-skills.js";
 
 export const H2A_PLUGIN_SELECTOR = "h2a@sentropic";
 export const H2A_MARKETPLACE_NAME = "sentropic";
@@ -125,7 +130,10 @@ export interface HostInstallationFinding {
     | "ownership-unverified"
     | "repair-marker-unavailable"
     | "repair-marker-write-failed"
-    | "runtime-artifact-unavailable";
+    | "runtime-artifact-unavailable"
+    | "skill-missing"
+    | "skill-stale"
+    | "command-stale";
   readonly message: string;
   readonly path?: string;
 }
@@ -328,6 +336,7 @@ function hostFindingBucket(entry: HostInstallationFinding): HostFindingBucket {
   if (["host-cli-unavailable", "host-config-unavailable", "host-config-unverifiable", "ownership-unverified", "repair-marker-unavailable", "runtime-artifact-unavailable"].includes(entry.code)) {
     return "unverifiable";
   }
+  if (["skill-missing", "skill-stale", "command-stale"].includes(entry.code)) return "failure";
   return "failure";
 }
 
@@ -1298,6 +1307,85 @@ function recordRepairMarker(
   }
 }
 
+function inspectHostSkillsAndCommand(host: Host, root: string, report: MutableHostReport): void {
+  const skillsDir = join(root, "skills");
+  if (existsSync(skillsDir)) {
+    const expectedSkills = collectExpectedDirectHostSkills();
+    for (const skill of expectedSkills) {
+      const skillDir = join(skillsDir, skill.installName);
+      const skillPath = join(skillDir, "SKILL.md");
+      if (existsSync(skillPath)) {
+        try {
+          if (!readFileSync(skillPath).equals(Buffer.from(skill.raw))) {
+            report.findings.push(
+              finding("skill-stale", `${host} installed skill ${skill.installName} differs from current version.`, skillPath)
+            );
+          }
+        } catch (error) {
+          report.findings.push(
+            finding("skill-stale", `cannot read ${host} skill ${skill.installName}: ${(error as Error).message}`, skillPath)
+          );
+        }
+      } else if (existsSync(skillDir)) {
+        report.findings.push(
+          finding("skill-missing", `${host} installed skill ${skill.installName} is missing SKILL.md.`, skillPath)
+        );
+      }
+    }
+  }
+  const cmdTarget = trackSlashCommandTarget(host, root);
+  if (cmdTarget && existsSync(cmdTarget.path)) {
+    try {
+      if (!readFileSync(cmdTarget.path).equals(Buffer.from(cmdTarget.expected))) {
+        report.findings.push(
+          finding("command-stale", `${host} /track command differs from current version.`, cmdTarget.path)
+        );
+      }
+    } catch (error) {
+      report.findings.push(
+        finding("command-stale", `cannot read ${host} /track command: ${(error as Error).message}`, cmdTarget.path)
+      );
+    }
+  }
+}
+
+function repairHostSkillsAndCommand(
+  host: Host,
+  root: string,
+  version: string,
+  report: MutableHostReport,
+  dryRun: boolean
+): void {
+  const skillFindings = report.findings.filter(
+    (entry) => entry.code === "skill-missing" || entry.code === "skill-stale"
+  );
+  const hasStaleCommand = report.findings.some((entry) => entry.code === "command-stale");
+  if (skillFindings.length === 0 && !hasStaleCommand) return;
+
+  const affectedPaths = new Set(skillFindings.map((entry) => entry.path).filter((p): p is string => Boolean(p)));
+  const expectedSkills = collectExpectedDirectHostSkills().filter((skill) =>
+    affectedPaths.has(join(root, "skills", skill.installName, "SKILL.md"))
+  );
+  const converged = convergeDirectHostSkillsAndCommand({
+    host,
+    root,
+    version,
+    skills: expectedSkills,
+    renderGemini: () => "",
+    force: false,
+    dryRun,
+    checkTrackCommand: hasStaleCommand
+  });
+  for (const path of converged.installed) {
+    if (dryRun) planAction(report, `converge ${host} skill artifact ${path}`);
+    else pushUnique(report.changed, path);
+  }
+  for (const pruned of converged.prunedCommands) {
+    if (dryRun) planAction(report, `purge historical ${host} /track command ${pruned.path}`);
+    else pushUnique(report.changed, pruned.path);
+  }
+}
+
 function inspectCodex(home: string, version: string): MutableHostReport {
   const configPath = codexConfigPath(home);
   const cachePath = join(codexRoot(home), "plugins", "cache");
@@ -1388,6 +1476,7 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     report.findings.push(finding("standalone-track-mcp", "Codex has a standalone track-mcp endpoint; track_* must be served by h2a.", configPath));
   }
   report.coherencePaths.push(...loadBearingArtifacts(report, [currentCachePath], [configPath]));
+  inspectHostSkillsAndCommand("codex", codexRoot(home), report);
   inspectRepairMarker(home, report);
   return report;
 }
@@ -1494,6 +1583,7 @@ function inspectClaude(home: string, version: string): MutableHostReport {
     canonicalEntries.flatMap((entry) => typeof entry.installPath === "string" ? [entry.installPath] : []),
     claudeConfigPaths(home)
   ));
+  inspectHostSkillsAndCommand("claude", claudeRoot(home), report);
   inspectRepairMarker(home, report);
   return report;
 }
@@ -2575,6 +2665,7 @@ function repairCodex(
       removeOwnedCache(before, path, `Codex cache ${path}`, isOwnedPlugin(path), dryRun);
     }
   }
+  repairHostSkillsAndCommand("codex", codexRoot(home), version, before, dryRun);
   const afterNativeRepair = inspectCodex(home, version);
   if (dryRun) {
     if (before.plannedActions.length > 0) planAction(before, `record repair marker after verified mutation at ${repairMarkerPath(home, "codex")}`);
@@ -2678,6 +2769,7 @@ function repairClaude(
       removeOwnedCache(before, path, `Claude cache ${path}`, isOwnedPlugin(path), dryRun);
     }
   }
+  repairHostSkillsAndCommand("claude", claudeRoot(home), version, before, dryRun);
   const afterNativeRepair = inspectClaude(home, version);
   if (dryRun) {
     if (before.plannedActions.length > 0) planAction(before, `record repair marker after verified mutation at ${repairMarkerPath(home, "claude")}`);
