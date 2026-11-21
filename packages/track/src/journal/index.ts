@@ -1,0 +1,35 @@
+export {
+  canonicalPath,
+  folderIdentity,
+  gitProjectRoot,
+  identityDigest,
+  identityOf,
+  isInsideDir,
+  isJournalIdentity,
+  projectIdentity,
+  tmpCeilingFor,
+  type JournalIdentity,
+  type JournalIdentityKind,
+} from './identity.js'
+export {
+  JOURNAL_INDEX_FILENAME,
+  JOURNAL_INDEX_VERSION,
+  attachSatellite,
+  deriveLabelFromIndex,
+  designateJournal,
+  ensureIdentityRoot,
+  ensurePrivateDir,
+  journalIndexPath,
+  readJournalIndex,
+  recordCopy,
+  type JournalIndexEntry,
+  type JournalIndexOptions,
+  type JournalIndexV1,
+  type JournalKnownCopy,
+  type JournalReferenceDesignation,
+} from './index-store.js'
+export {
+  nextOwnerDemandNumber,
+  prepareInscriptionJournal,
+  type InscriptionJournalResult,
+} from './inscription.js'
