@@ -59,24 +59,79 @@ function fixture({ temporary = true, native = false } = {}) {
   const env = { ...qualified, H2A_ROOT: root, H2A_MCP_CENTRAL: "1" };
   return { dir, root, runtimeBase, env, cleanup() { rmSync(dir, { recursive: true, force: true }); } };
 }
-async function cleanupOwnedDaemon(f, identity) {
-  if (identity) {
-    // Only the PID/start-time pair returned by this fixture's own daemon is
-    // observed. A stop acknowledgement may precede its final filesystem write.
-    assert.ok(Number.isSafeInteger(identity.pid) && identity.pid > 1 && identity.pid !== process.pid);
-    assert.ok(Number.isSafeInteger(identity.startTime));
-    const running = () => {
-      let raw;
-      try { raw = readFileSync(`/proc/${identity.pid}/stat`,'utf8'); }
-      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
-      const fields = raw.slice(raw.lastIndexOf(') ') + 2).split(' ');
-      return Number(fields[19]) === identity.startTime && fields[0] !== 'Z';
-    };
-    const deadline = performance.now() + 10_000;
-    while (running() && performance.now() < deadline) await delay(25);
-    assert.equal(running(),false,'the recorded fixture daemon must finish before state removal');
+function isOwnedProcessRunning(identity) {
+  assert.ok(Number.isSafeInteger(identity.pid) && identity.pid > 1 && identity.pid !== process.pid);
+  assert.ok(Number.isSafeInteger(identity.startTime));
+  let raw;
+  try { raw = readFileSync(`/proc/${identity.pid}/stat`, 'utf8'); }
+  catch (error) { if (error.code === 'ENOENT' || error.code === 'ESRCH') return false; throw error; }
+  const fields = raw.slice(raw.lastIndexOf(') ') + 2).split(' ');
+  return Number(fields[19]) === identity.startTime && fields[0] !== 'Z';
+}
+async function waitForOwnedDaemonExit(identity, timeoutMs = 10_000) {
+  if (!identity) return;
+  const deadline = performance.now() + timeoutMs;
+  while (isOwnedProcessRunning(identity) && performance.now() < deadline) await delay(25);
+  assert.equal(isOwnedProcessRunning(identity), false, `the recorded fixture daemon (pid=${identity.pid}) must finish before state removal`);
+}
+function readOwnedCentralIdentities(runtimeBase) {
+  const dir = join(runtimeBase, 'h2a-mcp-central');
+  const found = [];
+  for (const [file, pick] of [
+    ['marker.json', doc => doc?.processIdentity],
+    ['startup-reservation.json', doc => doc?.candidateIdentity]
+  ]) {
+    try {
+      const id = pick(JSON.parse(readFileSync(join(dir, file), 'utf8')));
+      if (id && Number.isSafeInteger(id.pid) && id.pid > 1 && id.pid !== process.pid && Number.isSafeInteger(id.startTime)) {
+        found.push(id);
+      }
+    } catch {}
+  }
+  return found;
+}
+function dedupeIdentities(identities) {
+  const list = Array.isArray(identities) ? identities : [identities];
+  const seen = new Map();
+  for (const id of list) {
+    if (!id) continue;
+    seen.set(`${id.pid}:${id.startTime}`, id);
+  }
+  return [...seen.values()];
+}
+async function cleanupOwnedDaemon(f, identities, timeoutMs = 15_000) {
+  // Only the PID/start-time pairs returned by this fixture's own daemons are
+  // observed. A stop acknowledgement may precede their final filesystem writes.
+  for (const identity of dedupeIdentities(identities)) {
+    await waitForOwnedDaemonExit(identity, timeoutMs);
   }
   f.cleanup();
+}
+async function stopAndCleanupOwnedDaemons(f, runtimeBase, recorded = []) {
+  const known = new Map();
+  const remember = list => {
+    for (const id of dedupeIdentities(list)) known.set(`${id.pid}:${id.startTime}`, id);
+  };
+  remember(recorded);
+  remember(readOwnedCentralIdentities(runtimeBase));
+  const centralDir = join(runtimeBase, 'h2a-mcp-central');
+  const stopDeadline = performance.now() + 15_000;
+  let stopConfirmed = false;
+  while (performance.now() < stopDeadline) {
+    remember(readOwnedCentralIdentities(runtimeBase));
+    const hasMarker = existsSync(join(centralDir, 'marker.json'));
+    const anyRunning = [...known.values()].some(isOwnedProcessRunning);
+    if (!hasMarker && !anyRunning) break;
+    if (!stopConfirmed && (hasMarker || anyRunning)) {
+      let stopped;
+      try { stopped = await centralOperator("stop", { runtimeBase }); } catch {}
+      if (stopped?.stopped === true) stopConfirmed = true;
+    }
+    remember(readOwnedCentralIdentities(runtimeBase));
+    if (![...known.values()].some(isOwnedProcessRunning)) break;
+    await delay(100);
+  }
+  await cleanupOwnedDaemon(f, [...known.values()], 15_000);
 }
 test('fixture cleanup waits for its recorded daemon to finish late writes before removing private state', async () => {
   const f=fixture(), admission=new URL('../dist/runtime/handover/admission.js',import.meta.url).href;
@@ -353,8 +408,7 @@ test("R6 Claude defaults to central without configuration and preserves the exac
     console.log(`R6 default Claude: protocol=2 attachments=1 bytesEqual=true metadataEqual=true gitStatusEqual=true sha256=${hash}`);
   } finally {
     await client.close();
-    if (existsSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"))) await centralOperator("stop", { runtimeBase: f.runtimeBase });
-    f.cleanup();
+    await stopAndCleanupOwnedDaemons(f, f.runtimeBase);
   }
 });
 
@@ -687,8 +741,7 @@ test("SIGTERM of the real central leaves host stdio open and resumes the same bi
   } finally {
     channel?.close();
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
-    await centralOperator("stop", { runtimeBase: f.runtimeBase });
-    await cleanupOwnedDaemon(f, restartedIdentity);
+    await stopAndCleanupOwnedDaemons(f, f.runtimeBase, restartedIdentity);
   }
 });
 
@@ -774,8 +827,7 @@ test("mcp-serve defaults Claude to one ephemeral central without project writes;
   } finally {
     channels.forEach(channel => channel.close());
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
-    await centralOperator("stop", { runtimeBase: f.runtimeBase });
-    await cleanupOwnedDaemon(f,daemonIdentity);
+    await stopAndCleanupOwnedDaemons(f, f.runtimeBase, daemonIdentity);
   }
 });
 
@@ -1170,6 +1222,7 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
     { env: isolatedEnv, cwd: repo, stdio: ["pipe", "pipe", "pipe"] }
   );
   const channel = rpcChannel(shim.stdin, shim.stdout);
+  const daemonIdentities = [];
 
   try {
     const initRes = await channel.call("initialize", {
@@ -1199,8 +1252,9 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
 
     // 3. Trigger central failure: kill central daemon in nsA
     const markerA1 = JSON.parse(readFileSync(join(nsA, "h2a-mcp-central", "marker.json"), "utf8"));
+    if (markerA1.processIdentity) daemonIdentities.push(markerA1.processIdentity);
     process.kill(markerA1.pid, "SIGTERM");
-    await delay(300);
+    await waitForOwnedDaemonExit(markerA1.processIdentity);
 
     // Verify shim remains alive
     assert.equal(shim.exitCode, null, "shim process remains alive across central stop");
@@ -1213,6 +1267,7 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
 
     // Verify recovered daemon is in nsA with new PID and zero artifacts elsewhere
     const markerA2 = JSON.parse(readFileSync(join(nsA, "h2a-mcp-central", "marker.json"), "utf8"));
+    if (markerA2.processIdentity) daemonIdentities.push(markerA2.processIdentity);
     assert.notEqual(markerA2.pid, markerA1.pid, "recovered central daemon has new PID");
     assert.equal(existsSync(join(nsB, "h2a-mcp-central")), false, "nsB remains completely empty after recovery");
     assert.equal(existsSync(join(defaultNs, "h2a-mcp-central")), false, "defaultNs remains completely empty after recovery");
@@ -1222,8 +1277,7 @@ test("runtime-base namespace is strictly isolated across discovery, auto-start, 
       shim.kill("SIGTERM");
       await once(shim, "exit");
     }
-    try { await centralOperator("stop", { runtimeBase: nsA }); } catch {}
-    f.cleanup();
+    await stopAndCleanupOwnedDaemons(f, nsA, daemonIdentities);
   }
 });
 

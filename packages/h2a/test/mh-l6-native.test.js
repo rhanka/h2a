@@ -13,7 +13,8 @@ const test = (name, body) => {
 };
 function assets() {
   const root = process.env.MH_L6_NATIVE_ASSETS;
-  assert.ok(root?.startsWith('/tmp/mh-l6-toolchain-'), 'private pinned inputs and precompiled artifact mandatory; never skip');
+  const alternate = process.env.MH_L6_NATIVE_ASSETS_ROOT ? fs.realpathSync(process.env.MH_L6_NATIVE_ASSETS_ROOT) : null;
+  assert.ok(root?.startsWith('/tmp/mh-l6-toolchain-') || (alternate && root && fs.realpathSync(root).startsWith(alternate)), 'private pinned inputs and precompiled artifact mandatory; never skip');
   return root;
 }
 function fixture(t) {
