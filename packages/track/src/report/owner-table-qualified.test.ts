@@ -159,7 +159,7 @@ describe('owner-table qualified reader (lot 1)', () => {
     expect(mdRes.out).toContain('30 questions de dossier sans réponse')
     expect(mdRes.out).toContain('À rattacher — 13 demandes connues, sans numéro')
     expect(mdRes.out).toContain(
-      "Décisions qui t'attendent — 18 (16 hors demande, 15 sans dossier, 1 à instruire) · 30 questions de dossier sans réponse (1 décision)",
+      "Décisions qui t'attendent — 18 (16 hors demande, 15 sans dossier, 1 à instruire, 17 à numéroter) · 30 questions de dossier sans réponse (1 décision)",
     )
 
     const jsonRes = cli(repo, [
@@ -180,8 +180,18 @@ describe('owner-table qualified reader (lot 1)', () => {
     expect(parsed.counts.outsideDemand).toBe(16)
     expect(parsed.counts.withoutDossier).toBe(15)
     expect(parsed.counts.toInstruct).toBe(1)
+    expect(parsed.counts.toNumber).toBe(17)
     expect(parsed.counts.openQuestionCount).toBe(30)
     expect(parsed.counts.decisionsWithOpenQuestions).toBe(1)
+    // The two attached decisions retain their row links and blocking causes even without a number
+    const row1 = parsed.rows.find((r: { num: number }) => r.num === 1)
+    const row2 = parsed.rows.find((r: { num: number }) => r.num === 2)
+    expect(row1.decisionIds).toHaveLength(1)
+    expect(row1.blockingDecisionIds).toHaveLength(1)
+    expect(row1.todo).toContain('bloqué par décision à numéroter (owner)')
+    expect(row2.decisionIds).toHaveLength(1)
+    expect(row2.blockingDecisionIds).toHaveLength(1)
+    expect(row2.todo).toContain('bloqué par décision à numéroter (owner)')
   })
 
   it('strict mode refuses with the frozen lot-0 output, byte for byte (T1-b)', () => {
@@ -1326,5 +1336,302 @@ describe('owner-table qualified reader (lot 1)', () => {
       rowOriginLabels: new Map([['req-clean-1', 'deadbeef1234']]),
     })
     expect(sanitized.rows[0]?.originLabel).toBe('journal')
+  })
+
+  it('a structured decision without a number is listed to number, stays out of the reply line, and refuses under strict (T2-g)', () => {
+    const repo = join(scratch, 't2g-repo')
+    mkdirSync(repo, { recursive: true })
+    const eventsPath = join(repo, '.track', 'events.jsonl')
+    const store = new EventStore(eventsPath)
+    const clock = '2026-11-18T10:00:00.000Z'
+    const track = new Track(store, { by: 'test', now: () => clock })
+
+    // Demand #1: linked to two unnumbered structured (E9) decisions (one blocking, one non-blocking),
+    // one numbered structured decision, and one OWNER GATE
+    const d1 = track.raiseDemand({
+      type: 'feature',
+      workspace: 'ws',
+      raw: { text: 'Demande avec mix E9, numérotée et OWNER GATE' },
+      source: { kind: 'human' },
+    })
+    track.numberDemand(d1, 1)
+    track.claimDemand(d1, {})
+    const [item1] = track.agreeDemand(d1, {
+      items: [{ title: 'Lot principal', links: [{ kind: 'spec', locator: 'docs/s1.md' }] }],
+    })
+    track.setRealization(item1!, 'in-progress')
+
+    // Two linked E9 decisions (appended raw without decision.owner-numbered)
+    const e9BlockingId = '01K0T2GE9BLOCKING000000001'
+    const e9NonBlockingId = '01K0T2GE9NONBLOCK000000002'
+    const e9OrphanId = '01K0T2GE9ORPHAN00000000003'
+    const structuredDossier = (ref: string) => ({
+      context: 'Choix structuré sans numéro.',
+      qa: [],
+      options: [
+        { id: 'a', title: 'Option A', summary: 'Première voie' },
+        { id: 'b', title: 'Option B', summary: 'Seconde voie' },
+      ],
+      recommendation: { optionId: 'a', rationale: 'Recommandation claire' },
+      artifacts: [{ kind: 'rendered-view' as const, viewRef: ref }],
+    })
+
+    store.appendCommand(
+      [
+        {
+          id: '01K0T2GEVT0000000000000001',
+          type: 'decision.created',
+          aggregate: 'decision',
+          aggregateId: e9BlockingId,
+          at: clock,
+          by: 'legacy',
+          payload: {
+            decisionKind: 'commitment',
+            title: 'Premier choix E9 bloquant ?',
+            workspace: 'ws',
+            targets: [item1!],
+            dossier: structuredDossier('docs/dossiers/e9-1.md'),
+          },
+        },
+        {
+          id: '01K0T2GEVT0000000000000002',
+          type: 'blocker.opened',
+          aggregate: 'blocker',
+          aggregateId: '01K0T2GBLK0000000000000001',
+          at: clock,
+          by: 'legacy',
+          payload: {
+            blockerId: '01K0T2GBLK0000000000000001',
+            targetId: item1!,
+            kind: 'decision',
+            ref: e9BlockingId,
+            reason: 'awaiting commitment decision',
+          },
+        },
+      ],
+      { cmdId: '01K0T2GCMD0000000000000001' },
+    )
+    store.appendCommand([
+      {
+        id: '01K0T2GEVT0000000000000003',
+        type: 'decision.created',
+        aggregate: 'decision',
+        aggregateId: e9NonBlockingId,
+        at: clock,
+        by: 'legacy',
+        payload: {
+          decisionKind: 'orientation',
+          title: 'Second choix E9 non bloquant ?',
+          workspace: 'ws',
+          targets: [item1!],
+          dossier: structuredDossier('docs/dossiers/e9-2.md'),
+        },
+      },
+    ])
+
+    // Numbered structured decision + OWNER GATE on item1
+    const numberedDecId = track.createDecision({
+      decisionKind: 'orientation',
+      title: 'Choix déjà numéroté ?',
+      workspace: 'ws',
+      targets: [item1!],
+      dossier: structuredDossier('docs/dossiers/num-1.md'),
+    })
+    const gateId = track.createDecision({
+      decisionKind: 'commitment',
+      title: 'OWNER GATE og-t2g — confirmer',
+      workspace: 'ws',
+      targets: [item1!],
+      dossier: {
+        ...structuredDossier('docs/dossiers/og-t2g.md'),
+        context: 'Target instance and session: sess-t2g',
+      },
+    })
+
+    // Demand #2: linked to two E5 (unstructured) decisions (both blocking)
+    const d2 = track.raiseDemand({
+      type: 'feature',
+      workspace: 'ws',
+      raw: { text: 'Demande avec deux E5 bloquantes' },
+      source: { kind: 'human' },
+    })
+    track.numberDemand(d2, 2)
+    track.claimDemand(d2, {})
+    const [item2] = track.agreeDemand(d2, {
+      items: [{ title: 'Lot E5', links: [{ kind: 'spec', locator: 'docs/s2.md' }] }],
+    })
+    track.setRealization(item2!, 'in-progress')
+
+    const e5Id1 = '01K0T2GE5FIRST000000000001'
+    const e5Id2 = '01K0T2GE5SECOND00000000002'
+    for (const [idx, e5Id] of [e5Id1, e5Id2].entries()) {
+      const n = idx + 1
+      store.appendCommand(
+        [
+          {
+            id: `01K0T2GE5EVT000000000000${n}A`,
+            type: 'decision.created',
+            aggregate: 'decision',
+            aggregateId: e5Id,
+            at: clock,
+            by: 'legacy',
+            payload: {
+              decisionKind: 'commitment',
+              title: `Arbitrage E5 sans options ${n}`,
+              workspace: 'ws',
+              targets: [item2!],
+              dossier: {
+                context: 'Sans options.',
+                options: [],
+                qa: [],
+                artifacts: [{ kind: 'rendered-view', viewRef: `docs/dossiers/e5-${n}.md` }],
+              },
+            },
+          },
+          {
+            id: `01K0T2GE5EVT000000000000${n}B`,
+            type: 'blocker.opened',
+            aggregate: 'blocker',
+            aggregateId: `01K0T2GE5BLK0000000000000${n}`,
+            at: clock,
+            by: 'legacy',
+            payload: {
+              blockerId: `01K0T2GE5BLK0000000000000${n}`,
+              targetId: item2!,
+              kind: 'decision',
+              ref: e5Id,
+              reason: 'awaiting commitment decision',
+            },
+          },
+        ],
+        { cmdId: `01K0T2GE5CMD0000000000000${n}` },
+      )
+    }
+
+    // Orphan E9 decision targeting a non-owner technical item
+    const techItem = track.createItem({ kind: 'chore', title: 'Socle technique', workspace: 'ws' })
+    store.appendCommand([
+      {
+        id: '01K0T2GEVT0000000000000099',
+        type: 'decision.created',
+        aggregate: 'decision',
+        aggregateId: e9OrphanId,
+        at: clock,
+        by: 'legacy',
+        payload: {
+          decisionKind: 'orientation',
+          title: 'Choix E9 orphelin ?',
+          workspace: 'ws',
+          targets: [techItem],
+          dossier: structuredDossier('docs/dossiers/e9-orphan.md'),
+        },
+      },
+    ])
+
+    // Default qualified rendering (JSON & Markdown)
+    const jsonRes = cli(repo, ['report', '--owner-table', '--format', 'json', '--now', LEGACY_LIKE_NOW, '--commit', 'c1'])
+    expect(jsonRes.code, jsonRes.err).toBe(0)
+    const parsed = JSON.parse(jsonRes.out)
+
+    const row1 = parsed.rows.find((r: { num: number }) => r.num === 1)
+    expect(row1.decisionIds).toEqual([e9BlockingId, e9NonBlockingId, numberedDecId, gateId])
+    expect(row1.blockingDecisionIds).toEqual([e9BlockingId, numberedDecId, gateId])
+    expect(row1.todo).toContain('bloqué par décision à numéroter (owner)')
+    expect(row1.todo).toContain('bloqué par D1 (owner)')
+    expect(row1.todo).toContain('bloqué par OWNER GATE (session sess-t2g)')
+
+    const row2 = parsed.rows.find((r: { num: number }) => r.num === 2)
+    expect(row2.decisionIds).toEqual([e5Id1, e5Id2])
+    expect(row2.blockingDecisionIds).toEqual([e5Id1, e5Id2])
+    expect(row2.todo).toBe('bloqué par décision à instruire (owner) ; bloqué par décision à instruire (owner)')
+
+    // E9 and E5 have ref: null; numbered decision has D1; OWNER GATE has ref: null
+    const byId = new Map<string, { ref: string | null; qualifiers: string[]; kind: string }>(
+      parsed.decisions.map((d: { id: string; ref: string | null; qualifiers: string[]; kind: string }) => [d.id, d]),
+    )
+    expect(byId.get(e9BlockingId)?.ref).toBeNull()
+    expect(byId.get(e9BlockingId)?.qualifiers).toEqual(['à numéroter'])
+    expect(byId.get(e9NonBlockingId)?.ref).toBeNull()
+    expect(byId.get(e9NonBlockingId)?.qualifiers).toEqual(['à numéroter'])
+    expect(byId.get(e9OrphanId)?.ref).toBeNull()
+    expect(byId.get(e9OrphanId)?.qualifiers).toEqual(['à numéroter', 'hors demande'])
+    expect(byId.get(numberedDecId)?.ref).toBe('D1')
+    expect(byId.get(numberedDecId)?.qualifiers).toEqual([])
+    expect(byId.get(gateId)?.ref).toBeNull()
+    expect(byId.get(gateId)?.kind).toBe('owner-gate')
+    expect(byId.get(e5Id1)?.ref).toBeNull()
+    expect(byId.get(e5Id1)?.qualifiers).toEqual(['à instruire'])
+    expect(byId.get(e5Id2)?.ref).toBeNull()
+    expect(byId.get(e5Id2)?.qualifiers).toEqual(['à instruire'])
+
+    // Reply line contains ONLY numbered structured decision D1 (never E9, E5, or OWNER GATE)
+    expect(parsed.replyLine).toBe('Réponse : D1 A')
+    expect(parsed.counts.toNumber).toBe(3)
+    expect(parsed.counts.toInstruct).toBe(2)
+    expect(parsed.counts.decisionsToComplete).toBe(5)
+
+    // No false duplicate-ref or blocked-without-cause finding
+    const gapChecks = parsed.gaps.map((g: { check?: string }) => g.check)
+    expect(gapChecks).not.toContain('decision.duplicate-ref')
+    expect(gapChecks).not.toContain('row.blocking-no-cause')
+    expect(gapChecks).not.toContain('row.blocking-no-ref')
+    expect(gapChecks.filter((c: string | undefined) => c === 'decision.unnumbered')).toHaveLength(3)
+
+    const mdRes = cli(repo, ['report', '--owner-table', '--format', 'md', '--now', LEGACY_LIKE_NOW, '--commit', 'c1'])
+    expect(mdRes.code, mdRes.err).toBe(0)
+    expect(mdRes.out).toContain('| à numéroter · à numéroter · 🚩 D1 bloquante · OWNER GATE |')
+    expect(mdRes.out).toContain('| à instruire · à instruire |')
+    expect(mdRes.out).toContain('3 à numéroter')
+    expect(mdRes.out).toContain('`Réponse : D1 A`')
+    expect(mdRes.out).not.toContain(e9BlockingId)
+    expect(mdRes.out).not.toContain(e9OrphanId)
+
+    // Strict mode refuses with [decision-unnumbered] after existing strict lines, using annex-F labels and no IDs
+    const strictRes = cli(repo, ['report', '--owner-table', '--strict', '--format', 'md', '--now', LEGACY_LIKE_NOW, '--commit', 'c1'])
+    expect(strictRes.code).toBe(1)
+    expect(strictRes.err).toContain('[decision-unnumbered]')
+    expect(strictRes.err).toContain('decision décision à numéroter is not referenced by any row')
+    expect(strictRes.err).toContain('decision décision à instruire must carry a question')
+    expect(strictRes.err).not.toContain('duplicate decision ref')
+    expect(strictRes.err).not.toContain('[blocked-without-cause]')
+    expect(strictRes.err).not.toContain(e9BlockingId)
+    expect(strictRes.err).not.toContain(e5Id1)
+    const strictLines = strictRes.err.split('\n').filter((l) => l.startsWith('- ['))
+    const firstUnnumberedIdx = strictLines.findIndex((l) => l.startsWith('- [decision-unnumbered]'))
+    const lastInvalidIdx = strictLines.reduce((acc, l, idx) => (l.startsWith('- [invalid-decision]') ? idx : acc), -1)
+    expect(firstUnnumberedIdx).toBeGreaterThan(lastInvalidIdx)
+
+    // Genuine duplicate nonempty D<n> refs are still refused under strict
+    const dupView = makeCleanNumberedView()
+    dupView.rows[0] = { ...dupView.rows[0]!, decisionRefs: ['D7'], decisionIds: ['dup-a', 'dup-b'] }
+    dupView.decisions = [
+      {
+        ref: 'D7',
+        id: 'dup-a',
+        question: 'Question A ?',
+        options: [
+          { letter: 'A', label: 'A', consequence: 'A' },
+          { letter: 'B', label: 'B', consequence: 'B' },
+        ],
+        recommendedLetter: 'A',
+        recommendation: 'A',
+        dossierLink: 'docs/a.md',
+      },
+      {
+        ref: 'D7',
+        id: 'dup-b',
+        question: 'Question B ?',
+        options: [
+          { letter: 'A', label: 'A', consequence: 'A' },
+          { letter: 'B', label: 'B', consequence: 'B' },
+        ],
+        recommendedLetter: 'A',
+        recommendation: 'A',
+        dossierLink: 'docs/b.md',
+      },
+    ]
+    expect(() => buildQualifiedOwnerTable(dupView, { mode: 'strict', now: LEGACY_LIKE_NOW })).toThrow(
+      /duplicate decision ref D7/,
+    )
   })
 })

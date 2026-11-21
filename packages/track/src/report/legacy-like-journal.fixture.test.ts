@@ -8,7 +8,9 @@ import { buildAdoptionPlan, type AdoptionPlan } from '../adopt/plan.js'
 import { desyncFindings } from '../cli/desync.js'
 import { readHead } from '../events/head.js'
 import { EventStore } from '../events/store.js'
+import type { CommandEvent } from '../events/types.js'
 import { validate } from '../events/validate.js'
+import type { DecisionCreatedPayload } from '../model/decision.js'
 import { fold } from '../state/fold.js'
 import { Track } from '../track.js'
 
@@ -119,10 +121,47 @@ export function buildLegacyLikeJournal(trackDir: string): void {
     })
   }
 
+  // Pre-lot-2 structured decisions (no `decision.owner-numbered` event): emitted directly through
+  // `EventStore.appendCommand` with the exact pre-lot-2 batch layout so the committed legacy fixture
+  // remains byte-identical and exercises class E9 (`decision-unnumbered`) after lot 2.
+  const appendPreLot2Decision = (input: DecisionCreatedPayload): string => {
+    const decisionId = nextId()
+    const blockerSpecs = input.targets.map((targetId) => ({ blockerId: nextId(), targetId }))
+    const at = currentTime
+    const batch: CommandEvent[] = [
+      {
+        id: nextId(),
+        type: 'decision.created',
+        aggregate: 'decision',
+        aggregateId: decisionId,
+        at,
+        by: 'fixture-builder',
+        payload: { ...input },
+      },
+      ...blockerSpecs.map(({ blockerId, targetId }) => ({
+        id: nextId(),
+        type: 'blocker.opened' as const,
+        aggregate: 'blocker' as const,
+        aggregateId: blockerId,
+        at,
+        by: 'fixture-builder',
+        payload: {
+          blockerId,
+          targetId,
+          kind: 'decision',
+          ref: decisionId,
+          reason: `awaiting ${input.decisionKind} decision`,
+        },
+      })),
+    ]
+    store.appendCommand(batch, { cmdId: nextId() })
+    return decisionId
+  }
+
   // 2 decisions attached to numbered demands #1 and #2, without dossier links (2 sans dossier).
   for (let i = 0; i < 2; i++) {
     currentTime = `2026-11-0${i + 1}T10:00:00.000Z`
-    track.createDecision({
+    appendPreLot2Decision({
       decisionKind: 'commitment',
       title: `Choix rattaché à la demande ${i + 1} ?`,
       workspace: 'ws-legacy',
@@ -143,7 +182,7 @@ export function buildLegacyLikeJournal(trackDir: string): void {
   for (let i = 1; i <= 12; i++) {
     const day = String(2 + i).padStart(2, '0')
     currentTime = `2026-11-${day}T10:00:00.000Z`
-    track.createDecision({
+    appendPreLot2Decision({
       decisionKind: 'orientation',
       title: `Décision hors demande sans dossier ${i} ?`,
       workspace: 'ws-legacy',
@@ -169,7 +208,7 @@ export function buildLegacyLikeJournal(trackDir: string): void {
   for (let i = 1; i <= 3; i++) {
     const day = String(16 + i).padStart(2, '0')
     currentTime = `2026-11-${day}T14:00:00.000Z`
-    track.createDecision({
+    appendPreLot2Decision({
       decisionKind: 'commitment',
       title: `Décision hors demande avec dossier ${i} ?`,
       workspace: 'ws-legacy',

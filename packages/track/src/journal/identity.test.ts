@@ -6,10 +6,8 @@ import { join, resolve } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { computeDurableWorkspaceId } from '../workspace-id.js'
+import { computeDurableWorkspaceId, durableWorkspaceId } from '../workspace-id.js'
 import { folderIdentity, identityOf, projectIdentity } from './identity.js'
-
-let scratch: string
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, {
@@ -36,15 +34,17 @@ function initRepo(dir: string, filename = 'README.md', content = '# Repo\n'): st
   return git(dir, ['rev-list', '--max-parents=0', 'HEAD'])
 }
 
-beforeEach(() => {
-  scratch = mkdtempSync(join(tmpdir(), 'track-identity-'))
-})
-
-afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true })
-})
-
 describe('journal identities (lot 4a)', () => {
+  let scratch: string
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'track-identity-'))
+  })
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
   it('two clones of one repository share the project identity (T4a-b)', () => {
     const repoA = join(scratch, 'repo-a')
     const rootSha = initRepo(repoA)
@@ -98,5 +98,70 @@ describe('journal identities (lot 4a)', () => {
     expect(computeDurableWorkspaceId('0123456789abcdef0123456789abcdef01234567', '')).toBe(
       `ws:${createHash('sha256').update('0123456789abcdef0123456789abcdef01234567\n', 'utf8').digest('hex')}`,
     )
+  })
+})
+
+describe('projectIdentity (lot 2)', () => {
+  let scratch: string
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'track-proj-id-'))
+  })
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  it('yields the same identity from a repository, a subdirectory, a linked worktree, and a separate clone', () => {
+    const mainRepo = join(scratch, 'main-repo')
+    mkdirSync(mainRepo, { recursive: true })
+    git(mainRepo, ['init', '-q', '-b', 'main'])
+    git(mainRepo, ['commit', '-q', '--allow-empty', '-m', 'root'])
+    git(mainRepo, ['commit', '-q', '--allow-empty', '-m', 'second'])
+
+    const subDir = join(mainRepo, 'a', 'b')
+    mkdirSync(subDir, { recursive: true })
+
+    const wtDir = join(scratch, 'linked-wt')
+    git(mainRepo, ['worktree', 'add', '-q', '-b', 'feat-wt', wtDir])
+
+    const cloneDir = join(scratch, 'clone-repo')
+    git(scratch, ['clone', '-q', mainRepo, cloneDir])
+
+    const rootSha = git(mainRepo, ['rev-list', '--max-parents=0', 'HEAD'])
+    const expected = computeDurableWorkspaceId(rootSha, '')
+
+    expect(projectIdentity(mainRepo)).toBe(expected)
+    expect(projectIdentity(subDir)).toBe(expected)
+    expect(projectIdentity(wtDir)).toBe(expected)
+    expect(projectIdentity(cloneDir)).toBe(expected)
+
+    // Distinct from durableWorkspaceId on the linked worktree
+    expect(durableWorkspaceId(wtDir)).not.toBe(expected)
+  })
+
+  it('returns undefined outside git even when the temp dir sits inside a real checkout', () => {
+    const plain = join(scratch, 'plain-no-git')
+    mkdirSync(plain, { recursive: true })
+    expect(projectIdentity(plain)).toBeUndefined()
+  })
+
+  it('sorts multiple root commits ascending and joins them with a comma', () => {
+    const repo = join(scratch, 'multi-root')
+    mkdirSync(repo, { recursive: true })
+    git(repo, ['init', '-q', '-b', 'main'])
+    git(repo, ['commit', '-q', '--allow-empty', '-m', 'root-1'])
+    git(repo, ['checkout', '-q', '--orphan', 'other'])
+    git(repo, ['commit', '-q', '--allow-empty', '-m', 'root-2'])
+    git(repo, ['checkout', '-q', 'main'])
+    git(repo, ['merge', '-q', '--allow-unrelated-histories', '--no-edit', 'other'])
+
+    const roots = git(repo, ['rev-list', '--max-parents=0', 'HEAD'])
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    expect(roots.length).toBeGreaterThanOrEqual(2)
+    const expected = computeDurableWorkspaceId([...roots].sort().join(','), '')
+    expect(projectIdentity(repo)).toBe(expected)
   })
 })

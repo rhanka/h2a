@@ -158,7 +158,8 @@ function phaseOf(entry: AdoptionPlanEntry): number {
     return 1
   }
   if (entry.action === 'instruct-decision') return 2
-  return 3
+  if (entry.action === 'number-decision') return 3
+  return 4
 }
 
 function findItemBackingRow(state: State, rowNumber?: number, rowId?: string): ItemState | undefined {
@@ -213,11 +214,11 @@ function applySingleEntry(
     }
   }
 
-  if (entry.pendingOn === 'lot-2' || entry.action === 'number-decision') {
+  if (entry.pendingOn === 'lot-2') {
     return {
       id: entry.id,
       status: 'refused',
-      reason: 'pending on lot 2 (decision numbering verb not yet available)',
+      reason: 'pending on lot 2 (re-run `track adopt plan` now that lot 2 is available)',
     }
   }
 
@@ -286,6 +287,12 @@ function applySingleEntry(
         return { id: entry.id, status: 'applied' }
       }
 
+      case 'number-decision': {
+        const decisionId = String(entry.proposedWrite['decisionId'] ?? entry.element.id ?? '')
+        track.withClientToken(key, () => track.numberDecision(decisionId), { dedupe })
+        return { id: entry.id, status: 'applied' }
+      }
+
       case 'instruct-decision': {
         const decisionId = String(entry.proposedWrite['decisionId'] ?? entry.element.id ?? '')
         const current = track.state().decisions.get(decisionId)?.dossier
@@ -324,6 +331,12 @@ function applySingleEntry(
             }),
           { dedupe },
         )
+        const instructed = track.state().decisions.get(decisionId)
+        if (instructed !== undefined && instructed.ownerNumber === undefined && !/^\s*OWNER\s+GATE\b/iu.test(instructed.title)) {
+          track.withClientToken(`${key}:number`, () => track.numberDecision(decisionId), {
+            dedupe: tokenDedupe(`${key}:number`),
+          })
+        }
         return { id: entry.id, status: 'applied' }
       }
 

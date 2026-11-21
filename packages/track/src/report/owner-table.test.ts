@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -1266,13 +1267,18 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       baselineCommit: '1f57127dee0bf671e559c347cd86960180cd64c9',
       now: '2026-11-14T19:00:00.000Z',
     })
-    for (const ref of ['D3', 'D9', 'D10', 'D13']) {
-      const dec = realView.decisions.find((d) => d.ref === ref)
-      expect(dec?.blocking).toBe(true)
+    for (const decId of [
+      '01KYQYDMN5KCKZRGMFFK6Q3KH0',
+      '01M0GSTADZSF39AATM5CW7PZY5',
+      '01M0GSTAK1M8E6EHMNDSZMQ9X6',
+      '01M0NEPFRWTSHPWRJ7FJ3W482B',
+    ]) {
+      const dec = realView.decisions.find((d) => d.id === decId)
+      expect(dec?.blocking, `decision ${decId} should be blocking`).toBe(true)
     }
 
-    // P3-1: D18 in real .track has 90 options -> base-26 letters A..Z, AA..AZ, BA..BZ, CA..CL
-    const d18 = realView.decisions.find((d) => d.ref === 'D18')
+    // P3-1: real .track has a 90-option decision -> base-26 letters A..Z, AA..AZ, BA..BZ, CA..CL
+    const d18 = realView.decisions.find((d) => d.options.length === 90)
     expect(d18).toBeDefined()
     expect(d18!.options).toHaveLength(90)
     expect(d18!.options[0]?.letter).toBe('A')
@@ -1611,15 +1617,15 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       stage: 'dev',
     })
 
-    // Case 6 assertions: D1 on demand-title row, D2 on lot2 row only, lot1 stays 🔵 sur la voie
-    expect(byId.get(dCase6)?.decisionRefs).toEqual(['D1'])
+    // Case 6 assertions: stable D3 on demand-title row, D4 on lot2 row only (D1/D2 were earlier pause/rebaseline decisions), lot1 stays 🔵 sur la voie
+    expect(byId.get(dCase6)?.decisionRefs).toEqual(['D3'])
     expect(byId.get(dCase6)?.status).toBeUndefined()
     expect(byId.get(c6Lot1!)?.decisionRefs).toEqual([])
     expect(byId.get(c6Lot1!)?.status).toBe('on-track')
-    expect(byId.get(c6Lot2!)?.decisionRefs).toEqual(['D2'])
+    expect(byId.get(c6Lot2!)?.decisionRefs).toEqual(['D4'])
     expect(byId.get(c6Lot2!)?.decisionBlocking).toBe(true)
     expect(byId.get(c6Lot2!)?.status).toBe('blocked')
-    expect(byId.get(c6Lot2!)?.todo).toContain('bloqué par D2 (owner)')
+    expect(byId.get(c6Lot2!)?.todo).toContain('bloqué par D4 (owner)')
 
     // Renderers (md / text / json) succeed and expose kind + parentDemandId
     const md = renderOwnerTable(view, 'md')
@@ -1887,39 +1893,39 @@ describe('owner-table — 14/11 binding owner decisions', () => {
 
     const lot1NoGoRow = byId.get(r6c2Lot1!)!
     expect(lot1NoGoRow.status).toBe('withdrawn')
-    expect(lot1NoGoRow.decisionRefs).toEqual(['D2'])
+    expect(lot1NoGoRow.decisionRefs).toEqual(['D3'])
     expect(lot1NoGoRow.decisionBlocking).toBeUndefined()
     expect(lot1NoGoRow.blockingDecisionRefs).toBeUndefined()
-    expect(formatOwnerDecisionCell(lot1NoGoRow)).toBe('D2 (décision sans objet)')
+    expect(formatOwnerDecisionCell(lot1NoGoRow)).toBe('D3 (décision sans objet)')
     expect(byId.get(r6c2Lot2!)?.status).toBe('on-track')
 
-    // P1-1a/b/c: D1, D2, D3 stay in view.decisions below the table with sansObjet: true and blocking: false
+    // P1-1a/b/c: stable numbers D1, D3, D4 stay in view.decisions below the table with sansObjet: true and blocking: false (D2 and D5 were settled)
     expect(view.decisions).toHaveLength(4)
-    for (const ref of ['D1', 'D2', 'D3']) {
+    for (const ref of ['D1', 'D3', 'D4']) {
       const dec = view.decisions.find((d) => d.ref === ref)!
       expect(dec).toBeDefined()
       expect(dec.sansObjet).toBe(true)
       expect(dec.blocking).toBe(false)
     }
-    const d4 = view.decisions.find((d) => d.ref === 'D4')!
-    expect(d4.sansObjet).toBeUndefined()
-    expect(d4.blocking).toBe(true)
+    const d6 = view.decisions.find((d) => d.ref === 'D6')!
+    expect(d6.sansObjet).toBeUndefined()
+    expect(d6.blocking).toBe(true)
 
-    // P2-2 (1): demand-title row for Demand #4 has decisionBlocking: true alongside blockingDecisionRefs: ['D4']
+    // P2-2 (1): demand-title row for Demand #4 has decisionBlocking: true alongside blockingDecisionRefs: ['D6']
     const title4Row = byId.get(dActive4)!
     expect(title4Row.kind).toBe('demand-title')
-    expect(title4Row.decisionRefs).toEqual(['D4'])
-    expect(title4Row.blockingDecisionRefs).toEqual(['D4'])
+    expect(title4Row.decisionRefs).toEqual(['D6'])
+    expect(title4Row.blockingDecisionRefs).toEqual(['D6'])
     expect(title4Row.decisionBlocking).toBe(true)
-    expect(formatOwnerDecisionCell(title4Row)).toBe('🚩 D4 bloquante')
+    expect(formatOwnerDecisionCell(title4Row)).toBe('🚩 D6 bloquante')
 
     const renderedMd = renderOwnerTable(view, 'md')
     expect(renderedMd).toContain('D1 (décision sans objet)')
-    expect(renderedMd).toContain('D2 (décision sans objet)')
+    expect(renderedMd).toContain('D3 (décision sans objet)')
     expect(renderedMd).toContain('- **D1** (décision sans objet) —')
-    expect(renderedMd).toContain('- **D2** (décision sans objet) —')
     expect(renderedMd).toContain('- **D3** (décision sans objet) —')
-    expect(renderedMd).toContain('- **D4** —')
+    expect(renderedMd).toContain('- **D4** (décision sans objet) —')
+    expect(renderedMd).toContain('- **D6** —')
 
     // P2-2 (2): auditOwnerTable refuses demand-title rows with non-dash done/todo, pausedByOwner, hasWitness, inconsistent decisionBlocking, or non-empty etas in #456
     const baseTitle = byId.get(dCancel)!
@@ -2062,7 +2068,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     const md = renderOwnerTable(view, 'md')
     expect(md).toContain('| D1 (décision sans objet) |')
     expect(md).toContain('- **D1** (décision sans objet) — Quel cadrage global pour la demande 1 dont tous les lots sont retirés ?')
-    expect(md).toContain('- **D2** (décision sans objet) — Faut-il retenir la variante X de la demande 2 archivée ?')
+    expect(md).toContain('- **D3** (décision sans objet) — Faut-il retenir la variante X de la demande 2 archivée ?')
 
     // 3. Audit guard: a withdrawn row referencing a decision that is NOT sansObjet is rejected
     const { sansObjet: _omitted, ...activeDec } = view.decisions[0]!
@@ -2105,7 +2111,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     const expectedNoDemandsMsg =
       'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
       '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
-      'ingère une ligne `demand.raise` avec `track ingest <file.jsonl> --workspace <w>` puis numérote-la avec `track demand number <demandId> --number <n>`, ' +
+      'enregistre une demande avec `track demand raise --text <text>`, ' +
       'ou utilise `track report --status-table` pour la vue technique)'
 
     // (b1) Journal exists with non-demand events (0 demand.* events)
@@ -2362,6 +2368,16 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     for (const command of commands) {
       const cmdDir = mkdtempSync(join(tmpdir(), 'track-owner-t0c-'))
       try {
+        const gitEnv = {
+          ...process.env,
+          GIT_CEILING_DIRECTORIES: resolve(tmpdir()),
+          GIT_AUTHOR_NAME: 'Test',
+          GIT_AUTHOR_EMAIL: 'test@example.invalid',
+          GIT_COMMITTER_NAME: 'Test',
+          GIT_COMMITTER_EMAIL: 'test@example.invalid',
+        }
+        execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: cmdDir, env: gitEnv, stdio: 'ignore' })
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'root'], { cwd: cmdDir, env: gitEnv, stdio: 'ignore' })
         const cmdStore = new EventStore(join(cmdDir, '.track', 'events.jsonl'))
         const cmdTrack = new Track(cmdStore, { by: 'test-owner-table', now: () => clock })
         const unnumberedDemandId = cmdTrack.raiseDemand({

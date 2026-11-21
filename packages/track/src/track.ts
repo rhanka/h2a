@@ -45,6 +45,8 @@ import {
   assertDossierArtifact,
   assertOutcomeTransition,
   assertStructuredDossier,
+  isOwnerGateTitle,
+  isSettled,
   isStructuredDossier,
   type DecisionCreatedPayload,
   type DecisionState,
@@ -240,6 +242,51 @@ export function isConsolidationEligible(state: State, itemId: ItemId): boolean {
  * state, checks the transition against it (rejecting illegal ones BEFORE any append — SPEC §3),
  * then appends. Lots 3+ extend this with decisions, acceptance, priority.
  */
+/** Internal retryable conflict marker for concurrent demand/decision auto-numbering. */
+class NumberConflictError extends DomainError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NumberConflictError'
+  }
+}
+
+const DEFAULT_NUMBER_RETRY_LIMIT = 16
+
+/** Highest registered demand/request number across the entire journal (demands + legacy numbered items, no workspace filter). */
+function highestDemandNumber(events: readonly TrackEvent[]): number {
+  let max = 0
+  for (const ev of events) {
+    if (ev.type === 'demand.owner-numbered') {
+      const n = (ev.payload as { number?: unknown }).number
+      if (typeof n === 'number' && Number.isInteger(n) && n > max) max = n
+    } else if (ev.type === 'item.report-updated') {
+      const n = (ev.payload as { ownerNumber?: unknown }).ownerNumber
+      if (typeof n === 'number' && Number.isInteger(n) && n > max) max = n
+    }
+  }
+  return max
+}
+
+/** Internal marker when a concurrent writer already numbered the target decision under the lock. */
+class DecisionAlreadyNumberedError extends DomainError {
+  constructor(readonly number: number) {
+    super(`decision already numbered D${number}`)
+    this.name = 'DecisionAlreadyNumberedError'
+  }
+}
+
+/** Highest registered decision number across the entire journal (settled and unsettled alike, no workspace filter). */
+function highestDecisionNumber(events: readonly TrackEvent[]): number {
+  let max = 0
+  for (const ev of events) {
+    if (ev.type === 'decision.owner-numbered') {
+      const n = (ev.payload as { number?: unknown }).number
+      if (typeof n === 'number' && Number.isInteger(n) && n > max) max = n
+    }
+  }
+  return max
+}
+
 export class Track {
   private readonly clock: () => string
   private readonly newId: () => Ulid
@@ -898,6 +945,116 @@ export class Track {
   }
 
   /**
+   * Raise a demand and assign its next journal-wide request number (`#1..#N`) in ONE atomic `cmdId` batch
+   * (spec V11, G2). When `summary` is given, `demand.owner-summary-updated` lands in the same batch.
+   * When `key` is given, the under-lock dedupe hook searches all existing `demand.raised` events in the
+   * journal for `clientToken === key` (independent of newly minted aggregateIds) and returns the original
+   * demand's batch, appending nothing. Concurrent writers recompute the next number under the lock up to
+   * `maxRetries` times before failing loud.
+   */
+  raiseNumberedDemand(input: {
+    type: DemandRaisedPayload['type']
+    raw: DemandRaisedPayload['raw']
+    source: DemandRaisedPayload['source']
+    workspace: string
+    handler?: ActorId
+    sourceKey?: string
+    concerns?: DemandRaisedPayload['concerns']
+    links?: DemandRaisedPayload['links']
+    summary?: string
+    key?: string
+    maxRetries?: number
+  }): { demandId: DemandId; number: number } {
+    const workspace = typeof input.workspace === 'string' ? input.workspace.trim() : ''
+    if (workspace.length === 0) {
+      throw new DomainError('raiseNumberedDemand: workspace is required')
+    }
+    const handler = this.resolveHandler(input.handler)
+    const validated = assertDemandRaised({ ...input, handler })
+    let summary: string | undefined
+    if (input.summary !== undefined) {
+      summary = input.summary.trim()
+      if (summary.length === 0) {
+        throw new DomainError('raiseNumberedDemand: summary must be a non-empty string')
+      }
+    }
+    let key: string | undefined
+    if (input.key !== undefined) {
+      key = input.key.trim()
+      if (key.length === 0) {
+        throw new DomainError('raiseNumberedDemand: key must be a non-empty string')
+      }
+    }
+    const maxRetries =
+      input.maxRetries !== undefined && Number.isInteger(input.maxRetries) && input.maxRetries >= 0
+        ? input.maxRetries
+        : DEFAULT_NUMBER_RETRY_LIMIT
+
+    const dedupe: DedupeHook | undefined =
+      key !== undefined
+        ? (_inputs, existing) => {
+            const raised = existing.find((e) => e.type === 'demand.raised' && e.clientToken === key)
+            if (raised === undefined) return null
+            if (raised.cmdId !== undefined) {
+              return existing.filter((e) => e.cmdId === raised.cmdId)
+            }
+            return existing.filter((e) => e.aggregateId === raised.aggregateId && e.clientToken === key)
+          }
+        : undefined
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const candidateNumber = highestDemandNumber(this.store.readAll()) + 1
+      const demandId = this.newId()
+      const parts: EventPart[] = [
+        { aggregate: 'demand', aggregateId: demandId, type: 'demand.raised', payload: { ...validated, workspace } },
+        { aggregate: 'demand', aggregateId: demandId, type: 'demand.owner-numbered', payload: { number: candidateNumber } },
+      ]
+      if (summary !== undefined) {
+        parts.push({
+          aggregate: 'demand',
+          aggregateId: demandId,
+          type: 'demand.owner-summary-updated',
+          payload: { summary },
+        })
+      }
+      const recheck: RecheckHook = (_inputs, existing) => {
+        const expected = highestDemandNumber(existing) + 1
+        if (candidateNumber !== expected) {
+          throw new NumberConflictError(
+            `raiseNumberedDemand: demand number conflict (candidate #${candidateNumber}, expected #${expected})`,
+          )
+        }
+      }
+      try {
+        const runBatch = (): TrackEvent[] => this.withDemandRecheck(recheck, () => this.emitBatch(parts))
+        const persisted =
+          key !== undefined
+            ? this.withClientToken(key, runBatch, { ...(dedupe !== undefined ? { dedupe } : {}) })
+            : runBatch()
+        const raisedEv = persisted.find((e) => e.type === 'demand.raised')
+        const numberedEv = persisted.find((e) => e.type === 'demand.owner-numbered')
+        const resolvedId = (raisedEv?.aggregateId as DemandId) ?? demandId
+        const resolvedNum = (numberedEv?.payload as { number?: number } | undefined)?.number
+        if (typeof resolvedNum !== 'number' || !Number.isInteger(resolvedNum) || resolvedNum < 1) {
+          throw new DomainError(`raiseNumberedDemand: persisted batch for demand ${resolvedId} has no owner number`)
+        }
+        return { demandId: resolvedId, number: resolvedNum }
+      } catch (err) {
+        if (err instanceof NumberConflictError && attempt < maxRetries) {
+          continue
+        }
+        if (err instanceof NumberConflictError) {
+          throw new DomainError(
+            `raiseNumberedDemand: failed to allocate a unique demand number after ${maxRetries + 1} attempt(s)`,
+          )
+        }
+        throw err
+      }
+    }
+    throw new DomainError('raiseNumberedDemand: failed to allocate demand number')
+  }
+
+  /**
    * Claim a demand into qualifying (`demand.claim` → `demand.qualifying-started`) — `raised|parked →
    * qualifying`, the mandatory step before any off-ramp (every outcome is attributable to a handler).
    * BINDING. Asserts the transition AT APPEND (the facade fold) AND under the lock (F2 race guard). The
@@ -1520,30 +1677,195 @@ export class Track {
       }
     }
     const decisionId = this.newId()
-    const parts: EventPart[] = [
-      { aggregate: 'decision', aggregateId: decisionId, type: 'decision.created', payload: { ...input } },
-    ]
-    for (const targetId of input.targets) {
-      const blockerId = this.newId()
-      parts.push({
-        aggregate: 'blocker',
-        aggregateId: blockerId,
-        type: 'blocker.opened',
-        payload: {
-          blockerId,
-          targetId,
-          kind: 'decision',
-          ref: decisionId,
-          reason: `awaiting ${input.decisionKind} decision`,
-        },
-      })
+    const blockerSpecs = input.targets.map((targetId) => ({
+      blockerId: this.newId(),
+      targetId,
+    }))
+    const buildParts = (ownerNumber?: number): EventPart[] => {
+      const parts: EventPart[] = [
+        { aggregate: 'decision', aggregateId: decisionId, type: 'decision.created', payload: { ...input } },
+      ]
+      if (ownerNumber !== undefined) {
+        parts.push({
+          aggregate: 'decision',
+          aggregateId: decisionId,
+          type: 'decision.owner-numbered',
+          payload: { number: ownerNumber },
+        })
+      }
+      for (const { blockerId, targetId } of blockerSpecs) {
+        parts.push({
+          aggregate: 'blocker',
+          aggregateId: blockerId,
+          type: 'blocker.opened',
+          payload: {
+            blockerId,
+            targetId,
+            kind: 'decision',
+            ref: decisionId,
+            reason: `awaiting ${input.decisionKind} decision`,
+          },
+        })
+      }
+      return parts
     }
-    // Result id = the PERSISTED batch's first event (decision.created) aggregateId. On a fresh append that
-    // IS `decisionId`; on a concurrent-retry dedup it is the ORIGINAL persisted decision's id (the
-    // under-lock hook returned the first writer's batch), so a racing create-retry returns the original id,
-    // never this attempt's never-persisted one. The decision.created is always parts[0] ⇒ persisted[0].
-    const persisted = this.emitBatch(parts)
-    return (persisted[0]?.aggregateId as ItemId) ?? decisionId
+
+    // OWNER GATE records never receive a `D<n>` number (spec V11).
+    if (isOwnerGateTitle(input.title)) {
+      const persisted = this.emitBatch(buildParts())
+      return (persisted[0]?.aggregateId as ItemId) ?? decisionId
+    }
+
+    // Non-gate decisions receive the next journal-wide stable number in the same atomic batch as
+    // `decision.created`, guarded under the lock with bounded retry on conflict.
+    for (let attempt = 0; attempt <= DEFAULT_NUMBER_RETRY_LIMIT; attempt++) {
+      const candidateNumber = highestDecisionNumber(this.store.readAll()) + 1
+      const recheck: RecheckHook = (_inputs, existing) => {
+        const expected = highestDecisionNumber(existing) + 1
+        if (candidateNumber !== expected) {
+          throw new NumberConflictError(
+            `createDecision: decision number conflict (candidate D${candidateNumber}, expected D${expected})`,
+          )
+        }
+      }
+      try {
+        // Result id = the PERSISTED batch's first event (`decision.created`) aggregateId (always parts[0]).
+        const persisted = this.withDemandRecheck(recheck, () => this.emitBatch(buildParts(candidateNumber)))
+        return (persisted[0]?.aggregateId as ItemId) ?? decisionId
+      } catch (err) {
+        if (err instanceof NumberConflictError && attempt < DEFAULT_NUMBER_RETRY_LIMIT) {
+          continue
+        }
+        if (err instanceof NumberConflictError) {
+          throw new DomainError(
+            `createDecision: failed to allocate a unique decision number after ${DEFAULT_NUMBER_RETRY_LIMIT + 1} attempt(s)`,
+          )
+        }
+        throw err
+      }
+    }
+    throw new DomainError('createDecision: failed to allocate decision number')
+  }
+
+  /**
+   * Assign the next stable journal-wide decision number (`D<n>`) to an existing decision.
+   * Refuses unknown decisions and OWNER GATE records; idempotent no-op if already numbered.
+   */
+  numberDecision(decisionId: ItemId): { decisionId: ItemId; number: number; assigned: boolean } {
+    for (let attempt = 0; attempt <= DEFAULT_NUMBER_RETRY_LIMIT; attempt++) {
+      const events = this.store.readAll()
+      const state = fold(events)
+      const decision = state.decisions.get(decisionId)
+      if (!decision) throw new DomainError(`unknown decision ${decisionId}`)
+      if (isOwnerGateTitle(decision.title)) {
+        throw new DomainError(`decision ${decisionId} is an OWNER GATE and cannot receive a decision number`)
+      }
+      if (decision.ownerNumber !== undefined) {
+        return { decisionId, number: decision.ownerNumber, assigned: false }
+      }
+      const candidateNumber = highestDecisionNumber(events) + 1
+      const recheck: RecheckHook = (_inputs, existing) => {
+        const freshState = fold(existing)
+        const fresh = freshState.decisions.get(decisionId)
+        if (!fresh) throw new DomainError(`unknown decision ${decisionId}`)
+        if (isOwnerGateTitle(fresh.title)) {
+          throw new DomainError(`decision ${decisionId} is an OWNER GATE and cannot receive a decision number`)
+        }
+        if (fresh.ownerNumber !== undefined) {
+          throw new DecisionAlreadyNumberedError(fresh.ownerNumber)
+        }
+        const expected = highestDecisionNumber(existing) + 1
+        if (candidateNumber !== expected) {
+          throw new NumberConflictError(
+            `numberDecision: decision number conflict (candidate D${candidateNumber}, expected D${expected})`,
+          )
+        }
+      }
+      try {
+        this.withDemandRecheck(recheck, () => {
+          this.emit('decision', decisionId, 'decision.owner-numbered', { number: candidateNumber })
+        })
+        return { decisionId, number: candidateNumber, assigned: true }
+      } catch (err) {
+        if (err instanceof DecisionAlreadyNumberedError) {
+          return { decisionId, number: err.number, assigned: false }
+        }
+        if (err instanceof NumberConflictError && attempt < DEFAULT_NUMBER_RETRY_LIMIT) {
+          continue
+        }
+        if (err instanceof NumberConflictError) {
+          throw new DomainError(
+            `numberDecision: failed to allocate a unique decision number after ${DEFAULT_NUMBER_RETRY_LIMIT + 1} attempt(s)`,
+          )
+        }
+        throw err
+      }
+    }
+    throw new DomainError('numberDecision: failed to allocate decision number')
+  }
+
+  /**
+   * Number every unsettled structured decision that has no registered number, in creation order,
+   * skipping OWNER GATE records. Idempotent: appends nothing when none remain.
+   */
+  numberAllUnnumberedDecisions(): Array<{ decisionId: ItemId; number: number }> {
+    for (let attempt = 0; attempt <= DEFAULT_NUMBER_RETRY_LIMIT; attempt++) {
+      const events = this.store.readAll()
+      const state = fold(events)
+      const targets = [...state.decisions.values()].filter(
+        (d) =>
+          d.ownerNumber === undefined &&
+          !isSettled(d.outcome) &&
+          !isOwnerGateTitle(d.title) &&
+          isStructuredDossier(d.dossier),
+      )
+      if (targets.length === 0) return []
+      const startNumber = highestDecisionNumber(events) + 1
+      const parts: EventPart[] = targets.map((d, idx) => ({
+        aggregate: 'decision',
+        aggregateId: d.id,
+        type: 'decision.owner-numbered',
+        payload: { number: startNumber + idx },
+      }))
+      const recheck: RecheckHook = (_inputs, existing) => {
+        const expected = highestDecisionNumber(existing) + 1
+        if (expected !== startNumber) {
+          throw new NumberConflictError(
+            `numberAllUnnumberedDecisions: decision number conflict (start D${startNumber}, expected D${expected})`,
+          )
+        }
+        const freshState = fold(existing)
+        for (const t of targets) {
+          const fresh = freshState.decisions.get(t.id)
+          if (
+            !fresh ||
+            fresh.ownerNumber !== undefined ||
+            isSettled(fresh.outcome) ||
+            isOwnerGateTitle(fresh.title) ||
+            !isStructuredDossier(fresh.dossier)
+          ) {
+            throw new NumberConflictError(
+              `numberAllUnnumberedDecisions: decision ${t.id} changed concurrently`,
+            )
+          }
+        }
+      }
+      try {
+        this.withDemandRecheck(recheck, () => this.emitBatch(parts))
+        return targets.map((d, idx) => ({ decisionId: d.id, number: startNumber + idx }))
+      } catch (err) {
+        if (err instanceof NumberConflictError && attempt < DEFAULT_NUMBER_RETRY_LIMIT) {
+          continue
+        }
+        if (err instanceof NumberConflictError) {
+          throw new DomainError(
+            `numberAllUnnumberedDecisions: failed to allocate decision numbers after ${DEFAULT_NUMBER_RETRY_LIMIT + 1} attempt(s)`,
+          )
+        }
+        throw err
+      }
+    }
+    throw new DomainError('numberAllUnnumberedDecisions: failed to allocate decision numbers')
   }
 
   /**
