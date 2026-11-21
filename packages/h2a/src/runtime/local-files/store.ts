@@ -76,6 +76,8 @@ export interface CreateLocalStoreOptions {
   root: string;
   /** Emit every consent verification measurement (MCP server); CLI defaults to alerts only. */
   alwaysEmitConsentBudget?: boolean;
+  /** Start full consent history maintenance on the first periodic pass. */
+  deferConsentHistoryVerification?: boolean;
   /**
    * Timeout (ms) for acquiring any per-store advisory file lock. Defaults to
    * 5000. Tests use a much smaller value to exercise the timeout path
@@ -1014,7 +1016,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
 
   // Derived domain index only: never a source of authority or a verified-head
   // shortcut. External changes rebuild from the entire journal. Full historical
-  // verification also runs at startup and periodically, outside registryLock.
+  // verification also runs periodically, and by default at startup, outside registryLock.
   const consentWindow = 48 * 60 * 60 * 1000;
   type ConsentIndex = {
     stamp: string; entries: H2AJournalEntry<unknown>[];
@@ -1165,7 +1167,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       } catch { /* Best effort only: marker failures never block store creation. */ }
     }
   }
-  verifyConsentHistory();
+  if (!options.deferConsentHistoryVerification) verifyConsentHistory();
   // Weak reference avoids retaining short-lived CLI/MCP stores indefinitely.
   const historyRef = new WeakRef(consentMaintenance);
   const historyTimer = setInterval(() => {

@@ -1,4 +1,5 @@
 import { Participants } from "./handover/participants.js";
+import { MutationLockUnavailableError } from "./handover/mutation.js";
 /**
  * Machine-local central MCP server. Election is independent of endpoint and
  * workspace within the current private UID runtime namespace.
@@ -269,19 +270,25 @@ function createCentralApp(
     if (!ready) return;
     const now = clock.now();
     const liveTransaction = administration()?.transaction()?.value;
-    const pendingAttachments = new Set(participants()?.ledger.operations().filter((op: any) => op.state !== 'completed').map((op: any) => op.attachmentId));
+    let pendingAttachments: Set<string> | undefined;
     for (const [id, attachment] of sessions) {
       if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
           (attachment.disconnected || now - attachment.touched > options.sessionLeaseMs)) {
         const liveness = attachment.disconnected ? 'dead' : ownerLiveness({ processIdentity: attachment.logical?.context.shimProcessIdentity }, currentIdentity());
         if (attachment.logical) transports.detach(attachment.logical.id, liveness);
         attachment.transport.detachNotifications();
-        const pending = pendingAttachments.has(attachment.participant.token.attachmentId);
-        if (liveness === 'dead' && !pending) void closeAttachment(id, attachment);
+        if (liveness === 'dead') {
+          pendingAttachments ??= new Set(participants()?.ledger.operations().filter(op => op.state !== 'completed').map(op => op.attachmentId));
+          if (!pendingAttachments.has(attachment.participant.token.attachmentId)) void closeAttachment(id, attachment);
+        }
       }
     }
     try { administration()?.expire(); administration()?.poll(); }
     catch (error) {
+      if (error instanceof MutationLockUnavailableError) {
+        quietTicks = 0;
+        return;
+      }
       if (administration()) administration()!.indeterminate = true;
       process.stderr.write(`h2a central: recovery_blocked: ${(error as Error).message}\n`);
     }
@@ -293,8 +300,24 @@ function createCentralApp(
     // session has lived and gone, or the challenge lapses, consecutive quiet
     // ticks retire the server again.
     const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
-    const quiet = !closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive;
+    let quiet = false;
+    if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 &&
+        sessions.size === 0 && !pending && !handshakeAlive) {
+      try {
+        const owner = participants();
+        if (owner && !owner.registry.indeterminate && administration()?.admissionsOpen()) {
+          // Probe for a busy writer on each tick, but reconcile and read
+          // durable history only when this tick could retire the server.
+          quiet = owner.registry.withLock(
+            () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
+            { nonBlocking: true }
+          );
+        }
+      } catch (error) {
+        // A busy writer makes this tick inconclusive. Retry on the next sweep.
+        if (!(error instanceof MutationLockUnavailableError)) throw error;
+      }
+    }
     if (quiet) {
       quietTicks += 1;
       if (quietTicks >= quietTicksForIdle) options.requestStop();
@@ -755,7 +778,10 @@ export async function startCentralMcpServer(
           updateWriterControl(root, { gate: 'OPEN', handoverId: null });
         }
       }
-      sharedStore = createLocalStore({ root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true });
+      sharedStore = createLocalStore({
+        root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true,
+        deferConsentHistoryVerification: true
+      });
       const catalogServer = createMcpServer({ root, store: sharedStore });
       if (registry) {
         const { configureMcpServerRegistry } = await import("../registry/sentropic-daemon.js");

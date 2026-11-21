@@ -35,7 +35,16 @@ export function resolveMutationFlock(candidates = MUTATION_FLOCK_TOOLS) {
   throw new Error(`mutation_lock_unqualified: no qualified util-linux flock at ${[...candidates].join(', ') || 'no candidates'}; install util-linux and ensure the flock binary and its directory are owned by root and not writable by this UID, group, or others. flock is never resolved from PATH and there is no PID-file fallback by design.`);
 }
 
-export function mutationLock(directory, fn) {
+export class MutationLockUnavailableError extends Error {
+  /** @param {import('node:child_process').SpawnSyncReturns<Buffer>} result */
+  constructor(result) {
+    super('mutation_lock_unavailable', { cause: result.error });
+    this.status = result.status;
+    this.signal = result.signal;
+  }
+}
+
+export function mutationLock(directory, fn, { nonBlocking = false } = {}) {
   privateDirectory(directory);
   const path = join(directory, '.mutation.lock');
   if (held.has(path)) return fn();
@@ -44,9 +53,10 @@ export function mutationLock(directory, fn) {
     const info = fs.fstatSync(fd);
     if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600) throw new Error('private_lock_required');
     const tool = resolveMutationFlock();
-    const result = spawnSync(tool, ['--exclusive', '--timeout', '5', '3'],
+    const wait = nonBlocking ? ['--nonblock'] : ['--timeout', '5'];
+    const result = spawnSync(tool, ['--exclusive', ...wait, '3'],
       { stdio: ['ignore', 'ignore', 'ignore', fd], env: {} });
-    if (result.status !== 0) throw new Error('mutation_lock_unavailable', { cause: result.error });
+    if (result.status !== 0) throw new MutationLockUnavailableError(result);
     held.add(path);
     const value = fn();
     if (value?.then) throw new Error('async_store_critical_section');

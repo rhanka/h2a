@@ -21,7 +21,8 @@ export class OwnershipRegistry {
       if (!readState(this.revisionPath, 'participantRevision')) publishState(this.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
     });
   }
-  withLock(fn) {
+  /** @param {{ nonBlocking?: boolean }} [options] */
+  withLock(fn, options) {
     return mutationLock(this.lockDirectory, () => {
       if (this.indeterminate) throw new Error('reconciliation_required');
       try { return fn(); }
@@ -31,7 +32,7 @@ export class OwnershipRegistry {
         }
         throw error;
       }
-    });
+    }, options);
   }
   reconcile() {
     return mutationLock(this.lockDirectory, () => {
