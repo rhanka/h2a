@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "cli": "agy",
+  "cliVersion": "1.5.13",
+  "qualifiedOn": "2026-11-20",
+  "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
+  "hookPoint": "PreInvocation",
+  "hookConfigLevel": "project",
+  "projectConfigPath": "<throwaway-project>/.agents/hooks.json",
+  "witnessProbe": {
+    "blockedBeforeModelCall": false,
+    "exitCode": 0,
+    "recordCount": 2,
+    "eventTags": [
+      "message",
+      "stop"
+    ],
+    "sentDigest": "a5113be374f978ce39c6f848183602e7fdcc418010ffcfbd60744a91858db8e9",
+    "receivedDigest": "a5113be374f978ce39c6f848183602e7fdcc418010ffcfbd60744a91858db8e9",
+    "byteIdentical": true,
+    "sentBytes": 92,
+    "receivedBytes": 92,
+    "topLevelKeys": [
+      "artifactDirectoryPath",
+      "conversationId",
+      "cwd",
+      "hookEventName",
+      "initialNumSteps",
+      "invocationNum",
+      "lastUserInput",
+      "modelName",
+      "transcriptPath",
+      "workspacePaths"
+    ],
+    "payloadTextKey": "lastUserInput",
+    "payloadSessionKey": "conversationId",
+    "payloadFolderKey": "cwd",
+    "payloadTranscriptKey": "transcriptPath"
+  },
+  "interactiveVsHeadless": {
+    "interactiveMode": "pty (--dangerously-skip-permissions -i)",
+    "headlessMode": "-p",
+    "envDiffs": [],
+    "payloadDiffs": [],
+    "note": "In untrusted throwaway project folders, interactive -i skipped .agents/hooks.json while -p ran it; no AGY mode env var or payload field distinguishes interactive from headless",
+    "selectedHumanSessionEvidence": "none"
+  },
+  "subAgentProbe": {
+    "executed": true,
+    "subAgentToolObserved": "invoke_subagent",
+    "messageHookFiredForSubAgent": true,
+    "observedBehavior": "PreInvocation fired for both parent conversationId (invocationNum 0 and 1, non-empty lastUserInput) and spawned child sub-agent conversationId (invocationNum 0 and 1, empty lastUserInput) with identical top-level keys and no parent/sub-agent marker field",
+    "subAgentMarker": "none"
+  },
+  "transcriptProbe": {
+    "readable": true,
+    "location": "~/.gemini/antigravity-cli/brain/<conversationId>/.system_generated/logs/transcript_full.jsonl",
+    "format": "jsonl",
+    "note": "Step 0 USER_INPUT content contains the exact witness phrase wrapped in <USER_REQUEST>...</USER_REQUEST> tags"
+  },
+  "nativeQuestionProbe": {
+    "toolName": "ask_question",
+    "headlessObserved": true,
+    "hookPoint": "PreToolUse",
+    "nativeQuestionCapture": "hooked",
+    "observedTopLevelKeys": [
+      "artifactDirectoryPath",
+      "conversationId",
+      "cwd",
+      "hookEventName",
+      "lastUserInput",
+      "modelName",
+      "stepIdx",
+      "toolCall",
+      "transcriptPath",
+      "workspacePaths"
+    ],
+    "questionPayloadShape": "PreToolUse receives toolCall={id,name:'ask_question',args:{questions:[{is_multi_select,options:[string],question}]}}"
+  },
+  "classification": "deferred",
+  "reason": "PreInvocation delivers byte-identical lastUserInput in -p mode and transcripts are readable JSONL, but PreInvocation fires on every model step and for spawned sub-agents with no payload sub-agent marker field (subAgentMarker=none)"
+}

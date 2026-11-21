@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "cli": "gemini",
+  "cliVersion": "0.67.0",
+  "qualifiedOn": "2026-11-20",
+  "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
+  "hookPoint": "BeforeAgent",
+  "hookConfigLevel": "project",
+  "projectConfigPath": "<throwaway-project>/.gemini/settings.json",
+  "witnessProbe": {
+    "blockedBeforeModelCall": true,
+    "exitCode": 0,
+    "recordCount": 1,
+    "eventTags": [
+      "message"
+    ],
+    "sentDigest": "f1bf87d76f798a71a383d85e5952996c2e453ce3ffcd4870347f1012bbb352e2",
+    "receivedDigest": "f1bf87d76f798a71a383d85e5952996c2e453ce3ffcd4870347f1012bbb352e2",
+    "byteIdentical": true,
+    "sentBytes": 92,
+    "receivedBytes": 92,
+    "topLevelKeys": [
+      "cwd",
+      "hook_event_name",
+      "prompt",
+      "session_id",
+      "timestamp",
+      "transcript_path"
+    ],
+    "payloadTextKey": "prompt",
+    "payloadSessionKey": "session_id",
+    "payloadFolderKey": "cwd",
+    "payloadTranscriptKey": "transcript_path"
+  },
+  "interactiveVsHeadless": {
+    "interactiveMode": "pty (--skip-trust -i)",
+    "headlessMode": "--skip-trust -p",
+    "envDiffs": [],
+    "payloadDiffs": [],
+    "note": "Only harness TERM differed (xterm-256color vs dumb); GEMINI_* env vars and payload keys were identical",
+    "selectedHumanSessionEvidence": "none"
+  },
+  "subAgentProbe": {
+    "executed": false,
+    "blockedReason": "Live non-blocked model turns stalled on qualification machine before any sub-agent tool call completed; static inspection of gemini-cli@0.67.0 bundle indicates fireBeforeAgentEvent is not called inside LocalAgentExecutor, which is recorded as an unprobed observation only",
+    "subAgentMarker": "none"
+  },
+  "transcriptProbe": {
+    "readable": true,
+    "location": "~/.gemini/tmp/<project>/chats/session-*.jsonl",
+    "format": "jsonl",
+    "witnessByteIdentical": true
+  },
+  "nativeQuestionProbe": {
+    "toolName": "ask_user",
+    "headlessObserved": false,
+    "nativeQuestionCapture": "gap",
+    "questionPayloadShape": "gap: ask_user is disallowed in non-interactive -p mode and live model turns stalled on the qualification machine before reaching BeforeTool"
+  },
+  "classification": "deferred",
+  "reason": "BeforeAgent delivers byte-identical UTF-8 witness text and readable JSONL transcripts, but live sub-agent differentiation could not be executed because unblocked model turns stalled on the qualification machine"
+}

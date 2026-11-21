@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "cli": "muse",
+  "cliVersion": "1.4.24",
+  "qualifiedOn": "2026-11-20",
+  "probeHarness": "packages/h2a/scripts/qualification-capture.mjs",
+  "sanitization": {
+    "method": "packages/h2a/scripts/qualification-capture.mjs#sanitizeCaptureEvidence",
+    "version": 1
+  },
+  "hookPoint": "UserPromptSubmit",
+  "hookConfigLevel": "project",
+  "projectConfigPath": "<throwaway-project>/.muse/hooks.json",
+  "userLevelConfigProbe": {
+    "pathTested": "$XDG_CONFIG_HOME/muse/hooks.json",
+    "fired": false,
+    "note": "Muse 1.4.24 ignores user-level hooks.json and loads hooks from <workspace>/.muse/hooks.json (or installed plugin bundles via muse plugins install --scope user); matcher must be omitted on UserPromptSubmit and Stop groups"
+  },
+  "witnessProbe": {
+    "blockedBeforeModelCall": true,
+    "exitCode": 1,
+    "recordCount": 2,
+    "eventTags": [
+      "session-start",
+      "message"
+    ],
+    "sentDigest": "a98429fb8c4bdb1e06954e075f8cf9d144272f4e8853eceee44207c033eb00d3",
+    "receivedDigest": "a98429fb8c4bdb1e06954e075f8cf9d144272f4e8853eceee44207c033eb00d3",
+    "byteIdentical": true,
+    "sentBytes": 92,
+    "receivedBytes": 92,
+    "topLevelKeys": [
+      "cwd",
+      "hook_event_name",
+      "model",
+      "permission_mode",
+      "prompt",
+      "session_id",
+      "transcript_path",
+      "turn_id"
+    ],
+    "payloadTextKey": "prompt",
+    "payloadSessionKey": "session_id",
+    "payloadFolderKey": "cwd",
+    "payloadTranscriptKey": null
+  },
+  "interactiveVsHeadless": {
+    "interactiveMode": "pty (--provider echo --trust-workspace --workspace <dir>)",
+    "headlessMode": "exec --provider echo --trust-workspace --workspace <dir>",
+    "envDiffs": [],
+    "payloadDiffs": [],
+    "note": "Only harness TERM differed (xterm-256color vs dumb); MUSE_SESSION_ID, MUSE_THREAD_ID, and payload keys were identical",
+    "selectedHumanSessionEvidence": "none"
+  },
+  "subAgentProbe": {
+    "executed": true,
+    "provider": "default signed-in provider",
+    "subAgentToolsObserved": [
+      "subagent_spawn",
+      "subagent_wait"
+    ],
+    "messageHookCount": 1,
+    "messageHookFiredForSubAgent": false,
+    "subAgentMarker": "never-fires"
+  },
+  "transcriptProbe": {
+    "readable": true,
+    "location": "$XDG_DATA_HOME/muse/sessions/YYYY/MM/DD/<session_id>/session.jsonl",
+    "format": "jsonl",
+    "witnessByteIdentical": true,
+    "note": "payload transcript_path was null, while session.jsonl under XDG_DATA_HOME contained the byte-identical witness phrase"
+  },
+  "nativeQuestionProbe": {
+    "toolName": "request_user_input",
+    "headlessObserved": false,
+    "interactiveObserved": false,
+    "nativeQuestionCapture": "gap",
+    "questionPayloadShape": "gap: request_user_input was unavailable in muse exec headless mode and was not invoked during the interactive PTY probe"
+  },
+  "classification": "direct",
+  "reason": "UserPromptSubmit in .muse/hooks.json (without matcher) delivers byte-identical UTF-8 witness text in prompt, blocks before model invocation, and never fires for subagent_spawn sub-agents (note: user-level hooks.json is not loaded; lot 3c must evaluate user-scoped plugin bundles to avoid repository files)"
+}
