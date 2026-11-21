@@ -93,11 +93,29 @@ export type RightPanelDelegatedChild = Readonly<{
   origin: "mcp:h2a_run" | "cli:h2a-delegate";
 }>;
 
+/**
+ * Extra row rendered under a session row (station states and gestures, S1).
+ * Activatable rows join the keyboard navigation and emit `activate-extra-row`;
+ * a `whenSelected` row only shows while its session row is selected.
+ */
+export type RightPanelExtraRow = Readonly<{
+  id: string;
+  text: string;
+  activatable?: boolean;
+  whenSelected?: boolean;
+}>;
+
 export type RightPanelSession = Readonly<{
   id: string;
   label: string;
   status: RightPanelSessionStatus;
   delegated?: boolean;
+  /** Last activity of the session, for "most recent of the first group" (S1). */
+  mtimeMs?: number;
+  /** Pre-localised badges appended after the built-in ones (station, S1). */
+  extraBadges?: readonly string[];
+  /** Station state/gesture rows listed under this session (S1, r4 §3.6). */
+  extraRows?: readonly RightPanelExtraRow[];
   /** Session currently displayed in this attach view ("affichée ici"). */
   displayedHere?: boolean;
   /** Session currently controlled by another terminal/controller ("contrôlée ailleurs"). */
@@ -171,6 +189,8 @@ export type RightPanelSnapshot = Readonly<{
   /** True when another session or an unseen pending decision needs owner attention (`PANEL §4.5`). */
   collapsedLit: boolean;
   degraded: boolean;
+  /** Non-interactive lines closing the session list (station dead count, S1.1). */
+  footerRows?: readonly string[];
 }>;
 
 export type RightPanelView = "sessions" | "decisions" | "track";
@@ -187,6 +207,7 @@ export type RightPanelAction =
   | { type: "select-session"; index: number; sessionId?: string }
   | { type: "activate-session"; index: number; sessionId?: string }
   | { type: "toggle-delegated-expander"; sessionId: string; expanded: boolean }
+  | { type: "activate-extra-row"; sessionId: string; rowId: string }
   | { type: "select-decision"; index: number; decisionId?: string }
   | { type: "activate-decision"; index: number; decisionId?: string }
   | { type: "open-link"; target: string }
@@ -660,12 +681,39 @@ type PanelStdout = {
   write(chunk: string): boolean;
 };
 
+/** A mouse event forwarded to the child, with the encoding it was sent in. */
+export type RightPanelForwardedMouse = Readonly<{
+  button: number;
+  x: number;
+  y: number;
+  release: boolean;
+  wheel: boolean;
+  motion: boolean;
+  mode: MouseTrackingMode;
+  encoding: MouseEncoding;
+}>;
+
 export type RightPanelHandleResult = Readonly<{
   consumed: boolean;
   forward?: string;
   forwardBytes?: Buffer;
   actions: RightPanelAction[];
+  /** Forwarded mouse events, so a held press can be released at a switch (S1). */
+  forwardedMouse?: RightPanelForwardedMouse[];
 }>;
+
+/**
+ * Content shown in place of the list while present (station cards and the
+ * draft recovery view, S1). It owns every panel-focus key: nothing typed while
+ * it is up reaches the list or a session.
+ */
+export interface RightPanelOverlay {
+  render(width: number, rows: number): readonly string[];
+  handleKey(event: PanelInputEvent): boolean;
+  handleWheel?(deltaRows: number): boolean;
+  /** 0-based row inside the overlay viewport. */
+  handleClick?(row: number): boolean;
+}
 
 export type RightPanelHandleInputOptions = Readonly<{
   cliMouseEnabled: boolean;
@@ -809,6 +857,7 @@ function formatSessionBadges(session: RightPanelSession): string {
   if (session.draftCapability === "refused-no-draft-adapter") {
     tags.push("D:refus");
   }
+  if (session.extraBadges) tags.push(...session.extraBadges);
   return tags.length > 0 ? ` [${tags.join(",")}]` : "";
 }
 
@@ -845,6 +894,9 @@ export class RightPanelController {
   #slashPrompt: string | undefined;
   #notice: string | undefined;
   #hitRows = new Map<number, RightPanelAction>();
+  #overlay: RightPanelOverlay | undefined;
+  /** Selected extra row of the selected session, when the cursor is on one. */
+  #selectedExtra: string | undefined;
   #tabHitSpans: TabHitSpan[] = [];
   #viewHitSpans: ViewHitSpan[] = [];
   #viewFooterRow: number | undefined;
@@ -894,6 +946,73 @@ export class RightPanelController {
 
   selectedDecisionIndex(): number {
     return this.#selectedDecision;
+  }
+
+  /** Extra row under the selected session the cursor is on, if any. */
+  selectedExtraRowId(): string | undefined {
+    return this.#selectedExtra;
+  }
+
+  /** Show or clear the overlay that replaces the list (cards, recovery view). */
+  setOverlay(overlay: RightPanelOverlay | undefined): void {
+    this.#overlay = overlay;
+    this.paint();
+  }
+
+  overlay(): RightPanelOverlay | undefined {
+    return this.#overlay;
+  }
+
+  /**
+   * Open or close without the toggle's focus rule: the station opens the panel
+   * at launch while the keyboard stays on the CLI (r2 §2.3).
+   */
+  setOpen(open: boolean, opts: { focus?: boolean } = {}): boolean {
+    if (open) {
+      const totalCols = this.#stdout.columns ?? 0;
+      if (totalCols > 0 && totalCols - this.#width < RIGHT_PANEL_MIN_CHILD_COLS) {
+        this.#open = false;
+        this.#focus = false;
+        this.#barSelectionActive = false;
+        return false;
+      }
+      const wasOpen = this.#open;
+      this.#open = true;
+      this.#focus = opts.focus === true;
+      this.#barSelectionActive = this.#focus;
+      if (!wasOpen) this.#onOpen?.();
+      return true;
+    }
+    this.#open = false;
+    this.#focus = false;
+    this.#barSelectionActive = false;
+    return true;
+  }
+
+  /** Return the keyboard to the CLI; the panel stays as it is (r2 §2.3). */
+  focusCli(): void {
+    if (!this.#focus && !this.#barSelectionActive) return;
+    this.#focus = false;
+    this.#barSelectionActive = false;
+    this.paint();
+    this.#onSelectionChange?.();
+  }
+
+  /** Move the cursor to a session row (and its tab) without activating it. */
+  selectSessionById(sessionId: string): boolean {
+    for (let tab = 0; tab < this.#snapshot.workspaces.length; tab += 1) {
+      const index = this.#snapshot.workspaces[tab]!.sessions.findIndex(
+        (session) => session.id === sessionId,
+      );
+      if (index < 0) continue;
+      this.activeTabIndex = tab;
+      this.#selectedSession = index;
+      this.#selectedExtra = undefined;
+      this.#ensureSelectedRowVisible();
+      this.paint();
+      return true;
+    }
+    return false;
   }
 
   scrollOffset(): number {
@@ -974,6 +1093,22 @@ export class RightPanelController {
     this.#selectedSession = sLen === 0 ? 0 : Math.min(this.#selectedSession, sLen - 1);
     const dLen = this.#snapshot.decisions.length;
     this.#selectedDecision = dLen === 0 ? 0 : Math.min(this.#selectedDecision, dLen - 1);
+    if (
+      this.#selectedExtra !== undefined &&
+      !this.#focusableExtras(this.#selectedSession).some((row) => row.id === this.#selectedExtra)
+    ) {
+      this.#selectedExtra = undefined;
+    }
+  }
+
+  /** Activatable extra rows currently visible under a session row. */
+  #focusableExtras(sessionIndex: number): RightPanelExtraRow[] {
+    const session = this.#snapshot.workspaces[this.activeTabIndex]?.sessions[sessionIndex];
+    return (session?.extraRows ?? []).filter(
+      (row) =>
+        row.activatable === true &&
+        (row.whenSelected !== true || sessionIndex === this.#selectedSession),
+    );
   }
 
   childCols(totalCols: number): number {
@@ -1157,11 +1292,33 @@ export class RightPanelController {
         const text = isSelected
           ? `\x1b[7m${body}\x1b[0m`
           : `${g.ansi}${g.symbol}\x1b[0m${truncate(`${star} ${rawLabel}`, Math.max(0, width - symbolCols))}`;
+        const cursorOnExtra = isSelected && this.#selectedExtra !== undefined;
         rows.push({
-          text,
+          text: cursorOnExtra
+            ? `${g.ansi}${g.symbol}\x1b[0m${truncate(`${star} ${rawLabel}`, Math.max(0, width - symbolCols))}`
+            : text,
           hit: { type: "select-session", index, sessionId: s.id },
-          isSelected,
+          isSelected: isSelected && !cursorOnExtra,
         });
+
+        for (const extra of s.extraRows ?? []) {
+          if (extra.whenSelected === true && !isSelected) continue;
+          const extraSelected = isSelected && this.#selectedExtra === extra.id;
+          const body = truncate(`  ${extra.text}`, width);
+          rows.push({
+            text: extraSelected ? `\x1b[7m${body}\x1b[0m` : body,
+            ...(extra.activatable === true
+              ? {
+                  hit: {
+                    type: "activate-extra-row" as const,
+                    sessionId: s.id,
+                    rowId: extra.id,
+                  },
+                }
+              : {}),
+            isSelected: extraSelected,
+          });
+        }
 
         const children = s.delegatedChildren ?? [];
         const hasExpander = children.length > 0 || s.delegatedDegraded === true;
@@ -1218,6 +1375,9 @@ export class RightPanelController {
 
       if (sessions.length === 0 && rows.length === 0) {
         rows.push({ text: truncate("(no sessions)", width) });
+      }
+      for (const footer of this.#snapshot.footerRows ?? []) {
+        rows.push({ text: truncate(footer, width) });
       }
       return rows;
     }
@@ -1310,6 +1470,21 @@ export class RightPanelController {
 
     const hasFooter = panelRows >= 3;
     const viewportRows = hasFooter ? panelRows - 2 : Math.max(1, panelRows - 1);
+    if (this.#overlay) {
+      const overlayLines = this.#overlay.render(width, viewportRows);
+      for (let i = 0; i < viewportRows; i += 1) {
+        lines.push(truncate(overlayLines[i] ?? "", width));
+      }
+      this.#lastViewportRows = viewportRows;
+      this.#lastTotalListRows = viewportRows;
+      if (hasFooter) {
+        const { footerLine, spans: viewSpans } = this.#buildViewFooterAndSpans(childCols, width);
+        this.#viewHitSpans = viewSpans;
+        this.#viewFooterRow = panelRows;
+        lines.push(footerLine);
+      }
+      return lines;
+    }
     const listRows = this.#buildListRows(width);
     this.#lastViewportRows = viewportRows;
     this.#lastTotalListRows = listRows.length;
@@ -1375,6 +1550,7 @@ export class RightPanelController {
   ): RightPanelHandleResult {
     const actions: RightPanelAction[] = [];
     const forwardChunks: Buffer[] = [];
+    const forwardedMouse: RightPanelForwardedMouse[] = [];
     let dirty = false;
     let selectionChanged = false;
 
@@ -1393,6 +1569,7 @@ export class RightPanelController {
         if (step.forwardBytes && step.forwardBytes.length > 0) {
           forwardChunks.push(step.forwardBytes);
         }
+        if (step.forwardedMouse) forwardedMouse.push(step.forwardedMouse);
       },
     );
 
@@ -1405,6 +1582,7 @@ export class RightPanelController {
         forwardBytes: merged,
         forward: merged.toString("utf8"),
         actions,
+        ...(forwardedMouse.length > 0 ? { forwardedMouse } : {}),
       };
     }
     return { consumed: true, actions };
@@ -1457,6 +1635,7 @@ export class RightPanelController {
     selectionChanged?: boolean;
     actions: RightPanelAction[];
     forwardBytes?: Buffer;
+    forwardedMouse?: RightPanelForwardedMouse;
   } {
     if (event.type === "detach") {
       return { dirty: false, actions: [{ type: "detach" }] };
@@ -1475,6 +1654,12 @@ export class RightPanelController {
     // Remaining events are panel-focus keyboard events.
     if (!this.hasPanelFocus()) {
       return { dirty: false, actions: [] };
+    }
+
+    if (this.#overlay) {
+      // The overlay owns the keyboard while it is up (cards, recovery view).
+      this.#overlay.handleKey(event);
+      return { dirty: true, actions: [] };
     }
 
     if (event.type === "escape") {
@@ -1578,6 +1763,21 @@ export class RightPanelController {
       if (event.char === " ") {
         return this.#toggleSelectedDelegatedExpander("toggle");
       }
+      if (event.char >= "1" && event.char <= "9" && this.view === "sessions") {
+        // r2 §2.3: digits activate the n-th session row of the tab.
+        const index = Number(event.char) - 1;
+        const target = this.#snapshot.workspaces[this.activeTabIndex]?.sessions[index];
+        if (!target) return { dirty: false, actions: [] };
+        this.#selectedSession = index;
+        this.#selectedExtra = undefined;
+        this.#barSelectionActive = true;
+        this.#ensureSelectedRowVisible();
+        return {
+          dirty: true,
+          selectionChanged: true,
+          actions: [{ type: "activate-session", index, sessionId: target.id }],
+        };
+      }
       return { dirty: false, actions: [] };
     }
 
@@ -1588,6 +1788,7 @@ export class RightPanelController {
           ? (this.activeTabIndex - 1 + n) % n
           : (this.activeTabIndex + 1) % n;
         this.#selectedSession = 0;
+        this.#selectedExtra = undefined;
         this.#sessionScrollOffset = 0;
       }
       this.#notice = undefined;
@@ -1647,8 +1848,28 @@ export class RightPanelController {
       const ws = this.#snapshot.workspaces[this.activeTabIndex];
       const sessions = ws?.sessions ?? [];
       if (sessions.length === 0) return { dirty: false, actions: [] };
+      // Activatable extra rows sit between a session row and the next one.
+      const extras = this.#focusableExtras(this.#selectedSession);
+      const extraIndex =
+        this.#selectedExtra === undefined
+          ? -1
+          : extras.findIndex((row) => row.id === this.#selectedExtra);
+      if (delta === 1 && extraIndex < extras.length - 1) {
+        this.#selectedExtra = extras[extraIndex + 1]!.id;
+        this.#ensureSelectedRowVisible();
+        return { dirty: true, actions: [] };
+      }
+      if (delta === -1 && extraIndex >= 0) {
+        this.#selectedExtra = extraIndex === 0 ? undefined : extras[extraIndex - 1]!.id;
+        this.#ensureSelectedRowVisible();
+        return { dirty: true, actions: [] };
+      }
       const next = Math.max(0, Math.min(sessions.length - 1, this.#selectedSession + delta));
+      if (next === this.#selectedSession && this.#selectedExtra !== undefined) {
+        return { dirty: false, actions: [] };
+      }
       this.#selectedSession = next;
+      this.#selectedExtra = undefined;
       this.#barSelectionActive = true;
       this.#ensureSelectedRowVisible();
       const target = sessions[next]!;
@@ -1678,6 +1899,14 @@ export class RightPanelController {
       const ws = this.#snapshot.workspaces[this.activeTabIndex];
       const target = ws?.sessions[this.#selectedSession];
       if (!target) return { dirty: false, actions: [] };
+      if (this.#selectedExtra !== undefined) {
+        return {
+          dirty: true,
+          actions: [
+            { type: "activate-extra-row", sessionId: target.id, rowId: this.#selectedExtra },
+          ],
+        };
+      }
       return {
         dirty: true,
         actions: [
@@ -1721,6 +1950,7 @@ export class RightPanelController {
     selectionChanged?: boolean;
     actions: RightPanelAction[];
     forwardBytes?: Buffer;
+    forwardedMouse?: RightPanelForwardedMouse;
   } {
     const effectiveMode: MouseTrackingMode | null =
       opts.cliMouseMode !== undefined
@@ -1761,6 +1991,16 @@ export class RightPanelController {
     }
     if (route.zone === "panel") {
       if (event.release) return { dirty: false, actions: [] };
+      if (this.#overlay) {
+        if (event.wheel) {
+          const delta = (event.button & 1) === 0 ? -RIGHT_PANEL_WHEEL_STEP : RIGHT_PANEL_WHEEL_STEP;
+          return { dirty: this.#overlay.handleWheel?.(delta) === true, actions: [] };
+        }
+        this.#focus = true;
+        this.#barSelectionActive = true;
+        if (event.y >= 2) this.#overlay.handleClick?.(event.y - 2);
+        return { dirty: true, selectionChanged: true, actions: [] };
+      }
       if (event.wheel) {
         // PANEL §9.3 & L1.5: 3 rows per notch, clamped at bounds, never leaked to CLI.
         const step = (event.button & 1) === 0 ? -RIGHT_PANEL_WHEEL_STEP : RIGHT_PANEL_WHEEL_STEP;
@@ -1784,6 +2024,7 @@ export class RightPanelController {
         }
         this.activeTabIndex = matchedTab.index;
         this.#selectedSession = 0;
+        this.#selectedExtra = undefined;
         this.#sessionScrollOffset = 0;
         this.#notice = undefined;
         return {
@@ -1810,9 +2051,18 @@ export class RightPanelController {
       }
       const hit = this.#hitRows.get(event.y);
       if (hit) {
+        if (hit.type === "activate-extra-row") {
+          const ws = this.#snapshot.workspaces[this.activeTabIndex];
+          const owner = ws?.sessions.findIndex((session) => session.id === hit.sessionId) ?? -1;
+          if (owner >= 0) this.#selectedSession = owner;
+          this.#selectedExtra = hit.rowId;
+          return { dirty: true, selectionChanged: true, actions: [hit] };
+        }
         if (hit.type === "select-session") {
-          const alreadySelected = this.#selectedSession === hit.index;
+          const alreadySelected =
+            this.#selectedSession === hit.index && this.#selectedExtra === undefined;
           this.#selectedSession = hit.index;
+          this.#selectedExtra = undefined;
           return {
             dirty: true,
             selectionChanged: true,
@@ -1874,7 +2124,7 @@ export class RightPanelController {
         effectiveMode,
         effectiveEncoding,
       );
-      if (encoded !== undefined) {
+      if (encoded !== undefined && effectiveMode !== null) {
         return {
           dirty: focusCleared,
           selectionChanged: focusCleared,
@@ -1883,6 +2133,16 @@ export class RightPanelController {
             encoded,
             effectiveEncoding === "x10" ? "latin1" : "utf8",
           ),
+          forwardedMouse: {
+            button: event.button,
+            x: event.x,
+            y: event.y,
+            release: event.release,
+            wheel: event.wheel,
+            motion: (event.button & 32) !== 0,
+            mode: effectiveMode,
+            encoding: effectiveEncoding,
+          },
         };
       }
     }
