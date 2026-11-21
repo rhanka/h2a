@@ -167,6 +167,13 @@ export {
 } from "./ui-render/index.js";
 
 export {
+  DEFAULT_EXTERNAL_UI_SCHEMAS,
+  findNonLocalSchemaRefs,
+  inlineExternalSchemaRefs,
+  type NonLocalSchemaRef
+} from "./ui-render/schema-inline.js";
+
+export {
   UI_RENDER_TOOL_NAMES,
   createUiRenderTools,
   type CreateUiRenderToolsOptions,
