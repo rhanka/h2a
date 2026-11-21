@@ -154,10 +154,71 @@ export function formatOwnerTableNoJournalMessage(cwd: string): string {
   )
 }
 
+export type OwnerTableCell =
+  | 'request'
+  | 'done'
+  | 'todo'
+  | 'eta'
+  | 'decision'
+  | 'status'
+  | 'stage'
+
+export type OwnerTableGateCheck =
+  | 'demands.none'
+  | 'demands.all-archived'
+  | 'row.unnumbered'
+  | 'registry.duplicate'
+  | 'registry.missing'
+  | 'registry.hole'
+  | 'row.order'
+  | 'row.lot-orphan'
+  | 'row.title-few-lots'
+  | 'row.request-missing'
+  | 'row.lot-format'
+  | 'row.title-field'
+  | 'row.status-invalid'
+  | 'row.stage-invalid'
+  | 'row.stage-done-mismatch'
+  | 'status.unproven'
+  | 'row.withdrawn-no-reason'
+  | 'row.blocked-no-cause'
+  | 'row.blocking-not-blocked'
+  | 'row.blocking-no-cause'
+  | 'row.blocking-no-ref'
+  | 'row.withdrawn-blocking'
+  | 'row.title-blocking-inconsistent'
+  | 'eta.too-many'
+  | 'eta.invalid-stage'
+  | 'eta.invalid-source'
+  | 'eta.committed-no-by'
+  | 'eta.unknown-with-date'
+  | 'eta.measured-unproven'
+  | 'eta.missing-date'
+  | 'eta.missed-status'
+  | 'eta.terminal-active'
+  | 'eta.missing'
+  | 'decision.duplicate-ref'
+  | 'decision.unlisted'
+  | 'decision.sans-objet-inconsistent'
+  | 'decision.sans-objet-blocking'
+  | 'decision.no-row'
+  | 'decision.to-instruct'
+  | 'decision.no-dossier'
+  | 'text.commit-hash'
+  | 'text.internal-id'
+  | 'text.jargon'
+  | 'text.reserved'
+  | 'journal.integrity'
+  | 'document.desync'
+
 export interface OwnerTableGateViolation {
   code: OwnerTableGateCode
+  check?: OwnerTableGateCheck
   rowNum?: number
+  rowId?: string
+  cell?: OwnerTableCell
   decisionRef?: string
+  decisionId?: string
   message: string
 }
 
@@ -359,23 +420,37 @@ export function formatOwnerDecisionCell(
 
 function checkTextGates(
   text: string,
-  context: { rowNum?: number; decisionRef?: string; field: string },
+  context: {
+    rowNum?: number
+    rowId?: string
+    cell?: OwnerTableCell
+    decisionRef?: string
+    decisionId?: string
+    field: string
+  },
   violations: OwnerTableGateViolation[],
   policy?: OwnerTablePolicy,
 ): void {
+  const loc = {
+    ...(context.rowNum !== undefined ? { rowNum: context.rowNum } : {}),
+    ...(context.rowId !== undefined ? { rowId: context.rowId } : {}),
+    ...(context.cell !== undefined ? { cell: context.cell } : {}),
+    ...(context.decisionRef !== undefined ? { decisionRef: context.decisionRef } : {}),
+    ...(context.decisionId !== undefined ? { decisionId: context.decisionId } : {}),
+  }
   if (COMMIT_HASH_RE.test(text)) {
     violations.push({
       code: 'internal-jargon',
-      ...(context.rowNum !== undefined ? { rowNum: context.rowNum } : {}),
-      ...(context.decisionRef !== undefined ? { decisionRef: context.decisionRef } : {}),
+      check: 'text.commit-hash',
+      ...loc,
       message: `${context.field} contains a commit hash`,
     })
   }
   if (ULID_RE.test(text)) {
     violations.push({
       code: 'internal-jargon',
-      ...(context.rowNum !== undefined ? { rowNum: context.rowNum } : {}),
-      ...(context.decisionRef !== undefined ? { decisionRef: context.decisionRef } : {}),
+      check: 'text.internal-id',
+      ...loc,
       message: `${context.field} contains an internal ULID`,
     })
   }
@@ -383,8 +458,8 @@ function checkTextGates(
   if (JARGON_RE.test(text) || (checkWpToken && WP_INTERNAL_RE.test(text))) {
     violations.push({
       code: 'internal-jargon',
-      ...(context.rowNum !== undefined ? { rowNum: context.rowNum } : {}),
-      ...(context.decisionRef !== undefined ? { decisionRef: context.decisionRef } : {}),
+      check: 'text.jargon',
+      ...loc,
       message: `${context.field} contains internal jargon`,
     })
   }
@@ -395,8 +470,8 @@ function checkTextGates(
   if (hasBannedStem || hasPrivateTerm || PRIVATE_PATH_RE.test(text) || PRIVATE_DIGEST_RE.test(text)) {
     violations.push({
       code: 'banned-word',
-      ...(context.rowNum !== undefined ? { rowNum: context.rowNum } : {}),
-      ...(context.decisionRef !== undefined ? { decisionRef: context.decisionRef } : {}),
+      check: 'text.reserved',
+      ...loc,
       message: `${context.field} contains a banned word, private term, private path, or private digest`,
     })
   }
@@ -417,7 +492,10 @@ function auditRowEtaEntries(
   if (row.etas.length > 2) {
     violations.push({
       code: 'invalid-eta',
+      check: 'eta.too-many',
       rowNum: row.num,
+      rowId: row.id,
+      cell: 'eta',
       message: `row #${row.num} carries ${row.etas.length} ETAs (maximum 2 allowed)`,
     })
   }
@@ -425,28 +503,40 @@ function auditRowEtaEntries(
     if (!(REPORT_STAGES as readonly string[]).includes(eta.targetStage)) {
       violations.push({
         code: 'invalid-eta',
+        check: 'eta.invalid-stage',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'eta',
         message: `row #${row.num} has an ETA without a valid target stage`,
       })
     }
     if (eta.source !== 'measured' && eta.source !== 'committed' && eta.source !== 'unknown') {
       violations.push({
         code: 'invalid-eta',
+        check: 'eta.invalid-source',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'eta',
         message: `row #${row.num} has an ETA without a valid source (measured|committed|unknown)`,
       })
     }
     if (eta.source === 'committed' && isBlankOrDash(eta.by)) {
       violations.push({
         code: 'invalid-eta',
+        check: 'eta.committed-no-by',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'eta',
         message: `row #${row.num} has a committed ETA without naming who committed ("by")`,
       })
     }
     if (eta.source === 'unknown' && !isBlankOrDash(eta.when)) {
       violations.push({
         code: 'invalid-eta',
+        check: 'eta.unknown-with-date',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'eta',
         message: `row #${row.num} has an unknown ETA with a target date (must be "—")`,
       })
     }
@@ -457,7 +547,10 @@ function auditRowEtaEntries(
       ) {
         violations.push({
           code: 'invalid-eta',
+          check: 'eta.measured-unproven',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'eta',
           message: `row #${row.num} has a measured ETA without qualified velocity provenance (sampleCount > 0 and matching digests)`,
         })
       }
@@ -465,7 +558,10 @@ function auditRowEtaEntries(
     if ((eta.source === 'measured' || eta.source === 'committed') && isBlankOrDash(eta.when) && eta.slip === undefined) {
       violations.push({
         code: 'invalid-eta',
+        check: 'eta.missing-date',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'eta',
         message: `row #${row.num} has a ${eta.source} ETA without a target date`,
       })
     }
@@ -479,22 +575,25 @@ function auditRowEtaEntries(
     ) {
       violations.push({
         code: 'invalid-eta',
+        check: 'eta.missed-status',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'eta',
         message: `row #${row.num} has a missed ETA and must be 🟠 dérive (or 🔴 bloqué)`,
       })
     }
     if (eta.by !== undefined) {
-      checkTextGates(eta.by, { rowNum: row.num, field: `row #${row.num} ETA "by"` }, violations, policy)
+      checkTextGates(eta.by, { rowNum: row.num, rowId: row.id, cell: 'eta', field: `row #${row.num} ETA "by"` }, violations, policy)
     }
     if (eta.targetLabel !== undefined) {
-      checkTextGates(eta.targetLabel, { rowNum: row.num, field: `row #${row.num} ETA "targetLabel"` }, violations, policy)
+      checkTextGates(eta.targetLabel, { rowNum: row.num, rowId: row.id, cell: 'eta', field: `row #${row.num} ETA "targetLabel"` }, violations, policy)
     }
-    checkTextGates(eta.when, { rowNum: row.num, field: `row #${row.num} ETA "when"` }, violations, policy)
+    checkTextGates(eta.when, { rowNum: row.num, rowId: row.id, cell: 'eta', field: `row #${row.num} ETA "when"` }, violations, policy)
     if (eta.slip?.initialWhen !== undefined) {
-      checkTextGates(eta.slip.initialWhen, { rowNum: row.num, field: `row #${row.num} ETA slip "initialWhen"` }, violations, policy)
+      checkTextGates(eta.slip.initialWhen, { rowNum: row.num, rowId: row.id, cell: 'eta', field: `row #${row.num} ETA slip "initialWhen"` }, violations, policy)
     }
     if (eta.slip?.reason !== undefined) {
-      checkTextGates(eta.slip.reason, { rowNum: row.num, field: `row #${row.num} ETA slip "reason"` }, violations, policy)
+      checkTextGates(eta.slip.reason, { rowNum: row.num, rowId: row.id, cell: 'eta', field: `row #${row.num} ETA slip "reason"` }, violations, policy)
     }
   }
 }
@@ -516,11 +615,13 @@ export function auditOwnerTable(
   if (view.registeredNumbers.length === 0 && !hasNumberedRow) {
     violations.push({
       code: 'no-owner-demands',
+      check: 'demands.none',
       message: OWNER_TABLE_NO_DEMANDS_MESSAGE,
     })
   } else if (view.rows.length === 0) {
     violations.push({
       code: 'no-owner-demands',
+      check: 'demands.all-archived',
       message: OWNER_TABLE_ALL_ARCHIVED_MESSAGE,
     })
   }
@@ -534,7 +635,10 @@ export function auditOwnerTable(
     if (!Number.isInteger(row.num) || row.num < 1) {
       violations.push({
         code: 'missing-row',
+        check: 'row.unnumbered',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'request',
         message: `row #${String(row.num)} must have a positive integer request number`,
       })
     }
@@ -547,7 +651,10 @@ export function auditOwnerTable(
       ) {
         violations.push({
           code: 'missing-row',
+          check: 'row.lot-orphan',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'request',
           message: `lot row #${row.num} (${row.id}) must immediately follow its parent demand-title row`,
         })
       } else {
@@ -557,21 +664,30 @@ export function auditOwnerTable(
       if (activeTitleRow !== undefined && lotCountForActiveTitle < 2) {
         violations.push({
           code: 'missing-row',
+          check: 'row.title-few-lots',
           rowNum: activeTitleRow.num,
+          rowId: activeTitleRow.id,
+          cell: 'request',
           message: `demand-title row #${activeTitleRow.num} must be followed by at least 2 lot rows`,
         })
       }
       if (seenNums.has(row.num)) {
         violations.push({
           code: 'missing-row',
+          check: 'registry.duplicate',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'request',
           message: `duplicate request number #${row.num}`,
         })
       }
       if (prevTopLevelNum > 0 && row.num <= prevTopLevelNum) {
         violations.push({
           code: 'missing-row',
+          check: 'row.order',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'request',
           message: `rows must be in strictly ascending # order`,
         })
       }
@@ -589,7 +705,10 @@ export function auditOwnerTable(
   if (activeTitleRow !== undefined && lotCountForActiveTitle < 2) {
     violations.push({
       code: 'missing-row',
+      check: 'row.title-few-lots',
       rowNum: activeTitleRow.num,
+      rowId: activeTitleRow.id,
+      cell: 'request',
       message: `demand-title row #${activeTitleRow.num} must be followed by at least 2 lot rows`,
     })
   }
@@ -598,6 +717,7 @@ export function auditOwnerTable(
     if (!seenNums.has(registered) && !archivedSet.has(registered)) {
       violations.push({
         code: 'missing-row',
+        check: 'registry.missing',
         rowNum: registered,
         message: `request #${registered} is missing without an owner archive event`,
       })
@@ -611,6 +731,7 @@ export function auditOwnerTable(
       if (!allKnownNums.has(n)) {
         violations.push({
           code: 'missing-row',
+          check: 'registry.hole',
           rowNum: n,
           message: `request #${n} is missing from 1..${maxNum} without an owner archive event`,
         })
@@ -623,7 +744,9 @@ export function auditOwnerTable(
     if (decisionMap.has(d.ref)) {
       violations.push({
         code: 'invalid-decision',
+        check: 'decision.duplicate-ref',
         decisionRef: d.ref,
+        decisionId: d.id,
         message: `duplicate decision ref ${d.ref}`,
       })
     }
@@ -637,13 +760,19 @@ export function auditOwnerTable(
     if (isBlankOrDash(row.request)) {
       violations.push({
         code: 'missing-row',
+        check: 'row.request-missing',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'request',
         message: `row #${row.num} is missing its owner request text`,
       })
     } else if (rowKind === 'lot' && !/^↳ lot \d+ — \S/u.test(row.request)) {
       violations.push({
         code: 'missing-row',
+        check: 'row.lot-format',
         rowNum: row.num,
+        rowId: row.id,
+        cell: 'request',
         message: `lot row #${row.num} must be formatted as "↳ lot N — <title>"`,
       })
     }
@@ -652,42 +781,60 @@ export function auditOwnerTable(
       if (row.status !== undefined) {
         violations.push({
           code: 'missing-witness',
+          check: 'row.title-field',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'status',
           message: `demand-title row #${row.num} must not carry a status (got "${String(row.status)}")`,
         })
       }
       if (row.stage !== undefined) {
         violations.push({
           code: 'missing-witness',
+          check: 'row.title-field',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'stage',
           message: `demand-title row #${row.num} must not carry a stage (got "${String(row.stage)}")`,
         })
       }
       if (row.done.trim() !== '—') {
         violations.push({
           code: 'missing-witness',
+          check: 'row.title-field',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'done',
           message: `demand-title row #${row.num} must have "—" in "Fait"`,
         })
       }
       if (row.todo.trim() !== '—') {
         violations.push({
           code: 'missing-witness',
+          check: 'row.title-field',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'todo',
           message: `demand-title row #${row.num} must have "—" in "À faire (qui)"`,
         })
       }
       if (row.pausedByOwner === true) {
         violations.push({
           code: 'missing-witness',
+          check: 'row.title-field',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'status',
           message: `demand-title row #${row.num} must not carry pausedByOwner`,
         })
       }
       if (row.hasWitness === true) {
         violations.push({
           code: 'missing-witness',
+          check: 'row.title-field',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'done',
           message: `demand-title row #${row.num} must not carry hasWitness`,
         })
       }
@@ -698,7 +845,10 @@ export function auditOwnerTable(
       if (row.decisionBlocking !== expectedTitleBlocking || hasUnlistedBlockingRef) {
         violations.push({
           code: 'invalid-decision',
+          check: 'row.title-blocking-inconsistent',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'decision',
           message: `demand-title row #${row.num} has inconsistent decisionBlocking / blockingDecisionRefs`,
         })
       }
@@ -707,14 +857,20 @@ export function auditOwnerTable(
       if (row.status === undefined || !(REPORT_STATUSES as readonly string[]).includes(row.status)) {
         violations.push({
           code: 'missing-witness',
+          check: 'row.status-invalid',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'status',
           message: `row #${row.num} has invalid status "${String(row.status)}"`,
         })
       }
       if (row.stage !== undefined && !(REPORT_STAGES as readonly string[]).includes(row.stage)) {
         violations.push({
           code: 'missing-witness',
+          check: 'row.stage-invalid',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'stage',
           message: `row #${row.num} has invalid stage "${String(row.stage)}"`,
         })
       }
@@ -724,7 +880,10 @@ export function auditOwnerTable(
         if (isBlankOrDash(row.todo)) {
           violations.push({
             code: 'blocked-without-cause',
+            check: 'row.blocked-no-cause',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'todo',
             message: `row #${row.num} is 🔴 bloqué without a cause in "À faire (qui)"`,
           })
         }
@@ -735,21 +894,30 @@ export function auditOwnerTable(
         if (row.decisionRefs.length === 0) {
           violations.push({
             code: 'invalid-decision',
+            check: 'row.blocking-no-ref',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
             message: `row #${row.num} is marked decisionBlocking without any D#`,
           })
         }
         if (row.status !== 'blocked') {
           violations.push({
             code: 'blocked-without-cause',
+            check: 'row.blocking-not-blocked',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'status',
             message: `row #${row.num} has a blocking decision (🚩) and must be 🔴 bloqué`,
           })
         }
         if (!/bloqué par D\d+/u.test(row.todo)) {
           violations.push({
             code: 'blocked-without-cause',
+            check: 'row.blocking-no-cause',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'todo',
             message: `row #${row.num} has a blocking decision (🚩) and must state "bloqué par D#" in "À faire (qui)"`,
           })
         }
@@ -759,7 +927,10 @@ export function auditOwnerTable(
       if (row.status !== 'done' && row.status !== 'withdrawn' && row.stage === 'done') {
         violations.push({
           code: 'missing-witness',
+          check: 'row.stage-done-mismatch',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'stage',
           message: `row #${row.num} cannot have stage "done" while status is "${String(row.status)}" (stage "done" requires ✅ fait)`,
         })
       }
@@ -767,14 +938,20 @@ export function auditOwnerTable(
         if (row.stage !== 'done') {
           violations.push({
             code: 'missing-witness',
+            check: 'status.unproven',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'stage',
             message: `row #${row.num} cannot be ✅ fait at stage "${String(row.stage ?? '—')}" (requires stage "done")`,
           })
         }
         if (row.hasWitness !== true || isBlankOrDash(row.done)) {
           violations.push({
             code: 'missing-witness',
+            check: 'status.unproven',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'done',
             message: `row #${row.num} is ✅ fait without a recorded witness in "Fait"`,
           })
         }
@@ -782,7 +959,10 @@ export function auditOwnerTable(
         if (row.stage === undefined || row.hasWitness !== true || isBlankOrDash(row.done)) {
           violations.push({
             code: 'missing-witness',
+            check: 'status.unproven',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'done',
             message: `row #${row.num} is 🔵 sur la voie without a conformity witness at stage "${String(row.stage ?? '—')}"`,
           })
         }
@@ -790,14 +970,20 @@ export function auditOwnerTable(
         if (isBlankOrDash(row.done)) {
           violations.push({
             code: 'missing-witness',
+            check: 'row.withdrawn-no-reason',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'done',
             message: `row #${row.num} is ⚫ retiré without a reason in "Fait"`,
           })
         }
         if ((row.blockingDecisionRefs?.length ?? 0) > 0) {
           violations.push({
             code: 'invalid-decision',
+            check: 'row.withdrawn-blocking',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
             message: `row #${row.num} is ⚫ retiré and must not carry blocking decisions`,
           })
         }
@@ -807,14 +993,20 @@ export function auditOwnerTable(
       if ((row.status === 'done' || row.status === 'withdrawn') && row.etas.length > 0) {
         violations.push({
           code: 'invalid-eta',
+          check: 'eta.terminal-active',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'eta',
           message: `row #${row.num} is terminal (${row.status}) and must not carry active ETAs`,
         })
       }
       if (row.etas.length === 0 && row.status !== 'done' && row.status !== 'withdrawn') {
         violations.push({
           code: 'invalid-eta',
+          check: 'eta.missing',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'eta',
           message: `row #${row.num} is missing an ETA entry (target stage + source required)`,
         })
       }
@@ -827,7 +1019,10 @@ export function auditOwnerTable(
       if (!row.decisionRefs.includes(ref)) {
         violations.push({
           code: 'invalid-decision',
+          check: 'decision.sans-objet-inconsistent',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'decision',
           decisionRef: ref,
           message: `row #${row.num} lists ${ref} in sansObjetDecisionRefs without including it in decisionRefs`,
         })
@@ -835,7 +1030,10 @@ export function auditOwnerTable(
       if ((row.blockingDecisionRefs ?? []).includes(ref)) {
         violations.push({
           code: 'invalid-decision',
+          check: 'decision.sans-objet-blocking',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'decision',
           decisionRef: ref,
           message: `row #${row.num} cannot mark decision ${ref} as both sansObjet and blocking`,
         })
@@ -847,7 +1045,10 @@ export function auditOwnerTable(
       if (dec === undefined) {
         violations.push({
           code: 'invalid-decision',
+          check: 'decision.unlisted',
           rowNum: row.num,
+          rowId: row.id,
+          cell: 'decision',
           decisionRef: ref,
           message: `row #${row.num} points to unlisted decision ${ref}`,
         })
@@ -855,24 +1056,36 @@ export function auditOwnerTable(
         if (row.status === 'withdrawn' && dec.sansObjet !== true) {
           violations.push({
             code: 'invalid-decision',
+            check: 'decision.sans-objet-inconsistent',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
             decisionRef: ref,
+            decisionId: dec.id,
             message: `row #${row.num} is ⚫ retiré and references decision ${ref} which is not marked sansObjet`,
           })
         }
         if (rowSansObjetSet.has(ref) && dec.sansObjet !== true) {
           violations.push({
             code: 'invalid-decision',
+            check: 'decision.sans-objet-inconsistent',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
             decisionRef: ref,
+            decisionId: dec.id,
             message: `row #${row.num} marks decision ${ref} in sansObjetDecisionRefs, but decision ${ref} is not sansObjet`,
           })
         }
         if (dec.sansObjet === true && !rowSansObjetSet.has(ref)) {
           violations.push({
             code: 'invalid-decision',
+            check: 'decision.sans-objet-inconsistent',
             rowNum: row.num,
+            rowId: row.id,
+            cell: 'decision',
             decisionRef: ref,
+            decisionId: dec.id,
             message: `row #${row.num} references sans-objet decision ${ref} without listing it in sansObjetDecisionRefs`,
           })
         }
@@ -880,9 +1093,9 @@ export function auditOwnerTable(
     }
 
     // Gate: commit hash, ULID, internal jargon, or banned word in owner text
-    checkTextGates(row.request, { rowNum: row.num, field: `row #${row.num} "Ta demande"` }, violations, policy)
-    checkTextGates(row.done, { rowNum: row.num, field: `row #${row.num} "Fait"` }, violations, policy)
-    checkTextGates(row.todo, { rowNum: row.num, field: `row #${row.num} "À faire (qui)"` }, violations, policy)
+    checkTextGates(row.request, { rowNum: row.num, rowId: row.id, cell: 'request', field: `row #${row.num} "Ta demande"` }, violations, policy)
+    checkTextGates(row.done, { rowNum: row.num, rowId: row.id, cell: 'done', field: `row #${row.num} "Fait"` }, violations, policy)
+    checkTextGates(row.todo, { rowNum: row.num, rowId: row.id, cell: 'todo', field: `row #${row.num} "À faire (qui)"` }, violations, policy)
   }
 
   // Gate: D# without a row, or D# missing question / options / recommendation / dossierLink
@@ -890,14 +1103,18 @@ export function auditOwnerTable(
     if (!referencedDecisions.has(d.ref) && d.sansObjet !== true) {
       violations.push({
         code: 'invalid-decision',
+        check: 'decision.no-row',
         decisionRef: d.ref,
+        decisionId: d.id,
         message: `decision ${d.ref} is not referenced by any row`,
       })
     }
     if (d.sansObjet === true && d.blocking === true) {
       violations.push({
         code: 'invalid-decision',
+        check: 'decision.sans-objet-blocking',
         decisionRef: d.ref,
+        decisionId: d.id,
         message: `decision ${d.ref} is sans objet and must not be marked blocking`,
       })
     }
@@ -911,26 +1128,30 @@ export function auditOwnerTable(
     ) {
       violations.push({
         code: 'invalid-decision',
+        check: 'decision.to-instruct',
         decisionRef: d.ref,
+        decisionId: d.id,
         message: `decision ${d.ref} must carry a question, at least 2 options with consequences, and a valid recommendation`,
       })
     }
     if (isBlankOrDash(d.dossierLink)) {
       violations.push({
         code: 'invalid-decision',
+        check: 'decision.no-dossier',
         decisionRef: d.ref,
+        decisionId: d.id,
         message: `decision ${d.ref} is missing a dossier link`,
       })
     }
-    checkTextGates(d.question, { decisionRef: d.ref, field: `decision ${d.ref} question` }, violations, policy)
-    checkTextGates(d.recommendation, { decisionRef: d.ref, field: `decision ${d.ref} recommendation` }, violations, policy)
+    checkTextGates(d.question, { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} question` }, violations, policy)
+    checkTextGates(d.recommendation, { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} recommendation` }, violations, policy)
     if (d.dossierLink !== undefined) {
-      checkTextGates(d.dossierLink, { decisionRef: d.ref, field: `decision ${d.ref} dossierLink` }, violations, policy)
+      checkTextGates(d.dossierLink, { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} dossierLink` }, violations, policy)
     }
     for (const opt of d.options) {
       checkTextGates(
         `${opt.label} ${opt.consequence}`,
-        { decisionRef: d.ref, field: `decision ${d.ref} option ${opt.letter}` },
+        { decisionRef: d.ref, decisionId: d.id, field: `decision ${d.ref} option ${opt.letter}` },
         violations,
         policy,
       )

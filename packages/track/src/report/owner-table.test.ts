@@ -2094,8 +2094,8 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     expect(viewNoDemands.replyLine).toBe('')
     const auditNoDemands = auditOwnerTable(viewNoDemands)
     expect(auditNoDemands.ok).toBe(false)
-    expect(auditNoDemands.violations).toEqual([
-      { code: 'no-owner-demands', message: expectedNoDemandsMsg },
+    expect(auditNoDemands.violations).toMatchObject([
+      { code: 'no-owner-demands', check: 'demands.none', message: expectedNoDemandsMsg },
     ])
     expect(() => renderOwnerTable(viewNoDemands, 'md')).toThrow(
       `REFUSED: owner table failed blocking gates:\n- [no-owner-demands] ${expectedNoDemandsMsg}`,
