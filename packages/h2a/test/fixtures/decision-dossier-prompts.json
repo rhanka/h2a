@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "description": "Frozen 20-prompt evaluation corpus for the decision-dossier skill (FA-H2), covering decision, report, embedded evidence, and diagram documents.",
+  "prompts": [
+    {
+      "id": "dec-01",
+      "category": "decision",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-10, chat) : « Garde l'abri de jardin pratique d'accès sans gâcher la vue depuis la terrasse. » Prépare un dossier de décision Focus v1 avec une question et deux options (mur latéral vs fond du jardin), enjeux faibles et recommandation argumentée."
+    },
+    {
+      "id": "dec-02",
+      "category": "decision",
+      "locale": "en",
+      "expectedDocumentType": "decision",
+      "prompt": "Literal owner request (2026-11-11, note): \"Pick a backup retention window we can afford without risking a lost monthly close.\" Prepare a Focus v1 decision dossier with one question and three options (thirty-day rolling, ninety-day tiered, or annual archive), medium stakes, and a clear recommendation."
+    },
+    {
+      "id": "dec-03",
+      "category": "decision",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-12, réunion) : « Choisissons un rythme de mise en production prévisible sans bloquer les correctifs urgents. » Prépare un dossier de décision Focus v1 avec une question et trois options (hebdomadaire, bimensuelle, continue avec drapeaux), enjeux moyens."
+    },
+    {
+      "id": "dec-04",
+      "category": "decision",
+      "locale": "en",
+      "expectedDocumentType": "decision",
+      "prompt": "Literal owner request (2026-11-12, email): \"Decide whether production releases require hardware security keys starting next quarter.\" Prepare a Focus v1 decision dossier with one question and two options (mandatory hardware keys vs software authenticator fallback), high stakes."
+    },
+    {
+      "id": "dec-05",
+      "category": "decision",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-13, message) : « Réduis le temps de compilation sans risquer de polluer les artefacts de livraison. » Prépare un dossier de décision Focus v1 avec une question et trois options de cache de compilation (local seul, partagé lecture seule, partagé lecture-écriture), enjeux moyens."
+    },
+    {
+      "id": "rep-01",
+      "category": "report",
+      "locale": "fr",
+      "expectedDocumentType": "report",
+      "prompt": "Demande littérale du propriétaire (2026-11-14, message) : « Donne-moi un point clair sur la disponibilité du portail interne cette semaine, sans question à trancher. » Prépare un rapport informatif Focus (kind: report, schemaVersion: 2) avec synthèse courte et constats, sans nœud de décision."
+    },
+    {
+      "id": "rep-02",
+      "category": "report",
+      "locale": "en",
+      "expectedDocumentType": "report",
+      "prompt": "Literal owner request (2026-11-14, note): \"Summarize this quarter's dependency security updates and remaining maintenance work for my review.\" Prepare a Focus informational report (kind: report, schemaVersion: 2) with concise prose sections and no decision nodes."
+    },
+    {
+      "id": "rep-03",
+      "category": "report",
+      "locale": "fr",
+      "expectedDocumentType": "report",
+      "prompt": "Demande littérale du propriétaire (2026-11-15, chat) : « Résume la coupure réseau de douze minutes sur la passerelle et les mesures déjà prises. » Prépare un rapport informatif Focus (kind: report, schemaVersion: 2) avec synthèse, cause identifiée et suivi d'amendement."
+    },
+    {
+      "id": "rep-04",
+      "category": "report",
+      "locale": "en",
+      "expectedDocumentType": "report",
+      "prompt": "Literal owner request (2026-11-15, note): \"Give me a monthly status report on backup bucket growth and archive cleanup progress.\" Prepare a Focus informational report (kind: report, schemaVersion: 2) with clear prose takeaways and zero decision nodes."
+    },
+    {
+      "id": "rep-05",
+      "category": "report",
+      "locale": "fr",
+      "expectedDocumentType": "report",
+      "prompt": "Demande littérale du propriétaire (2026-11-16, message) : « Fais le bilan de la bascule des certificats vers le renouvellement automatique. » Prépare un rapport informatif Focus (kind: report, schemaVersion: 2) présentant l'état constaté et les vérifications effectuées."
+    },
+    {
+      "id": "ev-01",
+      "category": "evidence",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-16, chat) : « Dis-moi si on active la politique stricte sur les en-têtes de sécurité avec les preuves de test à l'appui. » Prépare un dossier de décision Focus v2 (schemaVersion: 2) avec une source texte embarquée en base64 (sha256 et taille exacts), une citation reliée, un groupe de preuves et une annexe."
+    },
+    {
+      "id": "ev-02",
+      "category": "evidence",
+      "locale": "en",
+      "expectedDocumentType": "decision",
+      "prompt": "Literal owner request (2026-11-17, email): \"Should we retire the legacy spreadsheet export endpoint now, backed by the recent usage trace?\" Prepare a Focus v2 embedded-evidence decision dossier (schemaVersion: 2) with one base64 text source (exact sha256 and byte size), one citation referenced from prose, an evidenceGroup, and a collapsed annex."
+    },
+    {
+      "id": "ev-03",
+      "category": "evidence",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-17, réunion) : « Choisis entre deux offres de stockage d'archives avec le relevé de coûts en pièce jointe vérifiable. » Prépare un dossier de décision Focus v2 (schemaVersion: 2) embarquant un extrait texte de coûts en source base64 avec empreinte exacte, citation sur une option, groupe de preuves et annexe."
+    },
+    {
+      "id": "ev-04",
+      "category": "evidence",
+      "locale": "en",
+      "expectedDocumentType": "decision",
+      "prompt": "Literal owner request (2026-11-18, note): \"Approve either a weekend maintenance window or an online concurrent index rebuild, citing our latency sample.\" Prepare a Focus v2 decision dossier (schemaVersion: 2) with an embedded base64 text source (verified sha256 and size), citationRefs on the context prose, an evidenceGroup, and a supporting annex."
+    },
+    {
+      "id": "ev-05",
+      "category": "evidence",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-18, message) : « Tranche entre trois mois et un an de rétention des journaux d'accès en t'appuyant sur notre extrait de politique interne. » Prépare un dossier de décision Focus v2 (schemaVersion: 2) incluant la source texte embarquée (base64, sha256, taille), une citation, un groupe de preuves et une annexe."
+    },
+    {
+      "id": "dia-01",
+      "category": "diagram",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-19, chat) : « Décide si l'export autonome ou l'artefact central est notre mode principal, avec un schéma de l'écosystème. » Prépare un dossier de décision Focus v1 incluant une section diagram inline (syntax: mermaid, source: ecosystem:overview, alt descriptif)."
+    },
+    {
+      "id": "dia-02",
+      "category": "diagram",
+      "locale": "en",
+      "expectedDocumentType": "decision",
+      "prompt": "Literal owner request (2026-11-19, note): \"Choose between a single ingestion queue and a dead-letter split, and show the message flow in a simple diagram.\" Prepare a Focus v1 decision dossier including an inline Mermaid flowchart diagram section with a clear alt description."
+    },
+    {
+      "id": "dia-03",
+      "category": "diagram",
+      "locale": "fr",
+      "expectedDocumentType": "decision",
+      "prompt": "Demande littérale du propriétaire (2026-11-19, réunion) : « Arbitre le routage des alertes d'astreinte entre escalade immédiate et regroupement horaire avec un schéma de flux. » Prépare un dossier de décision Focus v1 avec une section diagram Mermaid inline et un texte alternatif précis."
+    },
+    {
+      "id": "dia-04",
+      "category": "diagram",
+      "locale": "en",
+      "expectedDocumentType": "report",
+      "prompt": "Literal owner request (2026-11-20, note): \"Give me an architecture overview report of the shared interfaces with a diagram, no decision required.\" Prepare a Focus informational report (kind: report, schemaVersion: 2) containing concise prose and an inline diagram section (syntax: mermaid, source: ecosystem:interfaces, non-empty alt)."
+    },
+    {
+      "id": "dia-05",
+      "category": "diagram",
+      "locale": "fr",
+      "expectedDocumentType": "report",
+      "prompt": "Demande littérale du propriétaire (2026-11-20, chat) : « Décris dans un rapport le chemin de publication d'un bundle statique avec un schéma simple. » Prépare un rapport informatif Focus (kind: report, schemaVersion: 2) combinant prose synthétique et une section diagram Mermaid inline avec alt descriptif."
+    }
+  ]
+}
