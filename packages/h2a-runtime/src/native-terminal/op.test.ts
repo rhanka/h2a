@@ -2570,4 +2570,144 @@ describe("native attach right panel (L0)", () => {
     expect(allWritten).not.toContain("\uFFFD");
     expect(allWritten).toContain("\x1b[200~note \x1b[24~ end\x1b[201~");
   });
+
+  it("L0.5b: pre-publishes reset receipt BEFORE every h2a and child mode activation and owns outer mouse across child toggles", async () => {
+    const { buildRightPanelSnapshot } = await import("./right-panel.js");
+    const stdin = new EventEmitter() as EventEmitter & {
+      isTTY: boolean;
+      resume: () => void;
+      pause: () => void;
+      setRawMode: () => void;
+    };
+    stdin.isTTY = false;
+    stdin.resume = () => {};
+    stdin.pause = () => {};
+    stdin.setRawMode = () => {};
+
+    const timeline: Array<{ kind: "receipt" | "stdout"; data: string }> = [];
+    const stdout = {
+      isTTY: true,
+      columns: 120,
+      rows: 24,
+      chunks: [] as string[],
+      write(chunk: string): boolean {
+        const s = String(chunk);
+        this.chunks.push(s);
+        timeline.push({ kind: "stdout", data: s });
+        return true;
+      },
+    };
+    let now = 1_760_000_000_000;
+    let readCount = 0;
+    const childWrites: string[] = [];
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          // Child enables alt screen, focus, mouse 1000+1015, then disables 1000+1006 mid-attach
+          return replay(1, "\x1b[?1049h\x1b[?1004h\x1b[?1000;1015hREADY");
+        }
+        if (readCount === 2) {
+          // Click in CLI zone while child subscribed to 1000+1015 => transcoded to urxvt!
+          stdin.emit("data", Buffer.from("\x1b[<0;10;5M"));
+          return replay(2, "\x1b[?1000l\x1b[?1006l");
+        }
+        if (readCount === 3) {
+          // Even after child disabled 1000/1006, clicking collapsed marker opens panel!
+          stdin.emit("data", Buffer.from("\x1b[<0;120;10M"));
+          return replay(3, "");
+        }
+        stdin.emit("data", Buffer.from([0x1c]));
+        return replay(4, "");
+      },
+      async state() { return running(true); },
+      async write(_l, data) { childWrites.push(data); },
+      async resize() {},
+      close() {},
+    };
+
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+        saveTerminalReset: (seq) => {
+          timeline.push({ kind: "receipt", data: seq });
+        },
+      },
+      {
+        statusBar: { enabled: true, env: {} },
+        rightPanel: {
+          enabled: true,
+          snapshot: buildRightPanelSnapshot({
+            currentSessionId: "h2a-alpha",
+            groups: [{ title: "core", sessions: [{ id: "s2", label: "beta", status: "blocked" }] }],
+            decisions: [],
+          }),
+        },
+      },
+    );
+    expect(code).toBe(0);
+
+    // 1) Pre-publication invariant: every activation must be preceded by a receipt containing its undo.
+    let latestReceipt = "";
+    let sawH2aMouseEnable = false;
+    let sawBarRegion = false;
+    let sawChildAltScreen = false;
+    for (const ev of timeline) {
+      if (ev.kind === "receipt") {
+        latestReceipt = ev.data;
+        continue;
+      }
+      if (ev.data.includes("\x1b[?1000h\x1b[?1006h")) {
+        sawH2aMouseEnable = true;
+        expect(latestReceipt).toContain("\x1b[?1006l");
+        expect(latestReceipt).toContain("\x1b[?1000l");
+      }
+      if (/\x1b\[\d+;\d+r/.test(ev.data)) {
+        sawBarRegion = true;
+        expect(latestReceipt).toContain("\x1b[r");
+      }
+      if (ev.data.includes("\x1b[?1049h")) {
+        sawChildAltScreen = true;
+        expect(latestReceipt).toContain("\x1b[?1049l");
+      }
+      if (ev.data.includes("\x1b[?1004h")) {
+        expect(latestReceipt).toContain("\x1b[?1004l");
+      }
+    }
+    expect(sawH2aMouseEnable).toBe(true);
+    expect(sawBarRegion).toBe(true);
+    expect(sawChildAltScreen).toBe(true);
+
+    // 2) Child received transcoded urxvt click (never raw SGR) and outer stdout never had child's ?1000l before detach.
+    expect(childWrites).toEqual(["\x1b[32;10;5M"]);
+    const allOut = stdout.chunks.join("");
+    const detachIdx = allOut.indexOf("[h2a] detached");
+    expect(detachIdx).toBeGreaterThan(0);
+    const beforeDetach = allOut.slice(0, detachIdx);
+    expect(beforeDetach).not.toContain("\x1b[?1000l");
+    expect(beforeDetach).not.toContain("\x1b[?1006l");
+    // 3) Collapsed marker click opened the panel and painted "beta".
+    expect(beforeDetach).toContain("beta");
+    // 4) Detach reset disabled outer mouse cleanly.
+    const afterDetach = allOut.slice(detachIdx);
+    expect(afterDetach).toContain("\x1b[?1006l");
+    expect(afterDetach).toContain("\x1b[?1000l");
+  });
 });
