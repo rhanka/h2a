@@ -19,6 +19,10 @@
       "types": "./dist/session-content-v3-api.d.ts",
       "import": "./dist/session-content-v3-api.js"
     },
+    "./human-output": {
+      "types": "./dist/human-output.d.ts",
+      "import": "./dist/human-output.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {
