@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, realpathSync, mkdtempSync, openSync, close
 import { resolve, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { FocusDocument } from '@sentropic/focus';
+import { assertFocusArtifact, checkFocusArtifact } from '@sentropic/focus/artifact';
 
 // Generated directly from @sentropic/focus/validate; no second validation implementation.
 const { assertFocusForPresentation, assertFocusDocument } =
@@ -133,8 +134,16 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   if (!['svelte', 'vue'].includes(backend)) throw new Error('Unknown Focus renderer');
   if (options.mode !== undefined && !['decision', 'report'].includes(options.mode)) throw new Error('Unknown Focus presentation mode');
   if (backend !== 'vue' && options.mode === 'report') throw new Error('Report presentation requires the opt-in Vue renderer');
-  // Refuse closed-schema violations before interpreting diagram references.
-  const inputDocument = assertFocusDocument(input);
+  // Refuse closed-schema, R2/R5/R6 anchor, doc.ref and bindingName violations before interpreting
+  // diagram references, and compute the canonical documentDigest BEFORE any section enrichment.
+  // BLOCKED(FA-H1 step 4): enforcing the 1 048 576-byte ceiling inside buildFocusDossier contradicts
+  // frozen CI tests in .github/workflows/focus-dossier.yml:
+  //   - packages/h2a/focus-kit/test/evidence-browser.test.mjs:122 (8 122 984 bytes via evidence-harness.mjs:13)
+  //   - packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs:19-32 (> 30 MB large corpus & 1 596 479-byte doubled corpus, SHA-256 frozen in fixtures/evidence-performance-policy.v1.json)
+  // Stopped here without deciding the design; checkFocusArtifact / h2a focus check / h2a_focus_check enforce 1 048 576 bytes by default.
+  const artifactChecked = assertFocusArtifact(input, { maxDocumentBytes: null, skipReadability: true });
+  const inputDocument = artifactChecked.document;
+  const canonicalDocumentDigest = artifactChecked.documentDigest;
   const catalog = JSON.parse(readAsset('ecosystem.json'));
   let diagramCount = 0;
   const sections = inputDocument.sections.map(section => {
@@ -181,14 +190,15 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   if (!renderer.includes('<!--FOCUS_PAYLOAD-->') || !renderer.includes('<!--FOCUS_TITLE-->')) throw new Error('Invalid Focus renderer asset; rebuild the kit');
   const build = { increment: manifest.increment, formats: manifest.formats, capabilities: manifest.capabilities,
     rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
+    documentDigest: canonicalDocumentDigest,
     envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
   return renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
     .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, views, build,
       ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
 }
 
-/** Same-directory rename is the only publication point; failures preserve the old artifact. */
-export function publishFocusArtifact(output: string, content: string): void {
+/** Same-directory atomic rename is the only write point; failures preserve the previous file. */
+export function writeFocusArtifactFile(output: string, content: string): void {
   const staging = mkdtempSync(join(dirname(output), '.focus-build-'));
   try {
     const pending = join(staging, 'artifact'), fd = openSync(pending, 'wx', 0o600);
@@ -197,8 +207,56 @@ export function publishFocusArtifact(output: string, content: string): void {
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }
 
+function runFocusCheckSubcommand(args: readonly string[], streams: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream }): number {
+  const usage = 'Usage: h2a focus check <dossier.json> [--previous-manifest <manifest.json>]\n';
+  if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
+  const input = args[1];
+  if (!input || input.startsWith('-')) { streams.stderr.write(usage); return 2; }
+  let previousManifestPath: string | undefined;
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === '--previous-manifest') {
+      const value = args[++i];
+      if (previousManifestPath !== undefined || !value || value.startsWith('-')) { streams.stderr.write(usage); return 2; }
+      previousManifestPath = value;
+    } else {
+      streams.stderr.write(usage); return 2;
+    }
+  }
+  try {
+    const document = JSON.parse(readFileSync(resolve(input), 'utf8')) as unknown;
+    const previousManifest = previousManifestPath !== undefined
+      ? JSON.parse(readFileSync(resolve(previousManifestPath), 'utf8')) as unknown
+      : undefined;
+    const result = checkFocusArtifact(document, previousManifest !== undefined ? { previousManifest } : undefined);
+    if (!result.ok) {
+      const error = `invalid DecisionDossierDocument: ${result.issues.map(i => `${i.path} ${i.code}: ${i.message}`).join('; ')}`;
+      streams.stdout.write(`${JSON.stringify({ ok: false, error, refusals: result.issues })}\n`);
+      streams.stderr.write(`h2a focus check: ${error}\n`);
+      return 1;
+    }
+    streams.stdout.write(`${JSON.stringify({
+      ok: true,
+      documentType: result.documentType,
+      schemaId: result.schemaId,
+      bindingName: result.bindingName,
+      documentDigest: result.documentDigest,
+      bytes: result.bytes,
+      anchors: result.anchors,
+      retiredRefs: result.retiredRefs,
+      revisionSeq: result.revisionSeq,
+    })}\n`);
+    return 0;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    streams.stdout.write(`${JSON.stringify({ ok: false, error: message, refusals: [{ code: 'invalid_json', message }] })}\n`);
+    streams.stderr.write(`h2a focus check: ${message}\n`);
+    return 1;
+  }
+}
+
 export function runFocusBuildCli(args: readonly string[], streams = { stdout: process.stdout, stderr: process.stderr }): number {
-  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report]\n       h2a focus template [--evidence] -o <dossier.json>\n';
+  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report]\n       h2a focus check <dossier.json> [--previous-manifest <manifest.json>]\n       h2a focus template [--evidence] -o <dossier.json>\n';
+  if (args[0] === 'check') return runFocusCheckSubcommand(args, streams);
   if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
   const template = args[0] === 'template';
   const buildOptions: FocusBuildOptions = {};
@@ -230,7 +288,7 @@ export function runFocusBuildCli(args: readonly string[], streams = { stdout: pr
       if (realpathSync(args[1]) === existingOutput) throw new Error('Output must differ from the input dossier');
     }
     const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')), buildOptions);
-    publishFocusArtifact(output, html);
+    writeFocusArtifactFile(output, html);
     streams.stdout.write(template ? `Focus template: ${output}\n` : `Focus dossier validated; portable HTML: ${output}\n`);
     return 0;
   } catch (error) {

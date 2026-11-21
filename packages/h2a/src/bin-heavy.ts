@@ -243,7 +243,7 @@ if (argv[0] === "__operator-break") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
 } else if (argv[0] === "focus" && argv[1] === "feedback") {
   runAsync('focus feedback', import('./focus-feedback.js').then(({ runFocusFeedbackCli }) => runFocusFeedbackCli(argv.slice(2))));
-} else if (argv[0] === "focus" && (argv[1] === "build" || argv[1] === "template")) {
+} else if (argv[0] === "focus" && (argv[1] === "build" || argv[1] === "template" || argv[1] === "check")) {
   runAsync(`focus ${argv[1]}`, import("./focus-build.js").then(({ runFocusBuildCli }) => runFocusBuildCli(argv.slice(1))));
 } else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {
   // Intercept the production web server before the bare `focus` facade can delegate to `track focus`.

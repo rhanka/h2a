@@ -42,10 +42,14 @@ export {
 export {
   FOCUS_TEMPLATE_KINDS,
   handleH2aFocusBuild,
+  handleH2aFocusCheck,
   handleH2aFocusTemplate,
   validateFocusBuildRequest,
+  validateFocusCheckRequest,
   type FocusBuildRequest,
   type FocusBuildResult,
+  type FocusCheckRequest,
+  type FocusCheckResult,
   type FocusRefusal,
   type FocusTemplateKind,
   type FocusTemplateResult

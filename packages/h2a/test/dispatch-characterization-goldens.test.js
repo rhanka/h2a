@@ -54,7 +54,8 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // `registry catalog`, `registry bootstrap` and `hosted-lock` usage lines
 // (+501 bytes).
 // Focus MCP tools (Lot L1): `MCP tools:` line gains `, h2a_focus_build, h2a_focus_template` (+37 bytes).
-const CORE_HELP_SHA256 = "28d9fe42f434bb22a22c2d51e5ad9f437c5cd3bef76a121dfd743e7845e31fcb";
+// Focus artifact gate (Lot FA-H1): adds `h2a focus check` usage line (+110 bytes) and `, h2a_focus_check` in `MCP tools:` (+17 bytes) = +127 bytes.
+const CORE_HELP_SHA256 = "5bbbf19fd768ff8c6e374e7dc7f889162a3708c995e85944b7c72d44c0ded66d";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -161,7 +162,8 @@ function assertCoreHelp(result) {
   // line now documents the single H4 command instead of the legacy staged path.
   // + 501 for the LOT-3/LOT-5 registry verbs.
   // + 37 for `, h2a_focus_build, h2a_focus_template` in the MCP tools line (Lot L1).
-  assert.equal(Buffer.byteLength(result.stdout), 15427);
+  // + 127 for `h2a focus check` usage line (+110) and `, h2a_focus_check` in MCP tools (+17) (Lot FA-H1).
+  assert.equal(Buffer.byteLength(result.stdout), 15554);
 }
 
 function assertMissingRuntime(result, firstToken) {
