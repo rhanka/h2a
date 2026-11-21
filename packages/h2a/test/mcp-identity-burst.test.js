@@ -77,7 +77,15 @@ async function initAll(handles, timeoutMs) {
   const t0 = Date.now();
   const latencies = await Promise.all(
     handles.map((h) =>
-      callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs }).then(() => Date.now() - t0)
+      callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs }).then((res) => {
+        assert.equal(res.message.error, undefined, `initialize failed: ${JSON.stringify(res.message.error)}`);
+        assert.equal(
+          res.message.result?.serverInfo?.name,
+          "@sentropic/h2a",
+          `unexpected initialize response: ${JSON.stringify(res.message)}`
+        );
+        return Date.now() - t0;
+      })
     )
   );
   if (process.env.H2A_MCP_TEST_CENTRAL === "1") {
@@ -244,7 +252,7 @@ maybe(
 
 maybe(
   `T4 holder: ${N} connect while the registry lock is held, then all resolve after release`,
-  { timeout: 90_000 },
+  { timeout: 180_000 },
   async () => {
     const root = labRoot(SEED);
     const prefix = "t4-holder-";
@@ -260,29 +268,38 @@ maybe(
     try {
       // Every initialize must answer while the lock is HELD. RED on main: it
       // blocks in identity resolution and never returns (the server closes).
-      // DECOUPLING bound: a FRACTION of the identity deadline, not a tight
-      // wall-clock — a lock-blocked initialize would scale to ~20s (or die).
-      // Three fifths of the deadline discriminates that: the 36-spawn storm
-      // serializes process startup on slower 4-vCPU runners (measured max
-      // 10.7s against the 10s half), while a lock-blocked initialize still
-      // stands out at ~2x the deadline.
-      const { max } = await initAll(handles, 18_000);
-      assert.ok(
-        max < IDENTITY_DEADLINE_MS * 0.6,
-        `initialize must answer well before the identity deadline while contended (max ${max}ms, bound ${IDENTITY_DEADLINE_MS * 0.6}ms)`
-      );
+      // Bootstrap scheduling of 36 simultaneous MCP servers (+ 36 forked
+      // identity workers) is outside the transport contract: comparing cold
+      // startup wall-clock to a fraction of IDENTITY_DEADLINE_MS flaked on
+      // shared runners (10.7s vs 10s, then 12.15s vs 12s on node-shard 22,1)
+      // and on 1-core contention. Prove decoupling structurally instead: every
+      // initialize succeeds while the live holder still owns `registry/.lock`
+      // and ZERO bindings exist. A transport coupled to identity blocks on the
+      // held lock and dies or hits the bounded safety deadline here.
+      await initAll(handles, 60_000);
+      assert.equal(holder.child.exitCode, null, "registry lock holder must still be alive after all initialize calls");
+      assert.equal(holder.child.signalCode, null, "registry lock holder must not have exited by signal");
+      const lockOwner = JSON.parse(readFileSync(holder.lockPath, "utf8"));
+      assert.equal(lockOwner.pid, holder.child.pid, "the live registry lock holder's PID is untouched while contended");
       // Jitter-IMMUNE proof: the registry lock has NOT been released yet, so no
-      // binding can exist — a decoupled transport wrote none while contended.
+      // binding can exist — none of the N waiters resolved before release.
       assert.equal(bindingsWithPrefix(root, prefix).length, 0, "no binding while contended");
       // Release only AFTER the decoupling proof — no race with the check above.
       await holder.stop();
-      const finals = await resolveCohortAfterRelease(handles);
-      assert.equal(finals.filter((s) => s.state === "identity_ready").length, N, `all ${N} are activated after release`);
+      const finals = await resolveCohortAfterRelease(handles, {
+        timeoutMs: 90_000,
+        progressCount: () => bindingsWithPrefix(root, prefix).length
+      });
+      assert.equal(
+        finals.filter((s) => s.state === "identity_ready" && s.signingAvailable).length,
+        N,
+        `all ${N} are activated after release`
+      );
       const mine = bindingsWithPrefix(root, prefix);
       assert.equal(mine.length, N, `all ${N} resolve after release`);
       assert.equal(new Set(mine.map((b) => b.instance)).size, N, "distinct identities, no collision");
     } finally {
-      holder.stop();
+      await holder.stop();
       await Promise.all(
         handles.map((h) => {
           h.child.stdin.end();
