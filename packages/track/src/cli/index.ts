@@ -8,10 +8,13 @@ import { EventStore } from '../events/store.js'
 import { validate } from '../events/validate.js'
 import { cmdEventsContains } from './events-contains.js'
 import { cmdAdopt } from './adopt.js'
+import { cmdCapture } from '../capture/cli.js'
+import { readCaptureViewForIdentity } from '../capture/reader.js'
 import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
 import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
 import { cmdJournal } from './journal.js'
+import { readWritePolicy } from '../write-policy.js'
 import { resolveOwnerTablePolicyFile, trackStateHome } from '../state-home.js'
 import { canonicalPath, identityOf, isInsideDir, isJournalIdentity, projectIdentity, tmpCeilingFor } from '../journal/identity.js'
 import { deriveLabelFromIndex, readJournalIndex } from '../journal/index-store.js'
@@ -72,6 +75,7 @@ export interface CliIO {
 interface Ctx {
   io: CliIO
   eventsPath: string
+  writerTokenFile?: string | undefined
 }
 
 type Flags = Record<string, string | true>
@@ -80,9 +84,12 @@ const USAGE = `usage: track <command>
   --help | help
   global read/store override: --track-dir <directory-containing-events.jsonl> (or TRACK_DIR)
     may appear before or after the command; it redirects reads AND writes to that directory
+  global write-policy token: --writer-token-file <path> (or TRACK_WRITER_TOKEN)
+    may appear before or after the command; presents the exclusive writer token
   --version | -v
   init
-  journal which [--format json|text] | designate <dir> [--by <name>] | attach --to <dir>
+  journal which [--format json|text] | designate <dir> [--by <name>] | attach --to <dir> | declare-writer --holder <name> [--token-file <path>] | takeover --holder <name> --reason <text> [--token-file <path>] | release | status [--format json|text]
+  capture add|register|status|list|remind|classify|inscribe|acknowledge ...
   item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--link <kind=locator>] (repeatable --link; trim actor IDs; blank responsible members are dropped)
   item link <itemId> --kind <kind> --locator <locator> [--reason <text>] [--client-token <t>] (attach one link/pin to an existing item; kind spec-exempt requires --reason)
   item reparent <itemId> [--parent <pid>] [--detach]
@@ -160,7 +167,10 @@ function eventsPathOf(trackDir: string): string {
   return join(trackDir, 'events.jsonl')
 }
 function store(ctx: Ctx): EventStore {
-  return new EventStore(ctx.eventsPath)
+  return new EventStore(ctx.eventsPath, {
+    ...(ctx.writerTokenFile !== undefined ? { writerTokenFile: ctx.writerTokenFile } : {}),
+    ...(ctx.io.env !== undefined ? { env: ctx.io.env } : {}),
+  })
 }
 function gitHead(cwd: string): string {
   try {
@@ -481,6 +491,32 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
 }
 
 /**
+ * Pull a global `--writer-token-file <path>` out of argv BEFORE per-command parsing (plan/07 Lot 3),
+ * mirroring `extractTrackDirFlag`. Fails closed when `--writer-token-file` is passed without a path.
+ */
+function extractWriterTokenFileFlag(
+  argv: string[],
+  cwd: string,
+): { writerTokenFile?: string; rest: string[] } {
+  const rest: string[] = []
+  let writerTokenFile: string | undefined
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!
+    if (a === '--writer-token-file') {
+      const next = argv[i + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new DomainError('--writer-token-file requires a path')
+      }
+      writerTokenFile = isAbsolute(next) ? next : resolve(cwd, next)
+      i++
+      continue
+    }
+    rest.push(a)
+  }
+  return writerTokenFile !== undefined ? { writerTokenFile, rest } : { rest }
+}
+
+/**
  * Request-lifecycle Part 1 (Lot L2) — pull a REPEATABLE value flag's occurrences out of argv.
  * `parseFlags` keeps only the LAST occurrence of a repeated key, so `item new --link a --link b`
  * needs the pairs extracted BEFORE the standard single-value parse. Fail-closed on a missing value.
@@ -528,7 +564,17 @@ Rebind the exact rendering context with --scope/--period/--since/--until/--now/-
 `
 
 export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
-  const { trackDirFlag, rest: argv } = extractTrackDirFlag(rawArgv)
+  const { trackDirFlag, rest: argvAfterTrackDir } = extractTrackDirFlag(rawArgv)
+  let writerTokenFile: string | undefined
+  let argv: string[]
+  try {
+    const extracted = extractWriterTokenFileFlag(argvAfterTrackDir, io.cwd)
+    writerTokenFile = extracted.writerTokenFile
+    argv = extracted.rest
+  } catch (error) {
+    io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
+    return 1
+  }
   const cmd = argv[0]
   const rest = argv.slice(1)
   if (cmd === '--help' || cmd === 'help' || cmd === undefined) {
@@ -539,7 +585,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
     io.out(REPORT_USAGE)
     return 0
   }
-  const trackDirEnv = process.env['TRACK_DIR']
+  const trackDirEnv = (io.env ?? process.env)['TRACK_DIR']
   const resolveOpts = {
     cwd: io.cwd,
     ...(trackDirFlag !== undefined ? { flag: trackDirFlag } : {}),
@@ -559,24 +605,25 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       return cmdDecisionLs(rest, {
         io,
         eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
+        writerTokenFile,
       })
     }
     // `demand raise` and `decision number` resolve their journal via `resolveJournalOfReference`
     // (spec DS-6: main checkout from a linked worktree, temp-root ceiling included, never falling
     // back to `resolveTrackDir`).
     if (cmd === 'demand' && rest[0] === 'raise') {
-      const ref = resolveJournalOfReference(resolveOpts)
+      const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: io.env ?? process.env })
       if (ref.trackDir === null) {
         throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
       }
-      return cmdDemandRaise(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir) })
+      return cmdDemandRaise(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir), writerTokenFile })
     }
     if (cmd === 'decision' && rest[0] === 'number') {
-      const ref = resolveJournalOfReference(resolveOpts)
+      const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: io.env ?? process.env })
       if (ref.trackDir === null) {
         throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
       }
-      return cmdDecisionNumber(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir) })
+      return cmdDecisionNumber(rest.slice(1), { io, eventsPath: eventsPathOf(ref.trackDir), writerTokenFile })
     }
     switch (cmd) {
       case '--version':
@@ -606,12 +653,13 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         // so it dispatches here alongside install-skills/workspace-id, before store resolution.
         return cmdEventsContains(rest, io)
       case 'adopt':
-        return cmdAdopt(rest, io, resolveOpts, resolveCommit, cliActor)
+        return cmdAdopt(rest, io, resolveOpts, resolveCommit, cliActor, writerTokenFile)
       case 'journal':
-        // Journal of reference inspection and explicit designation/attachment (lot 4a).
-        // Dispatched before store resolution so `which` stays a pure read and `designate`/`attach`
-        // operate on explicit project/folder paths.
-        return cmdJournal(rest, io, { ...resolveOpts, processEnv: io.env ?? process.env })
+        // Journal of reference inspection, designation/attachment (lot 4a), and write policy (lot 3a).
+        return cmdJournal(rest, io, { ...resolveOpts, processEnv: io.env ?? process.env }, writerTokenFile)
+      case 'capture':
+        // Capture queue, registry, classification, inscription, and acknowledgement (lot 3a).
+        return cmdCapture(rest, io, { ...resolveOpts, processEnv: io.env ?? process.env }, cliActor, writerTokenFile)
       // READ commands SERVE-EMPTY (launch/serve alignment): they resolve via the non-throwing
       // `resolveTrackDirOrNull`, so an unadopted repo yields rc=0 + an honest-empty view + a stderr
       // `track init` hint, never a boot crash. NEVER creates. A bad EXPLICIT override still throws
@@ -694,7 +742,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       case 'restructure':
       case 'ingest':
       case 'reseal': {
-        const ctx: Ctx = { io, eventsPath: eventsPathOf(resolveTrackDir(resolveOpts)) }
+        const ctx: Ctx = { io, eventsPath: eventsPathOf(resolveTrackDir(resolveOpts)), writerTokenFile }
         switch (cmd) {
           case 'item':
             return cmdItem(rest, ctx)
@@ -1066,7 +1114,11 @@ function cmdRestructure(args: string[], ctx: Ctx): number {
   } catch {
     throw new DomainError('restructure apply: --plan must be a valid JSON plan file')
   }
-  const res = applyRestructurePlan(ctx.eventsPath, plan, { by: cliActor(io.cwd) })
+  const res = applyRestructurePlan(ctx.eventsPath, plan, {
+    by: cliActor(io.cwd),
+    ...(ctx.writerTokenFile !== undefined ? { writerTokenFile: ctx.writerTokenFile } : {}),
+    ...(io.env !== undefined ? { env: io.env } : {}),
+  })
   io.out(`applied ${res.applied} edge(s) of ${res.edges} (${res.alreadyApplied} already applied) [plan ${res.planHash}]\n`)
   return 0
 }
@@ -1642,10 +1694,56 @@ function cmdReport(
   }
   const reader = new TrackReader(ctx.eventsPath)
   if (ownerTable) {
+    const procEnv = io.env ?? process.env
+    const ceiling = tmpCeilingFor(io.cwd)
+    const stateHome = trackStateHome(procEnv)
+    const indexAllowed =
+      ceiling === undefined ||
+      isInsideDir(resolve(stateHome), resolve(ceiling)) ||
+      isInsideDir(canonicalPath(stateHome), canonicalPath(ceiling))
+    const captureView =
+      indexAllowed && journalRef !== undefined
+        ? readCaptureViewForIdentity(journalRef.identity, { env: procEnv, now: periodClock })
+        : undefined
+
     if (noTrackDir) {
+      // DS-2 (spec §4 G4, §5, §7.1): active capture without a journal is a readable source —
+      // render header, captured-not-inscribed section and partial-scope sentence, exit 0, write nothing.
+      if (journalRef?.captureActive === true && captureView !== undefined) {
+        const resolvedPolicy = resolveOwnerTablePolicyFile({
+          flagPolicyPath: opt(flags, 'policy'),
+          env: procEnv,
+        })
+        const policyFound =
+          resolvedPolicy.policyPath !== undefined && existsSync(resolvedPolicy.policyPath)
+        const emptyView = {
+          kind: 'owner-table-report' as const,
+          rows: [],
+          decisions: [],
+          replyLine: '',
+          registeredNumbers: [],
+          archivedNumbers: [],
+          ...(resolvedPolicy.policyPath !== undefined ? { policyPath: resolvedPolicy.policyPath } : {}),
+          statePolicyPath: resolvedPolicy.statePolicyPath,
+        }
+        const qualified = buildQualifiedOwnerTable(emptyView, {
+          now: periodClock,
+          mode: strict ? 'strict' : 'default',
+          policyFound,
+          captureView,
+          header: {
+            label: journalRef.label,
+            resolution: journalRef.resolution ?? 'dossier',
+            noJournal: true,
+          },
+          ...(resolvedPolicy.policyPath !== undefined ? { policyPath: resolvedPolicy.policyPath } : {}),
+          statePolicyPath: resolvedPolicy.statePolicyPath,
+        })
+        io.out(renderQualifiedOwnerTable(qualified, format))
+        return 0
+      }
       throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, journalRef?.reason))
     }
-    const procEnv = io.env ?? process.env
     const resolvedPolicy = resolveOwnerTablePolicyFile({
       flagPolicyPath: opt(flags, 'policy'),
       trackDir: dirname(ctx.eventsPath),
@@ -1667,12 +1765,6 @@ function cmdReport(
         io.err(`Notice: ${notice}\n`)
       }
     }
-    const ceiling = tmpCeilingFor(io.cwd)
-    const stateHome = trackStateHome(procEnv)
-    const indexAllowed =
-      ceiling === undefined ||
-      isInsideDir(resolve(stateHome), resolve(ceiling)) ||
-      isInsideDir(canonicalPath(stateHome), canonicalPath(ceiling))
     const journalIndex = indexAllowed ? readJournalIndex(procEnv) : { version: 1 as const, identities: {} }
     const isOffRepo = journalRef?.resolution === 'journal hors dépôt'
     const desyncEval = evaluateDesync(tableCtx.state, reader.journalProjectDir(), {
@@ -1681,6 +1773,7 @@ function cmdReport(
       offRepo: isOffRepo,
       fallbackRoot: journalRef?.identityRoot ?? null,
     })
+    const writePolicy = readWritePolicy(ctx.eventsPath)
 
     // Origin labels for rows raised from an identity different from the journal's own identity (lot 4a).
     const journalOwnIdentity =
@@ -1718,6 +1811,8 @@ function cmdReport(
       unassignedJournal:
         journalRef !== undefined && !journalRef.designated && journalRef.knownCopies > 1,
       rowOriginLabels,
+      writePolicy: { mode: writePolicy.mode, holder: writePolicy.holder },
+      ...(captureView !== undefined ? { captureView } : {}),
       header: {
         ...(journalRef?.label !== undefined ? { label: journalRef.label } : {}),
         resolution: journalRef?.resolution ?? 'dossier',

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import type { TrackEvent } from '../events/types.js'
+import type { CaptureOrigin, TrackEvent } from '../events/types.js'
 import { isOwnerGateTitle, isSettled, type DecisionState } from '../model/decision.js'
 import type { DemandState } from '../model/demand.js'
 import { DomainError, type ItemState } from '../model/item.js'
@@ -88,6 +88,16 @@ export interface OwnerTableRow {
   hasWitness?: boolean | undefined
   /** Earliest recorded creation timestamp for this row's demand or item (ISO-8601). */
   createdAt?: string | undefined
+  /** True when the demand's `demand.raised` event carried `prov.transport === 'capture'` (lot 3a). */
+  captured?: boolean | undefined
+  /** Attribution origin when captured (lot 3a, DS-9). */
+  captureOrigin?: CaptureOrigin | undefined
+  /** Optional short title given at classification (lot 3a, judged separately from captured text). */
+  capturedTitle?: string | undefined
+  /** Captured verbatim text (lot 3a, judged separately from short title). */
+  capturedText?: string | undefined
+  /** True when a private term was masked at inscription into a versioned journal (lot 3a). */
+  maskedAtInscription?: boolean | undefined
 }
 
 export interface OwnerTableDecisionOption {
@@ -319,6 +329,73 @@ function resolveOwnerTablePolicy(
 
 function sha256Hex(input: string): string {
   return createHash('sha256').update(input, 'utf8').digest('hex')
+}
+
+function matchesPrivateTermToken(token: string, policy: OwnerTablePolicy): boolean {
+  if (policy.privateTermHashes === undefined || policy.privateTermHashes.length === 0) {
+    return false
+  }
+  const nfcLower = token.normalize('NFC').toLowerCase()
+  const nfdStripped = token.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase()
+  const variants = nfcLower === nfdStripped ? [nfcLower] : [nfcLower, nfdStripped]
+  const defaultSalt = policy.salt ?? ''
+
+  for (const entry of policy.privateTermHashes) {
+    let salt = defaultSalt
+    let targetHash: string
+    if (typeof entry === 'string') {
+      const colonIdx = entry.lastIndexOf(':')
+      if (colonIdx > 0 && /^[0-9a-f]{64}$/iu.test(entry.slice(colonIdx + 1))) {
+        salt = entry.slice(0, colonIdx)
+        targetHash = entry.slice(colonIdx + 1).toLowerCase()
+      } else {
+        targetHash = entry.toLowerCase()
+      }
+    } else {
+      salt = entry.salt ?? defaultSalt
+      targetHash = entry.hash.toLowerCase()
+    }
+    for (const tok of variants) {
+      if (salt !== '') {
+        if (sha256Hex(`${salt}:${tok}`) === targetHash || sha256Hex(`${salt}${tok}`) === targetHash) {
+          return true
+        }
+      } else if (sha256Hex(tok) === targetHash) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+export const PRIVATE_TERM_MASK_PLACEHOLDER = '[terme masqué]'
+
+/**
+ * Replace any token matching `policy.privateTermHashes` with `[terme masqué]` (spec §7.5, plan/07 Lot 4).
+ * Uses the exact same normalization & salted SHA-256 matching rules as `matchesPrivateTermPolicy`.
+ */
+export function maskPrivateTermsWithPolicy(
+  text: string,
+  policy: OwnerTablePolicy | undefined,
+): { text: string; masked: boolean; count: number } {
+  if (policy?.privateTermHashes === undefined || policy.privateTermHashes.length === 0) {
+    return { text, masked: false, count: 0 }
+  }
+  let count = 0
+  const out = text.replace(/[\p{L}\p{N}_-]+/gu, (compound) => {
+    if (matchesPrivateTermToken(compound, policy)) {
+      count += 1
+      return PRIVATE_TERM_MASK_PLACEHOLDER
+    }
+    return compound.replace(/[\p{L}\p{N}]+/gu, (part) => {
+      if (matchesPrivateTermToken(part, policy)) {
+        count += 1
+        return PRIVATE_TERM_MASK_PLACEHOLDER
+      }
+      return part
+    })
+  })
+  return { text: out, masked: count > 0, count }
 }
 
 function matchesPrivateTermPolicy(text: string, policy: OwnerTablePolicy | undefined): boolean {
@@ -1290,7 +1367,26 @@ export function auditOwnerTable(
     }
 
     // Gate: commit hash, ULID, internal jargon, or banned word in owner text
-    checkTextGates(row.request, { rowNum: row.num, rowId: row.id, cell: 'request', field: `row #${row.num} "Ta demande"` }, violations, policy)
+    if (row.captured === true) {
+      if (row.capturedTitle !== undefined && row.capturedTitle.trim() !== '') {
+        checkTextGates(
+          row.capturedTitle,
+          { rowNum: row.num, rowId: row.id, cell: 'request', field: `row #${row.num} "Ta demande" (title)` },
+          violations,
+          policy,
+        )
+      }
+      if (row.capturedText !== undefined && row.capturedText.trim() !== '') {
+        checkTextGates(
+          row.capturedText,
+          { rowNum: row.num, rowId: row.id, cell: 'request', field: `row #${row.num} "Ta demande" (text)` },
+          violations,
+          policy,
+        )
+      }
+    } else {
+      checkTextGates(row.request, { rowNum: row.num, rowId: row.id, cell: 'request', field: `row #${row.num} "Ta demande"` }, violations, policy)
+    }
     checkTextGates(row.done, { rowNum: row.num, rowId: row.id, cell: 'done', field: `row #${row.num} "Fait"` }, violations, policy)
     checkTextGates(row.todo, { rowNum: row.num, rowId: row.id, cell: 'todo', field: `row #${row.num} "À faire (qui)"` }, violations, policy)
   }
@@ -2320,6 +2416,10 @@ export function projectOwnerTable(
       createdAtByAggregate.get(rowId) ??
       (item !== undefined ? createdAtByAggregate.get(item.id) : undefined)
 
+    const capturedDemand = rowKind === 'single' && demand?.captured === true ? demand : undefined
+    const capturedTitle = capturedDemand !== undefined ? (capturedDemand.ownerSummary ?? capturedDemand.raw.title) : undefined
+    const capturedText = capturedDemand !== undefined ? capturedDemand.raw.text : undefined
+
     return {
       kind: rowKind,
       ...(parentDemandId !== undefined ? { parentDemandId } : {}),
@@ -2342,6 +2442,15 @@ export function projectOwnerTable(
       ...(decisionBlocking ? { decisionBlocking: true } : {}),
       hasWitness,
       ...(rowCreatedAt !== undefined ? { createdAt: rowCreatedAt } : {}),
+      ...(capturedDemand !== undefined
+        ? {
+            captured: true,
+            ...(capturedDemand.captureOrigin !== undefined ? { captureOrigin: capturedDemand.captureOrigin } : {}),
+            ...(capturedTitle !== undefined && capturedTitle.trim() !== '' ? { capturedTitle: cleanDisplayText(capturedTitle) } : {}),
+            ...(capturedText !== undefined ? { capturedText: cleanDisplayText(capturedText) } : {}),
+            ...(capturedDemand.maskedAtInscription === true ? { maskedAtInscription: true } : {}),
+          }
+        : {}),
     }
   }
 
@@ -2411,6 +2520,7 @@ export function projectOwnerTable(
           : []
 
       const titleCreatedAt = createdAtByAggregate.get(demand.id)
+      const titleCapturedTitle = demand.captured === true ? (demand.ownerSummary ?? demand.raw.title) : undefined
       rows.push({
         kind: 'demand-title',
         num: c.num,
@@ -2429,6 +2539,17 @@ export function projectOwnerTable(
           ? { blockingDecisionIds: titleBlockingIds, decisionBlocking: true }
           : {}),
         ...(titleCreatedAt !== undefined ? { createdAt: titleCreatedAt } : {}),
+        ...(demand.captured === true
+          ? {
+              captured: true,
+              ...(demand.captureOrigin !== undefined ? { captureOrigin: demand.captureOrigin } : {}),
+              ...(titleCapturedTitle !== undefined && titleCapturedTitle.trim() !== ''
+                ? { capturedTitle: cleanDisplayText(titleCapturedTitle) }
+                : {}),
+              capturedText: cleanDisplayText(demand.raw.text),
+              ...(demand.maskedAtInscription === true ? { maskedAtInscription: true } : {}),
+            }
+          : {}),
       })
 
       c.items.forEach((lotItem, idx) => {

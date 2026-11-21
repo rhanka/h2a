@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
+import { isCaptureActiveForIdentity } from '../capture/reader.js'
 import {
   canonicalPath,
   identityDigest,
@@ -60,6 +61,8 @@ export interface JournalReferenceResult {
   step5CopyPath?: string | null
   /** Conductor identity when step 4 matched. */
   conductorIdentity?: string | null
+  /** True when capture is active for this folder (DS-2: direct/deferred CLI in registry, or open queue entry). */
+  captureActive: boolean
   reason?: string
 }
 
@@ -181,6 +184,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
     const abs = isAbsolute(raw) ? raw : resolve(rawStart, raw)
     if (!isDir(abs)) throw new TrackDirNotFoundError(opts.cwd, true)
     const ident = identityOf(rawStart)
+    const captureActive = stateHomeAllowed ? isCaptureActiveForIdentity(ident.id, { env: procEnv }) : false
     const index = stateHomeAllowed ? readJournalIndex(procEnv) : { version: 1 as const, identities: {} }
     const knownCopies = index.identities[ident.id]?.copies.length ?? 0
     const localCopy = walkUpForTrackDir(rawStart, ceiling)
@@ -203,6 +207,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
       inscriptionAllowed: true,
       knownCopies,
       matchedStep: 1,
+      captureActive,
     }
   }
   steps.push({ step: 1, name: '--track-dir / TRACK_DIR', outcome: 'not set' })
@@ -228,6 +233,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
     const mainCheckout = porcelain !== undefined ? parseMainWorktree(porcelain) : undefined
     if (mainCheckout === undefined || !isWithinCeiling(mainCheckout, ceiling)) {
       const ident = identityOf(rawStart)
+      const captureActive = stateHomeAllowed ? isCaptureActiveForIdentity(ident.id, { env: procEnv }) : false
       steps.push({
         step: 2,
         name: 'linked-worktree',
@@ -253,6 +259,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
         inscriptionAllowed: false,
         knownCopies: 0,
         matchedStep: null,
+        captureActive,
         reason:
           mainCheckout === undefined
             ? 'le dépôt principal ne contient aucun journal .track'
@@ -268,6 +275,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
 
   // Identity & read-only index lookup (capped at temporary root).
   const ident = identityOf(effectiveStart)
+  const captureActive = stateHomeAllowed ? isCaptureActiveForIdentity(ident.id, { env: procEnv }) : false
   const index = stateHomeAllowed ? readJournalIndex(procEnv) : { version: 1 as const, identities: {} }
   const entry = index.identities[ident.id]
   const indexCopies = entry?.copies ?? []
@@ -305,6 +313,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
         inscriptionAllowed: exists,
         knownCopies: indexCopies.length,
         matchedStep: 3,
+        captureActive,
         ...(!exists ? { reason: `le journal désigné n'existe pas sur disque : ${refPath}` } : {}),
       }
     }
@@ -350,6 +359,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
         knownCopies: indexCopies.length,
         matchedStep: 4,
         conductorIdentity: conductorId,
+        captureActive,
         ...(!exists ? { reason: `le journal du conducteur n'existe pas sur disque : ${condJournal}` } : {}),
       }
     }
@@ -392,6 +402,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
         knownCopies: count,
         matchedStep: 5,
         step5CopyPath: found,
+        captureActive,
       }
     }
 
@@ -415,6 +426,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
       knownCopies: knownSet.size,
       matchedStep: 5,
       step5CopyPath: found,
+      captureActive,
     }
   }
   steps.push({ step: 5, name: 'nearest-ancestor', outcome: 'none' })
@@ -439,6 +451,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
       inscriptionAllowed: false,
       knownCopies: indexCopies.length,
       matchedStep: null,
+      captureActive,
       reason:
         rewrittenFrom !== null
           ? 'le dépôt principal ne contient aucun journal .track'
@@ -473,6 +486,7 @@ export function resolveJournalOfReference(opts: JournalResolveOptions): JournalR
     inscriptionAllowed: true,
     knownCopies: indexCopies.length,
     matchedStep: 6,
+    captureActive,
     ...(!offRepoExists
       ? {
           reason:
