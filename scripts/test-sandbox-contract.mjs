@@ -155,9 +155,9 @@ export function readAndValidateSandboxReceipt(env = process.env) {
         `contradictory receipt path on Linux: ${envReceipt}`,
       );
     }
-    if (resolve(stateRoot) !== SANDBOX_MOUNT_ROOT) {
+    if (!isWithinDirectory(stateRoot, SANDBOX_MOUNT_ROOT)) {
       throw new UnconfinedTestRunError(
-        `Linux D16 state root must be ${SANDBOX_MOUNT_ROOT}, got ${stateRoot}`,
+        `Linux D16 state root must be within ${SANDBOX_MOUNT_ROOT}, got ${stateRoot}`,
       );
     }
   } else if (process.platform === "darwin") {
@@ -206,6 +206,11 @@ export function readAndValidateSandboxReceipt(env = process.env) {
   }
   if (typeof receipt.root !== "string" || !isAbsolute(receipt.root)) {
     throw new UnconfinedTestRunError("receipt missing valid root path");
+  }
+  if (process.platform === "linux" && resolve(receipt.root) !== SANDBOX_MOUNT_ROOT) {
+    throw new UnconfinedTestRunError(
+      `Linux D16 receipt root must be ${SANDBOX_MOUNT_ROOT}, got ${receipt.root}`,
+    );
   }
   if (resolve(receipt.root) !== resolve(stateRoot)) {
     // Allow narrowing H2A_TEST_STATE_ROOT strictly inside receipt.root
@@ -274,13 +279,23 @@ function resolveCanonicalInsideRoot(candidate, root) {
   }
   const parts = rel ? rel.split("/").filter(Boolean) : [];
   let cur = absRoot;
-  const rootStat = lstatSync(cur);
+  let rootStat;
+  try {
+    rootStat = lstatSync(cur);
+  } catch (error) {
+    throw new UnconfinedTestRunError(`cannot stat attested root ${cur}: ${error.message}`);
+  }
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
     throw new UnconfinedTestRunError(`attested root is not a real directory: ${cur}`);
   }
   for (const part of parts) {
     cur = join(cur, part);
-    const st = lstatSync(cur);
+    let st;
+    try {
+      st = lstatSync(cur);
+    } catch (error) {
+      throw new UnconfinedTestRunError(`cannot stat attested path ${cur}: ${error.message}`);
+    }
     if (st.isSymbolicLink()) {
       throw new UnconfinedTestRunError(`symlink forbidden in attested path: ${cur}`);
     }
