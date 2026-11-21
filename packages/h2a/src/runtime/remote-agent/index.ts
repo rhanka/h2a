@@ -193,3 +193,29 @@ export {
   type TrunkLinkStatus,
   type TrunkClientOptions
 } from "./trunk-client.js";
+export {
+  TERMINAL_OUTPUT_COALESCE_MS,
+  TERMINAL_OUTPUT_POLL_INTERVAL_MS,
+  TERMINAL_OUTPUT_MAX_RANGES,
+  CoalescedRangeIndex,
+  segmentSingleChunk,
+  TerminalOutputAssembler,
+  type NativeOutputChunk,
+  type NativeReplayGap,
+  type CoalescedRange,
+  type TermOutProposal,
+  type TerminalOutputAssemblerOptions
+} from "./terminal-output.js";
+export {
+  TERMINAL_BRIDGE_DEFAULT_READ_TIMEOUT_MS,
+  defaultConnectNativeObserverClient,
+  createTerminalBridge,
+  type NativeObserverSessionState,
+  type NativeObserverAttachment,
+  type NativeObserverReplay,
+  type NativeTerminalObserverClient,
+  type TerminalBridgeClock,
+  type TerminalBridgeAuditEvent,
+  type TerminalBridgeOptions,
+  type TerminalBridge
+} from "./terminal-bridge.js";
