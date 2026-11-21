@@ -56,6 +56,7 @@ import {
   collectNativeInventory,
   resolveNativeOwner,
   type NativeInventory,
+  type NativeInventoryClient,
 } from "./fleet.js";
 import { NATIVE_TERMINAL_PROTOCOL_VERSION } from "./protocol.js";
 import {
@@ -824,6 +825,7 @@ export function groupPanelSessions(
     compatGuard: s.compatGuard,
     draftCapability: s.draftCapability,
     draftRecovery: s.draftRecovery,
+    mtimeMs: s.mtimeMs,
     ...(s.delegatedNames !== undefined ? { delegatedNames: s.delegatedNames } : {}),
     ...(s.delegatedChildren !== undefined ? { delegatedChildren: s.delegatedChildren } : {}),
     ...(s.delegatedDegraded !== undefined ? { delegatedDegraded: s.delegatedDegraded } : {}),
@@ -942,7 +944,7 @@ export type BuildLiveRightPanelSnapshotOptions = Readonly<{
   env?: NodeJS.ProcessEnv;
   nowMs?: number;
   seenDecisionKeys?: ReadonlySet<string>;
-  collectNative?: () => Promise<NativeInventory>;
+  collectNative?: () => Promise<NativeInventory<NativeInventoryClient>>;
   listTmux?: () => Promise<HostViewSnapshot["tmux"]>;
   trackCache?: TrackJournalCache;
   trackSources?: readonly TrackProjectSource[];
@@ -1153,7 +1155,7 @@ export async function buildLiveRightPanelSnapshot(
   const registryEntries = registryRead.state === "ok" ? registryRead.entries : [];
   const registryUnreadable = registryRead.state === "ok" ? registryRead.unreadable : [];
 
-  let nativeInventory: NativeInventory;
+  let nativeInventory: NativeInventory<NativeInventoryClient>;
   try {
     nativeInventory = await (opts.collectNative ?? collectDefaultNativeInventory)();
   } catch {
@@ -1537,7 +1539,7 @@ export async function buildLiveRightPanelSnapshot(
  *   after `dispose()`.
  */
 export class RightPanelSnapshotRefresher {
-  readonly #currentSessionId: string | undefined;
+  readonly #currentSessionId: string | (() => string | undefined) | undefined;
   readonly #load: (seenDecisionKeys: ReadonlySet<string>) => Promise<RightPanelSnapshot>;
   readonly #now: () => number;
   readonly #minIntervalMs: number;
@@ -1550,7 +1552,8 @@ export class RightPanelSnapshotRefresher {
   #generation = 0;
 
   constructor(opts: {
-    currentSessionId?: string;
+    /** A function follows the displayed session of a station across switches. */
+    currentSessionId?: string | (() => string | undefined);
     load: (seenDecisionKeys: ReadonlySet<string>) => Promise<RightPanelSnapshot>;
     initialSnapshot: RightPanelSnapshot;
     now: () => number;
@@ -1576,8 +1579,12 @@ export class RightPanelSnapshotRefresher {
         this.#seenDecisionKeys.add(decisionSeenKey(d));
       }
     }
+    const currentSessionId =
+      typeof this.#currentSessionId === "function"
+        ? this.#currentSessionId()
+        : this.#currentSessionId;
     this.#snapshot = buildRightPanelSnapshot({
-      ...(this.#currentSessionId ? { currentSessionId: this.#currentSessionId } : {}),
+      ...(currentSessionId ? { currentSessionId } : {}),
       groups: this.#snapshot.workspaces,
       decisions: this.#snapshot.decisions,
       ...(this.#snapshot.decisionsDegraded

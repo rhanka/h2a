@@ -39,8 +39,8 @@ const HOSTILE =
   "first line  \r\n" +
   "\x1b[2J\x1b[H\x1b]0;pwned\x07\x1b]52;c;cHduZWQ=\x07" +
   "<script>alert(1)</script>\t<b>bold</b>\n" +
-  "é vs é · 👩‍💻 · 漢字\n" +
-  "‮evil‬\x7f\u009b31m\n" +
+  "é vs é · 👩\u200d💻 · 漢字\n" +
+  "\u202eevil\u202c\x7f\u009b31m\n" +
   "\n" +
   "last";
 
@@ -93,7 +93,7 @@ describe("S1 draft recovery view (r4 §3.6, D-A17)", () => {
       "last",
     ]);
     for (const line of lines) {
-      expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/u);
+      expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/u);
     }
   });
 

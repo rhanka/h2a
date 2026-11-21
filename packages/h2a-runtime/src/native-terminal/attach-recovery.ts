@@ -11,6 +11,7 @@ const UNDO_ORDER = [
   "h2a-margins",
   "h2a-mouse",
   "h2a-hygiene",
+  "h2a-title",
 ] as const;
 
 /**

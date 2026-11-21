@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 
+import { NativeTerminalRequestTimeoutError } from "./client.js";
 import type { NativeTerminalClient } from "./client.js";
 import type {
   NativeTerminalControllerLease,
@@ -14,6 +15,7 @@ import {
   TerminalModeTracker,
 } from "./terminal-modes.js";
 import { TerminalResetRelay } from "./reset-relay.js";
+import { ReplayFilter } from "./replay-filter.js";
 import { TerminalUndoRegistry } from "./attach-recovery.js";
 import {
   appendCrashLog,
@@ -23,6 +25,25 @@ import {
 import type { NativeStatusBarLinkState } from "../status-projection.js";
 
 export const ATTACH_PENDING_INPUT_MAX_BYTES = 64 * 1024;
+
+/** The host answered "no such session", or its endpoint is provably gone. */
+export function isDefinitiveNativeTerminalAbsence(error: unknown): boolean {
+  if (
+    error instanceof NativeTerminalRemoteError &&
+    error.message.includes("unknown terminal session")
+  ) {
+    return true;
+  }
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ECONNREFUSED";
+}
+
+export function isStateRequestTimeout(error: unknown): boolean {
+  return (
+    error instanceof NativeTerminalRequestTimeoutError ||
+    (error instanceof Error && error.name === "NativeTerminalRequestTimeoutError")
+  );
+}
 
 export type NativeTerminalAttachClient = Pick<
   NativeTerminalClient,
@@ -82,6 +103,16 @@ export function sessionExitCrashEntry(
   };
 }
 
+/**
+ * Why a view lost its controller. A station turns this into a card and keeps
+ * running; a plain attach keeps its historical notice and exits.
+ */
+export type SessionViewControllerLoss = Readonly<{
+  kind: "controller-changed" | "stale-lease";
+  reason: string;
+  state?: NativeTerminalSessionState;
+}>;
+
 export type NativeSessionViewOptions = {
   readonly sessionId: string;
   readonly stdout: NodeJS.WriteStream;
@@ -93,6 +124,20 @@ export type NativeSessionViewOptions = {
   readonly saveTerminalReset?: ((sequence: string) => void) | undefined;
   readonly getChildCols?: (() => number | undefined) | undefined;
   readonly onCrashLog?: ((entry: CrashLogEntry) => void) | undefined;
+  /** Controller id presented to the host (default: the attach identity). */
+  readonly controllerId?: string | undefined;
+  /**
+   * Station hook (S1): when set, a lost controller is reported here instead of
+   * printing the attach notice. The view still ends; the station does not.
+   */
+  readonly onControllerLost?:
+    | ((loss: SessionViewControllerLoss) => void)
+    | undefined;
+  /**
+   * Station hook (S1.6): return false to skip a resize the session already
+   * has. An equal-size resize is never sent twice for a displayed session.
+   */
+  readonly resizeGate?: ((cols: number, rows: number) => boolean) | undefined;
 };
 
 /**
@@ -113,6 +158,11 @@ export class NativeSessionView {
   readonly #saveTerminalReset: ((sequence: string) => void) | undefined;
   readonly #getChildCols: () => number | undefined;
   readonly #logCrash: (entry: CrashLogEntry) => void;
+  readonly #controllerId: string;
+  readonly #onControllerLost:
+    | ((loss: SessionViewControllerLoss) => void)
+    | undefined;
+  readonly #resizeGate: ((cols: number, rows: number) => boolean) | undefined;
 
   readonly undoRegistry = new TerminalUndoRegistry();
   modes: TerminalModeTracker;
@@ -144,6 +194,9 @@ export class NativeSessionView {
     this.#logCrash =
       options.onCrashLog ??
       ((entry) => appendCrashLog("attach", entry));
+    this.#controllerId = options.controllerId ?? `h2a-attach-${process.pid}`;
+    this.#onControllerLost = options.onControllerLost;
+    this.#resizeGate = options.resizeGate;
     this.takeoverPending = options.takeover === true;
     this.modes = new TerminalModeTracker();
     // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
@@ -217,7 +270,16 @@ export class NativeSessionView {
     this.stdout.write(this.statusBar.transformChildOutput(data));
   }
 
-  feedReplay(replay: NativeTerminalReplay): void {
+  /**
+   * Relay a replay. `catchUp` marks retained bytes repainted at a switch (or
+   * after a retention gap): terminal queries and one-shot side effects are
+   * removed from them, never from live output (S1.5, INJ D10 (b)).
+   */
+  feedReplay(
+    replay: NativeTerminalReplay,
+    options: { catchUp?: boolean } = {},
+  ): void {
+    const filter = options.catchUp === true ? new ReplayFilter() : undefined;
     if (replay.gap) {
       this.resetModes();
       this.modes = new TerminalModeTracker();
@@ -235,8 +297,14 @@ export class NativeSessionView {
       }
     }
     for (const chunk of replay.chunks) {
-      this.resetRelay.feed(chunk.data);
+      const data = filter ? filter.filter(chunk.data) : chunk.data;
+      if (data) this.resetRelay.feed(data);
       this.seq = chunk.seq;
+    }
+    if (filter) {
+      // An unfinished sequence goes out unchanged: live output completes it.
+      const tail = filter.flush();
+      if (tail) this.resetRelay.feed(tail);
     }
     this.statusBar.flushAfterOutputBatch();
   }
@@ -275,6 +343,27 @@ export class NativeSessionView {
     this.saveReset();
   }
 
+  /**
+   * Undo this view's outer-terminal state for a station switch (t3): status
+   * bar and child modes go, the h2a-owned mouse stays for the whole station.
+   * The published receipt keeps covering what h2a still owns.
+   */
+  leaveForSwitch(): void {
+    this.flushRelay();
+    if (this.modesSuspended) return;
+    this.modesSuspended = true;
+    const pending = this.statusBar.flushPendingSequence();
+    const barRestore = this.statusBar.restoreSequence();
+    const childReset = this.modes.resetSequence({
+      excludeMouse: this.#ownOuterMouse,
+    });
+    const sequence = `${pending}${barRestore}${childReset}`;
+    if (sequence) this.stdout.write(sequence);
+    this.undoRegistry.delete("status-bar");
+    this.undoRegistry.delete("child-modes");
+    this.undoRegistry.publish(this.#saveTerminalReset);
+  }
+
   controllerChanged(
     state: NativeTerminalSessionState,
     lease: NativeTerminalControllerLease,
@@ -295,8 +384,12 @@ export class NativeSessionView {
         : state.controller
           ? `controller taken over by pid=${state.controller.pid ?? "unknown"} tty=${state.controller.tty} since=${state.controller.since}`
           : "controller released or session replaced";
-    this.restoreBarForNotice();
-    this.stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
+    if (this.#onControllerLost) {
+      this.#onControllerLost({ kind: "controller-changed", reason, state });
+    } else {
+      this.restoreBarForNotice();
+      this.stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
+    }
     this.exitCode =
       state.status === "exited" && !state.stopSignal
         ? (state.exit?.exitCode ?? 0)
@@ -348,10 +441,17 @@ export class NativeSessionView {
       error instanceof NativeTerminalRemoteError &&
       error.message === "stale terminal controller lease"
     ) {
-      this.restoreBarForNotice();
-      this.stdout.write(
-        "\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n",
-      );
+      if (this.#onControllerLost) {
+        this.#onControllerLost({
+          kind: "stale-lease",
+          reason: "controller revoked by takeover or stop",
+        });
+      } else {
+        this.restoreBarForNotice();
+        this.stdout.write(
+          "\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n",
+        );
+      }
       this.#logCrash({
         event: "refusal",
         sessionId: this.sessionId,
@@ -428,6 +528,23 @@ export class NativeSessionView {
     return true;
   }
 
+  /** True while a chunk of human input is being written to the session. */
+  hasInFlightInput(): boolean {
+    return this.#inputPump !== undefined;
+  }
+
+  /**
+   * Drop the input still queued for this session (station t0, I4): a byte
+   * typed for this session is never delivered to another one. Returns the
+   * number of bytes dropped.
+   */
+  purgePendingInput(): number {
+    const dropped = this.pendingInputBytes;
+    this.pendingInput.length = 0;
+    this.pendingInputBytes = 0;
+    return dropped;
+  }
+
   async drainInputPump(): Promise<void> {
     if (this.#inputPump !== undefined) {
       await this.#inputPump.catch(() => {});
@@ -439,6 +556,7 @@ export class NativeSessionView {
     const rows = this.statusBar.childRows();
     const cols = this.#getChildCols();
     if (current && cols && rows) {
+      if (this.#resizeGate && !this.#resizeGate(cols, rows)) return;
       void current.client
         .resize(current.lease, cols, rows)
         .catch((error) => this.markTransportFailure(current, error));
@@ -458,24 +576,35 @@ export class NativeSessionView {
       }
       const lease = await client.acquireController(
         this.sessionId,
-        `h2a-attach-${process.pid}`,
+        this.#controllerId,
         "human",
         { takeover: this.takeoverPending, pid: process.pid, tty: this.#tty },
       );
       // A reconnect must never take the terminal back from a newer attach.
       this.takeoverPending = false;
-      this.active = { client, lease };
-      this.transportFailure = undefined;
-      await this.statusBar.probe(true, "attached");
-      afterAcquire?.();
-      this.sendChildResize();
-      this.saveReset();
-      this.pumpInput();
+      await this.attachLease({ client, lease }, afterAcquire);
       return state;
     } catch (error) {
       client.close();
       throw error;
     }
+  }
+
+  /**
+   * Adopt a controller lease the caller already holds. A station acquires the
+   * target before leaving the source (t2), then hands the lease to the view.
+   */
+  async attachLease(
+    connection: ActiveAttachConnection,
+    afterAcquire?: () => void,
+  ): Promise<void> {
+    this.active = connection;
+    this.transportFailure = undefined;
+    await this.statusBar.probe(true, "attached");
+    afterAcquire?.();
+    this.sendChildResize();
+    this.saveReset();
+    this.pumpInput();
   }
 
   async releaseActive(): Promise<void> {
