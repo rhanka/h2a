@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer as RESERVE_NET_SERVER } from "node:net";
 import { request as RAW_HTTP } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { serve } from "@hono/node-server";
 import { describe, expect, it } from "vitest";
@@ -68,13 +71,22 @@ function rawGet(port: number, target: string): Promise<{ status: number; body: s
 async function withServedControlPlane<T>(
   run: (port: number) => Promise<T>,
 ): Promise<T> {
-  const app = createControlPlane();
-  const port = await freePort();
-  const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
+  const savedDataDir = process.env.DATA_DIR;
+  const dataDir = mkdtempSync(join(tmpdir(), "h2a-cp-ghsa-"));
+  process.env.DATA_DIR = dataDir;
+  let server: ReturnType<typeof serve> | undefined;
   try {
+    const app = createControlPlane();
+    const port = await freePort();
+    server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
     return await run(port);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+    }
+    if (savedDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = savedDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
   }
 }
 

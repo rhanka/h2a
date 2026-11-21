@@ -15,6 +15,9 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  closeSync,
+  fstatSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -24,6 +27,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
+import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 import {
   acquireFileLock,
   acquireFileLockAsync,
@@ -543,12 +547,14 @@ function rawRegistryRead(path: string): RawRegistryRead {
  */
 function moveAsideUnreadableRegistry(path: string): string {
   const at = new Date().toISOString();
+  const corruptPath = join(
+    dirname(path),
+    `registry.corrupt-${at.replace(/[:.]/g, "-")}-${process.pid}.json`,
+  );
+  guardTestStateWrite(dirname(path));
+  guardTestStateWrite(corruptPath);
   try {
     const original = readFileSync(path, "utf8");
-    const corruptPath = join(
-      dirname(path),
-      `registry.corrupt-${at.replace(/[:.]/g, "-")}-${process.pid}.json`,
-    );
     writeFileSync(corruptPath, original, "utf8");
   } catch {
     // Nothing readable to move aside (EACCES/EIO/ENOENT/…) — the rebuild
@@ -1032,8 +1038,11 @@ function saveRegistry(
   preserved: unknown[] = [],
   rebuiltFromCorruptAt?: string,
 ): void {
-  mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
+  guardTestStateWrite(dirname(path));
+  guardTestStateWrite(path);
+  guardTestStateWrite(tmp);
+  mkdirSync(dirname(path), { recursive: true });
   const body: { version: 1; entries: unknown[]; rebuiltFromCorruptAt?: string } = {
     version: 1,
     entries: [...entries, ...preserved],
@@ -1042,6 +1051,7 @@ function saveRegistry(
     body.rebuiltFromCorruptAt = rebuiltFromCorruptAt;
   }
   writeFileSync(tmp, JSON.stringify(body, null, 2), "utf8");
+  guardTestStateMove(tmp, path);
   renameSync(tmp, path);
 }
 
@@ -1076,10 +1086,35 @@ function saveRegistry(
  */
 const nativeCreationTurns = new Set<string>();
 
+function guardRegistryLockPaths(path: string): void {
+  guardTestStateWrite(dirname(path));
+  guardTestStateWrite(path);
+  guardTestStateWrite(`${path}.lock`);
+}
+
+function releaseRegistryLockSafely(fd: number, path: string): void {
+  const lockPath = `${path}.lock`;
+  try {
+    guardTestStateWrite(path);
+    guardTestStateWrite(lockPath);
+    const held = fstatSync(fd);
+    const current = lstatSync(lockPath);
+    if (held.dev !== current.dev || held.ino !== current.ino || current.isSymbolicLink()) {
+      closeSync(fd);
+      return;
+    }
+  } catch {
+    try { closeSync(fd); } catch { /* ignore */ }
+    return;
+  }
+  releaseFileLock(fd, path);
+}
+
 /** Wait before PTY spawn, then run the existing synchronous creation and
  * durable write in that same turn. Retains the registry's 4 s best-effort
  * contract; no await is allowed inside operation. */
 export async function withNativeCreationRegistryTurn<T>(path: string, operation: () => T, signal?: AbortSignal): Promise<T> {
+  guardRegistryLockPaths(path);
   const fd = await acquireFileLockAsync(path, signal);
   try {
     signal?.throwIfAborted();
@@ -1087,7 +1122,7 @@ export async function withNativeCreationRegistryTurn<T>(path: string, operation:
     return operation();
   } finally {
     nativeCreationTurns.delete(path);
-    if (fd !== undefined) releaseFileLock(fd, path);
+    if (fd !== undefined) releaseRegistryLockSafely(fd, path);
   }
 }
 
@@ -1099,6 +1134,7 @@ export function withRegistryLock<T>(
     save?: boolean;
   },
 ): T {
+  guardRegistryLockPaths(path);
   return runUnderRegistryLock(nativeCreationTurns.has(path) ? undefined : acquireFileLock(path), path, fn);
 }
 
@@ -1125,6 +1161,7 @@ export function tryWithRegistryLock<T>(
     save?: boolean;
   },
 ): { ran: true; result: T } | { ran: false } {
+  guardRegistryLockPaths(path);
   const fd = tryAcquireFileLock(path);
   if (fd === undefined) return { ran: false };
   return { ran: true, result: runUnderRegistryLock(fd, path, fn) };
@@ -1166,7 +1203,7 @@ function runUnderRegistryLock<T>(
     }
     return result;
   } finally {
-    if (fd !== undefined) releaseFileLock(fd, path);
+    if (fd !== undefined) releaseRegistryLockSafely(fd, path);
   }
 }
 

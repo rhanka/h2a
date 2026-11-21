@@ -29,6 +29,7 @@ import { loadBulkPartition } from './bulk-ci-evidence.mjs';
 import { SHARD_COUNT, loadShardDurations, partitionNodeFilesByDuration, shardContext } from './ci-node-shards.mjs';
 import { setupNodeSuiteEnv, teardownNodeSuiteEnv } from './node-suite-env.mjs';
 import { reportSuiteDurations } from './report-test-durations.mjs';
+import { verifySandboxConfinement } from './test-sandbox-contract.mjs';
 
 const ROOT = REPO_ROOT;
 
@@ -37,6 +38,7 @@ function usage() {
 }
 
 async function main() {
+  verifySandboxConfinement(process.env);
   process.umask(0o022);
   const shardArg = process.argv.find((arg) => arg.startsWith('--shard='));
   const index = shardArg ? Number(shardArg.slice('--shard='.length)) : NaN;
@@ -97,6 +99,7 @@ async function main() {
   }
   const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 1200000;
   let exitCode = 0;
+  let sealedEnvelope = null;
   try {
     const started = performance.now();
     const run = spawnSync(process.execPath,
@@ -129,19 +132,22 @@ async function main() {
         exitCode = 1;
       } else {
         process.stdout.write(`run-node-shard: shard ${index} inventory verified: ${shard.files.length} files exactly once.\n`);
-        const artifactDir = join(ROOT, 'tmp', 'node-shard');
-        mkdirSync(artifactDir, { recursive: true });
-        const envelope = process.env.GITHUB_ACTIONS === 'true'
+        sealedEnvelope = process.env.GITHUB_ACTIONS === 'true'
           ? { schema: 1, context: shardContext(ROOT, process.env, index), report }
           : { schema: 1, context: null, report };
-        if (!envelope.context) {
+        if (!sealedEnvelope.context) {
           process.stdout.write('run-node-shard: non-CI run: sealing the raw report without a same-run context envelope\n');
         }
-        writeFileSync(join(artifactDir, `node-shard-${index}.json`), JSON.stringify(envelope));
       }
     }
   } finally {
     await teardownNodeSuiteEnv(ctx);
+  }
+  // Seal the shard envelope ONLY after inventory verification AND fixture cleanup.
+  if (exitCode === 0 && sealedEnvelope !== null) {
+    const artifactDir = join(ROOT, 'tmp', 'node-shard');
+    mkdirSync(artifactDir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(artifactDir, `node-shard-${index}.json`), JSON.stringify(sealedEnvelope));
   }
   process.exit(exitCode);
 }

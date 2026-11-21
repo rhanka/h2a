@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
+import { guardTestStateMove, guardTestStateWrite } from "../test-state-guard.js";
 
 export const MAX_HOST_JOURNAL_BYTES = 1024 * 1024;
 export const HOST_JOURNAL_DRAIN_MS = 100;
@@ -46,7 +47,9 @@ export function getRuntimeVersion(): string {
 const runtimeDirectory = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const pathEnvironment = new Set(["HOME", "PATH", "PWD", "OLDPWD", "TMPDIR", "NODE_PATH", "TERM", "LANG",
   "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET",
-  "H2A_TEST_QUALIFICATION_ROOT"]);
+  "H2A_TEST_QUALIFICATION_ROOT", "H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_RECEIPT", "H2A_TEST_STATE_ATTESTATION",
+  "H2A_TEST_STATE_BARRIER", "H2A_TEST_SANDBOX_NONCE", "H2A_TEST_OWNER_HOME", "H2A_TEST_WORKER_ROOT",
+  "H2A_TEST_WORKER_PID", "H2A_TEST_STAGE_ROOT"]);
 function safeText(value: string): string {
   let result = value.slice(0, 4096);
   for (const [key, secret] of Object.entries(process.env)) {
@@ -141,25 +144,35 @@ function writeAll(fd: number, text: string): void {
 export function appendHostJournal(entry: HostJournalEntry, logPath = resolveHostJournalPath()): boolean {
   let lockFd: number | undefined;
   const lockPath = `${logPath}.lock`, token = `${process.pid}:${randomUUID()}`;
+  const rotatedPath = `${logPath}.1`;
   try {
-    const text = `${JSON.stringify(payload(entry))}\n`;
     const dir = dirname(logPath);
+    guardTestStateWrite(dir);
+    guardTestStateWrite(logPath);
+    guardTestStateWrite(lockPath);
+    guardTestStateWrite(rotatedPath);
+    const text = `${JSON.stringify(payload(entry))}\n`;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const directory = lstatSync(dir);
     if (!directory.isDirectory() || (process.getuid && directory.uid !== process.getuid()) || (directory.mode & 0o077) !== 0) throw new Error("unsafe journal directory");
+    guardTestStateWrite(lockPath);
     lockFd = openSync(lockPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
     writeAll(lockFd, token);
     // Inspect and rotate only while holding this writer's exclusive lock.
     try {
+      guardTestStateWrite(logPath);
       const fd = openSync(logPath, constants.O_WRONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         privateFile(fd);
         if (fstatSync(fd).size >= MAX_HOST_JOURNAL_BYTES) {
-          try { unlinkSync(`${logPath}.1`); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-          renameSync(logPath, `${logPath}.1`);
+          guardTestStateWrite(rotatedPath);
+          guardTestStateMove(logPath, rotatedPath);
+          try { unlinkSync(rotatedPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+          renameSync(logPath, rotatedPath);
         }
       } finally { closeSync(fd); }
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    guardTestStateWrite(logPath);
     const fd = openSync(logPath, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600);
     try {
       privateFile(fd);
@@ -175,6 +188,7 @@ export function appendHostJournal(entry: HostJournalEntry, logPath = resolveHost
   finally {
     if (lockFd !== undefined) {
       try {
+        guardTestStateWrite(lockPath);
         const owned = fstatSync(lockFd), current = lstatSync(lockPath);
         if (owned.dev === current.dev && owned.ino === current.ino && readFileSync(lockPath, "utf8") === token) unlinkSync(lockPath);
       } catch { /* Never remove an unproven lock incarnation. */ }
@@ -195,6 +209,10 @@ export function createHostJournalWriter(logPath = resolveHostJournalPath()): {
   const flushes = new Set<() => void>();
   const settle = () => { if (pending === 0) for (const finish of flushes) finish(); };
   try {
+    guardTestStateWrite(dirname(logPath));
+    guardTestStateWrite(logPath);
+    guardTestStateWrite(`${logPath}.lock`);
+    guardTestStateWrite(`${logPath}.1`);
     // Preserve source-test loaders, without replaying a host's eval/CLI flags.
     const execArgv: string[] = [];
     for (let index = 0; index < process.execArgv.length; index += 1) {

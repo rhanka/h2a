@@ -48,6 +48,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci --ignore-scripts
       - run: npm run audit:security
       - run: node scripts/audit-security-debt.mjs --tree packages/h2a/focus-kit
@@ -55,7 +57,7 @@ jobs:
         run: |
           npm --prefix apps/focus ci --ignore-scripts
           npm --prefix packages/h2a/focus-kit ci --ignore-scripts
-          node --test scripts/deepmerge-security.test.mjs
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test scripts/deepmerge-security.test.mjs
 
   zero-python:
     # Owner standing rule: 0 Python in repos and jobs (supply-chain: a Python
@@ -70,14 +72,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: bash scripts/check-no-python.sh
       - name: Guard self-tests (positive and negative fixtures)
-        run: node --test scripts/check-no-python.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test scripts/check-no-python.test.mjs
       - name: Replacement-script tests (smoke-live-bus, git-dogfood guard)
         run: |
-          bash scripts/test-smoke-live-bus.sh
+          node scripts/test-sandbox.mjs -- bash scripts/test-smoke-live-bus.sh
           # Absolute hook path: the test cd's into a temp dir before exec'ing it.
-          bash packages/track/.claude/hooks/test-git-dogfood-guard.sh "$GITHUB_WORKSPACE/packages/track/.claude/hooks/pre-bash-git-dogfood-guard.sh"
+          node scripts/test-sandbox.mjs -- bash packages/track/.claude/hooks/test-git-dogfood-guard.sh "$GITHUB_WORKSPACE/packages/track/.claude/hooks/pre-bash-git-dogfood-guard.sh"
 
   host-oracle:
     # The two independent review legs of PR #94 converged on this: configuration tests
@@ -98,6 +102,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       # Pin the host oracle to the known-good CLI installed on this host (0.145.0).
@@ -109,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           unset CODEX_HOME CLAUDE_CONFIG_DIR
-          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
       - name: Ask the host what it serves
         run: |
           set -euo pipefail
@@ -157,12 +163,14 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && env.PIN_NODE_24 || env.PIN_NODE_22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Prepare the private M17 data volume
         run: node scripts/ci-m17-temp.mjs setup
       - name: Execute the complete M17 backend qualification
-        run: node scripts/ci-m17-proof.mjs run
+        run: node scripts/test-sandbox.mjs -- node scripts/ci-m17-proof.mjs run
       - name: Remove the private M17 data volume
         if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
         run: node scripts/ci-m17-temp.mjs cleanup
@@ -194,12 +202,14 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && env.PIN_NODE_24 || env.PIN_NODE_22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Verify bulk acceptance independently of the aggregate runner
-        run: node --test packages/h2a/test/bulk-ci-evidence.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
-        run: node scripts/ci-bulk-proof.mjs
+        run: node scripts/test-sandbox.mjs -- node scripts/ci-bulk-proof.mjs
         env:
           H2A_TEST_CI_BULK_OUTPUT: ${{ github.workspace }}/tmp/bulk-export
       - uses: actions/upload-artifact@v4
@@ -250,6 +260,8 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && env.PIN_NODE_24 || env.PIN_NODE_22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Install the mandatory configuration oracles
@@ -271,9 +283,9 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Execute one duration-balanced Node shard
-        run: node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
+        run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
           H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
@@ -358,12 +370,14 @@ jobs:
         with:
           node-version: ${{ matrix.node == '24' && env.PIN_NODE_24 || env.PIN_NODE_22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run typecheck
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
-        run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
       - uses: actions/download-artifact@v4
         with:
           name: m17-${{ github.run_id }}-node${{ matrix.node }}
@@ -397,7 +411,7 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - run: npm test
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
@@ -405,6 +419,7 @@ jobs:
           H2A_TEST_NODE_SHARD_DIR: ${{ github.workspace }}/tmp/node-shards
       - name: Exercise the native multi-session terminal host
         run: >-
+          node scripts/test-sandbox.mjs --
           npx --no-install vitest run
           packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts
           packages/h2a-runtime/src/native-terminal/host.test.ts
@@ -421,6 +436,7 @@ jobs:
       # environment-fragile — gating it would be a false-red unrelated to these ranges.
       - name: Exercise the llm-mesh / llm-gateway consumer suites
         run: >-
+          node scripts/test-sandbox.mjs --
           npx --no-install vitest run
           packages/h2a-runtime/src/llm-mesh-accounts.test.ts
           packages/h2a-runtime/src/claude-seat-input.test.ts
@@ -454,7 +470,8 @@ jobs:
       - name: Exercise the control-plane vitest suites
         run: >-
           npm run build -w @sentropic/remote-protocol -w @sentropic/remote-k8s-orchestrator
-          && npx --no-install vitest run
+          && node scripts/test-sandbox.mjs --
+          npx --no-install vitest run
           apps/control-plane/src/backslash-path-ghsa.test.ts
           apps/control-plane/src/router-wildcard-ghsa.test.ts
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
@@ -489,6 +506,8 @@ jobs:
         with:
           node-version: ${{ env.PIN_NODE_22 }}
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
@@ -501,9 +520,9 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
-        run: node --test packages/h2a/test/run-test-gates.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js
       - name: Require both complete M17 qualifications
         env:
           M17_RESULT: ${{ needs.m17-qualification.result }}

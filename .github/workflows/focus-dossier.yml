@@ -22,35 +22,37 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
       - name: Prepare the exact frozen evidence corpus Git objects
         run: node packages/h2a/focus-kit/test/prepare-evidence-corpus.mjs
       - name: Verify corpus preparation from a depth-one checkout
-        run: node --test packages/h2a/focus-kit/test/evidence-corpus-checkout.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/evidence-corpus-checkout.test.mjs
       - run: node scripts/build-focus-dossier.mjs --check
       - name: Validate and build portable dossier fixtures
-        run: node --test packages/h2a/test/focus-build.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/focus-build.test.js
       - name: Fresh H1 package template and build without checkout imports
-        run: node --test packages/h2a/test/distribution-increments.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/distribution-increments.test.js
       - run: npm --prefix packages/h2a/focus-kit ci --no-audit --no-fund
       - run: npm --prefix packages/h2a/focus-kit exec -- playwright install --with-deps chromium
       - name: Offline desktop and phone, themes, selection and touch pinch
-        run: node --test packages/h2a/focus-kit/test/browser.test.mjs packages/h2a/focus-kit/test/report-browser.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/browser.test.mjs packages/h2a/focus-kit/test/report-browser.test.mjs
       - name: Frozen Svelte baseline at desktop and phone widths
-        run: node --test packages/h2a/focus-kit/test/renderer-parity.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/renderer-parity.test.mjs
       - name: Renderer opt-in and unavailable candidate refusal
-        run: node --test packages/h2a/test/focus-vue.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/focus-vue.test.js
       - name: H1 evidence tasks and fresh installed-package opening
-        run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
       - name: Bibliography and response copy through CDP 9333
-        run: node --test packages/h2a/focus-kit/test/bibliography-response-browser.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/bibliography-response-browser.test.mjs
       - name: Strict memory observation including exiting owned processes
-        run: node --test packages/h2a/focus-kit/test/evidence-memory.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/evidence-memory.test.mjs
       - name: Frozen H1 evidence reactivity and memory policy
         env:
           TMPDIR: ${{ runner.temp }}
-        run: node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs
       - name: Retain raw H1 performance samples and artifact hashes
         if: always()
         uses: actions/upload-artifact@v4
