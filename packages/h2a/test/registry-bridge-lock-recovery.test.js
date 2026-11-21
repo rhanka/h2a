@@ -1374,7 +1374,8 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
         mkdirSync(centralRoot, { recursive: true, mode: 0o700 });
         assert.equal(await runCli(["init", "--root", centralRoot], streams(), {}), 0);
         const pkgMode = lstatSync(PKG_ROOT).mode & 0o777;
-        chmodSync(PKG_ROOT, 0o755);
+        const changedPkgMode = pkgMode !== 0o755;
+        if (changedPkgMode) chmodSync(PKG_ROOT, 0o755);
         try {
           const ac = new AbortController();
           let serveStderr = "";
@@ -1395,7 +1396,7 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
           assert.equal(serveExit, 0, `N4-P2-1: printed mcp-central-serve command must be accepted by runCli and start central: ${serveStderr}`);
           assert.match(serveStderr, /listening on/, "mcp-central-serve started listening");
         } finally {
-          chmodSync(PKG_ROOT, pkgMode);
+          if (changedPkgMode) chmodSync(PKG_ROOT, pkgMode);
         }
 
         // After explicit serve lifted the pause and stopped cleanly, operator-stop.json has paused: false and marker.json is absent:

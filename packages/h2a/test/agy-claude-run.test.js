@@ -8,7 +8,9 @@ import { buildH2aRunInvocation, executeH2aRunWithSpawn, handleH2aRun, validateH2
 import { runCli } from "../dist/cli.js";
 
 function workspace(fn) {
-  const dir = mkdtempSync(join(process.cwd(), ".agy-workspace-"));
+  const base = join(process.cwd(), "tmp");
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, ".agy-workspace-"));
   try { return fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 const request = workspace => ({ profile: "agy", name: "agy-review", workspace, prompt: "challenge this; $(must-not-run)", background: true,

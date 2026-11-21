@@ -34,7 +34,9 @@ function readFixture(name) {
 }
 
 function withWorkspace(fn) {
-  const fixtureParent = mkdtempSync(join(realpathSync(process.cwd()), ".h2a-focus-mcp-test-"));
+  const tmpBase = join(realpathSync(process.cwd()), "tmp");
+  mkdirSync(tmpBase, { recursive: true });
+  const fixtureParent = mkdtempSync(join(tmpBase, ".h2a-focus-mcp-test-"));
   const workspaceRoot = join(fixtureParent, "workspace");
   const outsideDir = join(fixtureParent, "outside");
   const storeRoot = join(fixtureParent, "store");
@@ -49,7 +51,9 @@ function withWorkspace(fn) {
 }
 
 async function withWorkspaceAsync(fn) {
-  const fixtureParent = mkdtempSync(join(realpathSync(process.cwd()), ".h2a-focus-mcp-test-"));
+  const tmpBase = join(realpathSync(process.cwd()), "tmp");
+  mkdirSync(tmpBase, { recursive: true });
+  const fixtureParent = mkdtempSync(join(tmpBase, ".h2a-focus-mcp-test-"));
   const workspaceRoot = join(fixtureParent, "workspace");
   const outsideDir = join(fixtureParent, "outside");
   const storeRoot = join(fixtureParent, "store");
