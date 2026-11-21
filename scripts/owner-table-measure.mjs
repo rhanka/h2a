@@ -2,7 +2,7 @@
 /**
  * Read-only measurement of the owner-table state across Track journals.
  *
- * Reproduces annex A (A1 to A4) of
+ * Reproduces the measurements A1 to A4 (annex C) of
  * docs/specs/2026-11-20-SPEC_EVOL_track-owner-table-autonomous.md with a given
  * `track` build, so every figure quoted by that spec can be re-derived instead
  * of trusted.
@@ -13,8 +13,9 @@
  *       `track validate` verdict, `OWNER GATE` occurrences, workspace labels
  *   A2  how the recorded demands were captured (timing, text versus title,
  *       transport, idempotency key)
- *   A3  replay of the fail-open hole on a DISPOSABLE COPY: a pending decision
- *       without options is skipped, so the table states that nothing is pending
+ *   A3  replay of the fail-open hole on a DISPOSABLE COPY: an unsettled decision
+ *       (pending or deferred) without options is skipped, so the table states
+ *       that nothing is pending
  *   A4  divergence between a journal of reference and a copy of it
  *
  * READ-ONLY CONTRACT
@@ -460,13 +461,16 @@ function replayOnCopy(run, journal, work, scratchReal) {
   if (!isInside(copy, scratchReal) || isInside(copy, journal.trackDir)) {
     throw new Error('refusing to mutate: the copy is not confined to --scratch')
   }
-  const pendingBefore = decisionStats(run, copy, work, 'pending')
+  // The hole skips every UNSETTLED decision without options: pending or deferred alike.
+  const unsettledWithoutOptions = () =>
+    decisionStats(run, copy, work, 'pending').noOptions + decisionStats(run, copy, work, 'deferred').noOptions
+  const withoutOptionsBefore = unsettledWithoutOptions()
   const { events } = readEvents(copy)
   const demandEvents = events.filter((e) => typeof e.type === 'string' && e.type.startsWith('demand.')).length
-  if (demandEvents > 0 || pendingBefore.noOptions === 0) {
+  if (demandEvents > 0 || withoutOptionsBefore === 0) {
     return {
       label: journal.label,
-      skipped: `preconditions not met (needs 0 demand.* and at least 1 pending decision without options; got ${demandEvents} and ${pendingBefore.noOptions})`,
+      skipped: `preconditions not met (needs 0 demand.* and at least 1 unsettled decision without options; got ${demandEvents} and ${withoutOptionsBefore})`,
     }
   }
 
@@ -497,8 +501,8 @@ function replayOnCopy(run, journal, work, scratchReal) {
   const absoluteReply = after.stdout.includes('Réponse : aucune décision en attente')
   steps.push({ step: 'report after', rc: after.rc, absolutePhrase, absoluteReply })
 
-  const pendingAfter = decisionStats(run, copy, work, 'pending')
-  steps.push({ step: 'decision ls --outcome pending', pending: pendingAfter.count, withoutOptions: pendingAfter.noOptions })
+  const withoutOptionsAfter = unsettledWithoutOptions()
+  steps.push({ step: 'decision ls (pending and deferred)', unsettledWithoutOptions: withoutOptionsAfter })
 
   // Run every command the refusal message quotes, as written, with its placeholders filled against a
   // second, still unnumbered demand: a quoted command that cannot run is a defect of the message.
@@ -518,11 +522,23 @@ function replayOnCopy(run, journal, work, scratchReal) {
   return {
     label: journal.label,
     steps,
-    holeReproduced: after.rc === 0 && absolutePhrase && pendingAfter.noOptions >= 1,
+    hole: holeVerdict(after, absolutePhrase, withoutOptionsAfter),
     citedCommands: cited.length,
     citedCommandsFailing: failing,
     afterStdout: after.stdout,
   }
+}
+
+/**
+ * yes: the table renders and states that nothing is pending while such a decision exists.
+ * no: the table renders without that statement, or refuses BECAUSE of that decision.
+ * not observable: the table refuses for other gaps, which hides the hole either way.
+ */
+function holeVerdict(after, absolutePhrase, withoutOptions) {
+  if (withoutOptions === 0) return 'not observable (no unsettled decision without options left)'
+  if (after.rc === 0) return absolutePhrase ? 'yes' : 'no'
+  const refusesTheDecision = /must carry a question, at least 2 options/u.test(after.stderr)
+  return refusesTheDecision ? 'no (the table now refuses because of that decision)' : 'not observable (the table refuses for other gaps)'
 }
 
 function firstLine(text) {
@@ -541,7 +557,7 @@ function compareA4(run, main, copy) {
   const a = readEvents(main.trackDir).events
   const b = readEvents(copy.trackDir).events
   // Event LINES, not distinct ids: a journal may hold the same event id on several lines, and the
-  // figures of annex A4 are line counts. Common lines = multiset intersection of the two id lists.
+  // figures of measurement A4 are line counts. Common lines = multiset intersection of the two id lists.
   const mainCounts = countIds(a)
   const copyCounts = countIds(b)
   let common = 0
@@ -640,7 +656,7 @@ function renderMd(result, opts) {
     } else {
       lines.push(table(['Step', 'Observed'], a3.steps.map((s) => [s.step, Object.entries(s).filter(([k]) => k !== 'step').map(([k, v]) => `${k}=${v}`).join(' · ')])))
       lines.push('')
-      lines.push(`- Hole reproduced (exit 0 and the absolute sentence while a pending decision without options exists): **${a3.holeReproduced ? 'yes' : 'no'}**`)
+      lines.push(`- Hole reproduced (exit 0 and the absolute sentence while an unsettled decision without options exists): **${a3.hole}**`)
       lines.push(`- Commands quoted by the refusal message that fail as written: **${a3.citedCommandsFailing} of ${a3.citedCommands}**`)
       lines.push('', '```text', a3.afterStdout.trimEnd(), '```')
     }
