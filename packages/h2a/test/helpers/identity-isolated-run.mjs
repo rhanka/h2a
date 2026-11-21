@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { ensureHistoricalGitRef, IDENTITY_BASE_REF } from '../../../../scripts/historical-test-ref.mjs';
+import { verifySandboxConfinement } from '../../../../scripts/test-sandbox-contract.mjs';
+verifySandboxConfinement(process.env);
 const repo = resolve(import.meta.dirname, '../../../..');
 const require = createRequire(join(repo, 'package.json'));
 const ts = require('typescript');
@@ -89,7 +91,8 @@ if(process.env.IDLOCK_BUILD_ONLY==='1') {
   process.exit(0);
 }
 if(files.length===0)throw new Error('named test files required; use IDLOCK_BUILD_ONLY=1 for a source-only build');
-const output = spawnSync(process.execPath, ['--import', join(repo, 'packages/h2a/test/helpers/identity-isolation-guard.mjs'), '--test', ...files], {
+const d16Preload = join(repo, 'packages/h2a/test/helpers/native-isolation.js');
+const output = spawnSync(process.execPath, ['--import', d16Preload, '--test', ...files], {
   cwd: join(lane, 'candidate'), env, encoding: 'utf8', maxBuffer: 20 * 1024 * 1024
 });
 fs.writeFileSync(join(lane, 'tests.tap'), output.stdout + output.stderr);

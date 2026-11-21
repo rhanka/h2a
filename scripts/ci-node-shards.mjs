@@ -45,7 +45,9 @@ const SHARD_INPUTS = ['package-lock.json', 'scripts/run-node-tests.mjs',
   'scripts/ci-node-shards.mjs', 'scripts/ci-node-shard-durations.json',
   'scripts/node-suite-env.mjs', 'scripts/run-node-shard.mjs',
   'scripts/prepare-mh-test-fixtures.mjs',
-  'packages/h2a/test/helpers/native-isolation.js', '.github/workflows/ci.yml'];
+  'scripts/test-sandbox.mjs', 'scripts/test-sandbox-contract.mjs', 'scripts/ci-m17-temp.mjs',
+  'packages/h2a/test/helpers/native-isolation.js', 'packages/h2a/test/helpers/native-isolation-core.js',
+  '.github/workflows/ci.yml', '.github/workflows/node-qualification.yml'];
 
 export function loadShardDurations(root) {
   const raw = JSON.parse(fs.readFileSync(join(root, SHARD_DURATIONS_FILE), 'utf8'));

@@ -1,8 +1,12 @@
 import fs from 'node:fs';
 import child from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
+import { verifySandboxConfinement } from '../../../../scripts/test-sandbox-contract.mjs';
 const lane = process.env.IDLOCK_LANE;
 if (!lane) throw new Error('isolated lane required');
+// Lot L0 (D16): verify the live confinement barrier and canonical IDLOCK_LANE I
+// inside R BEFORE appending to owned-pids.txt or patching fs.
+verifySandboxConfinement(process.env);
 const owned = new Set([process.pid]);
 const rawRead = fs.readFileSync;
 const rawAppend = fs.appendFileSync;

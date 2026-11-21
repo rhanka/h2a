@@ -146,9 +146,13 @@ test('M17 producer seals only a successful same-run report after owned-process a
   // real, short-lived children in a private committed fixture checkout.
   const root = fs.mkdtempSync(join(tmpdir(), 'm17-producer-contract-'));
   const source = process.cwd();
-  const copied = ['scripts/m17-ci-evidence.mjs', 'scripts/ci-m17-proof.mjs', 'scripts/run-node-tests.mjs', 'scripts/ci-owned-process.mjs', 'scripts/bulk-test-files.mjs',
-    'scripts/node-evidence-reporter.mjs', 'scripts/cleanse-contract-ledger.mjs', 'scripts/test-execution-evidence.mjs',
-    'packages/h2a/test/helpers/native-isolation.js', ...['image', 'wire', 'formats', 'schemas'].map(name => `packages/h2a/src/runtime/handover/${name}.js`)];
+  const copied = ['scripts/m17-ci-evidence.mjs', 'scripts/ci-m17-proof.mjs', 'scripts/ci-m17-temp.mjs',
+    'scripts/test-sandbox.mjs', 'scripts/test-sandbox-contract.mjs', 'scripts/run-node-tests.mjs',
+    'scripts/ci-owned-process.mjs', 'scripts/bulk-test-files.mjs', 'scripts/node-evidence-reporter.mjs',
+    'scripts/cleanse-contract-ledger.mjs', 'scripts/test-execution-evidence.mjs',
+    '.github/workflows/ci.yml', '.github/workflows/node-qualification.yml',
+    'packages/h2a/test/helpers/native-isolation.js', 'packages/h2a/test/helpers/native-isolation-core.js',
+    ...['image', 'wire', 'formats', 'schemas'].map(name => `packages/h2a/src/runtime/handover/${name}.js`)];
   const run = (command, args, env = process.env) => spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 30000 });
   const git = (...args) => { const result = run('git', args); assert.equal(result.status, 0, result.stdout + result.stderr); return result.stdout.trim(); };
   try {
@@ -158,11 +162,15 @@ test('M17 producer seals only a successful same-run report after owned-process a
     fs.writeFileSync(join(root, M17_FILE), `import test from 'node:test';import {spawn} from 'node:child_process';\nimport {once} from 'node:events';\ntest(${JSON.stringify(M17_TITLE)},async()=>{\nawait Promise.all(Array.from({length:8},()=>{const c=spawn(process.execPath,['-e','process.exit(0)'],{env:process.env,stdio:'ignore'});return once(c,'close');}));\nconsole.log(${JSON.stringify(JSON.stringify(proof().backend))});\n});\n`);
     git('init', '--quiet'); git('config', 'user.name', 'M17 contract fixture'); git('config', 'user.email', 'm17-fixture@example.invalid');
     git('add', '.'); git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'test: create the private M17 producer contract fixture');
-    const volume = join(root, 'volume'); fs.mkdirSync(volume, { mode: 0o700 });
+    const hostTemp = join(root, 'runner-temp'); fs.mkdirSync(hostTemp, { mode: 0o700 });
+    const hostRoot = join(hostTemp, 'h2a-m17-host-1'); fs.mkdirSync(hostRoot, { mode: 0o700 });
+    const volume = join(hostRoot, 'm17'); fs.mkdirSync(volume, { mode: 0o700 });
+    const controlDir = join(hostTemp, 'h2a-m17-ctrl-1'); fs.mkdirSync(controlDir, { mode: 0o700 });
     const output = join(root, 'tmp/export');
+    const nonce = 'f'.repeat(48);
     const env = { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'rhanka/h2a', GITHUB_WORKFLOW: 'ci',
       GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2', GITHUB_SHA: git('rev-parse', 'HEAD'),
-      H2A_TEST_CI_M17_OUTPUT: output, H2A_TEST_M17_TMPDIR: volume };
+      RUNNER_TEMP: hostTemp, H2A_TEST_CI_M17_OUTPUT: output, H2A_TEST_M17_TMPDIR: volume };
     delete env.H2A_TEST_CI_M17_REPORT;
     delete env.NODE_TEST_CONTEXT;
     // The fixture must seal against its own HEAD: a qualification runner
@@ -173,26 +181,45 @@ test('M17 producer seals only a successful same-run report after owned-process a
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(fs.existsSync(join(output, 'proof.json')), false, 'successful test alone cannot publish acceptance');
     assert.equal(fs.existsSync(join(output, 'pending.json')), true);
+    // Simulate host launcher moving provisional to host control dir C and recording receipts.
+    fs.copyFileSync(join(output, 'pending.json'), join(controlDir, 'm17-provisional.json'));
+    fs.unlinkSync(join(output, 'pending.json'));
+    fs.writeFileSync(join(controlDir, 'setup-receipt.json'), JSON.stringify({ version: 1, nonce, hostRoot, volumePath: volume }));
+    fs.writeFileSync(join(controlDir, 'run-receipt.json'), JSON.stringify({ version: 1, nonce, hostRoot, volumePath: volume, stateRel: 'tmp/removed-state', initExited: true }));
+    fs.writeFileSync(join(controlDir, 'cleanup-receipt.json'), JSON.stringify({ version: 1, nonce, hostRoot, volumePath: volume, unmounted: true, hostRootRemoved: true }));
+    fs.writeFileSync(join(hostTemp, 'h2a-m17-finalize.json'), JSON.stringify({ controlDir, nonce }));
     const early = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'finalize'], env);
-    assert.notEqual(early.status, 0, 'a remaining volume must block publication');
-    assert.match(early.stderr, /real volume cleanup must precede/);
-    fs.rmdirSync(volume);
-    const final = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'finalize'], env);
+    assert.notEqual(early.status, 0, 'a remaining volume/hostRoot must block publication');
+    assert.match(early.stderr, /must be removed before proof publication/);
+    // Re-seed control dir C (finalize cleaned up C on failure) and remove H + volume cleanly.
+    fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
+    const reRunEnv = { ...env, H2A_TEST_CI_M17_OUTPUT: join(root, 'tmp/export-2') };
+    const result2 = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'run'], reRunEnv);
+    assert.equal(result2.status, 0, result2.stdout + result2.stderr);
+    fs.copyFileSync(join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'pending.json'), join(controlDir, 'm17-provisional.json'));
+    fs.unlinkSync(join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'pending.json'));
+    fs.writeFileSync(join(controlDir, 'setup-receipt.json'), JSON.stringify({ version: 1, nonce, hostRoot, volumePath: volume }));
+    fs.writeFileSync(join(controlDir, 'run-receipt.json'), JSON.stringify({ version: 1, nonce, hostRoot, volumePath: volume, stateRel: 'tmp/removed-state', initExited: true }));
+    fs.writeFileSync(join(controlDir, 'cleanup-receipt.json'), JSON.stringify({ version: 1, nonce, hostRoot, volumePath: volume, unmounted: true, hostRootRemoved: true }));
+    fs.writeFileSync(join(hostTemp, 'h2a-m17-finalize.json'), JSON.stringify({ controlDir, nonce }));
+    fs.rmSync(hostRoot, { recursive: true, force: true });
+    const final = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'finalize'], reRunEnv);
     assert.equal(final.status, 0, final.stdout + final.stderr);
-    const value = JSON.parse(fs.readFileSync(join(output, 'proof.json'), 'utf8'));
+    const value = JSON.parse(fs.readFileSync(join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'proof.json'), 'utf8'));
     assert.equal(value.context.sha, env.GITHUB_SHA);
     assert.deepEqual(value.exit, { code: 0, signal: null, survivingOwnedProcesses: 0 });
     assert.deepEqual(value.cleanup, { volumeRemoved: true, privateStateRemoved: true });
-    assert.equal(fs.existsSync(join(output, 'pending.json')), false);
-    const imported = loadM17Partition([M17_FILE, 'other.test.js'], root, { ...env, H2A_TEST_CI_M17_REPORT: join(output, 'proof.json') });
+    assert.equal(fs.existsSync(join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'pending.json')), false);
+    const imported = loadM17Partition([M17_FILE, 'other.test.js'], root, { ...env, H2A_TEST_CI_M17_REPORT: join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'proof.json') });
     assert.deepEqual(imported.local, ['other.test.js']);
     assert.equal(imported.report.testResults[0].name, join(root, M17_FILE));
-    fs.symlinkSync(join(output, 'proof.json'), join(output, 'alias.json'));
-    assert.throws(() => loadM17Partition([M17_FILE], root, { ...env, H2A_TEST_CI_M17_REPORT: join(output, 'alias.json') }), /regular file/);
+    fs.symlinkSync(join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'proof.json'), join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'alias.json'));
+    assert.throws(() => loadM17Partition([M17_FILE], root, { ...env, H2A_TEST_CI_M17_REPORT: join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'alias.json') }), /regular file/);
     fs.appendFileSync(join(root, 'packages/h2a/test/helpers/mh-l5-writer.mjs'), '\n// dirty fixture\n');
-    assert.throws(() => loadM17Partition([M17_FILE], root, { ...env, H2A_TEST_CI_M17_REPORT: join(output, 'proof.json') }), 'dirty tracked helpers cannot reuse an old proof');
+    assert.throws(() => loadM17Partition([M17_FILE], root, { ...env, H2A_TEST_CI_M17_REPORT: join(reRunEnv.H2A_TEST_CI_M17_OUTPUT, 'proof.json') }), 'dirty tracked helpers cannot reuse an old proof');
     git('restore', 'packages/h2a/test/helpers/mh-l5-writer.mjs');
-    const replay = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'run'], env);
+    fs.mkdirSync(volume, { recursive: true, mode: 0o700 });
+    const replay = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'run'], reRunEnv);
     assert.notEqual(replay.status, 0, 'stale producer output must not be reused');
     assert.match(replay.stderr, /stale M17 output refused/);
     // Real failed-producer teardown: a child outlives its passing synthetic

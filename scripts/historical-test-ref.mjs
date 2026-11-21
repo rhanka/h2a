@@ -7,12 +7,23 @@ export const IDENTITY_BASE_REF = "e3fc1a52eb8bc8e5794ced5e17e201e1bcfa99d2";
 export const L0_HERITAGE_REF = "0b9cf8862be689380c3bcb6e7cb35dc1e10b5cbf";
 
 export function ensureHistoricalGitRef(repo, ref) {
-  const present = () => spawnSync("git", ["cat-file", "-e", `${ref}^{commit}`], { cwd: repo, stdio: "ignore" }).status === 0;
+  const gitEnv = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
+  const present = () =>
+    spawnSync("git", ["cat-file", "-e", `${ref}^{commit}`], {
+      cwd: repo,
+      env: gitEnv,
+      stdio: "ignore",
+    }).status === 0;
   if (present()) return;
   const sha = ref.endsWith("^") ? ref.slice(0, -1) : ref;
-  // GitHub upload-pack requires full object IDs. A parent expression also
-  // needs the fetched commit's parent: depth one cannot satisfy it.
   const depth = ref.endsWith("^") ? 2 : 1;
+  // Inside a D16 read-only checkout barrier, never attempt git fetch on the
+  // checkout under test: the launcher must prefetch before bwrap.
+  if (process.env.H2A_TEST_STATE_BARRIER === "1") {
+    throw new Error(
+      `historical ref ${ref} absent inside read-only D16 barrier; prefetch before barrier (git fetch --depth=${depth} origin ${sha})`,
+    );
+  }
   // Concurrent test files may ensure different refs at the same time
   // (node --test runs them in parallel); a shallow fetch collides on
   // .git/shallow.lock and the loser fails while the sibling fetch runs.

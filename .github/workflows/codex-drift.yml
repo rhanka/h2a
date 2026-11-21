@@ -33,6 +33,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      - name: Prepare D16 confinement barrier
+        run: node scripts/test-sandbox.mjs --prepare-ci
       - name: Run the latest Codex host oracle
         id: detector
         continue-on-error: true
@@ -51,7 +53,7 @@ jobs:
           echo "detected_version=$detected_version" >> "$GITHUB_OUTPUT"
 
           unset CODEX_HOME CLAUDE_CONFIG_DIR
-          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
           bash docs/uat/probe-oracle.sh
           bash docs/uat/probe-presence.sh
 

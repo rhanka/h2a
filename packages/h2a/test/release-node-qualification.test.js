@@ -50,7 +50,7 @@ test("verify imports the same-run M17, bulk and shard evidence behind npm test",
   const release = readWorkflow("release.yml");
   const verify = release.jobs.verify;
   const steps = verify.steps;
-  const trust = steps.findIndex((step) => step.run === "node --test packages/h2a/test/run-test-gates.test.js");
+  const trust = steps.findIndex((step) => step.run === "node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js");
   const npmTest = steps.findIndex((step) => step.run === "npm test");
   assert.ok(trust !== -1 && npmTest !== -1 && trust < npmTest);
   const downloads = steps.filter((step) => String(step.uses ?? "") === "actions/download-artifact@v4");
@@ -149,14 +149,16 @@ test("node-qualification.yml reuses the ci producer graph at the gated release S
   }
   const m17 = wf.jobs["m17-qualification"];
   assert.equal(m17.needs, undefined, "the M17 producer has no upstream dependency beyond the SHA");
-  assert.ok(m17.steps.some((step) => step.run === "node scripts/ci-m17-proof.mjs run"));
+  assert.ok(m17.steps.some((step) => step.run === "node scripts/test-sandbox.mjs --prepare-ci"));
+  assert.ok(m17.steps.some((step) => step.run === "node scripts/test-sandbox.mjs -- node scripts/ci-m17-proof.mjs run"));
   assert.ok(m17.steps.some((step) => step.run === "node scripts/ci-m17-proof.mjs finalize"));
   assert.equal(m17.steps.find((step) => step.name === "Remove the private M17 data volume").if,
     "${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}",
     "the M17 volume cleanup must stay unconditional-always; a success()-gated cleanup leaks the volume on red runs");
   const bulk = wf.jobs["bulk-qualification"];
   assert.equal(bulk.needs, undefined);
-  assert.ok(bulk.steps.some((step) => step.run === "node scripts/ci-bulk-proof.mjs"));
+  assert.ok(bulk.steps.some((step) => step.run === "node scripts/test-sandbox.mjs --prepare-ci"));
+  assert.ok(bulk.steps.some((step) => step.run === "node scripts/test-sandbox.mjs -- node scripts/ci-bulk-proof.mjs"));
   assert.equal(bulk.steps.find((step) => String(step.run ?? "").includes("node scripts/ci-bulk-proof.mjs")).env.H2A_TEST_CI_BULK_OUTPUT,
     "${{ github.workspace }}/tmp/bulk-export");
   const shard = wf.jobs["node-shard"];
@@ -198,7 +200,7 @@ test("the reusable producer mutations stay red: unpinned SHA, skipped legs, rena
     ["H2A_TEST_EXPECTED_SHA: ${{ inputs.release-sha }}", "H2A_TEST_EXPECTED_SHA: ${{ github.sha }}"],
     ["ref: ${{ inputs.release-sha }}", "ref: main"],
     ["shard: [0, 1, 2, 3]", "shard: [0, 1, 2]"],
-    ["run: node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}", "run: node scripts/run-test-gates.mjs"],
+    ["run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}", "run: node scripts/run-test-gates.mjs"],
     ['run: test "$M17_RESULT" = success', "run: true"],
     ['run: test "$BULK_RESULT" = success', "run: true"],
     ["name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard${{ matrix.shard }}", "name: node-shard-shared"],

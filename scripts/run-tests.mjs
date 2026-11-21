@@ -28,38 +28,11 @@ import { loadBulkPartition } from "./bulk-ci-evidence.mjs";
  * test count.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { verifyCleanseContracts } from "./cleanse-contract-ledger.mjs";
 import { setupNodeSuiteEnv, teardownNodeSuiteEnv } from "./node-suite-env.mjs";
 import { loadNodeShardReports } from "./ci-node-shards.mjs";
-
-// Disposable-TMPDIR guarantee (PR #390 R3 P1): `npm test` never inherits a
-// bare /tmp TMPDIR into the confinement assertion in restart-lab.js.
-function ensureDisposableTmpdir() {
-  // Same dual-guard contract as run-test-gates.mjs: TMPDIR set and != /tmp,
-  // and the dir admitted as H2A_TEST_QUALIFICATION_ROOT
-  // ($HOME/.cache-tmp/h2a-test/run-*).
-  const qualPattern = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/;
-  const current = process.env.TMPDIR;
-  try {
-    if (current && qualPattern.test(resolve(current)) && existsSync(current)) {
-      if (!process.env.H2A_TEST_QUALIFICATION_ROOT) process.env.H2A_TEST_QUALIFICATION_ROOT = resolve(current);
-      return resolve(current);
-    }
-  } catch { /* fall through and create */ }
-  const base = join(homedir(), ".cache-tmp", "h2a-test");
-  mkdirSync(base, { recursive: true });
-  const dir = mkdtempSync(join(base, "run-"));
-  process.env.TMPDIR = dir;
-  process.env.TMP = dir;
-  process.env.TEMP = dir;
-  process.env.H2A_TEST_QUALIFICATION_ROOT = dir;
-  process.once("exit", () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
-  return dir;
-}
-
-ensureDisposableTmpdir();
+import { isSandboxConfined } from "./test-sandbox-contract.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -69,6 +42,7 @@ import { reportSuiteDurations } from "./report-test-durations.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
+const SANDBOX_LAUNCHER = resolve(HERE, "test-sandbox.mjs");
 
 // A1: la suite vit dans packages/h2a/test (h2a-cli est un stub deprecie, sans tests).
 export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"];
@@ -186,6 +160,20 @@ export function verifyNodeTrackExecution(report, requiredFiles, ledger) {
 }
 
 async function main() {
+  // Lot L0 (D16 / C1): direct invocation enters the OS barrier ONCE; already
+  // confined invocations execute directly without nesting.
+  if (!isSandboxConfined(process.env)) {
+    const delegated = spawnSync(
+      process.execPath,
+      [SANDBOX_LAUNCHER, "--", process.execPath, ...process.argv.slice(1)],
+      { cwd: REPO_ROOT, stdio: "inherit", env: process.env },
+    );
+    if (delegated.error) {
+      process.stderr.write(`run-tests: sandbox launch failed: ${delegated.error.message}\n`);
+      process.exit(3);
+    }
+    process.exit(delegated.status ?? 1);
+  }
   process.umask(0o022);
   // Each configured directory is REQUIRED, in the sense of main's original
   // contract: an unavailable directory, or one with no .test.js files at all,

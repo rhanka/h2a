@@ -27,15 +27,64 @@ test("should provision and dispose a private suite without using inherited owner
     await cleanup();
     assert.equal(existsSync(root), false);
     assert.deepEqual({ ...process.env }, inherited);
-  `], { encoding: "utf8", timeout: 10_000, env: {
-    PATH: "/usr/bin:/bin", HOME: "/home/antoinefa", XDG_RUNTIME_DIR: "/run/user/1000",
-    XDG_STATE_HOME: "/home/antoinefa/.local/state", XDG_CONFIG_HOME: "/home/antoinefa/.config",
-    H2A_NATIVE_SOCKET: "/run/user/1000/h2a-nt/owner.sock", H2A_ROOT: "/home/antoinefa/.h2a",
-    TMPDIR: "/home/antoinefa/.cache-tmp/h2a-owner", TMUX_TMPDIR: "/run/user/1000",
-    REMOTE_CLI_CONFIG_HOME: "/home/antoinefa/.config", TMUX: "/run/user/1000/tmux/default,1,0",
-    H2A_NATIVE_HOST_LOG: "/home/antoinefa/.local/state/h2a/native-host.log",
-  } });
+  `], { encoding: "utf8", timeout: 10_000, env: { ...process.env } });
   assert.equal(child.status, 0, child.stderr);
+
+  // D16 R1/R3: inheriting owner paths into a preloaded Node child must be
+  // refused BEFORE evaluating the test/script module.
+  const markerRoot = createPrivateTestDirectory("r1-owner-refuse-");
+  const marker = join(markerRoot, "evaluated.txt");
+  try {
+    const refused = spawnSync(process.execPath, ["--input-type=module", "-e", `
+      import { writeFileSync } from 'node:fs';
+      writeFileSync(${JSON.stringify(marker)}, 'evaluated');
+    `], {
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        HOME: "/home/antoinefa",
+        XDG_RUNTIME_DIR: "/run/user/1000",
+        XDG_STATE_HOME: "/home/antoinefa/.local/state",
+        XDG_CONFIG_HOME: "/home/antoinefa/.config",
+      },
+    });
+    assert.notEqual(refused.status, 0, "inherited owner HOME must be refused by D16 preload");
+    assert.match(refused.stderr, /REFUSING/);
+    assert.equal(existsSync(marker), false, "module must not evaluate when inherited env escapes R");
+  } finally {
+    rmSync(markerRoot, { recursive: true, force: true });
+  }
+});
+
+test("L0 R1: D16 preload refuses unconfined direct Node invocation before module evaluation", () => {
+  const root = createPrivateTestDirectory("r1-unconfined-");
+  const marker = join(root, "evaluated.txt");
+  try {
+    const unconfinedEnv = { ...process.env };
+    delete unconfinedEnv.H2A_TEST_STATE_ROOT;
+    delete unconfinedEnv.H2A_TEST_STATE_BARRIER;
+    delete unconfinedEnv.H2A_TEST_SANDBOX_NONCE;
+    delete unconfinedEnv.H2A_TEST_STATE_RECEIPT;
+    const res = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`],
+      { encoding: "utf8", timeout: 10_000, env: unconfinedEnv },
+    );
+    // Note: prepareGuardedCall re-carries D16 env into children of confined tests;
+    // to test true unconfined preload entry, set contradictory/corrupt D16 nonce.
+    const badNonce = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`],
+      { encoding: "utf8", timeout: 10_000, env: { ...process.env, H2A_TEST_SANDBOX_NONCE: "0".repeat(48) } },
+    );
+    assert.notEqual(badNonce.status, 0);
+    assert.match(badNonce.stderr, /REFUSING unconfined test run/);
+    assert.equal(existsSync(marker), false);
+    assert.equal(res.status, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("should reject every unsafe isolation variable and symlink before process startup", () => {
