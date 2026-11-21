@@ -643,11 +643,20 @@ class NativeStatusBarController {
   #rightPanelMarkerProvider:
     | (() => NativeStatusBarRightPanelMarker | undefined)
     | undefined;
+  #selectedDelegatedNamesProvider:
+    | (() => readonly string[] | "unknown" | undefined)
+    | undefined;
 
   setRightPanelMarkerProvider(
     provider: (() => NativeStatusBarRightPanelMarker | undefined) | undefined,
   ): void {
     this.#rightPanelMarkerProvider = provider;
+  }
+
+  setSelectedDelegatedNamesProvider(
+    provider: (() => readonly string[] | "unknown" | undefined) | undefined,
+  ): void {
+    this.#selectedDelegatedNamesProvider = provider;
   }
 
   constructor(
@@ -1045,9 +1054,17 @@ class NativeStatusBarController {
 
     if (!this.#renderLine) return;
     const panelMarker = this.#rightPanelMarkerProvider?.();
-    const renderSnapshot = panelMarker
-      ? { ...this.#snapshot, rightPanelMarker: panelMarker }
-      : this.#snapshot;
+    const selectedDelegatedNames = this.#selectedDelegatedNamesProvider?.();
+    const renderSnapshot: NativeStatusBarSnapshot =
+      panelMarker !== undefined || selectedDelegatedNames !== undefined
+        ? {
+            ...this.#snapshot,
+            ...(panelMarker !== undefined ? { rightPanelMarker: panelMarker } : {}),
+            ...(selectedDelegatedNames !== undefined
+              ? { selectedDelegatedNames }
+              : {}),
+          }
+        : this.#snapshot;
     const line = this.#renderLine(renderSnapshot, cols);
     if (
       !force &&
@@ -1808,6 +1825,9 @@ export async function runAttach(
       },
       restoreChildState: () => statusBar.restoreChildStateSequence(),
       isStatusBarActive: () => statusBar.isActive(),
+      onSelectionChange: () => {
+        statusBar.paint(false);
+      },
     });
     if (!opt?.snapshot) {
       const panelEnv = opt?.env ?? process.env;
@@ -1847,6 +1867,9 @@ export async function runAttach(
   })();
   if (rightPanel) {
     statusBar.setRightPanelMarkerProvider(() => rightPanel.statusBarMarker());
+    statusBar.setSelectedDelegatedNamesProvider(() =>
+      rightPanel.selectedDelegatedNamesForBar(),
+    );
   }
   statusBar.setRightPanel(rightPanel);
   const isRawCapable = stdin.isTTY === true;
