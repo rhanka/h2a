@@ -112,3 +112,25 @@ is unchanged for CLI callers. Stage/status labels follow `--lang <bcp47>` (exact
 expectations in an additive event. It replaces all prior report metadata; `{}` clears only metadata.
 See [the report skill](../h2a/skills/harness/track-report/SKILL.md) for the normalized vocabulary,
 evidence rules, mandatory red proposals and blue decision dossiers. Legacy missing information is flagged.
+
+## Adopting an existing journal (`track adopt`)
+
+Bring a legacy journal to the point where `track report --owner-table --strict` exits 0 in three steps:
+
+1. **Dry run first (read-only)**:
+   ```bash
+   track adopt plan --out adoption-plan.json
+   ```
+   Inspects the journal through the qualified reader and prints a JSON plan listing every gap as either `mechanical` (derivable from the journal alone) or `to-decide` (carries a human question and `resolution: null`). Writes nothing to the journal folder or state home; `--out` must point outside the journal folder.
+2. **Resolve**: edit `adoption-plan.json` to supply a `resolution` value for every `to-decide` entry (row attachment, options and recommendation for an optionless decision, dossier link, blocked cause, or clean rewrite of a masked text).
+3. **Apply (idempotent)**:
+   ```bash
+   track adopt apply adoption-plan.json [--writer-token-file <path>]
+   ```
+   Re-derives the plan to ensure the journal has not drifted, stamps every write with an entry-derived idempotency key (re-running writes nothing and reports `already applied`), and prints one line per entry (`applied`, `already applied`, or `refused: <reason>`), exiting 1 if any entry is refused. On an exclusive journal, application is refused unless the holder presents its writer token.
+
+**What `track adopt` never does:**
+
+- Never settles, withdraws, or archives a decision (the plan format has no such action; use `track decision select` once the owner answers).
+- Never invents owner text, causes, options, recommendations, or dossier links (unresolved `to-decide` entries are refused by name).
+- Never inscribes a reconstructed demand with `capture` provenance — reconstructed demands use the ordinary `cli` transport and are rendered `(non capté)`, never quoted.

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
+import { buildAdoptionPlan, type AdoptionPlan } from '../adopt/plan.js'
 import { desyncFindings } from '../cli/desync.js'
 import { readHead } from '../events/head.js'
 import { EventStore } from '../events/store.js'
@@ -12,6 +13,11 @@ import { fold } from '../state/fold.js'
 import { Track } from '../track.js'
 
 export const LEGACY_LIKE_FIXTURE_DIR = resolve(import.meta.dirname, '__fixtures__', 'legacy-like-journal')
+export const LEGACY_LIKE_RESOLVED_PLAN_FILE = resolve(
+  import.meta.dirname,
+  '__fixtures__',
+  'legacy-like-journal-resolved-plan.json',
+)
 export const STRICT_REFUSAL_FIXTURE_FILE = resolve(
   import.meta.dirname,
   '__fixtures__',
@@ -182,6 +188,63 @@ export function buildLegacyLikeJournal(trackDir: string): void {
   }
 }
 
+/**
+ * Deterministically resolve every `to-decide` entry of the legacy-like journal adoption plan.
+ * Attaches outside-demand decisions to item-backed rows (#15..#27), instructs the legacy optionless
+ * decision, and supplies clean dossier links without settling or archiving any decision.
+ */
+export function buildLegacyLikeResolvedPlan(trackDir: string): AdoptionPlan {
+  const plan = buildAdoptionPlan(join(trackDir, 'events.jsonl'), {
+    baselineCommit: LEGACY_LIKE_COMMIT,
+    now: LEGACY_LIKE_NOW,
+  })
+  let nextAttachRow = 15
+  let dossierSeq = 0
+  const entries = plan.entries.map((entry) => {
+    if (entry.kind === 'mechanical') return entry
+    if (entry.action === 'attach-decision') {
+      const rowNumber = nextAttachRow
+      nextAttachRow = nextAttachRow < 27 ? nextAttachRow + 1 : 15
+      return { ...entry, resolution: { rowNumber } }
+    }
+    if (entry.action === 'instruct-decision') {
+      return {
+        ...entry,
+        resolution: {
+          options: [
+            { id: 'a', title: 'Option A', summary: 'Maintenir la trajectoire existante' },
+            { id: 'b', title: 'Option B', summary: 'Revoir le périmètre ultérieurement' },
+          ],
+          recommendation: {
+            optionId: 'a',
+            rationale: 'Option recommandée pour conserver la continuité',
+          },
+        },
+      }
+    }
+    if (entry.action === 'attach-dossier') {
+      dossierSeq += 1
+      return {
+        ...entry,
+        resolution: {
+          dossierLink: `docs/dossiers/adopted-decision-${dossierSeq}.md`,
+        },
+      }
+    }
+    return entry
+  })
+  return {
+    ...plan,
+    counts: {
+      ...plan.counts,
+      unresolved: entries.filter(
+        (e) => e.kind === 'to-decide' && (e.resolution === undefined || e.resolution === null),
+      ).length,
+    },
+    entries,
+  }
+}
+
 describe('legacy-like-journal fixture', () => {
   it('committed fixture data matches the deterministic builder byte for byte and is intact with zero desync', () => {
     expect(existsSync(join(LEGACY_LIKE_FIXTURE_DIR, 'events.jsonl'))).toBe(true)
@@ -212,6 +275,11 @@ describe('legacy-like-journal fixture', () => {
         0,
       )
       expect(openQuestions).toBe(30)
+
+      expect(existsSync(LEGACY_LIKE_RESOLVED_PLAN_FILE)).toBe(true)
+      const committedPlan = readFileSync(LEGACY_LIKE_RESOLVED_PLAN_FILE, 'utf8')
+      const rebuiltPlan = `${JSON.stringify(buildLegacyLikeResolvedPlan(builtDir), null, 2)}\n`
+      expect(committedPlan, 'legacy-like-journal-resolved-plan.json drifted from builder').toBe(rebuiltPlan)
     } finally {
       rmSync(scratch, { recursive: true, force: true })
     }
