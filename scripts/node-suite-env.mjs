@@ -212,7 +212,15 @@ export async function setupNodeSuiteEnv(root) {
   const prepared = spawnSync(process.execPath, [join(root, "scripts/prepare-mh-test-fixtures.mjs")], {
     cwd: root, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
   });
-  if (prepared.status !== 0) throw new Error(`node-suite-env: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
+  if (prepared.status !== 0) {
+    const detail = [
+      prepared.stderr?.trim(),
+      prepared.error ? `error=${prepared.error.message}` : "",
+      prepared.signal ? `signal=${prepared.signal}` : "",
+      prepared.status !== null ? `exit=${prepared.status}` : "",
+    ].filter(Boolean).join(" | ");
+    throw new Error(`node-suite-env: MH fixtures failed: ${detail || "unknown failure"}`);
+  }
   const mhFixtures = JSON.parse(prepared.stdout);
   Object.assign(testEnv, mhFixtures.env);
 

@@ -20,8 +20,10 @@ if (process.env.MH_L5_CASE) env.MH_L5_CASE = process.env.MH_L5_CASE;
 if (process.env.MH_L6_CASE) env.MH_L6_CASE = process.env.MH_L6_CASE;
 if (process.env.MH_L6_NATIVE_ASSETS) {
   const root = fs.realpathSync(process.env.MH_L6_NATIVE_ASSETS);
-  if (!root.startsWith('/tmp/mh-l6-toolchain-')) throw new Error('private_native_assets_required');
+  const alternate = process.env.MH_L6_NATIVE_ASSETS_ROOT ? fs.realpathSync(process.env.MH_L6_NATIVE_ASSETS_ROOT) : null;
+  if (!root.startsWith('/tmp/mh-l6-toolchain-') && !(alternate && root.startsWith(alternate))) throw new Error('private_native_assets_required');
   env.MH_L6_NATIVE_ASSETS = root;
+  if (alternate) env.MH_L6_NATIVE_ASSETS_ROOT = alternate;
 }
 if (process.env.MH_L5_ARTIFACTS) {
   const root = fs.realpathSync(process.env.MH_L5_ARTIFACTS);
