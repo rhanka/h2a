@@ -31,9 +31,9 @@ const SCISSORS_RE = /^# -{3,} >8 -{3,}$/;
  */
 export const TRAILER_RULES = Object.freeze([
   {
-    id: "co-authored-by",
-    label: "Co-Authored-By: …",
-    pattern: /^\s*co-authored-by\s*:/i,
+    id: "co-authored-by-ai",
+    label: "Co-Authored-By: <AI>",
+    pattern: /^\s*co-authored-by\s*:\s*(?:(?:claude(?:\s+(?:code|haiku|opus|sonnet)(?:\s+[\d.]+)?)?|anthropic|codex|openai|gemini(?:\s+cli)?|antigravity|agy|mistral(?:\s+vibe)?|vibe|muse(?:\s+code)?|(?:github\s+)?copilot|cursor(?:\s*agent)?)(?:\[bot\])?\s*(?:<|$)|.*@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)>\s*$)/i,
   },
   {
     id: "claude-session",
@@ -50,7 +50,7 @@ export const TRAILER_RULES = Object.freeze([
     id: "generated-with-ai",
     label: "Generated with/by [<AI tool>]",
     pattern:
-      /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+      /generated\s+(?:with|by)\s+\[?(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\b/i,
   },
   {
     id: "claude-code-url",
@@ -82,8 +82,9 @@ function splitScissors(text) {
 /**
  * Find the first matching trailer rule for a single line, or null.
  */
-export function matchTrailerLine(line) {
+export function matchTrailerLine(line, allowStandaloneRobot = false) {
   for (const rule of TRAILER_RULES) {
+    if (allowStandaloneRobot && rule.id === "robot-marker" && !/🤖\uFE0F?\s*generated\s+(?:with|by)\b/i.test(line)) continue;
     if (rule.pattern.test(line)) return rule;
   }
   return null;
@@ -96,7 +97,7 @@ export function matchTrailerLine(line) {
  */
 export function scanText(
   text,
-  { ignoreComments = true, respectScissors = true } = {},
+  { ignoreComments = true, respectScissors = true, allowStandaloneRobot = false } = {},
 ) {
   const { bodyLines } = respectScissors
     ? splitScissors(text)
@@ -105,7 +106,7 @@ export function scanText(
   for (let i = 0; i < bodyLines.length; i++) {
     const line = bodyLines[i];
     if (ignoreComments && line.startsWith("#")) continue;
-    const rule = matchTrailerLine(line);
+    const rule = matchTrailerLine(line, allowStandaloneRobot);
     if (rule) {
       matches.push({ line: i + 1, rule: rule.id, label: rule.label, text: line });
     }
@@ -117,8 +118,8 @@ export function scanCommitMessage(text) {
   return scanText(text, { ignoreComments: true, respectScissors: true });
 }
 
-export function scanPrText(text) {
-  return scanText(text, { ignoreComments: false, respectScissors: false });
+export function scanPrText(text, { allowStandaloneRobot = false } = {}) {
+  return scanText(text, { ignoreComments: false, respectScissors: false, allowStandaloneRobot });
 }
 
 /**
@@ -224,7 +225,7 @@ export function formatRejection(matches, context = "commit message") {
     `✗ blocked — AI attribution / co-authorship trailer detected in ${context}.`,
     "",
     "  Forbidden lines (case-insensitive):",
-    "    • Co-Authored-By: …",
+    "    • Co-Authored-By: <AI>",
     "    • Claude-Session: …",
     "    • Generated-By: <AI>",
     "    • Generated with [<AI tool>] / claude.com/claude-code / claude.ai/code/session_…",
@@ -421,7 +422,7 @@ export function runCli(argv) {
       }
     }
     if (prBody) {
-      const res = scanPrText(prBody);
+      const res = scanPrText(prBody, { allowStandaloneRobot: true });
       if (!res.ok) {
         failed++;
         process.stderr.write(

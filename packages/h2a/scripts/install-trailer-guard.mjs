@@ -138,7 +138,7 @@ exit 0`;
 
   return `#!/usr/bin/env bash
 ${GUARD_MARKER}
-# Harness policy: commit messages must NOT carry co-authorship or AI-attribution trailers.
+# Harness policy: commit messages must not carry AI-attribution trailers.
 # Installed into a branch-independent shared hooks dir so every worktree is covered.
 # Override mode per invocation with H2A_TRAILER_GUARD_MODE=reject|strip.
 set -euo pipefail
@@ -150,29 +150,18 @@ mode="\${H2A_TRAILER_GUARD_MODE:-${defaultMode}}"
 # onward) and comment lines so quoted trailers in diffs/comments never false-positive.
 scan="$(sed '/^# -\\{3,\\} >8 -\\{3,\\}$/,$d' "$msg_file" | grep -v '^#' || true)"
 
-trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+(with|by)[[:space:]]+\\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\\.com/claude-code|claude\\.ai/code/session_[a-z0-9_-]+|🤖'
+trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:[[:space:]]*((claude([[:space:]]+(code|haiku|opus|sonnet)([[:space:]]+[0-9.]+)?)?|anthropic|codex|openai|gemini([[:space:]]+cli)?|antigravity|agy|mistral([[:space:]]+vibe)?|vibe|muse([[:space:]]+code)?|(github[[:space:]]+)?copilot|cursor([[:space:]]*agent)?)(\\[bot\\])?[[:space:]]*(<|$)|.*@(anthropic\\.com|openai\\.com|mistral\\.ai|cursor\\.com|cursor\\.sh)>[[:space:]]*$)|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:(.*[^[:alnum:]_])?(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)([^[:alnum:]_]|$)|generated[[:space:]]+(with|by)[[:space:]]+\\[?(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)([^[:alnum:]_]|$)|claude\\.com/claude-code|claude\\.ai/code/session_[a-z0-9_-]+|🤖'
 
 if printf '%s\\n' "$scan" | grep -iEq "$trailer_re"; then
   if [ "$mode" = "strip" ]; then
     tmp_file="\${msg_file}.h2a-strip.$$"
     trap 'rm -f "$tmp_file"' EXIT
-    awk '
-      BEGIN { in_scissors = 0; n = 0; s = 0 }
+    TRAILER_RE="$trailer_re" awk '
+      BEGIN { in_scissors = 0; n = 0; s = 0; trailer_re = ENVIRON["TRAILER_RE"] }
       /^# ---+ >8 ---+$/ { in_scissors = 1 }
       in_scissors { suffix[++s] = $0; next }
       {
-        drop = 0
-        if (substr($0, 1, 1) != "#") {
-          low = tolower($0)
-          if (low ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) drop = 1
-          else if (low ~ /^[[:space:]]*claude-session[[:space:]]*:/) drop = 1
-          else if (low ~ /^[[:space:]]*generated-by[[:space:]]*:/ && low ~ /(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)/) drop = 1
-          else if (low ~ /generated[[:space:]]+(with|by)[[:space:]]+\\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
-          else if (low ~ /claude\\.com\\/claude-code/) drop = 1
-          else if (low ~ /claude\\.ai\\/code\\/session_[a-z0-9_-]+/) drop = 1
-          else if (index($0, "🤖") > 0) drop = 1
-        }
-        if (drop) next
+        if (substr($0, 1, 1) != "#" && tolower($0) ~ trailer_re) next
         body[++n] = $0
       }
       END {
@@ -197,7 +186,7 @@ if printf '%s\\n' "$scan" | grep -iEq "$trailer_re"; then
       echo "✗ commit blocked — co-authorship / AI-attribution trailer detected."
       echo
       echo "  This repo forbids these lines in commit messages (case-insensitive):"
-      echo "    • Co-Authored-By: …"
+      echo "    • Co-Authored-By: <AI>"
       echo "    • Claude-Session: …"
       echo "    • Generated-By: <AI>"
       echo "    • Generated with/by [<AI tool>] / claude.com/claude-code / claude.ai/code/session_…"
@@ -274,7 +263,7 @@ function hasForbiddenAttributionTrailer(command) {
     /^\\s*co-authored-by\\s*:/im,
     /^\\s*claude-session\\s*:/im,
     /^\\s*generated-by\\s*:.*\\b(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\\b/im,
-    /generated\\s+(?:with|by)\\s+\\[?(?:claude(?:\\s+code)?|codex|gemini|antigravity|mistral\\s+vibe|vibe|muse|copilot|cursor)\\b/i,
+    /generated\\s+(?:with|by)\\s+\\[?(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\\b/i,
     /claude\\.com\\/claude-code/i,
     /claude\\.ai\\/code\\/session_[a-z0-9_-]+/i,
     /🤖/u,

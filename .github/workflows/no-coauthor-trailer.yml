@@ -45,7 +45,7 @@ jobs:
 
           const SCISSORS_RE = /^# -{3,} >8 -{3,}$/;
           const RULES = [
-            { id: 'co-authored-by', pattern: /^\s*co-authored-by\s*:/i },
+            { id: 'co-authored-by-ai', pattern: /^\s*co-authored-by\s*:\s*(?:(?:claude(?:\s+(?:code|haiku|opus|sonnet)(?:\s+[\d.]+)?)?|anthropic|codex|openai|gemini(?:\s+cli)?|antigravity|agy|mistral(?:\s+vibe)?|vibe|muse(?:\s+code)?|(?:github\s+)?copilot|cursor(?:\s*agent)?)(?:\[bot\])?\s*(?:<|$)|.*@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)>\s*$)/i },
             { id: 'claude-session', pattern: /^\s*claude-session\s*:/i },
             {
               id: 'generated-by-ai',
@@ -53,14 +53,14 @@ jobs:
             },
             {
               id: 'generated-with-ai',
-              pattern: /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+              pattern: /generated\s+(?:with|by)\s+\[?(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\b/i,
             },
             { id: 'claude-code-url', pattern: /claude\.com\/claude-code/i },
             { id: 'claude-session-url', pattern: /claude\.ai\/code\/session_[a-z0-9_-]+/i },
             { id: 'robot-marker', pattern: /🤖/u },
           ];
 
-          function scan(text, { ignoreComments, respectScissors }) {
+          function scan(text, { ignoreComments, respectScissors, allowStandaloneRobot = false }) {
             const rawLines = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
             const cut = respectScissors ? rawLines.findIndex((l) => SCISSORS_RE.test(l)) : -1;
             const lines = cut === -1 ? rawLines : rawLines.slice(0, cut);
@@ -69,6 +69,7 @@ jobs:
               const line = lines[i];
               if (ignoreComments && line.startsWith('#')) continue;
               for (const rule of RULES) {
+                if (allowStandaloneRobot && rule.id === 'robot-marker' && !/🤖\uFE0F?\s*generated\s+(?:with|by)\b/i.test(line)) continue;
                 if (rule.pattern.test(line)) {
                   hits.push({ line: i + 1, rule: rule.id, text: line.trim() });
                   break;
@@ -131,7 +132,8 @@ jobs:
               console.error(`::error::PR title carries a forbidden AI attribution trailer [${rules}]`);
               fail++;
             }
-            const bodyHits = scan(process.env.PR_BODY || '', { ignoreComments: false, respectScissors: false });
+            // PR bodies can include upstream release notes with decorative emoji.
+            const bodyHits = scan(process.env.PR_BODY || '', { ignoreComments: false, respectScissors: false, allowStandaloneRobot: true });
             if (bodyHits.length > 0) {
               const rules = [...new Set(bodyHits.map((h) => h.rule))].join(', ');
               console.error(`::error::PR body / squash message carries a forbidden AI attribution trailer [${rules}]`);
