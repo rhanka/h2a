@@ -1183,3 +1183,11 @@ export const H2A_CLI_ADAPTER = {
 } as const;
 
 export { ensureCentralForRoot } from "./runtime/mcp-central-start.js";
+export {
+  autoRepairHostInstallations,
+  detectHostVersionDrift,
+  applyHostAutoRepairDoctorStatus,
+  type AutoRepairHostInstallationsOptions,
+  type AutoRepairHostInstallationsResult,
+  type HostVersionDriftResult
+} from "./hosts/auto-repair.js";
