@@ -13,12 +13,17 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { isRemoteControlEnabled, REMOTE_CONTROL_DISABLED_MESSAGE } from "./flag.js";
+import {
+  isRemoteControlEnabled,
+  isRemoteControlKilledByEnv,
+  REMOTE_CONTROL_DISABLED_MESSAGE
+} from "./flag.js";
 import {
   clearSessionExcluded,
   setSessionExcluded,
   validateSessionTarget
 } from "./exclusions.js";
+import { readLinkStatusFile, type TrunkLinkRefusal, type TrunkLinkStatus } from "./trunk-client.js";
 
 export const REMOTE_CONTROL_VERBS = [
   "enrol",
@@ -95,9 +100,13 @@ export type RemoteControlResult =
       readonly state: "stubbed" | "ok";
       readonly killFlagFile?: string;
       readonly kill?: boolean;
+      readonly killByEnv?: boolean;
+      readonly killByFile?: boolean;
       readonly at?: string;
       readonly sessionId?: string;
       readonly excluded?: boolean;
+      readonly link?: TrunkLinkStatus;
+      readonly lastRefusal?: TrunkLinkRefusal;
     }
   | { readonly ok: false; readonly verb: string; readonly reason: string; readonly message: string };
 
@@ -190,12 +199,19 @@ export function runRemoteControlVerb(
   }
   if (verb === "status") {
     const flag = readRemoteControlKillFlag(options.root);
+    const killByEnv = isRemoteControlKilledByEnv(env);
+    const killByFile = flag.kill;
+    const link = readLinkStatusFile(options.root);
     return {
       ok: true,
       verb,
       state: "ok",
-      kill: flag.kill,
-      ...(flag.at !== undefined ? { at: flag.at } : {})
+      kill: killByEnv || killByFile,
+      killByEnv,
+      killByFile,
+      ...(flag.at !== undefined ? { at: flag.at } : {}),
+      ...(link !== undefined ? { link } : {}),
+      ...(link?.lastRefusal !== undefined ? { lastRefusal: link.lastRefusal } : {})
     };
   }
   return { ok: true, verb, state: "stubbed" };
