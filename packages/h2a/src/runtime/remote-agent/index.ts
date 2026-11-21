@@ -1,5 +1,5 @@
 /**
- * Internal barrel for the remote-control agent (LH-00..LH-06).
+ * Internal barrel for the remote-control agent (LH-00..LH-07).
  *
  * INTERNAL ONLY: this barrel is never re-exported from the package root
  * (src/index.ts). The trunk/catalogue/terminal types are provisional fixtures
@@ -8,9 +8,11 @@
  */
 export {
   REMOTE_CONTROL_ENV,
+  REMOTE_CONTROL_OFF_ENV,
   REMOTE_CONTROL_DISABLED_REASON,
   REMOTE_CONTROL_DISABLED_MESSAGE,
   isRemoteControlEnabled,
+  isRemoteControlKilledByEnv,
   assertRemoteControlEnabled
 } from "./flag.js";
 export {
@@ -23,23 +25,35 @@ export {
   TERMINAL_INPUT_MAX_BYTES,
   TERMINAL_OUTPUT_COALESCE_BYTES,
   canonicalTrunkJson,
+  signTrunkBytes,
+  verifyTrunkBytes,
   signTrunkAuthPayload,
   verifyTrunkAuthPayload,
   isTrunkRecord,
   type TrunkEnvelope,
   type TrunkChallenge,
   type TrunkAuthPayload,
+  type TrunkNegotiatedLimits,
+  type TrunkHelloRecord,
+  type TrunkAuthRecord,
+  type TrunkReadyRecord,
+  type InstanceBindRecord,
+  type InstanceBoundRecord,
+  type InstanceRevokedRecord,
+  type TrunkInstanceRecord,
   type TrunkLinkRecord,
   type InventoryHostKind,
   type CatalogueInstanceStatus,
   type CatalogueOperabilityReason,
   type CatalogueSessionRow,
   type CatalogueInstanceStatusUpdate,
+  type CatalogueRowStatusUpdate,
   type CatalogueRowUpdate,
   type CatalogueSnapshot,
   type CatalogueDelta,
   type TrunkCatalogueRecord,
   type TrunkTerminalRecord,
+  type TrunkExtensionRecord,
   type TrunkRecord
 } from "./types.js";
 export {
@@ -140,3 +154,42 @@ export {
   type InventoryRow,
   type FleetInventory
 } from "./fleet-inventory.js";
+export {
+  MAX_CREDIT_WINDOW_RECORDS,
+  MAX_CREDIT_WINDOW_BYTES,
+  TrunkCreditManager,
+  type CreditAvailability,
+  type CreditLimits,
+  type CreditUpdateResult
+} from "./trunk-credit.js";
+export {
+  extractRawEd25519PublicKeyBase64,
+  formatWET2Fingerprint,
+  loadLocalInstancePossession,
+  readRevokedInstancesRegistry,
+  persistRevokedInstancesRegistry,
+  TrunkInstanceManager,
+  type LocalInstancePossession,
+  type InstanceActResult
+} from "./trunk-instance.js";
+export {
+  TrunkClient,
+  readLinkStatusFile,
+  writeLinkStatusFile,
+  type TrunkEnrolment,
+  type TrunkClock,
+  type TrunkConnectionHandlers,
+  type TrunkConnection,
+  type TrunkConnector,
+  type CatalogueStatusUpdate,
+  type CatalogueEmitEvent,
+  type TrunkCatalogueSource,
+  type TrunkChannelContext,
+  type TrunkTerminalConsumer,
+  type TrunkInstanceBindPayload,
+  type PreparedCatalogueRecord,
+  type TrunkContractProvider,
+  type TrunkAuditEvent,
+  type TrunkLinkStatus,
+  type TrunkClientOptions
+} from "./trunk-client.js";
