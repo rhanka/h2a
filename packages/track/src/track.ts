@@ -15,7 +15,7 @@ import {
 } from './report/velocity-eta.js'
 
 import { EventStore } from './events/store.js'
-import type { ActorId, Aggregate, CommandEvent, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
+import type { ActorId, Aggregate, CaptureOrigin, CommandEvent, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
 import { parseRunReport, type RunReportFormat } from './accept/ingest.js'
 import { parseBranch, slugify } from './branch/parse.js'
 import { branchSignature } from './branch/signature.js'
@@ -961,6 +961,7 @@ export class Track {
     sourceKey?: string
     concerns?: DemandRaisedPayload['concerns']
     links?: DemandRaisedPayload['links']
+    masked?: boolean
     summary?: string
     key?: string
     maxRetries?: number
@@ -1052,6 +1053,84 @@ export class Track {
       }
     }
     throw new DomainError('raiseNumberedDemand: failed to allocate demand number')
+  }
+
+  /**
+   * Append an owner follow-up message from the capture queue onto an existing demand (lot 3a).
+   * Idempotent by `key` (`captureId`) under the store lock.
+   */
+  addDemandOwnerMessage(
+    demandId: DemandId,
+    input: {
+      captureId: string
+      at: string
+      origin: CaptureOrigin
+      text: string
+      masked?: boolean
+      key?: string
+    },
+  ): TrackEvent {
+    if (!this.state().demands.has(demandId)) {
+      throw new DomainError(`unknown demand ${demandId}`)
+    }
+    const key = (input.key ?? input.captureId).trim()
+    if (key.length === 0) throw new DomainError('addDemandOwnerMessage: captureId/key must be non-empty')
+    const payload: Record<string, unknown> = {
+      captureId: input.captureId,
+      at: input.at,
+      origin: input.origin,
+      text: input.text,
+      ...(input.masked === true ? { masked: true } : {}),
+    }
+    const dedupe: DedupeHook = (_inputs, existing) => {
+      const hit = existing.find((e) => e.type === 'demand.owner-message-added' && e.clientToken === key)
+      return hit !== undefined ? [hit] : null
+    }
+    const [persisted] = this.withClientToken(
+      key,
+      () => this.emit('demand', demandId, 'demand.owner-message-added', payload),
+      { dedupe },
+    )
+    return persisted!
+  }
+
+  /**
+   * Append an owner message from the capture queue onto an existing decision (lot 3a).
+   * NEVER settles the decision (settling stays `track decision select`). Idempotent by `key`.
+   */
+  addDecisionOwnerMessage(
+    decisionId: ItemId,
+    input: {
+      captureId: string
+      at: string
+      origin: CaptureOrigin
+      text: string
+      masked?: boolean
+      key?: string
+    },
+  ): TrackEvent {
+    if (!this.state().decisions.has(decisionId)) {
+      throw new DomainError(`unknown decision ${decisionId}`)
+    }
+    const key = (input.key ?? input.captureId).trim()
+    if (key.length === 0) throw new DomainError('addDecisionOwnerMessage: captureId/key must be non-empty')
+    const payload: Record<string, unknown> = {
+      captureId: input.captureId,
+      at: input.at,
+      origin: input.origin,
+      text: input.text,
+      ...(input.masked === true ? { masked: true } : {}),
+    }
+    const dedupe: DedupeHook = (_inputs, existing) => {
+      const hit = existing.find((e) => e.type === 'decision.owner-message-added' && e.clientToken === key)
+      return hit !== undefined ? [hit] : null
+    }
+    const [persisted] = this.withClientToken(
+      key,
+      () => this.emit('decision', decisionId, 'decision.owner-message-added', payload),
+      { dedupe },
+    )
+    return persisted!
   }
 
   /**
