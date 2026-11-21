@@ -327,9 +327,16 @@ type HostLink = {
   generation: string;
 };
 
-type GuardLease = { lease: NativeTerminalControllerLease; socketPath: string };
+type GuardLease = {
+  lease: NativeTerminalControllerLease;
+  socketPath: string;
+  /** Logical time of the acquisition: older inventories cannot judge it. */
+  since: number;
+};
 
 type InventoryView = {
+  /** Logical time at which this inventory started being collected. */
+  started: number;
   complete: boolean;
   sessions: Array<NativeTerminalSessionState & { socketPath: string }>;
   hosts: Array<{ socketPath: string; absent?: true; reason?: string }>;
@@ -352,8 +359,12 @@ type HoldResult =
 
 type HeldPress = Pick<RightPanelForwardedMouse, "button" | "x" | "y" | "mode" | "encoding">;
 
-function stripInventory<C extends NativeInventoryClient>(inventory: NativeInventory<C>): InventoryView {
+function stripInventory<C extends NativeInventoryClient>(
+  inventory: NativeInventory<C>,
+  started: number,
+): InventoryView {
   return {
+    started,
     complete: inventory.complete,
     sessions: inventory.sessions,
     hosts: inventory.hosts.map((host) => ({
@@ -492,6 +503,8 @@ class Station {
   readonly #stationUndo = new TerminalUndoRegistry();
   readonly #draftStatus = new Map<string, StationSessionDraftStatus>();
 
+  /** Logical clock ordering inventories against lease acquisitions. */
+  #clock = 0;
   #state: StationState = EMPTY_STATION_STATE;
   #panel!: RightPanelController;
   #refresher!: RightPanelSnapshotRefresher;
@@ -659,12 +672,16 @@ class Station {
 
   async #collectInventory(): Promise<NativeInventory<StationHostClient>> {
     const proveAbsent = this.#runtime.proveAbsent;
+    const started = (this.#clock += 1);
     const inventory = await collectNativeInventory<StationHostClient>(
       this.#runtime.endpoints(),
       (socketPath) => this.#runtime.connect(socketPath),
       proveAbsent ? (socketPath, failure) => proveAbsent(socketPath, failure) : undefined,
     );
-    this.#inventory = stripInventory(inventory);
+    // A slower, older collection never overwrites a newer one.
+    if (this.#inventory === undefined || this.#inventory.started < started) {
+      this.#inventory = stripInventory(inventory, started);
+    }
     return inventory;
   }
 
@@ -683,6 +700,10 @@ class Station {
   }
 
   // --- compatibility guards (hosts without the composer broker) -------------
+
+  #setGuard(sessionId: string, lease: NativeTerminalControllerLease, socketPath: string): void {
+    this.#guards.set(sessionId, { lease, socketPath, since: (this.#clock += 1) });
+  }
 
   #dropGuard(sessionId: string, action: "stale" | "dropped" | "released"): void {
     this.#guards.delete(sessionId);
@@ -703,6 +724,8 @@ class Station {
   /** Retire guards the inventory proves stale; the shared client stays open. */
   #reconcileGuards(inventory: InventoryView): void {
     for (const [sessionId, guard] of this.#guards) {
+      // An inventory collected before the guard was taken says nothing of it.
+      if (inventory.started <= guard.since) continue;
       const state = inventory.sessions.find(
         (session) => session.id === sessionId && session.socketPath === guard.socketPath,
       );
@@ -741,7 +764,7 @@ class Station {
           pid: this.#pid,
           tty: this.#tty,
         });
-        this.#guards.set(sessionId, { lease, socketPath: link.socketPath });
+        this.#setGuard(sessionId, lease, link.socketPath);
         this.#persist(
           withCompatGuard(this.#state, sessionId, {
             generation: lease.generation,
@@ -1236,7 +1259,7 @@ class Station {
         pid: this.#pid,
         tty: this.#tty,
       });
-      this.#guards.set(sessionId, { lease, socketPath: link.socketPath });
+      this.#setGuard(sessionId, lease, link.socketPath);
       this.#persist(
         withCompatGuard(this.#state, sessionId, {
           generation: lease.generation,
@@ -1531,7 +1554,7 @@ class Station {
   /** Undo the hold of a switch that is abandoned before A was left. */
   async #giveBack(link: HostLink, held: Extract<HoldResult, { ok: true }>): Promise<void> {
     if (held.wasGuard) {
-      this.#guards.set(held.lease.id, { lease: held.lease, socketPath: link.socketPath });
+      this.#setGuard(held.lease.id, held.lease, link.socketPath);
       return;
     }
     try {
@@ -1590,7 +1613,7 @@ class Station {
         this.#emit({ type: "lease-released", sessionId: view.sessionId });
       } else {
         // Compatibility guard: the lease is kept, never written to nor resized.
-        this.#guards.set(view.sessionId, { lease: current.lease, socketPath: link.socketPath });
+        this.#setGuard(view.sessionId, current.lease, link.socketPath);
         this.#persist(
           withCompatGuard(this.#state, view.sessionId, {
             generation: current.lease.generation,
