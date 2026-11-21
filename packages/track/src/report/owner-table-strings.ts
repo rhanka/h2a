@@ -139,6 +139,10 @@ export function formatMotifDesyncDocs(count: number): string {
   return `${count} ${pluralize(count, 'document désynchronisé', 'documents désynchronisés')}`
 }
 
+export function formatMotifUnverifiedDocs(count: number): string {
+  return `${count} ${pluralize(count, 'document non vérifié', 'documents non vérifiés')}`
+}
+
 // ---- Sections & lines --------------------------------------------------------------------------
 
 export function formatPartialScopeNoDecisionsSentence(scopeMotifs: readonly string[]): string {
@@ -302,6 +306,10 @@ export function formatReplyLine(entries: readonly { ref: string; letter: string 
 export function formatRequestCellNotCaptured(text: string): string {
   if (text.trim() === '' || text.trim() === '—') return '—'
   return `${text} (non capté)`
+}
+
+export function formatRequestCellWithOriginLabel(originLabel: string, requestCell: string): string {
+  return `[${originLabel}] ${requestCell}`
 }
 
 export function formatRequestCellCapturedOwner(text: string, title?: string): string {

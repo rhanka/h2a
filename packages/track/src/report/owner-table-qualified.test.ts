@@ -1286,4 +1286,45 @@ describe('owner-table qualified reader (lot 1)', () => {
       expect(rendered, tc.name).toContain('ligne à compléter')
     }
   })
+
+  it('renders lot 4a scope/gap motifs (unassigned journal, unverified docs) and sanitized origin labels', () => {
+    const view = makeCleanNumberedView()
+    const qualified = buildQualifiedOwnerTable(view, {
+      now: LEGACY_LIKE_NOW,
+      unassignedJournal: true,
+      unverifiedDocsCount: 2,
+      rowOriginLabels: new Map([['req-clean-1', 'sat-app']]),
+      header: {
+        label: 'conducteur',
+        resolution: 'copie non désignée (2 copies connues)',
+        lastEventAt: '2026-11-19T10:00:00.000Z',
+      },
+    })
+    expect(qualified.scope.motifs[0]).toEqual({
+      kind: 'scope',
+      text: 'journal de référence non désigné',
+    })
+    expect(qualified.scope.motifs.at(-1)).toEqual({
+      kind: 'gap',
+      text: '2 documents non vérifiés',
+    })
+    expect(qualified.counts.unverifiedDocs).toBe(2)
+    expect(qualified.rows[0]?.originLabel).toBe('sat-app')
+
+    const md = renderQualifiedOwnerTable(qualified, 'md')
+    expect(md).toContain('Journal : conducteur · copie non désignée (2 copies connues) · dernier événement 19/11')
+    expect(md).toContain('Périmètre partiel : journal de référence non désigné · captation inactive')
+    expect(md).toContain('2 documents non vérifiés')
+    expect(md).toContain('[sat-app] Ajouter le filtre par date (non capté)')
+    expect(md).toContain(
+      'Aucune décision enregistrée au journal (périmètre partiel : journal de référence non désigné · captation inactive · politique de termes privés absente).',
+    )
+
+    // Origin label failing a text gate falls back to `journal`
+    const sanitized = buildQualifiedOwnerTable(makeCleanNumberedView(), {
+      now: LEGACY_LIKE_NOW,
+      rowOriginLabels: new Map([['req-clean-1', 'deadbeef1234']]),
+    })
+    expect(sanitized.rows[0]?.originLabel).toBe('journal')
+  })
 })

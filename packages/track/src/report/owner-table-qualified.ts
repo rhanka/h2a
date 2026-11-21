@@ -32,13 +32,16 @@ import {
   formatHeaderLocalCopyLine,
   formatHeaderMotifsLine,
   formatMaskText,
+  formatMotifUnverifiedDocs,
   formatOwnerGateLine,
   formatPartialScopeNoDecisionsSentence,
   formatReplyLine,
   formatRequestCellNotCaptured,
+  formatRequestCellWithOriginLabel,
   formatToAttachHeading,
   formatToAttachLine,
   formatUtcDate,
+  MOTIF_UNASSIGNED_JOURNAL,
   type DecisionQualifierLabel,
   type FlagMotif,
   type MaskMotif,
@@ -181,6 +184,8 @@ export interface QualifiedOwnerTableRow extends OwnerTableRow {
   flags: QualifiedRowFlag[]
   masks: QualifiedRowMask[]
   captured: boolean
+  /** Short origin label when the demand was raised from another project/folder identity (lot 4a). */
+  originLabel?: string | undefined
 }
 
 export interface QualifiedToAttachItem {
@@ -244,6 +249,7 @@ export interface QualifiedOwnerTableCounts {
   decisionsWithOpenQuestions: number
   maskedCells: number
   desyncCount: number
+  unverifiedDocs: number
 }
 
 export interface QualifiedOwnerTableOptions extends AuditOwnerTableOptions {
@@ -257,6 +263,11 @@ export interface QualifiedOwnerTableOptions extends AuditOwnerTableOptions {
   }
   policyFound?: boolean
   desyncFindings?: readonly DesyncFinding[]
+  unverifiedDocsCount?: number
+  /** True when several copies are known and none is designated (emits annex F scope motif #1). */
+  unassignedJournal?: boolean
+  /** Map from row id to raw short origin label for rows raised from another identity (lot 4a). */
+  rowOriginLabels?: ReadonlyMap<string, string>
 }
 
 export interface QualifiedOwnerTableView {
@@ -426,6 +437,13 @@ export function buildQualifiedOwnerTable(
   const toAttach: QualifiedToAttachItem[] = []
   let maskedCells = 0
 
+  const labelGateOpts = {
+    ...(options.policy !== undefined ? { policy: options.policy } : {}),
+    ...(options.policyPath !== undefined ? { policyPath: options.policyPath } : {}),
+    ...(options.defaultPolicyPath !== undefined ? { defaultPolicyPath: options.defaultPolicyPath } : {}),
+    ...(options.statePolicyPath !== undefined ? { statePolicyPath: options.statePolicyPath } : {}),
+  }
+
   for (const row of view.rows) {
     if (!Number.isInteger(row.num) || row.num < 1) {
       const reqMask = rowMasksMap.get(row.id)?.get('request')?.motif
@@ -449,6 +467,13 @@ export function buildQualifiedOwnerTable(
         maskedCells++
       }
     }
+    const rawOriginLabel = options.rowOriginLabels?.get(row.id)
+    const sanitizedOriginLabel =
+      rawOriginLabel !== undefined && rawOriginLabel.trim() !== ''
+        ? hasTextGateViolation(rawOriginLabel, labelGateOpts)
+          ? FALLBACK_JOURNAL_LABEL
+          : rawOriginLabel.trim()
+        : undefined
     numberedRows.push({
       ...row,
       decisionIds: row.decisionIds ?? [],
@@ -457,6 +482,7 @@ export function buildQualifiedOwnerTable(
       flags,
       masks,
       captured: false,
+      ...(sanitizedOriginLabel !== undefined ? { originLabel: sanitizedOriginLabel } : {}),
     })
   }
 
@@ -515,6 +541,8 @@ export function buildQualifiedOwnerTable(
   const openQuestionCount = qualifiedDecisions.reduce((sum, d) => sum + d.openQuestionCount, 0)
   const decisionsWithOpenQuestions = qualifiedDecisions.filter((d) => d.openQuestionCount > 0).length
 
+  const unverifiedDocs = options.unverifiedDocsCount ?? 0
+
   const counts: QualifiedOwnerTableCounts = {
     activeDemands,
     archivedDemands,
@@ -531,6 +559,7 @@ export function buildQualifiedOwnerTable(
     decisionsWithOpenQuestions,
     maskedCells,
     desyncCount: desync.length,
+    unverifiedDocs,
   }
 
   const scope = evaluateOwnerTableScope({
@@ -546,6 +575,14 @@ export function buildQualifiedOwnerTable(
     maskedCells,
     desyncCount: desync.length,
   })
+  // Annex F order 1: unassigned reference journal when several copies are known.
+  if (options.unassignedJournal === true) {
+    scope.motifs.unshift({ kind: 'scope', text: MOTIF_UNASSIGNED_JOURNAL })
+  }
+  // Annex F order 19: document references whose owning project folder is not known.
+  if (unverifiedDocs > 0) {
+    scope.motifs.push({ kind: 'gap', text: formatMotifUnverifiedDocs(unverifiedDocs) })
+  }
 
   // Ensure blocking E5 decisions on rows render their annex-F todo cause instead of an internal D#
   for (const row of numberedRows) {
@@ -678,7 +715,11 @@ export function renderQualifiedOwnerTable(
       const stageCell = applyCellMasksAndFlags(formatOwnerStageCell(row), 'stage', row)
       const etaCell = applyCellMasksAndFlags(formatOwnerEtaCell(row.etas), 'eta', row)
       const requestBase = formatRequestCellNotCaptured(row.request)
-      const requestCell = applyCellMasksAndFlags(requestBase, 'request', row)
+      const requestWithMask = applyCellMasksAndFlags(requestBase, 'request', row)
+      const requestCell =
+        row.originLabel !== undefined
+          ? formatRequestCellWithOriginLabel(row.originLabel, requestWithMask)
+          : requestWithMask
       const doneCell = applyCellMasksAndFlags(row.done, 'done', row)
       const todoCell = applyCellMasksAndFlags(row.todo, 'todo', row)
       const decisionCell = applyCellMasksAndFlags(
