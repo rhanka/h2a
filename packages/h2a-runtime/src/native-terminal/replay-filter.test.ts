@@ -16,33 +16,33 @@ const ESC = "\x1b";
 const ST = `${ESC}\\`;
 const BEL = "\x07";
 
-/** One representative byte form per family of the r2 annex D minimum table. */
-const QUERY_FORMS: ReadonlyArray<readonly [string, string]> = [
-  ["dsr-cpr", `${ESC}[6n`],
-  ["dsr-decxcpr", `${ESC}[?6n`],
-  ["dsr-status", `${ESC}[5n`],
-  ["da1", `${ESC}[c`],
-  ["da1", `${ESC}[0c`],
-  ["da2", `${ESC}[>c`],
-  ["da2", `${ESC}[>0c`],
-  ["da3", `${ESC}[=c`],
-  ["xtversion", `${ESC}[>q`],
-  ["xtversion", `${ESC}[>0q`],
-  ["kitty-keyboard-query", `${ESC}[?u`],
-  ["xtwinops-14", `${ESC}[14t`],
-  ["xtwinops-16", `${ESC}[16t`],
-  ["xtwinops-18", `${ESC}[18t`],
-  ["xtwinops-21", `${ESC}[21t`],
-  ["decrqm", `${ESC}[?2026$p`],
-  ["decrqm", `${ESC}[4$p`],
-  ["decrqss", `${ESC}P$qm${ST}`],
-  ["xtgettcap", `${ESC}P+q544e${ST}`],
-  ["osc-4-query", `${ESC}]4;1;?${ST}`],
-  ["osc-10-query", `${ESC}]10;?${BEL}`],
-  ["osc-11-query", `${ESC}]11;?${ST}`],
-  ["osc-12-query", `${ESC}]12;?${BEL}`],
-  ["osc-52", `${ESC}]52;c;?${BEL}`],
-  ["enq", "\x05"],
+/** Representative byte forms per family of the r2 annex D minimum table. */
+const QUERY_FORMS: ReadonlyArray<readonly [string, string, string]> = [
+  ["dsr-cpr", "CSI 6 n", `${ESC}[6n`],
+  ["dsr-decxcpr", "CSI ? 6 n", `${ESC}[?6n`],
+  ["dsr-status", "CSI 5 n", `${ESC}[5n`],
+  ["da1", "CSI c", `${ESC}[c`],
+  ["da1", "CSI 0 c", `${ESC}[0c`],
+  ["da2", "CSI > c", `${ESC}[>c`],
+  ["da2", "CSI > 0 c", `${ESC}[>0c`],
+  ["da3", "CSI = c", `${ESC}[=c`],
+  ["xtversion", "CSI > q", `${ESC}[>q`],
+  ["xtversion", "CSI > 0 q", `${ESC}[>0q`],
+  ["kitty-keyboard-query", "CSI ? u", `${ESC}[?u`],
+  ["xtwinops-14", "CSI 14 t", `${ESC}[14t`],
+  ["xtwinops-16", "CSI 16 t", `${ESC}[16t`],
+  ["xtwinops-18", "CSI 18 t", `${ESC}[18t`],
+  ["xtwinops-21", "CSI 21 t", `${ESC}[21t`],
+  ["decrqm", "CSI ? 2026 $ p", `${ESC}[?2026$p`],
+  ["decrqm", "CSI 4 $ p", `${ESC}[4$p`],
+  ["decrqss", "DCS $ q m ST", `${ESC}P$qm${ST}`],
+  ["xtgettcap", "DCS + q 544e ST", `${ESC}P+q544e${ST}`],
+  ["osc-4-query", "OSC 4 ; 1 ; ? ST", `${ESC}]4;1;?${ST}`],
+  ["osc-10-query", "OSC 10 ; ? BEL", `${ESC}]10;?${BEL}`],
+  ["osc-11-query", "OSC 11 ; ? ST", `${ESC}]11;?${ST}`],
+  ["osc-12-query", "OSC 12 ; ? BEL", `${ESC}]12;?${BEL}`],
+  ["osc-52", "OSC 52 ; c ; ? BEL", `${ESC}]52;c;?${BEL}`],
+  ["enq", "ENQ", "\x05"],
 ];
 
 const SIDE_EFFECT_FORMS: ReadonlyArray<readonly [string, string]> = [
@@ -91,11 +91,14 @@ describe("S1 replay filter (r2 annex D, shared INJ D10 (b) table)", () => {
     ]);
   });
 
-  it.each(QUERY_FORMS)("should remove the terminal query %s from replayed bytes", (_id, form) => {
-    const result = filterReplay(`before${form}after`);
-    expect(result.output).toBe("beforeafter");
-    expect(result.stats.queries + result.stats.sideEffects).toBe(1);
-  });
+  it.each(QUERY_FORMS)(
+    "should remove the terminal query %s (%s) from replayed bytes",
+    (_id, _label, form) => {
+      const result = filterReplay(`before${form}after`);
+      expect(result.output).toBe("beforeafter");
+      expect(result.stats.queries + result.stats.sideEffects).toBe(1);
+    },
+  );
 
   it.each(SIDE_EFFECT_FORMS)("should neutralise the side effect %s in replayed bytes", (_id, form) => {
     const result = filterReplay(`before${form}after`);
@@ -192,7 +195,7 @@ describe("S1 replay filter (r2 annex D, shared INJ D10 (b) table)", () => {
     const history =
       `${ESC}[?1049h${ESC}[2J` +
       Array.from({ length: k }, (_, i) => `line ${i}${ESC}[6n\r\n`).join("") +
-      QUERY_FORMS.map(([, form]) => form).join("x") +
+      QUERY_FORMS.map(([, , form]) => form).join("x") +
       SIDE_EFFECT_FORMS.map(([, form]) => form).join("y") +
       "tail";
     const responses: string[] = [];
