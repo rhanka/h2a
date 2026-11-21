@@ -18,6 +18,10 @@
       "types": "./dist/editing/index.d.ts",
       "import": "./dist/editing/index.js"
     },
+    "./artifact": {
+      "types": "./dist/artifact/index.d.ts",
+      "import": "./dist/artifact/index.js"
+    },
     "./schemas/focus-edit-return.v1": "./schemas/focus-edit-return.v1.schema.json",
     "./schemas/focus-editing-manifest.v1": "./schemas/focus-editing-manifest.v1.schema.json",
     ".": {

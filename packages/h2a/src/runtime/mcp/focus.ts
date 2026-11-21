@@ -1,6 +1,7 @@
 import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import type { FocusAnchorEntry } from "@sentropic/focus/artifact";
 import { isOsTemporaryPath } from "../path-safety.js";
 import type { DiagramViewRefusal } from "../../focus-build.js";
 
@@ -10,6 +11,11 @@ export type FocusTemplateKind = (typeof FOCUS_TEMPLATE_KINDS)[number];
 export interface FocusBuildRequest {
   readonly input: string;
   readonly output: string;
+}
+
+export interface FocusCheckRequest {
+  readonly input: string;
+  readonly previousManifest?: string;
 }
 
 export interface FocusRefusal {
@@ -30,6 +36,26 @@ export type FocusBuildResult =
       readonly output: string;
       readonly bytes: number;
       readonly warnings: readonly string[];
+      [key: string]: unknown;
+    }
+  | {
+      readonly ok: false;
+      readonly error: string;
+      readonly refusals: readonly FocusRefusal[];
+      [key: string]: unknown;
+    };
+
+export type FocusCheckResult =
+  | {
+      readonly ok: true;
+      readonly documentType: "decision" | "report";
+      readonly schemaId: string;
+      readonly bindingName: string;
+      readonly documentDigest: string;
+      readonly bytes: number;
+      readonly anchors: readonly FocusAnchorEntry[];
+      readonly retiredRefs: readonly string[];
+      readonly revisionSeq: number;
       [key: string]: unknown;
     }
   | {
@@ -67,6 +93,7 @@ export type FocusTemplateResult =
     };
 
 const ALLOWED_BUILD_KEYS = new Set(["input", "output"]);
+const ALLOWED_CHECK_KEYS = new Set(["input", "previousManifest"]);
 const ALLOWED_TEMPLATE_KEYS = new Set(["kind"]);
 const KIT_DIR = new URL("../../../focus-kit/", import.meta.url);
 
@@ -101,8 +128,9 @@ function assertSymlinksStayWithin(
   canonicalRoot: string,
   rawRoot: string,
   lexicalPath: string,
-  field: "input" | "output",
-  includeLeaf: boolean
+  field: "input" | "output" | "previousManifest",
+  includeLeaf: boolean,
+  toolName = "h2a_focus_build"
 ): void {
   const rel = isWithin(canonicalRoot, lexicalPath)
     ? relative(canonicalRoot, lexicalPath)
@@ -112,7 +140,7 @@ function assertSymlinksStayWithin(
   if (rel === null) {
     throw new FocusGuardError(
       "path_policy",
-      `h2a_focus_build: '${field}' must stay within the MCP startup workspace`
+      `${toolName}: '${field}' must stay within the MCP startup workspace`
     );
   }
   const allSegments = rel.split(sep).filter((segment) => segment.length > 0 && segment !== ".");
@@ -126,9 +154,9 @@ function assertSymlinksStayWithin(
     } catch {
       throw new FocusGuardError(
         "path_policy",
-        field === "input"
-          ? "h2a_focus_build: 'input' file must exist"
-          : "h2a_focus_build: 'output' parent directory must exist"
+        field === "output"
+          ? `${toolName}: 'output' parent directory must exist`
+          : `${toolName}: '${field}' file must exist`
       );
     }
     if (st.isSymbolicLink()) {
@@ -138,19 +166,19 @@ function assertSymlinksStayWithin(
       } catch {
         throw new FocusGuardError(
           "path_policy",
-          `h2a_focus_build: '${field}' contains a broken symbolic link`
+          `${toolName}: '${field}' contains a broken symbolic link`
         );
       }
       if (!isWithin(canonicalRoot, target)) {
         throw new FocusGuardError(
           "path_policy",
-          `h2a_focus_build: '${field}' must not follow symbolic links outside the MCP startup workspace`
+          `${toolName}: '${field}' must not follow symbolic links outside the MCP startup workspace`
         );
       }
       if (isTemporaryLocation(target)) {
         throw new FocusGuardError(
           "path_policy",
-          `h2a_focus_build: '${field}' may not resolve under the OS temporary directory`
+          `${toolName}: '${field}' may not resolve under the OS temporary directory`
         );
       }
     }
@@ -159,28 +187,117 @@ function assertSymlinksStayWithin(
 
 function requiredPathString(
   args: Record<string, unknown>,
-  field: "input" | "output"
+  field: "input" | "output" | "previousManifest",
+  toolName = "h2a_focus_build"
 ): string {
   const value = args[field];
   if (typeof value !== "string" || value.length === 0) {
     throw new FocusGuardError(
       "invalid_arguments",
-      `h2a_focus_build: '${field}' must be a non-empty string`
+      `${toolName}: '${field}' must be a non-empty string`
     );
   }
   if (value.includes("\0")) {
     throw new FocusGuardError(
       "path_policy",
-      `h2a_focus_build: '${field}' must not contain NUL bytes`
+      `${toolName}: '${field}' must not contain NUL bytes`
     );
   }
   if (!isAbsolute(value)) {
     throw new FocusGuardError(
       "path_policy",
-      `h2a_focus_build: '${field}' must be an absolute path`
+      `${toolName}: '${field}' must be an absolute path`
     );
   }
   return value;
+}
+
+function resolveWorkspaceRoot(workspaceRoot: string, toolName: string): { rawRoot: string; canonicalRoot: string } {
+  const rawRoot = resolve(workspaceRoot);
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = realpathSync(rawRoot);
+  } catch {
+    throw new FocusGuardError("path_policy", `${toolName}: MCP workspace root must exist`);
+  }
+  if (!statSync(canonicalRoot).isDirectory()) {
+    throw new FocusGuardError("path_policy", `${toolName}: MCP workspace root must be a directory`);
+  }
+  if (isTemporaryLocation(canonicalRoot)) {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: Focus dossier paths may not be under the OS temporary directory (/tmp is refused)`
+    );
+  }
+  return { rawRoot, canonicalRoot };
+}
+
+function resolveExistingInputFile(
+  rawPath: string,
+  field: "input" | "previousManifest",
+  rawRoot: string,
+  canonicalRoot: string,
+  toolName: string
+): string {
+  const lexicalPath = resolve(rawPath);
+  assertSymlinksStayWithin(canonicalRoot, rawRoot, lexicalPath, field, true, toolName);
+  let canonicalPath: string;
+  try {
+    canonicalPath = realpathSync(lexicalPath);
+  } catch {
+    throw new FocusGuardError("path_policy", `${toolName}: '${field}' file must exist`);
+  }
+  if (!isWithin(canonicalRoot, canonicalPath)) {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: '${field}' must stay within the MCP startup workspace`
+    );
+  }
+  if (isTemporaryLocation(canonicalPath)) {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: '${field}' may not be under the OS temporary directory (/tmp is refused)`
+    );
+  }
+  if (!statSync(canonicalPath).isFile()) {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: '${field}' must be a regular JSON file`
+    );
+  }
+  return canonicalPath;
+}
+
+export function validateFocusCheckRequest(
+  args: Record<string, unknown> | undefined,
+  workspaceRoot: string
+): FocusCheckRequest {
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new FocusGuardError("invalid_arguments", "h2a_focus_check: missing arguments");
+  }
+  const unknown = Object.keys(args).filter((key) => !ALLOWED_CHECK_KEYS.has(key));
+  if (unknown.length > 0) {
+    throw new FocusGuardError(
+      "invalid_arguments",
+      `h2a_focus_check: unknown field(s): ${unknown.join(", ")}`
+    );
+  }
+  const rawInput = requiredPathString(args, "input", "h2a_focus_check");
+  const rawPreviousManifest =
+    args.previousManifest !== undefined
+      ? requiredPathString(args, "previousManifest", "h2a_focus_check")
+      : undefined;
+
+  const { rawRoot, canonicalRoot } = resolveWorkspaceRoot(workspaceRoot, "h2a_focus_check");
+  const canonicalInput = resolveExistingInputFile(rawInput, "input", rawRoot, canonicalRoot, "h2a_focus_check");
+  const canonicalPreviousManifest =
+    rawPreviousManifest !== undefined
+      ? resolveExistingInputFile(rawPreviousManifest, "previousManifest", rawRoot, canonicalRoot, "h2a_focus_check")
+      : undefined;
+
+  return canonicalPreviousManifest !== undefined
+    ? { input: canonicalInput, previousManifest: canonicalPreviousManifest }
+    : { input: canonicalInput };
 }
 
 export function validateFocusBuildRequest(
@@ -404,10 +521,10 @@ export async function handleH2aFocusBuild(
   }
 
   try {
-    // Same in-process builder & atomic publisher as `h2a focus build` (no subprocess).
-    const { buildFocusDossier, publishFocusArtifact } = await import("../../focus-build.js");
+    // Same in-process builder & atomic file writer as `h2a focus build` (no subprocess).
+    const { buildFocusDossier, writeFocusArtifactFile } = await import("../../focus-build.js");
     const html = buildFocusDossier(document);
-    publishFocusArtifact(request.output, html);
+    writeFocusArtifactFile(request.output, html);
     return {
       ok: true,
       output: request.output,
@@ -418,6 +535,77 @@ export async function handleH2aFocusBuild(
     const { message, refusals } = extractRefusals(error);
     return { ok: false, error: message, refusals };
   }
+}
+
+export async function handleH2aFocusCheck(
+  args: Record<string, unknown> | undefined,
+  workspaceRoot: string
+): Promise<FocusCheckResult> {
+  let request: FocusCheckRequest;
+  try {
+    request = validateFocusCheckRequest(args, workspaceRoot);
+  } catch (error) {
+    const { message, refusals } = extractRefusals(error);
+    return { ok: false, error: message, refusals };
+  }
+
+  let document: unknown;
+  try {
+    document = JSON.parse(readFileSync(request.input, "utf8")) as unknown;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      error: message,
+      refusals: [{ code: "invalid_json", message }]
+    };
+  }
+
+  let previousManifest: unknown;
+  if (request.previousManifest !== undefined) {
+    try {
+      previousManifest = JSON.parse(readFileSync(request.previousManifest, "utf8")) as unknown;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        error: message,
+        refusals: [{ path: "$.previousManifest", code: "invalid_json", message }]
+      };
+    }
+  }
+
+  const { checkFocusArtifact } = await import("@sentropic/focus/artifact");
+  const result = checkFocusArtifact(
+    document,
+    previousManifest !== undefined ? { previousManifest } : undefined
+  );
+  if (!result.ok) {
+    const error = `invalid DecisionDossierDocument: ${result.issues
+      .map((i) => `${i.path} ${i.code}: ${i.message}`)
+      .join("; ")}`;
+    return {
+      ok: false,
+      error,
+      refusals: result.issues.map((i) => ({
+        path: i.path,
+        code: i.code,
+        message: i.message
+      }))
+    };
+  }
+
+  return {
+    ok: true,
+    documentType: result.documentType,
+    schemaId: result.schemaId,
+    bindingName: result.bindingName,
+    documentDigest: result.documentDigest,
+    bytes: result.bytes,
+    anchors: result.anchors,
+    retiredRefs: result.retiredRefs,
+    revisionSeq: result.revisionSeq
+  };
 }
 
 function readShippedTemplate(name: "dossier.template.json" | "dossier.evidence.template.json"): unknown {
