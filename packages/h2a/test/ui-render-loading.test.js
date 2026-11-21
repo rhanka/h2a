@@ -71,7 +71,7 @@ for (const layout of ["ui-dependencies-absent", "focus-unbuilt"]) {
         assert.equal(init.serverInfo.name, '@sentropic/h2a');
         assert.deepEqual(responses.find(value => value.id === 3).result.resources, []);
         const tools = responses.find(value => value.id === 2).result.tools;
-        assert.equal(tools.length, 63);
+        assert.equal(tools.length, 66);
         assert.ok(tools.some(tool => tool.name === 'h2a_send'));
         assert.ok(tools.every(tool => tool.name !== 'render'));
         assert.match(diagnostics, /ui-render assets unavailable/);
