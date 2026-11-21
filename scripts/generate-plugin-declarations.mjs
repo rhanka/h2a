@@ -32,6 +32,53 @@ if (ONLY_HOST !== null && !HOSTS.includes(ONLY_HOST)) {
   process.exit(2);
 }
 
+const FOCUS_WRITING_START = "<!-- FOCUS-WRITING-START -->";
+const FOCUS_WRITING_END = "<!-- FOCUS-WRITING-END -->";
+
+function extractFocusWritingBlock(markdown, label) {
+  const start = markdown.indexOf(FOCUS_WRITING_START);
+  const end = markdown.indexOf(FOCUS_WRITING_END);
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error(`${label} must contain ${FOCUS_WRITING_START} followed by ${FOCUS_WRITING_END}`);
+  }
+  if (markdown.indexOf(FOCUS_WRITING_START, start + FOCUS_WRITING_START.length) !== -1) {
+    throw new Error(`${label} contains more than one ${FOCUS_WRITING_START} marker`);
+  }
+  if (markdown.indexOf(FOCUS_WRITING_END, end + FOCUS_WRITING_END.length) !== -1) {
+    throw new Error(`${label} contains more than one ${FOCUS_WRITING_END} marker`);
+  }
+  return {
+    start,
+    end,
+    block: markdown.slice(start + FOCUS_WRITING_START.length, end)
+  };
+}
+
+function syncDecisionDossierWritingBlock() {
+  const focusSkillPath = join(ROOT, "packages/focus/skills/focus/SKILL.md");
+  const dossierSkillPath = join(ROOT, "packages/h2a/skills/decision-dossier/SKILL.md");
+  const source = readFileSync(focusSkillPath, "utf8");
+  const target = readFileSync(dossierSkillPath, "utf8");
+  const { block } = extractFocusWritingBlock(source, focusSkillPath);
+  const targetBounds = extractFocusWritingBlock(target, dossierSkillPath);
+  const rendered =
+    target.slice(0, targetBounds.start + FOCUS_WRITING_START.length) +
+    block +
+    target.slice(targetBounds.end);
+  if (CHECK) {
+    if (target !== rendered) {
+      console.error(`generate-plugin-declarations: ${dossierSkillPath} writing block differs from ${focusSkillPath}; run without --check to regenerate`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (target !== rendered) {
+    writeFileSync(dossierSkillPath, rendered);
+  }
+}
+
+syncDecisionDossierWritingBlock();
+
 const { renderBridgeEntry } = await import(join(ROOT, "packages/h2a/dist/registry/host-bootstrap.js"));
 
 const subdir = (host) => (host === "claude" ? ".claude-plugin" : ".codex-plugin");
