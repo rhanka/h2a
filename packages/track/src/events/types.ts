@@ -43,6 +43,9 @@ export const EVENT_TYPES = [
   // command resolves the decision blocker; this event preserves which alternative was actually chosen.
   'decision.option-selected',
   'decision.outcome',
+  // Stable 1..N decision number (`D<n>` in `--owner-table`), assigned at creation (except OWNER GATE)
+  // or via `track decision number`, never reassigned. Additive: absent on pre-lot-2 logs.
+  'decision.owner-numbered',
   'priority.assessed',
   'branch.imported',
   // Workpackages §2 — set/clear an item's parentId on the EXISTING item aggregate (next seq, no
