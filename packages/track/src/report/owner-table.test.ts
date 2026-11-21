@@ -1241,22 +1241,22 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       baselineCommit: '1f57127dee0bf671e559c347cd86960180cd64c9',
       now: '2026-11-14T19:00:00.000Z',
     })
-    for (const ref of ['D2', 'D8', 'D9', 'D12']) {
+    for (const ref of ['D3', 'D9', 'D10', 'D13']) {
       const dec = realView.decisions.find((d) => d.ref === ref)
       expect(dec?.blocking).toBe(true)
     }
 
-    // P3-1: D17 in real .track has 90 options -> base-26 letters A..Z, AA..AZ, BA..BZ, CA..CL
-    const d17 = realView.decisions.find((d) => d.ref === 'D17')
-    expect(d17).toBeDefined()
-    expect(d17!.options).toHaveLength(90)
-    expect(d17!.options[0]?.letter).toBe('A')
-    expect(d17!.options[25]?.letter).toBe('Z')
-    expect(d17!.options[26]?.letter).toBe('AA')
-    expect(d17!.options[51]?.letter).toBe('AZ')
-    expect(d17!.options[52]?.letter).toBe('BA')
-    expect(d17!.options[89]?.letter).toBe('CL')
-    expect(d17!.options.every((o) => /^[A-Z]+$/u.test(o.letter))).toBe(true)
+    // P3-1: D18 in real .track has 90 options -> base-26 letters A..Z, AA..AZ, BA..BZ, CA..CL
+    const d18 = realView.decisions.find((d) => d.ref === 'D18')
+    expect(d18).toBeDefined()
+    expect(d18!.options).toHaveLength(90)
+    expect(d18!.options[0]?.letter).toBe('A')
+    expect(d18!.options[25]?.letter).toBe('Z')
+    expect(d18!.options[26]?.letter).toBe('AA')
+    expect(d18!.options[51]?.letter).toBe('AZ')
+    expect(d18!.options[52]?.letter).toBe('BA')
+    expect(d18!.options[89]?.letter).toBe('CL')
+    expect(d18!.options.every((o) => /^[A-Z]+$/u.test(o.letter))).toBe(true)
 
     // 2. Owner Case 1 (Carbon R5 P1-1 case 1): lot2 has a linked spec but is not started (to-do), while lot1 is in-progress (🔵 at dev)
     const dCase1 = track.raiseDemand({
@@ -2202,6 +2202,66 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       expect(unnumOut.join('') + unnumErr.join('')).not.toContain('Réponse : aucune décision en attente')
     } finally {
       rmSync(initDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a numbered journal that still holds a pending or deferred decision without options (T0-a)', () => {
+    for (const outcome of ['pending', 'deferred'] as const) {
+      const caseDir = mkdtempSync(join(tmpdir(), `track-owner-t0a-${outcome}-`))
+      try {
+        const caseStore = new EventStore(join(caseDir, '.track', 'events.jsonl'))
+        const caseTrack = new Track(caseStore, { by: 'test-owner-table', now: () => clock })
+        const demandId = caseTrack.raiseDemand({
+          type: 'feature',
+          workspace: 'ws-t0a',
+          raw: { text: 'Suivre une demande avec décision sans options' },
+          source: { kind: 'human' },
+        })
+        caseTrack.numberDemand(demandId, 1)
+
+        const legacyDecisionId = '01JTESTLEGACYDECISION00001'
+        caseStore.appendCommand([
+          {
+            id: '01JTESTLEGACYDECISIONEVT01',
+            type: 'decision.created',
+            aggregate: 'decision',
+            aggregateId: legacyDecisionId,
+            at: clock,
+            by: 'test-owner-table',
+            payload: {
+              decisionKind: 'commitment',
+              title: 'Arbitrage historique sans options',
+              workspace: 'ws-t0a',
+              targets: [demandId],
+              dossier: {
+                context: 'Décision historique sans options structurées.',
+                options: [],
+                qa: [],
+              },
+            },
+          },
+        ])
+        if (outcome === 'deferred') {
+          caseTrack.setOutcome(legacyDecisionId, 'deferred')
+        }
+
+        const out: string[] = []
+        const err: string[] = []
+        const code = runCli(['report', '--owner-table', '--format', 'md'], {
+          cwd: caseDir,
+          out: (s) => out.push(s),
+          err: (s) => err.push(s),
+        })
+        expect(code, `outcome=${outcome}\nstdout:\n${out.join('')}\nstderr:\n${err.join('')}`).toBe(1)
+        expect(err.join(''), `outcome=${outcome}`).toContain('[invalid-decision]')
+        expect(out.join(''), `outcome=${outcome}`).toBe('')
+        expect(out.join('') + err.join(''), `outcome=${outcome}`).not.toContain('Aucune décision en attente')
+        expect(out.join('') + err.join(''), `outcome=${outcome}`).not.toContain(
+          'Réponse : aucune décision en attente',
+        )
+      } finally {
+        rmSync(caseDir, { recursive: true, force: true })
+      }
     }
   })
 

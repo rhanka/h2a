@@ -1314,15 +1314,14 @@ export function projectOwnerTable(
     return false
   }
 
-  // Every pending decision with options in the workspace is listed (decisions with no row or missing recommendation/link fail Gate 5)
+  // Every unsettled decision in the workspace (except owner-pause deferrals) is listed,
+  // including legacy decisions without options (which fail Gate 5 instead of silently disappearing)
   const pendingDecisions: DecisionState[] = []
   for (const decision of state.decisions.values()) {
     if (options.workspace !== undefined && decision.workspace !== options.workspace) continue
     if (
       isSettled(decision.outcome) ||
-      (decision.outcome === 'deferred' && pauseDecisionIds.has(decision.id)) ||
-      !Array.isArray(decision.dossier?.options) ||
-      decision.dossier.options.length === 0
+      (decision.outcome === 'deferred' && pauseDecisionIds.has(decision.id))
     ) {
       continue
     }
@@ -1339,21 +1338,22 @@ export function projectOwnerTable(
     if (sansObjet) {
       sansObjetDecisionIds.add(d.id)
     }
-    const optionsList: OwnerTableDecisionOption[] = d.dossier.options.map((opt, optIdx) => ({
+    const rawOptions = Array.isArray(d.dossier?.options) ? d.dossier.options : []
+    const optionsList: OwnerTableDecisionOption[] = rawOptions.map((opt, optIdx) => ({
       letter: optionLetter(optIdx),
       label: cleanDisplayText(opt.title),
       consequence: cleanDisplayText(opt.summary),
     }))
-    const recOptionId = d.dossier.recommendation?.optionId
-    const recRationale = d.dossier.recommendation?.rationale
+    const recOptionId = d.dossier?.recommendation?.optionId
+    const recRationale = d.dossier?.recommendation?.rationale
     const recIdx =
-      recOptionId !== undefined ? d.dossier.options.findIndex((o) => o.id === recOptionId) : -1
+      recOptionId !== undefined ? rawOptions.findIndex((o) => o.id === recOptionId) : -1
     const recommendedLetter = recIdx >= 0 ? optionLetter(recIdx) : ''
     const recommendation =
       recIdx >= 0 && recRationale !== undefined && recRationale.trim() !== ''
         ? cleanDisplayText(recRationale)
         : ''
-    const artifactLink = d.dossier.artifacts?.find((a) => a.kind === 'rendered-view')?.viewRef
+    const artifactLink = d.dossier?.artifacts?.find((a) => a.kind === 'rendered-view')?.viewRef
     const hasOpenBlocker =
       !sansObjet &&
       !pauseDecisionIds.has(d.id) &&
