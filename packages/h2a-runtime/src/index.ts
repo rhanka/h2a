@@ -11670,6 +11670,14 @@ export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
 export { projectStatusForH2a };
 
 export { NativeTerminalClient } from "./native-terminal/client.js";
+export {
+  listNativeInventoryForRemote,
+  REMOTE_NATIVE_INVENTORY_CONNECT_TIMEOUT_MS,
+  REMOTE_NATIVE_INVENTORY_REQUEST_TIMEOUT_MS,
+  type RemoteNativeInventoryOptions,
+  type RemoteNativeInventoryResult,
+  type RemoteNativeInventorySession,
+} from "./native-terminal/remote-inventory.js";
 export { NativeTerminalHost } from "./native-terminal/host.js";
 export { NativeTerminalHostSupervisor } from "./native-terminal/supervisor.js";
 export {
