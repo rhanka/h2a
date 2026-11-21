@@ -7,6 +7,7 @@ import { readHead } from '../events/head.js'
 import { EventStore } from '../events/store.js'
 import { validate } from '../events/validate.js'
 import { cmdEventsContains } from './events-contains.js'
+import { cmdAdopt } from './adopt.js'
 import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
 import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
@@ -118,6 +119,8 @@ const USAGE = `usage: track <command>
   audit [--format json|text]
   focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]
   branch import <BRANCH.md> [--commit <sha>]
+  adopt plan [--out <file>] [--now <iso>] [--commit <sha>] [--policy <path>]
+  adopt apply <plan.json> [--writer-token-file <path>] [--now <iso>] [--commit <sha>] [--policy <path>]
   restructure apply --plan <plan.json>
   ingest <file.jsonl> --workspace <w>
   install-skills --host <claude|codex|gemini|agy|all> [--scope user|project] [--force]
@@ -572,6 +575,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         // PATHS. Git-free AND store-free: it never resolves a `.track` dir (the paths are supplied),
         // so it dispatches here alongside install-skills/workspace-id, before store resolution.
         return cmdEventsContains(rest, io)
+      case 'adopt':
+        return cmdAdopt(rest, io, resolveOpts, resolveCommit, cliActor)
       // READ commands SERVE-EMPTY (launch/serve alignment): they resolve via the non-throwing
       // `resolveTrackDirOrNull`, so an unadopted repo yields rc=0 + an honest-empty view + a stderr
       // `track init` hint, never a boot crash. NEVER creates. A bad EXPLICIT override still throws
