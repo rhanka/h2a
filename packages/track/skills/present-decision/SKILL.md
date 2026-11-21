@@ -67,11 +67,11 @@ Run `assets/self-audit.md`, fix failures and re-check before presenting.
 If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
 not approval of the decision.
 
-**Default dossier output: portable Focus design-system HTML, never a claude.ai artifact.**
-Call MCP `h2a_focus_template` (`dossier` or `evidence`), write the `DecisionDossierDocument` JSON in the workspace (literal request, readable options, ecosystem diagram `source: "ecosystem:overview"`, `models`, `knowledge` or `interfaces`), then call MCP `h2a_focus_build` (`{ input, output }`).
+**Default dossier output: a bound-surface Focus artifact or standalone portable Focus HTML, never a claude.ai artifact.**
+Author the `DecisionDossierDocument` JSON (literal request, readable options, ecosystem diagram `source: "ecosystem:overview"`, `models`, `knowledge` or `interfaces`), validate it against the Focus gate, and deliver via the host's decision-dossier workflow.
 
-Refusals block output verbatim. Deliver/link the single HTML file; check offline phone reading, light/dark, cards and pinch zoom. See `docs/focus/portable-dossiers.md`.
-Cards only prepare a local answer; they never record approval.
+Refusals block output verbatim. Deliver the artifact URL or standalone HTML; check offline phone reading, light/dark, cards, response line and pinch zoom. See `docs/focus/portable-dossiers.md`.
+Cards and response lines only prepare a local answer; they never record approval.
 Before asking, read `assets/native-questions.md`: use the exposed native question tool after a decision
 dossier with a diagram. If unavailable, leave consequential decisions pending. Decide-and-trace needs no ask.
 
@@ -93,7 +93,7 @@ Record when `.track/` exists or the owner approves tracking:
 This is the agent's human-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
 ## Embedded evidence (H1)
 
-Call MCP `h2a_focus_template` (`evidence`) then `h2a_focus_build`: version 2,
-original bytes/digests, citations, separate annexes. Keep material risks primary;
-disclose consultation separately. Test offline search/download/back. DS in-canvas
-controls await H2/H3. Never rewrite renderer/geometry.
+Use the version 2 embedded-evidence Focus schema: original bytes/digests,
+citations, separate annexes. Keep material risks primary; disclose consultation
+separately. Test offline search/download/back. DS in-canvas controls await
+H2/H3. Never rewrite renderer/geometry.

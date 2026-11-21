@@ -12,7 +12,8 @@
     "h2a",
     "multi-agent",
     "coordination",
-    "track"
+    "track",
+    "decision-dossier"
   ],
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json",
@@ -20,7 +21,7 @@
   "interface": {
     "displayName": "h2a",
     "shortDescription": "Coordinate CLI agents and tracked work.",
-    "longDescription": "Connect Codex to one local h2a coordination MCP endpoint, with packaged h2a and harness workflow skills.",
+    "longDescription": "Connect Codex to one local h2a coordination MCP endpoint, with packaged h2a, decision-dossier, and harness workflow skills.",
     "developerName": "Sentropic",
     "category": "Productivity",
     "capabilities": [

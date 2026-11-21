@@ -75,6 +75,7 @@ test("the published h2a package declares the registry bridge in its shipped plug
   assert.equal(manifest.version, pkg.version);
   assert.equal(claudeManifest.version, pkg.version);
   assert.equal(manifest.skills, "./skills/");
+  assert.equal(claudeManifest.skills, "./skills/");
   assert.equal(manifest.mcpServers, "./.codex-plugin/registry.mcp.json");
   assert.equal(claudeManifest.mcpServers, "./.claude-plugin/registry.mcp.json");
 
@@ -102,6 +103,7 @@ test("the published h2a package declares the registry bridge in its shipped plug
 
   assert.ok(existsSync(new URL("../skills/h2a/SKILL.md", import.meta.url)));
   assert.ok(existsSync(new URL("../skills/harness/SKILL.md", import.meta.url)));
+  assert.ok(existsSync(new URL("../skills/decision-dossier/SKILL.md", import.meta.url)));
   assert.equal(claudeAsset.mcpServers.track, undefined);
   assert.equal(codexAsset.mcpServers.track, undefined);
   assert.doesNotMatch(claudeManifest.description, /track-mcp|track MCP/i);

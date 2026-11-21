@@ -1,8 +1,7 @@
 # Decision <subject> — <decision object>
 
-Default delivery: Focus design-system portable HTML, never a claude.ai artifact.
-Fetch the template via MCP `h2a_focus_template` (`dossier` or `evidence`), write `dossier.json` in the workspace replacing every example, then
-call MCP `h2a_focus_build` (`{ input, output }`) to produce `dossier.html`. Include a relevant ecosystem diagram
+Default delivery: a Focus artifact on the bound surface or a standalone portable Focus HTML file, never a claude.ai artifact.
+Author `dossier.json` from the Focus schema (v1 or v2 embedded evidence), replacing every example, validate against the Focus gate, and deliver through the host's decision-dossier workflow. Include a relevant ecosystem diagram
 (`ecosystem:overview`, `ecosystem:models`, `ecosystem:knowledge`, `ecosystem:interfaces`).
 Use the following as the content checklist for the document sections, not an alternative renderer.
 

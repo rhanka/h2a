@@ -13,9 +13,9 @@ const read = (file: string) => readFileSync(join(bundle, file), 'utf8').replace(
 
 // Pin the owner contract in the instructions, reusable question and audit independently.
 describe('present-decision readability contract', () => {
-  it.each(['SKILL.md', 'assets/dossier-template.md', 'assets/self-audit.md'])('%s defaults to the shipped portable Focus builder via MCP', (file) => {
+  it.each(['SKILL.md', 'assets/dossier-template.md', 'assets/self-audit.md'])('%s stays tool-neutral and defaults to a Focus artifact or standalone portable HTML', (file) => {
     const text = read(file)
-    expect(text).toContain('h2a_focus_build')
+    expect(text).not.toMatch(/\bh2a_focus_\w+/)
     expect(text).not.toContain('h2a focus build')
     expect(text).toMatch(/(?:portable Focus|Focus.*portable|portable.*Focus)/)
     expect(text).toMatch(/ecosystem/)
