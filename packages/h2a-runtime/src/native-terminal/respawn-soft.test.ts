@@ -102,13 +102,18 @@ describe("native terminal soft respawn (respawnIfIncarnation)", () => {
     const directory = createPrivateTestDirectory("rs");
     directories.push(directory);
     const { spawner, spawned } = createFakeSpawner();
-    const host = new NativeTerminalHost({
+    const hostOptions = {
       generation: "gen-soft-1",
       replayBytesPerSession: 8192,
       spawner,
       registryPath: makeRegistry(directory),
       readLeaderStartTime: () => 4242,
-    });
+      readApplicationForeground: (ptyPid: number) => ({
+        foregroundProcessGroup: ptyPid,
+        application: { pid: ptyPid + 100, birth: String(ptyPid), state: "S", processGroup: ptyPid },
+      }),
+    };
+    const host = new NativeTerminalHost(hostOptions);
 
     const initial = host.create({
       id: "h2a-alpha",
@@ -149,6 +154,10 @@ describe("native terminal soft respawn (respawnIfIncarnation)", () => {
     expect(afterOn.status).toBe("running");
     expect(afterOn.pid).toBe(spawned[1]!.pid);
     expect(afterOn.pid).not.toBe(initial.pid);
+    expect(initial).toMatchObject({ applicationFacet: "cli", applicationIncarnation: expect.any(String) });
+    expect(afterOn).toMatchObject({ applicationFacet: "cli", applicationIncarnation: expect.any(String) });
+    expect(Reflect.get(afterOn, "applicationIncarnation")).not.toBe(Reflect.get(initial, "applicationIncarnation"));
+    expect(Reflect.get(afterOn, "foregroundRevision")).toBeGreaterThan(Reflect.get(initial, "foregroundRevision"));
 
     // New child inherited live terminal dimensions and gateway env
     expect(spawned[1]!.options.cols).toBe(132);
