@@ -1616,12 +1616,14 @@ export function handleLoopStatus(
 // by construction: they stay terminal-only for the human at the terminal.
 function handleRemoteServiceAction(
   tool: string,
-  root: string
+  root: string,
+  extra: { readonly session?: string } = {}
 ): McpToolResult | McpErrorResult {
   try {
     const result = runRemoteControlVerb(tool, {
       root,
-      isInteractive: false
+      isInteractive: false,
+      ...(extra.session !== undefined ? { session: extra.session } : {})
     });
     if (!result.ok) {
       return { error: result.message };
@@ -1640,9 +1642,10 @@ export function handleRemoteStatus(
 
 export function handleRemoteOff(
   root: string,
-  _args: { session?: string } | undefined
+  args: { session?: unknown } | undefined
 ): McpToolResult | McpErrorResult {
-  return handleRemoteServiceAction("off", root);
+  const session = typeof args?.session === "string" ? args.session : undefined;
+  return handleRemoteServiceAction("off", root, { session });
 }
 
 export function handleRemoteKill(
