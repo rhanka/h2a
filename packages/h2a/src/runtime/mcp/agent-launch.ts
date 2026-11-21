@@ -266,9 +266,10 @@ export function validateH2aRunRequest(
   if (
     effort !== undefined &&
     (typeof effort !== "string" ||
-      (!(H2A_RUN_EFFORTS as readonly string[]).includes(effort) && !(profile === "muse" && effort === "max")))
+      (!(H2A_RUN_EFFORTS as readonly string[]).includes(effort) &&
+        !(effort === "max" && (profile === "codex" || profile === "muse"))))
   ) {
-    throw new Error("h2a_run: 'effort' must be low|medium|high|xhigh (Muse also accepts max)");
+    throw new Error("h2a_run: 'effort' must be low|medium|high|xhigh (Codex and Muse also accept max)");
   }
   const { role, allowClaudeBuild, outputFile } = args;
   if (allowClaudeBuild !== undefined && typeof allowClaudeBuild !== "boolean") throw new Error("h2a_run: 'allowClaudeBuild' must be boolean");

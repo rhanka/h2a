@@ -31,6 +31,7 @@ import type { JobState, RegistryEntry, RegistryTool } from "./registry.js";
 import { occupiesSlot } from "./registry.js";
 import { humanAge } from "./migrate-candidates.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
+import { isAgentLaunchEffort } from "./agent-launch-args.js";
 
 export type DelegateType = RegistryTool; // claude | codex | agy | muse | vibe
 
@@ -43,7 +44,6 @@ const DELEGATE_BIN: Readonly<Record<DelegateType, string>> = {
 };
 
 const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
-const CODEX_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 const MUSE_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
 
 /** Refuse an effort the selected CLI cannot honor instead of dropping it. */
@@ -55,8 +55,8 @@ export function assertDelegateEffort(
   if (type === "claude" && !CLAUDE_EFFORTS.has(effort)) {
     throw new Error("invalid Claude effort (use low|medium|high|xhigh|max)");
   }
-  if (type === "codex" && !CODEX_EFFORTS.has(effort)) {
-    throw new Error("invalid Codex effort (use low|medium|high|xhigh)");
+  if (type === "codex" && !isAgentLaunchEffort(effort, type)) {
+    throw new Error("invalid Codex effort (use low|medium|high|xhigh|max)");
   }
   if (type === "muse" && !MUSE_EFFORTS.has(effort)) {
     throw new Error("invalid Muse effort (use low|medium|high|xhigh)");

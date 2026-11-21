@@ -176,11 +176,27 @@ test("h2a_run should admit Ember xhigh and max through Muse validation", () => {
       assert.equal(invocation.args[invocation.args.indexOf("--model") + 1], "muse-ember-1.0");
       assert.equal(invocation.args[invocation.args.indexOf("--effort") + 1], effort);
     }
-    for (const profile of ["claude", "codex", "vibe"]) {
+    for (const profile of ["claude", "vibe"]) {
       assert.throws(() => validateH2aRunRequest(request(workspace, { profile, effort: "max", headless: false }), workspaceRoot), /effort/);
     }
   });
 });
+
+for (const [model, effort] of [["gpt-6.2-astra", "max"], ["gpt-6.2-sol", "xhigh"]]) {
+  test(`h2a_run forwards Codex ${model} with ${effort} effort`, () => {
+    withWorkspace(({ workspaceRoot, workspace, storeRoot }) => {
+      const server = createMcpServer({ root: storeRoot, workspaceRoot,
+        runExecutor: (req) => {
+          const invocation = buildH2aRunInvocation(req, "/opt/h2a/bin.js");
+          assert.deepEqual(invocation.args.slice(-5), ["--model", model, "--effort", effort, "--headless"]);
+          return runtimeResult(req);
+        } });
+      const result = server.callTool("h2a_run", request(workspace, { model, effort }));
+      assert.equal(result.error, undefined);
+      assert.equal(result.session.profile, "codex");
+    });
+  });
+}
 
 test("MCP launch records post-launch delegation evidence outside the CLI argv/env", () => {
   withWorkspace(({ workspace, storeRoot }) => {

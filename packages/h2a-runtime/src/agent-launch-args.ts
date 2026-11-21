@@ -11,7 +11,8 @@ export function isAgentLaunchProfile(value: string): value is AgentLaunchProfile
 }
 
 export function isAgentLaunchEffort(value: string, profile?: string): value is AgentLaunchEffort {
-  return (AGENT_LAUNCH_EFFORTS as readonly string[]).includes(value) || (profile === "muse" && value === "max");
+  return (AGENT_LAUNCH_EFFORTS as readonly string[]).includes(value)
+    || (value === "max" && (profile === "codex" || profile === "muse"));
 }
 
 export type AgentLaunchArgsOptions = {
