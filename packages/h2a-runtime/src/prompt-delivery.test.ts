@@ -359,6 +359,25 @@ describe("paneHasBlockingActivity", () => {
 });
 
 describe("deliverInitialPrompt", () => {
+  it("stops at the AGY sign-in menu before touching the composer", () => {
+    const menu = `Welcome to the Antigravity CLI. You are currently not signed in.
+
+Select login method:
+> 1. Google OAuth
+  2. Use a Google Cloud project
+
+  ↑/↓ Navigate · enter Select`;
+    const { deps, calls } = fakePane({ screen: menu, pasteDiscarded: true });
+    expect(deliverInitialPrompt("worker", "Reply with OK", deps, { profile: "agy" })).toMatchObject({
+      state: "host-modal", code: "agy-auth-required", hint: expect.stringContaining("agy"),
+    });
+    expect(calls.clears).toBe(0);
+    expect(calls.pastes).toEqual([]);
+    expect(calls.submits).toBe(0);
+    expect(detectHostModal(menu, "claude")).toBeUndefined();
+    expect(detectHostModal(menu + "\n❯ Ready", "agy")).toBeUndefined();
+  });
+
   it("never queues the continuation while stale-session summary compaction is running", () => {
     const { deps, calls } = fakePane({ screen: COMPACTING });
 

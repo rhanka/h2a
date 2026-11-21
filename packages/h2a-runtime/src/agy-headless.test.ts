@@ -6,7 +6,8 @@ import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { runAgyClaudeHeadless } from "./agy-headless.js";
+import { runAgyHeadless } from "./agy-headless.js";
+import { headlessCommand } from "../dist/tmux.js";
 
 // Explicit fake transport lets a regression control OS-independent chunk boundaries.
 const fakeOutput = vi.hoisted(() => ({ chunks: [] as ["stdout" | "stderr", string][], exit: 0 }));
@@ -28,6 +29,53 @@ vi.mock("node:child_process", async original => {
 const quota = 'AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
 
 describe("AGY Claude run-once supervisor with an offline binary", () => {
+  it.each(["gemini-4-argon-high", "claude-sonnet-5-5-high", undefined])(
+    "terminates the unattended OAuth challenge for model %s", model => {
+      const dir = mkdtempSync(join(tmpdir(), "agy-login-"));
+      try {
+        const prompt = join(dir, "prompt"), log = join(dir, "output.log"), result = join(dir, "result.json");
+        const provider = join(dir, "provider.mjs");
+        writeFileSync(prompt, "reply with OK");
+        writeFileSync(provider, `
+          process.on("SIGTERM", () => process.exit(1));
+          process.stderr.write("Authentication required. Please visit ");
+          setTimeout(() => process.stderr.write("the URL to log in:\\nprivate-login-link\\n"), 10);
+          setTimeout(() => process.exit(45), 1500);
+        `);
+        const [command, ...args] = headlessCommand("agy", process.execPath,
+          [provider, ...(model ? ["--model", model] : [])], result, log, prompt);
+        const child = spawnSync(command!, args, {
+          cwd: dir, timeout: 8_000,
+          env: { ...process.env, HOME: dir, XDG_STATE_HOME: join(dir, "state"), XDG_RUNTIME_DIR: dir },
+        });
+        expect(child.error).toBeUndefined();
+        expect(JSON.parse(readFileSync(result, "utf8"))).toMatchObject({
+          kind: "h2a.run.failure", state: "failed", code: "agy-auth-required", exitCode: 1, retrySafe: false,
+        });
+        expect(readFileSync(log, "utf8")).not.toContain("private-login-link");
+      } finally { rmSync(dir, { recursive: true, force: true }); }
+    },
+  );
+
+  it("keeps a successful Gemini response that quotes the login diagnostic", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agy-reply-"));
+    try {
+      const result = join(dir, "result.json"), log = join(dir, "output.log");
+      const diagnostic = "Authentication required. Please visit the URL to log in:";
+      const [command, ...args] = headlessCommand("agy", process.execPath,
+        ["-e", `console.log(${JSON.stringify(diagnostic)})`], result, log, "");
+      const child = spawnSync(command!, args, {
+        cwd: dir, timeout: 8_000, env: { ...process.env, HOME: dir, XDG_STATE_HOME: dir, XDG_RUNTIME_DIR: dir },
+      });
+      expect(child.status).toBe(0);
+      const completed = JSON.parse(readFileSync(result, "utf8"));
+      expect(completed).toMatchObject({ kind: "h2a.run.completion", state: "done", exitCode: 0 });
+      expect(completed).not.toHaveProperty("quota");
+      expect(completed).not.toHaveProperty("model");
+      expect(readFileSync(log, "utf8").trim()).toBe(diagnostic);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it.each([
     ["model before a large event", [["stdout", JSON.stringify({model:"gemini-4-argon"})+'\n'+JSON.stringify({text:"x".repeat(80_000)})+'\n']], 0, "agy-model-mismatch"],
     ["preliminary quota then reset", [["stderr", 'Error: 429 quota exceeded\n'], ["stderr", quota+'\n']], 1, "agy-claude-quota-exhausted"],
@@ -42,7 +90,7 @@ describe("AGY Claude run-once supervisor with an offline binary", () => {
       fakeOutput.chunks=chunks.map(([stream, text])=>[stream,text]);
       fakeOutput.exit=exit;
       const before=Date.now();
-      const result=await runAgyClaudeHeadless({command:"fake-agy",args:[],model:"claude-opus-5-5-high",
+      const result=await runAgyHeadless({command:"fake-agy",args:[],model:"claude-opus-5-5-high",
         resultPath:join(dir,"result.json"),logPath:join(dir,"output.log")});
       expect(result.code).toBe(code);
       expect(result.kind).toBe("h2a.run.failure");
