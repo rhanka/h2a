@@ -2,8 +2,8 @@
  * Non-`ui://` client fallbacks and bounded text formatting (h2a spec §5.1;
  * DS spec §8.1, §8.3): a client that did not negotiate
  * `io.modelcontextprotocol/ui` still receives a deterministic, useful
- * rendering of the validated envelope — a Markdown table plus a
- * self-contained SVG for BarChart, a typed text summary for BpmnCanvas, and
+ * rendering of the validated envelope — a Markdown table for BarChart,
+ * a typed text summary for BpmnCanvas, and
  * a bounded Markdown dossier for DecisionDossier. Every fallback is pure,
  * script-free, external-font-free, and byte-capped at the DS §8.2 bounds.
  */
@@ -43,19 +43,14 @@ export function formatDiagnosticsSummary(
   return truncateUtf8Bytes(lines.join("\n"), 4096);
 }
 
-/** Escapes the five XML metacharacters of one text run. */
-function escapeXml(text: string): string {
+/** Escapes the Markdown metacharacters of one cell/label run. */
+function escapeMarkdownCell(text: string): string {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
-
-/** Escapes the Markdown metacharacters of one cell/label run. */
-function escapeMarkdownCell(text: string): string {
-  return text.replaceAll("|", "\\|").replaceAll("\n", " ");
+    .replaceAll("|", "\\|")
+    .replace(/\r\n|[\r\n]/g, " ");
 }
 
 /** The `(label, value)` pairs of a BarChart root, defensively typed. */
@@ -80,7 +75,7 @@ export function barChartMarkdownTable(root: unknown): string {
   const label = (root as { label?: unknown })?.label;
   const lines: string[] = [];
   if (typeof label === "string" && label.length > 0) {
-    lines.push(`# ${label}`);
+    lines.push(`# ${escapeMarkdownCell(label)}`);
   }
   lines.push("| label | value |");
   lines.push("| --- | --- |");
@@ -88,56 +83,6 @@ export function barChartMarkdownTable(root: unknown): string {
     lines.push(`| ${escapeMarkdownCell(pair.label)} | ${pair.value} |`);
   }
   return truncateUtf8Bytes(lines.join("\n"), 4096);
-}
-
-/**
- * Deterministic self-contained SVG of a BarChart root (DS §8.1, ≤ 32 KiB):
- * fixed viewBox `0 0 600 320`, bars scaled to the maximum value, labels and
- * values, zero `<script>` and zero external references.
- */
-export function barChartSvg(root: unknown): string {
-  const label = (root as { label?: unknown })?.label;
-  const data = barChartData(root);
-  const width = 600;
-  const height = 320;
-  const plotLeft = 40;
-  const plotRight = 560;
-  const plotTop = 48;
-  const plotBottom = 264;
-  const maxValue = data.reduce((max, pair) => Math.max(max, pair.value), 0);
-  const span = Math.max(1, data.length);
-  const slot = (plotRight - plotLeft) / span;
-  const barWidth = Math.max(4, Math.floor(slot * 0.6));
-  const scale = maxValue > 0 ? (plotBottom - plotTop) / maxValue : 0;
-
-  const parts: string[] = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img">`);
-  if (typeof label === "string" && label.length > 0) {
-    parts.push(
-      `<text x="${plotLeft}" y="24" font-family="sans-serif" font-size="16">${escapeXml(label)}</text>`
-    );
-  }
-  parts.push(
-    `<line x1="${plotLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" stroke="#999999" stroke-width="1"/>`
-  );
-  data.forEach((pair, index) => {
-    const barHeight = Math.max(0, Math.round(pair.value * scale));
-    const x = plotLeft + Math.round(index * slot + (slot - barWidth) / 2);
-    const y = plotBottom - barHeight;
-    parts.push(`<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="#4a7ebb"/>`);
-    parts.push(
-      `<text x="${x + barWidth / 2}" y="${y - 6}" text-anchor="middle" font-family="sans-serif" font-size="12">${escapeXml(
-        String(pair.value)
-      )}</text>`
-    );
-    parts.push(
-      `<text x="${x + barWidth / 2}" y="${plotBottom + 18}" text-anchor="middle" font-family="sans-serif" font-size="12">${escapeXml(
-        pair.label
-      )}</text>`
-    );
-  });
-  parts.push("</svg>");
-  return truncateUtf8Bytes(parts.join(""), 32768);
 }
 
 /** Counts every `$type` occurrence in a BPMN F1 document, recursively. */
@@ -253,10 +198,7 @@ export function decisionDossierMarkdown(root: unknown): string {
 export function fallbackContent(component: string, root: unknown): { type: "text"; text: string }[] {
   switch (component) {
     case "BarChart":
-      return [
-        { type: "text", text: barChartMarkdownTable(root) },
-        { type: "text", text: barChartSvg(root) }
-      ];
+      return [{ type: "text", text: barChartMarkdownTable(root) }];
     case "BpmnCanvas":
       return [{ type: "text", text: bpmnCanvasTextSummary(root) }];
     case "DecisionDossier":
