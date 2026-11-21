@@ -148,9 +148,13 @@ export const OWNER_TABLE_ALL_ARCHIVED_MESSAGE =
   'aucune demande owner active dans le journal (.track) — toutes les demandes numérotées sont archivées, ' +
   'tableau owner vide refusé'
 
-export function formatOwnerTableNoJournalMessage(cwd: string): string {
+export function formatOwnerTableNoJournalMessage(cwd: string, reason?: string): string {
+  const detail =
+    reason !== undefined && reason.trim() !== ''
+      ? reason.trim()
+      : `aucun journal .track trouvé depuis ${cwd} et aucune captation active`
   return (
-    `REFUSED: aucun journal .track trouvé depuis ${cwd} — tableau owner refusé ` +
+    `REFUSED: dossier non couvert — ${detail} — tableau owner refusé ` +
     `(des demandes ou décisions owner ouvertes peuvent exister hors journal). ` +
     `Passe --track-dir <dossier> (ou TRACK_DIR) vers le journal concerné, ou initialise un journal avec \`track init\`.`
   )
