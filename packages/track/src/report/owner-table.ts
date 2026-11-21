@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import type { TrackEvent } from '../events/types.js'
-import { isSettled, type DecisionState } from '../model/decision.js'
+import { isOwnerGateTitle, isSettled, type DecisionState } from '../model/decision.js'
 import type { DemandState } from '../model/demand.js'
 import { DomainError, type ItemState } from '../model/item.js'
 import {
@@ -165,6 +165,7 @@ export type OwnerTableGateCode =
   | 'banned-word'
   | 'journal-integrity'
   | 'document-desync'
+  | 'decision-unnumbered'
 
 export const OWNER_TABLE_NO_DEMANDS_MESSAGE =
   'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
@@ -238,6 +239,7 @@ export type OwnerTableGateCheck =
   | 'decision.no-row'
   | 'decision.to-instruct'
   | 'decision.no-dossier'
+  | 'decision.unnumbered'
   | 'text.commit-hash'
   | 'text.internal-id'
   | 'text.jargon'
@@ -532,6 +534,30 @@ function isBlankOrDash(value: string | undefined): boolean {
   if (value === undefined) return true
   const trimmed = value.trim()
   return trimmed === '' || trimmed === '—' || trimmed === '-'
+}
+
+function isDecisionIncomplete(
+  d: Pick<OwnerTableDecision, 'question' | 'options' | 'recommendedLetter' | 'recommendation'>,
+): boolean {
+  const validRecommendedLetter =
+    !isBlankOrDash(d.recommendedLetter) && d.options.some((o) => o.letter === d.recommendedLetter)
+  return (
+    isBlankOrDash(d.question) ||
+    d.options.length < 2 ||
+    !validRecommendedLetter ||
+    isBlankOrDash(d.recommendation)
+  )
+}
+
+function strictDecisionLabel(d: OwnerTableDecision): string {
+  if (d.ref.trim() !== '') return d.ref.trim()
+  if (d.kind === 'owner-gate') return formatStrictEmptyRefLabel('owner-gate')
+  return formatStrictEmptyRefLabel('decision', !isDecisionIncomplete(d))
+}
+
+function parseDecisionRefNumber(ref: string): number {
+  const m = /^D(\d+)$/u.exec(ref.trim())
+  return m !== null ? Number(m[1]) : Number.MAX_SAFE_INTEGER
 }
 
 function auditRowEtaEntries(
@@ -1082,9 +1108,7 @@ export function auditOwnerTable(
     if (row.decisionIds !== undefined) {
       for (const dId of rowSansObjetIdSet) {
         const dec = decisionById.get(dId)
-        const dLabel = dec !== undefined
-          ? (dec.ref !== '' ? dec.ref : formatStrictEmptyRefLabel(dec.kind ?? 'decision'))
-          : 'décision'
+        const dLabel = dec !== undefined ? strictDecisionLabel(dec) : 'décision'
         if (!row.decisionIds.includes(dId)) {
           violations.push({
             code: 'invalid-decision',
@@ -1126,7 +1150,7 @@ export function auditOwnerTable(
           })
         } else {
           if (dec.ref !== '') referencedDecisions.add(dec.ref)
-          const dLabel = dec.ref !== '' ? dec.ref : formatStrictEmptyRefLabel(dec.kind ?? 'decision')
+          const dLabel = strictDecisionLabel(dec)
           if (row.status === 'withdrawn' && dec.sansObjet !== true) {
             emittedRowDecisionKeys.add(`withdrawn-not-sans-objet:${dId}`)
             violations.push({
@@ -1274,7 +1298,7 @@ export function auditOwnerTable(
   // Gate: decision without a row, or decision missing question / options / recommendation / dossierLink
   for (const d of view.decisions) {
     const isOwnerGate = d.kind === 'owner-gate'
-    const dLabel = d.ref.trim() !== '' ? d.ref : formatStrictEmptyRefLabel(d.kind ?? 'decision')
+    const dLabel = strictDecisionLabel(d)
     const dRefOpt = d.ref.trim() !== '' ? { decisionRef: d.ref } : {}
 
     if (d.sansObjet === true && d.blocking === true) {
@@ -1311,14 +1335,7 @@ export function auditOwnerTable(
         message: `decision ${dLabel} is not referenced by any row`,
       })
     }
-    const validRecommendedLetter =
-      !isBlankOrDash(d.recommendedLetter) && d.options.some((o) => o.letter === d.recommendedLetter)
-    if (
-      isBlankOrDash(d.question) ||
-      d.options.length < 2 ||
-      !validRecommendedLetter ||
-      isBlankOrDash(d.recommendation)
-    ) {
+    if (isDecisionIncomplete(d)) {
       violations.push({
         code: 'invalid-decision',
         check: 'decision.to-instruct',
@@ -1353,6 +1370,21 @@ export function auditOwnerTable(
 
   if (view.replyLine !== undefined && view.replyLine !== '') {
     checkTextGates(view.replyLine, { field: 'replyLine' }, violations, policy)
+  }
+
+  // Class E9 (lot 2): structured decision without a registered number — appended AFTER existing
+  // strict audit findings so `--strict` keeps lot-0 ordering and adds `[decision-unnumbered]` after.
+  for (const d of view.decisions) {
+    if (d.kind === 'owner-gate') continue
+    if (isDecisionIncomplete(d)) continue
+    if (d.ref.trim() === '') {
+      violations.push({
+        code: 'decision-unnumbered',
+        check: 'decision.unnumbered',
+        decisionId: d.id,
+        message: `decision ${strictDecisionLabel(d)} has no registered number`,
+      })
+    }
   }
 
   return {
@@ -1761,8 +1793,6 @@ export function projectOwnerTable(
     pendingDecisions.push(decision)
   }
 
-  const isOwnerGateTitle = (title: string): boolean => title.trimStart().startsWith('OWNER GATE')
-
   const extractOwnerGateSession = (context: string | undefined): string | undefined => {
     if (context === undefined) return undefined
     for (const line of context.split('\n')) {
@@ -1777,16 +1807,14 @@ export function projectOwnerTable(
   const sansObjetDecisionIds = new Set<string>()
   const decisionRefById = new Map<string, string>()
   const ownerDecisionById = new Map<string, OwnerTableDecision>()
-  let nextDecisionNum = 1
   const ownerDecisions: OwnerTableDecision[] = pendingDecisions.map((d) => {
     const isGate = isOwnerGateTitle(d.title)
-    const ref = isGate ? '' : `D${nextDecisionNum++}`
-    decisionRefById.set(d.id, ref)
     const sansObjet =
       d.targets.length > 0 && d.targets.every((targetId) => isTargetWithdrawnOrArchived(targetId))
     if (sansObjet) {
       sansObjetDecisionIds.add(d.id)
     }
+    const question = cleanDisplayText(shortDecisionSubject(d.title))
     const rawOptions = Array.isArray(d.dossier?.options) ? d.dossier.options : []
     const optionsList: OwnerTableDecisionOption[] = rawOptions.map((opt, optIdx) => ({
       letter: optionLetter(optIdx),
@@ -1802,6 +1830,22 @@ export function projectOwnerTable(
       recIdx >= 0 && recRationale !== undefined && recRationale.trim() !== ''
         ? cleanDisplayText(recRationale)
         : ''
+    // Stable decision numbers (lot 2): positional numbering is removed. OWNER GATE, E5 (incomplete
+    // dossier — hides even a recorded number until complete), and E9 (no registered number) carry
+    // internal `ref: ''` (JSON `null`).
+    const incomplete = isDecisionIncomplete({
+      question,
+      options: optionsList,
+      recommendedLetter,
+      recommendation,
+    })
+    const ref =
+      isGate || incomplete
+        ? ''
+        : d.ownerNumber !== undefined && Number.isInteger(d.ownerNumber) && d.ownerNumber >= 1
+          ? `D${d.ownerNumber}`
+          : ''
+    decisionRefById.set(d.id, ref)
     const artifactLink = d.dossier?.artifacts?.find((a) => a.kind === 'rendered-view')?.viewRef
     const hasOpenBlocker =
       !sansObjet &&
@@ -1819,7 +1863,7 @@ export function projectOwnerTable(
       ref,
       id: d.id,
       kind: isGate ? 'owner-gate' : 'decision',
-      question: cleanDisplayText(shortDecisionSubject(d.title)),
+      question,
       options: optionsList,
       recommendedLetter,
       recommendation,
@@ -1973,13 +2017,12 @@ export function projectOwnerTable(
       rowDecisionIds.length === 0 &&
       uniqueDecisionRefs.length === 0
     ) {
-      const ref = `D${nextDecisionNum++}`
+      // Synthetic `:expectation` decisions retain identity and qualify as E5 without invented numbering.
+      const ref = ''
       const syntheticId = `${rowId}:expectation`
       rowDecisionIds.push(syntheticId)
-      uniqueDecisionRefs.push(ref)
       if (report.decisionBlocking === true || openDecisionBlockers.length > 0) {
         blockingDecisionIdSet.add(syntheticId)
-        blockingDecisionRefSet.add(ref)
       }
       const opts = report.decisionExpectations.options.map((o, idx) => ({
         letter: optionLetter(idx),
@@ -2221,11 +2264,15 @@ export function projectOwnerTable(
         for (const dId of rowBlockingIds) {
           const dec = ownerDecisionById.get(dId)
           if (dec === undefined) continue
+          const isGate = dec.kind === 'owner-gate'
+          const incomplete = !isGate && isDecisionIncomplete(dec)
+          const isToNumber = !isGate && !incomplete && dec.ref === ''
           baseTodoParts.push(
             formatBlockingDecisionTodoCause({
               kind: dec.kind ?? 'decision',
               ref: dec.ref !== '' ? dec.ref : null,
-              isToInstruct: false,
+              isToInstruct: incomplete,
+              isToNumber,
               session: dec.session ?? null,
             }),
           )
@@ -2439,13 +2486,15 @@ export function projectOwnerTable(
     }
   }
 
-  const replyEligible = ownerDecisions.filter(
-    (d) =>
-      d.kind !== 'owner-gate' &&
-      d.ref !== '' &&
-      d.recommendedLetter !== '' &&
-      d.recommendation !== '',
-  )
+  const replyEligible = ownerDecisions
+    .filter(
+      (d) =>
+        d.kind !== 'owner-gate' &&
+        d.ref !== '' &&
+        d.recommendedLetter !== '' &&
+        d.recommendation !== '',
+    )
+    .sort((a, b) => parseDecisionRefNumber(a.ref) - parseDecisionRefNumber(b.ref))
   const replyLine =
     replyEligible.length > 0
       ? `Réponse : ${replyEligible.map((d) => `${d.ref} ${d.recommendedLetter}`).join(' · ')}`

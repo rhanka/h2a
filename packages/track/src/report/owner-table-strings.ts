@@ -262,14 +262,18 @@ export function formatDecisionCellToken(params: {
   kind: 'decision' | 'owner-gate'
   ref: string | null
   isToInstruct: boolean
+  isToNumber?: boolean
   blocking: boolean
   sansObjet: boolean
 }): string {
   if (params.kind === 'owner-gate') {
     return params.sansObjet ? `${TOKEN_OWNER_GATE} (décision sans objet)` : TOKEN_OWNER_GATE
   }
-  if (params.isToInstruct || params.ref === null || params.ref === '') {
+  if (params.isToInstruct) {
     return params.sansObjet ? `${TOKEN_TO_INSTRUCT} (décision sans objet)` : TOKEN_TO_INSTRUCT
+  }
+  if (params.isToNumber || params.ref === null || params.ref === '') {
+    return params.sansObjet ? `${TOKEN_TO_NUMBER} (décision sans objet)` : TOKEN_TO_NUMBER
   }
   if (params.sansObjet) return `${params.ref} (décision sans objet)`
   return params.blocking ? `🚩 ${params.ref} bloquante` : params.ref
@@ -279,6 +283,7 @@ export function formatBlockingDecisionTodoCause(params: {
   kind: 'decision' | 'owner-gate'
   ref: string | null
   isToInstruct: boolean
+  isToNumber?: boolean
   session?: string | null | undefined
 }): string {
   if (params.kind === 'owner-gate') {
@@ -287,8 +292,11 @@ export function formatBlockingDecisionTodoCause(params: {
     }
     return 'bloqué par OWNER GATE (session requise non nommée)'
   }
-  if (params.isToInstruct || params.ref === null || params.ref === '') {
+  if (params.isToInstruct) {
     return 'bloqué par décision à instruire (owner)'
+  }
+  if (params.isToNumber || params.ref === null || params.ref === '') {
+    return 'bloqué par décision à numéroter (owner)'
   }
   return `bloqué par ${params.ref} (owner)`
 }
