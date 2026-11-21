@@ -18,7 +18,7 @@ import { readHead } from '../events/head.js'
 import { EventStore } from '../events/store.js'
 import type { ActorId, EventType, Provenance, Sha256, TrackEvent } from '../events/types.js'
 import { validate, type IntegrityResult } from '../events/validate.js'
-import { isRoleContainer, type ItemId, type Realization } from '../model/item.js'
+import { DomainError, isRoleContainer, type ItemId, type Realization } from '../model/item.js'
 import type { VerificationRun } from '../model/verification.js'
 import { bucketOf, type Bucket } from '../report/buckets.js'
 import { statusByLevel, type StatusGroup, type StatusLevel } from '../report/status-by-level.js'
@@ -1256,7 +1256,21 @@ export class TrackReader {
    * mutating or rewriting any stored events.
    */
   ownerTable(options: ProjectOwnerTableOptions = {}): OwnerTableView {
-    const events = this.events()
+    let events: TrackEvent[]
+    try {
+      events = this.events()
+    } catch {
+      throw new DomainError(
+        'REFUSED: owner table failed blocking gates:\n- [journal-integrity] 1 finding(s): malformed-line',
+      )
+    }
+    const integrity = validate(events, readHead(this.eventsPath))
+    if (!integrity.ok) {
+      const kinds = [...new Set(integrity.findings.map((f) => f.kind))].join(', ')
+      throw new DomainError(
+        `REFUSED: owner table failed blocking gates:\n- [journal-integrity] ${integrity.findings.length} finding(s): ${kinds}`,
+      )
+    }
     const defaultPolicyPath = join(dirname(this.eventsPath), 'owner-report-policy.json')
     const explicitPolicyPath =
       options.policyPath ??
