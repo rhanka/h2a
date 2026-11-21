@@ -117,6 +117,23 @@ test("mapping: one source slug per launch id (scores are never borrowed)", () =>
   assert.equal(new Set(ids).size, ids.length);
 });
 
+for (const flavor of ["astra", "sol"]) {
+  test(`model-eval recommends the native Codex 6.2 ${flavor} from its own AA slug`, () => {
+    const slug = `gpt-6-2-${flavor}`;
+    const model = `gpt-6.2-${flavor}`;
+    const outcome = recommend({
+      role: "build",
+      models: [normalizeAaModel(aaItem(slug, `GPT-6.2 ${flavor}`, 65, 70))],
+      source: SOURCE,
+      overrides: [],
+      launch: LAUNCH,
+    });
+    assert.equal(outcome.picks[0]?.model, model);
+    assert.equal(outcome.picks[0].mcp.model, model);
+    assert.deepEqual(mapAaToH2a(slug).aliases, [flavor, `${flavor} 6.2`]);
+  });
+}
+
 test("fetchAaIndex follows pagination and counts skipped items", async () => {
   const calls = [];
   const stub = async (url, init) => {
