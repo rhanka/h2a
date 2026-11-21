@@ -85,4 +85,21 @@ describe("terminal mode tracker", () => {
     tracker.feed(`${E}[?1004h${E}[?25l${E}[>1u${E}[>4;2m${E}c`);
     expect(tracker.resetSequence()).toBe("");
   });
+
+  it("exposes keyboard/paste mode accessors (bracketed paste 2004, kitty keyboard, DECCKM)", () => {
+    const tracker = new TerminalModeTracker();
+    expect(tracker.isBracketedPasteEnabled()).toBe(false);
+    expect(tracker.isKittyKeyboardEnabled()).toBe(false);
+    expect(tracker.isApplicationCursorKeysEnabled()).toBe(false);
+
+    tracker.feed(`${E}[?2004h${E}[?1h${E}[>1u`);
+    expect(tracker.isBracketedPasteEnabled()).toBe(true);
+    expect(tracker.isApplicationCursorKeysEnabled()).toBe(true);
+    expect(tracker.isKittyKeyboardEnabled()).toBe(true);
+
+    tracker.feed(`${E}[?2004l${E}[?1l${E}[<u`);
+    expect(tracker.isBracketedPasteEnabled()).toBe(false);
+    expect(tracker.isApplicationCursorKeysEnabled()).toBe(false);
+    expect(tracker.isKittyKeyboardEnabled()).toBe(false);
+  });
 });

@@ -58,6 +58,12 @@ import {
   resolveRightPanelWidth,
   type RightPanelSnapshot,
 } from "./right-panel.js";
+import {
+  RightPanelSnapshotRefresher,
+  TrackJournalCache,
+  buildLiveRightPanelSnapshot,
+  type BuildLiveRightPanelSnapshotOptions,
+} from "./right-panel-snapshot.js";
 import { readRemoteConfig } from "../config.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import {
@@ -69,6 +75,7 @@ import {
 import { appendCrashLog, installCrashHandlers } from "../crash-log.js";
 import type {
   NativeStatusBarLinkState,
+  NativeStatusBarRightPanelMarker,
   NativeStatusBarSnapshot,
   ReadNativeStatusBarOptions,
 } from "../status-projection.js";
@@ -443,7 +450,12 @@ export type NativeAttachRightPanelOptions = {
   readonly width?: number;
   readonly env?: NodeJS.ProcessEnv;
   readonly snapshot?: RightPanelSnapshot;
-  readonly loadSnapshot?: () => RightPanelSnapshot;
+  readonly loadSnapshot?: () => RightPanelSnapshot | Promise<RightPanelSnapshot>;
+  readonly snapshotOptions?: Omit<
+    BuildLiveRightPanelSnapshotOptions,
+    "currentSessionId" | "seenDecisionKeys" | "nowMs"
+  >;
+  readonly refreshIntervalMs?: number;
 };
 
 const STATUS_BAR_MIN_ROWS = 10;
@@ -613,6 +625,15 @@ class NativeStatusBarController {
   #pendingRegionReapply = false;
   #restored = false;
   #pendingSeq = "";
+  #rightPanelMarkerProvider:
+    | (() => NativeStatusBarRightPanelMarker | undefined)
+    | undefined;
+
+  setRightPanelMarkerProvider(
+    provider: (() => NativeStatusBarRightPanelMarker | undefined) | undefined,
+  ): void {
+    this.#rightPanelMarkerProvider = provider;
+  }
 
   constructor(
     id: string,
@@ -914,7 +935,11 @@ class NativeStatusBarController {
     }
 
     if (!this.#renderLine) return;
-    const line = this.#renderLine(this.#snapshot, cols);
+    const panelMarker = this.#rightPanelMarkerProvider?.();
+    const renderSnapshot = panelMarker
+      ? { ...this.#snapshot, rightPanelMarker: panelMarker }
+      : this.#snapshot;
+    const line = this.#renderLine(renderSnapshot, cols);
     if (
       !force &&
       !this.#needsRepaint &&
@@ -1322,6 +1347,7 @@ export async function runAttach(
     () => runtime.now(),
     options.statusBar,
   );
+  let rightPanelRefresher: RightPanelSnapshotRefresher | undefined;
   const rightPanel = ((): RightPanelController | undefined => {
     const opt =
       typeof options.rightPanel === "object" && options.rightPanel !== null
@@ -1340,27 +1366,71 @@ export async function runAttach(
         ? true
         : resolveRightPanelEnabled(opt?.env ?? process.env, config));
     if (!enabled) return undefined;
-    const snapshot =
+    const initialSnapshot =
       opt?.snapshot ??
-      opt?.loadSnapshot?.() ??
       buildRightPanelSnapshot({
         currentSessionId: id,
-        groups: [{ title: "sessions", sessions: [] }],
+        groups: [],
         decisions: [],
         degraded: true,
       });
-    return new RightPanelController({
+    const controller = new RightPanelController({
       stdout: stdout as unknown as {
         columns?: number;
         rows?: number;
         write(chunk: string): boolean;
       },
-      snapshot,
+      snapshot: initialSnapshot,
       width:
         opt?.width ??
         resolveRightPanelWidth(opt?.env ?? process.env, config),
+      onOpen: () => {
+        const updated = rightPanelRefresher?.markCurrentDecisionsSeen();
+        if (updated) {
+          controller.setSnapshot(updated);
+          statusBar.paint(false);
+        }
+      },
     });
+    if (!opt?.snapshot) {
+      const panelEnv = opt?.env ?? process.env;
+      const trackCache =
+        opt?.snapshotOptions?.trackCache ??
+        new TrackJournalCache({ env: panelEnv });
+      rightPanelRefresher = new RightPanelSnapshotRefresher({
+        currentSessionId: id,
+        initialSnapshot,
+        now: () => runtime.now(),
+        minIntervalMs: opt?.refreshIntervalMs ?? 1_000,
+        load: async (seenDecisionKeys) => {
+          if (opt?.loadSnapshot) {
+            return await opt.loadSnapshot();
+          }
+          return buildLiveRightPanelSnapshot({
+            ...opt?.snapshotOptions,
+            currentSessionId: id,
+            env: opt?.snapshotOptions?.env ?? panelEnv,
+            ...(opt?.snapshotOptions?.config !== undefined
+              ? { config: opt.snapshotOptions.config }
+              : config !== undefined
+                ? { config }
+                : {}),
+            nowMs: runtime.now(),
+            seenDecisionKeys,
+            trackCache,
+          });
+        },
+        onUpdate: (next) => {
+          controller.setSnapshot(next);
+          statusBar.paint(false);
+        },
+      });
+    }
+    return controller;
   })();
+  if (rightPanel) {
+    statusBar.setRightPanelMarkerProvider(() => rightPanel.statusBarMarker());
+  }
   const isRawCapable = stdin.isTTY === true;
   const wasRaw = stdin.isRaw === true;
   let tty = "not-a-tty";
@@ -1388,29 +1458,10 @@ export async function runAttach(
   };
   runtime.onTerminate?.(terminate);
 
-  const onInput = (value: Buffer | string): void => {
-    const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
-    if (chunk.includes(DETACH_BYTE)) {
-      view.detached = true;
-      view.closeActive();
-      return;
-    }
-    if (rightPanel) {
-      const handled = rightPanel.handleInput(chunk.toString("utf8"), {
-        cliMouseEnabled: view.modes.isMouseTrackingEnabled(),
-      });
-      if (handled.consumed) {
-        if (handled.actions.length > 0) view.sendChildResize();
-        return;
-      }
-      if (handled.forward !== undefined) {
-        const forward = Buffer.from(handled.forward, "utf8");
-        if (forward.length === 0) return;
-        view.pushInput(forward);
-        return;
-      }
-    }
-    if (!view.enqueueInput(chunk, ATTACH_PENDING_INPUT_MAX_BYTES)) {
+  let pendingEscapeAt: number | undefined;
+  const enqueueChildBytes = (bytes: Buffer): void => {
+    if (bytes.length === 0) return;
+    if (!view.enqueueInput(bytes, ATTACH_PENDING_INPUT_MAX_BYTES)) {
       view.restoreBarForNotice();
       stdout.write(
         "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
@@ -1421,6 +1472,42 @@ export async function runAttach(
       view.closeActive();
       return;
     }
+  };
+
+  const applyPanelResult = (handled: ReturnType<RightPanelController["handleInputBytes"]>): void => {
+    if (handled.actions.some((a) => a.type === "detach")) {
+      view.detached = true;
+      view.closeActive();
+      return;
+    }
+    if (handled.actions.some((a) => a.type === "toggle")) {
+      view.sendChildResize();
+      statusBar.paint(false);
+    }
+    if (handled.forwardBytes && handled.forwardBytes.length > 0) {
+      enqueueChildBytes(handled.forwardBytes);
+    }
+  };
+
+  const onInput = (value: Buffer | string): void => {
+    const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
+    if (chunk.includes(DETACH_BYTE)) {
+      view.detached = true;
+      view.closeActive();
+      return;
+    }
+    if (rightPanel) {
+      const handled = rightPanel.handleInputBytes(chunk, {
+        cliMouseEnabled: view.modes.isMouseTrackingEnabled(),
+        bracketedPasteEnabled: view.modes.isBracketedPasteEnabled(),
+        kittyKeyboardEnabled: view.modes.isKittyKeyboardEnabled(),
+        statusBarActive: statusBar.isActive(),
+      });
+      pendingEscapeAt = rightPanel.hasPendingEscape() ? runtime.now() : undefined;
+      applyPanelResult(handled);
+      return;
+    }
+    enqueueChildBytes(chunk);
   };
   stdin.on("data", onInput);
   const onEnd = (): void => { view.detached = true; view.closeActive(); };
@@ -1436,7 +1523,10 @@ export async function runAttach(
   const connectAndAcquire = (): Promise<NativeTerminalSessionState> =>
     view.connectAndAcquire(
       () => runtime.connect(),
-      () => { rightPanel?.paint(); },
+      () => {
+        rightPanel?.paint();
+        void rightPanelRefresher?.maybeRefresh(true);
+      },
     );
 
   // Paint the existing scrollback once, then follow the stream.
@@ -1564,6 +1654,22 @@ export async function runAttach(
         if (view.detached) break;
         view.feedReplay(replay);
         if (rightPanel?.isOpen()) rightPanel.paint();
+        if (
+          rightPanel &&
+          pendingEscapeAt !== undefined &&
+          runtime.now() - pendingEscapeAt >= 25
+        ) {
+          pendingEscapeAt = undefined;
+          applyPanelResult(
+            rightPanel.flushPending({
+              cliMouseEnabled: view.modes.isMouseTrackingEnabled(),
+              bracketedPasteEnabled: view.modes.isBracketedPasteEnabled(),
+              kittyKeyboardEnabled: view.modes.isKittyKeyboardEnabled(),
+              statusBarActive: statusBar.isActive(),
+            }),
+          );
+        }
+        void rightPanelRefresher?.maybeRefresh();
         await view.statusBar.probe(false);
         view.seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
@@ -1636,8 +1742,9 @@ export async function runAttach(
       if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
       await view.drainInputPump();
-      await view.releaseActive();
+      rightPanelRefresher?.dispose();
       rightPanel?.dispose();
+      await view.releaseActive();
       view.dispose();
     }
   }

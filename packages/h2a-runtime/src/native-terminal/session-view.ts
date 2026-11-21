@@ -1,4 +1,5 @@
 import { writeSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 
 import type { NativeTerminalClient } from "./client.js";
 import type {
@@ -118,6 +119,7 @@ export class NativeSessionView {
   interruptedAt: number | undefined;
   pendingInputBytes = 0;
   readonly pendingInput: Buffer[] = [];
+  readonly #inputDecoder = new StringDecoder("utf8");
   #inputPump: Promise<void> | undefined;
   takeoverPending: boolean;
   seq = 0;
@@ -315,8 +317,11 @@ export class NativeSessionView {
         const current = this.active;
         if (current === undefined) return;
         const chunk = this.pendingInput[0]!;
+        const decoded = this.#inputDecoder.write(chunk);
         try {
-          await current.client.write(current.lease, chunk.toString("utf8"));
+          if (decoded.length > 0) {
+            await current.client.write(current.lease, decoded);
+          }
           this.pendingInput.shift();
           this.pendingInputBytes -= chunk.length;
         } catch (error) {
