@@ -39,6 +39,7 @@ implementation within existing authority. Double review must find missing
 context, hidden commitments and risks; it must also cut jargon and unnecessary
 questions. It is not a reason to produce a longer dossier.
 
+<!-- FOCUS-WRITING-START -->
 ## Prepare a dossier the owner can read on its own
 
 - Write `title` and `subject` as non-empty single lines of at most 100
@@ -95,7 +96,7 @@ questions. It is not a reason to produce a longer dossier.
 - A `diagram` section supports either inline mode (`syntax` + `source`, optional
   `scene`) or reference mode (`sourceRef` + `renderComponent`, mutually exclusive
   with `source`, `syntax` and `scene`). Reference diagrams are resolved by the
-  host `diagramResolver`; offline `h2a focus build` bundles inline diagrams only.
+  host `diagramResolver`; offline standalone exports bundle inline diagrams only.
 
 Bad: “Ratify L06b under MH-L3? A: migrate, with a/b variants. B: defer.”
 The request, stakes, consequences and recommendation are missing; several
@@ -114,6 +115,7 @@ option's id and reason, the literal quote and stakes, a declared stakes level,
 and reading estimates. Let the renderer arrange the supplied questions/options;
 never hand-author four parallel walls of text or imply that snapshot cards are
 clickable.
+<!-- FOCUS-WRITING-END -->
 
 ## Validate before presentation
 
