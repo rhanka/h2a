@@ -236,9 +236,7 @@ export function createNativeIsolationApi({ root, preloadUrl, receipt = null }) {
     if (env.H2A_TEST_PROC_ROOT) return env;
     let procRoot = privateProcessRoots.get(env.XDG_RUNTIME_DIR);
     if (!procRoot) {
-      const procBase = join(nativeQualificationRoot, "proc-views");
-      mkdirSync(procBase, { recursive: true, mode: 0o700 });
-      procRoot = createPrivateTestDirectory("proc-owned-", procBase);
+      procRoot = createPrivateTestDirectory("proc-owned-", env.XDG_RUNTIME_DIR);
       privateProcessRoots.set(env.XDG_RUNTIME_DIR, procRoot);
     }
     return {
