@@ -64,6 +64,7 @@
 - [ ] `attention` to `coop`: the injection paths of wake, drive and relaunch each gain one record write; no injection decision changes. Review the list of paths in Lot 2.
 - [ ] `attention` to `agents`: the marker of a sub-agent call and the sign of a human session come from lot 3q's table; a CLI for which the table gives neither yields `doubtful` for every capture that is not excluded.
 - [ ] `attention` to `cond`: a session the owner starts by hand, outside any launcher, is `owner` only if lot 3q found a sign of an interactive session for that CLI; otherwise its captures are `doubtful` — tracked, unquoted. A prompt passed on the command line of a launch is delivered by injection and is `injected`. Both are stated limits of the spec, not defects to patch here.
+- [x] `BR808-EX1` (`docs/plan/mh-l6/dist-freeze-0986.json`): **Reason**: Lot 2 instruments `packages/h2a-runtime/src/native-host.ts` (an allowed path), which updates the compiled `packages/h2a-runtime/dist/native-host.js` digest pinned by `packages/h2a/test/mh-l6-dist-freeze.test.js` (`49badec3ccedba7d` → `73134f730a500296`). **Impact**: single-line digest update in the dist-freeze ledger; no change to published `.6` tarball hashes or runtime behavior. **Rollback**: revert this commit if `native-host.ts` instrumentation is reverted.
 
 ## Orchestration Mode (AI-selected)
 
