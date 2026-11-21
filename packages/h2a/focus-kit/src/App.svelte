@@ -9,7 +9,7 @@
   import Citation from './Citation.svelte';
   import { decisionCodes, optionCode, responseLine } from '../../../focus-interactive/src/response-line.ts';
   import { preparePresentation } from '../../../focus/src/render/presentation.ts';
-  let { document: dossier, views = {} } = $props();
+  let { document: dossier, diagrams = {} } = $props();
   let dark = $state(matchMedia('(prefers-color-scheme: dark)').matches);
   const selections = new SvelteMap();
   let report = $derived(dossier.kind === 'report');
@@ -96,7 +96,7 @@
               </div>
               <p class="selection" aria-live="polite">{selections.get(section.questionId) ? `Sélection locale : ${optionLabel(section.questionId, selections.get(section.questionId))}. Communiquez ce choix au présentateur pour l’enregistrer.` : 'Sélectionnez une option pour préparer votre réponse.'}</p>
             {:else if section.kind === 'diagram'}
-              <Canvas document={section.scene} views={views[section.id] ?? {}} {dark} alt={section.alt} />
+              <Canvas document={section.scene} diagram={diagrams[section.id] ?? null} sectionId={section.id} alt={section.alt} />
             {:else if section.kind === 'outcome'}
               <Card><h3>Conclusion proposée</h3><p>{section.statement}</p></Card>
             {/if}

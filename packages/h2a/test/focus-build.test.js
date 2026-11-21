@@ -106,7 +106,7 @@ test('builds the shipped template into one portable validated HTML file', () => 
   assert.match(embedded.document.sections.find(s => s.kind === 'diagram').source, /^flowchart LR/)
   writeFileSync(input, JSON.stringify(embedded.document))
   assert.equal(run(root, 'build', input, '-o', output).status, 0, 'the embedded canonical document can be rebuilt')
-  assert.match(html, /xyflow/)
+  assert.match(html, /ds-diagram-svg/)
   assert.doesNotMatch(html, /<(?:script|link|img)[^>]+(?:src|href)=["'](?:https?:|\/|\.\/)/i)
   assert.doesNotMatch(html, /@import\s|url\(["']?https?:/i)
 }))
