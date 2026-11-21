@@ -61,8 +61,11 @@ import { createMcpServer, isMcpTransportResult, type McpCallContext, type McpSer
 import { UI_RENDER_PROVIDER_ID } from "../runtime/mcp/ui-render/registry-entry.js";
 import { UI_RENDER_TOOL_NAMES } from "../runtime/mcp/ui-render/tools.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
+import { verifySessionAdmissionEvidence } from "../runtime/mcp-central-context.js";
+import type { CentralAdmission } from "../runtime/mcp-central-attachment.js";
 import { validateBridgeLock, type BridgeLock } from "./bridge-lock.js";
 import { missingMemoryBuiltin, resolveHostMemoryRegistration, MEMORY_PROVIDER_ID, MEMORY_TOOL_NAMES, type MemoryProviderRegistration } from "./memory-provider.js";
+import { isMemoryResolverRefusal, memoryResolverRefusal, memoryRuntimeServer } from "./memory-resolver.js";
 
 /** Pinned to the published facade; asserted by the H2a daemon tests. */
 export const USES_SENTROPIC_FACADE = true;
@@ -76,8 +79,23 @@ export interface ComposeDaemonOptions {
   workspaceRoot?: string;
   lock?: BridgeLock;
   memory?: MemoryProviderRegistration;
-  /** Existing attachment/participant supplied by the host, never tool args. */
-  attachment?: unknown;
+  /**
+   * H2A-DISP-354: per-call H3 admission (the frozen 11-key evidence plus the
+   * lateral transport material) for memory dispatch, supplied by the
+   * attachment layer (the central route builds it from the verified
+   * request; tests inject it). It replaces the interim direct-field ctx:
+   * without verifiable evidence there is NO memory dispatch (fail-closed,
+   * zero producer calls).
+   */
+  admission?: () => CentralAdmission | undefined;
+}
+
+/** Per-call dispatch context threaded from the MCP transport into the plan. */
+export interface DaemonCallContext {
+  /** Caller cancellation (SDK `extra.signal`). */
+  signal?: AbortSignal;
+  /** Host-verified elicitation reference; never copied from request metadata. */
+  elicitationRef?: string;
 }
 
 export interface DaemonDispatchOutput {
@@ -422,15 +440,44 @@ export async function composeDaemonRegistryForServer(
     const resolved = compiled.resolveTool(toolName);
     if (!resolved) fail("unknown_tool", `unknown tool ${toolName} for the active selection`);
     if (resolved.providerId === MEMORY_PROVIDER_ID) {
-      // The mesh adapter owns invocation context, authorization, confirmation
-      // and audit. Forward the bound attachment; never invent a principal.
+      // H2A-DISP-354: the memory host resolver owns invocation context,
+      // authorization, confirmation and audit. The daemon binds only what
+      // it actually verified (H3 evidence), enforces the F15 per-call tool
+      // set, and dispatches through the producer runtime seam — the adapter
+      // is never the memory executor. Fail-closed at every gate, zero
+      // producer calls on refusal.
       if (!memoryDefinition) missingMemoryBuiltin();
-      const invoked = await memoryDefinition.adapter.invokeTool({
-        capabilityRef: resolved.capabilityName, input: args ?? {}, ctx: options.attachment,
-        ...(typeof args?.idempotency_key === "string" ? { idempotencyKey: args.idempotency_key } : {})
-      } as InvokeRequest);
-      if (typeof invoked !== "string" && !invoked.ok) fail(invoked.error?.code ?? "handler_error", invoked.error?.message ?? "memory builtin refused");
-      const raw = typeof invoked === "string" ? invoked : invoked.output;
+      const runtimeServer = memoryRuntimeServer(memory);
+      if (!runtimeServer) fail("missing_binding", "cluster-mesh memory builtin exposes no runtime server dispatch seam (runtime().server.callTool)");
+      const resolver = memory?.resolver;
+      if (!resolver || typeof resolver.resolveContext !== "function") {
+        fail("missing_binding", "memory dispatch requires a bound MemoryHostResolverPort; a central attachment alone is not admission");
+      }
+      const admitted = options.admission?.();
+      const evidence = admitted?.evidence;
+      if (!evidence) fail("admission_required", "no verified H3 session admission evidence for this call; refusing fail-closed");
+      if (!verifySessionAdmissionEvidence(evidence)) fail("admission_invalid", "H3 session admission evidence failed verification; refusing fail-closed");
+      const decision = await resolver.resolveContext({ tool: toolName, args: args ?? {}, evidence,
+        ...(admitted?.transport ? { transport: admitted.transport } : {}),
+        ...(context?.signal ? { signal: context.signal } : {}) });
+      if (!decision || decision.ok !== true) {
+        const refusal = (decision ?? {}) as { code?: unknown; message?: unknown };
+        memoryResolverRefusal(
+          typeof refusal.code === "string" && refusal.code ? refusal.code : "context_refused",
+          typeof refusal.message === "string" && refusal.message ? refusal.message : "memory host resolver refused the call"
+        );
+      }
+      if (!Array.isArray(decision.allowedTools) || !decision.allowedTools.includes(resolved.capabilityName)) {
+        fail("tool_not_allowed", `the F15 per-call tool set does not admit ${resolved.capabilityName} (policy revision ${typeof decision.policyRevision === "string" ? decision.policyRevision : "unknown"})`);
+      }
+      const envelope = {
+        ...(typeof args?.idempotency_key === "string" && args.idempotency_key ? { idempotencyKey: args.idempotency_key } : {}),
+        ...(context?.elicitationRef ? { elicitationRef: context.elicitationRef } : {})
+      };
+      // The producer CallToolResult crosses UNCHANGED (isError, structuredContent,
+      // content, auditId, redactionClass): it is returned as the transport value.
+      const raw = await runtimeServer.callTool(resolved.capabilityName, args ?? {}, decision.context,
+        Object.keys(envelope).length ? envelope : undefined, context?.signal);
       return { ok: !(raw as { isError?: boolean })?.isError,
         output: { ...(contentText(raw) ?? { text: JSON.stringify(raw) }), transport: raw },
         providerId: resolved.providerId, capabilityName: resolved.capabilityName };
@@ -491,8 +538,18 @@ export async function composeDaemonRegistryForServer(
     toolNames: () => [...compiled.tools.keys()],
     tools: () => [
       ...H2A_CLI_MCP_TOOL_DESCRIPTORS.filter(tool => compiled.resolveTool(tool.name)),
-      ...(memoryDefinition?.manifest.tools.map(tool => ({ name: tool.name, description: tool.description,
-        inputSchema: tool.inputSchema, outputSchema: tool.outputSchema })) ?? [])
+      // H2A-DISP-354: surface the producer's runtime discovery surface — the
+      // SDK annotations and `_meta['sentropic.engram/memory']` wire/tool
+      // profiles ride alongside the schemas, unmodified (no rewrite).
+      ...(memoryDefinition?.manifest.tools.map(tool => {
+        const extras = tool as { annotations?: unknown; _meta?: unknown };
+        return {
+          name: tool.name, description: tool.description,
+          inputSchema: tool.inputSchema, outputSchema: tool.outputSchema,
+          ...(extras.annotations && typeof extras.annotations === "object" ? { annotations: extras.annotations } : {}),
+          ...(extras._meta && typeof extras._meta === "object" ? { _meta: extras._meta } : {})
+        };
+      }) ?? [])
     ] as ReturnType<McpServer["listTools"]>,
     dispatch
   };
@@ -526,7 +583,12 @@ const DAEMON_DOMAIN_REFUSAL_CODES = new Set([
   "handler_error",
   "handler_failed",
   "insufficient_scope",
-  "insufficient_claims"
+  "insufficient_claims",
+  // H2A-DISP-354 admission gates: reasoned, typed refusals (single
+  // execution, stable reason), never defects.
+  "admission_required",
+  "admission_invalid",
+  "tool_not_allowed"
 ]);
 
 export function isDaemonDomainRefusal(error: unknown): boolean {
@@ -534,7 +596,7 @@ export function isDaemonDomainRefusal(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    DAEMON_DOMAIN_REFUSAL_CODES.has(String((error as { code: unknown }).code))
+    (DAEMON_DOMAIN_REFUSAL_CODES.has(String((error as { code: unknown }).code)) || isMemoryResolverRefusal(error))
   );
 }
 
@@ -552,7 +614,7 @@ export function isDaemonDomainRefusal(error: unknown): boolean {
  */
 export function wrapMcpServerWithDaemonRegistry(
   server: Pick<McpServer, "callTool">,
-  options: { root: string; workspaceRoot?: string }
+  options: { root: string; workspaceRoot?: string } & Pick<ComposeDaemonOptions, "lock" | "memory" | "admission">
 ): Pick<McpServer, "callTool"> {
   // Bound NOW: the original function object, so the adapter never re-enters
   // the wrapper installed below (a property lookup at call time would).
@@ -562,7 +624,13 @@ export function wrapMcpServerWithDaemonRegistry(
     (composedPromise ??= composeDaemonRegistryForServer(rawCallTool, {
       view: "combined",
       root: options.root,
-      workspaceRoot: options.workspaceRoot
+      workspaceRoot: options.workspaceRoot,
+      // The locked plan needs the memory registration and the per-call
+      // admission thunk; dropping them would silently demote every memory
+      // tool to unknown_tool.
+      ...(options.lock ? { lock: options.lock } : {}),
+      ...(options.memory ? { memory: options.memory } : {}),
+      ...(options.admission ? { admission: options.admission } : {})
     }));
   const wrapped: McpServer["callTool"] = (async (name: string, args: Record<string, unknown> | undefined, context?: McpCallContext) => {
     const plan = await composed();
