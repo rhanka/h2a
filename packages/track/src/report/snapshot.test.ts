@@ -55,7 +55,7 @@ describe('SnapshotV1', () => {
     expect(snapshot.report.decisions).toHaveLength(1)
     expect(snapshot.report.wpTree).toHaveLength(1)
     expect('view' in snapshot.report).toBe(false)
-    expect(snapshot.recentEvents.map((event) => event.position)).toEqual([1, 2, 3, 4, 5])
+    expect(snapshot.recentEvents.map((event) => event.position)).toEqual([1, 2, 3, 4, 5, 6])
     expect(snapshot.recentEvents.every((event) => event.summary === undefined)).toBe(true)
     expect(snapshot.directives.every((directive) => directive.source === 'rule-derived')).toBe(true)
     expect(snapshot.directivesProjection).toEqual({ kind: 'rule-derived-facts', order: 'aggregate-id-then-id' })
