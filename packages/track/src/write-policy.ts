@@ -1,21 +1,36 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+import { maskSecrets } from './capture/secrets.js'
 import { withFileLock } from './events/lock.js'
+import {
+  ensurePrivateDirHardened,
+  lstatNoFollow,
+  readFileNoFollow,
+  writeFileAtomicPrivate,
+} from './fs-private.js'
 import { DomainError } from './model/item.js'
 
 export const WRITE_POLICY_VERSION = 1 as const
 export const WRITE_POLICY_FILENAME = 'write-policy.json'
 const MAX_HISTORY_ENTRIES = 20
+const MAX_HOLDER_LENGTH = 64
+const FORBIDDEN_HOLDER_CHARS_RE = /[\x00-\x1f\x7f·]/u
+
+function assertValidHolder(holder: string, context: string): string {
+  const trimmed = holder.trim()
+  if (trimmed.length === 0) {
+    throw new DomainError(`${context}: --holder must be non-empty`)
+  }
+  if (trimmed.length > MAX_HOLDER_LENGTH) {
+    throw new DomainError(`${context}: --holder must be at most ${MAX_HOLDER_LENGTH} characters`)
+  }
+  if (FORBIDDEN_HOLDER_CHARS_RE.test(trimmed)) {
+    throw new DomainError(`${context}: --holder must not contain control characters or '·'`)
+  }
+  return trimmed
+}
 
 export type WritePolicyMode = 'open' | 'exclusive'
 
@@ -120,6 +135,14 @@ function parseWritePolicy(raw: string, filePath: string): WritePolicyState {
   const updatedAt = typeof obj['updatedAt'] === 'string' ? obj['updatedAt'] : null
   const history = Array.isArray(obj['history']) ? (obj['history'] as WritePolicyHistoryEntry[]) : []
 
+  if (holder !== null && (holder.length > MAX_HOLDER_LENGTH || FORBIDDEN_HOLDER_CHARS_RE.test(holder))) {
+    throw new WritePolicyError(
+      `malformed write-policy.json at ${filePath}: invalid holder value`,
+      null,
+      epoch,
+    )
+  }
+
   if (mode === 'exclusive' && (holder === null || rawDigest === null)) {
     throw new WritePolicyError(
       `malformed exclusive write-policy.json at ${filePath}: missing holder or token digest`,
@@ -141,52 +164,40 @@ function parseWritePolicy(raw: string, filePath: string): WritePolicyState {
 
 /**
  * Pure read-only view of a journal's write policy (V4: never creates or modifies files).
- * Absent file means open, epoch 0 (spec §7.4).
+ * Absent file (`ENOENT` only) means open, epoch 0 (spec §7.4). Fails closed (`WritePolicyError`)
+ * on symlinks, permission errors (`EACCES`), or any other unreadable state.
  */
 export function readWritePolicy(eventsPath: string): WritePolicyState {
   const filePath = writePolicyPathFor(eventsPath)
-  if (!existsSync(filePath)) return defaultOpenPolicy()
-  return parseWritePolicy(readFileSync(filePath, 'utf8'), filePath)
+  const raw = readFileNoFollow(filePath, (msg) => new WritePolicyError(msg, null, 0))
+  if (raw === undefined) return defaultOpenPolicy()
+  return parseWritePolicy(raw, filePath)
 }
 
 function writePolicyAtomically(filePath: string, policy: WritePolicyState): void {
-  mkdirSync(dirname(filePath), { recursive: true })
-  const tmpFile = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`
-  const payload = `${JSON.stringify(policy, null, 2)}\n`
-  try {
-    writeFileSync(tmpFile, payload, { encoding: 'utf8', mode: 0o600 })
-    chmodSync(tmpFile, 0o600)
-    renameSync(tmpFile, filePath)
-  } catch (err) {
-    try {
-      unlinkSync(tmpFile)
-    } catch {
-      // ignore cleanup failure
-    }
-    throw err
+  const parent = dirname(filePath)
+  if (lstatNoFollow(parent) === undefined) {
+    mkdirSync(parent, { recursive: true })
   }
+  const payload = `${JSON.stringify(policy, null, 2)}\n`
+  writeFileAtomicPrivate(filePath, payload, 0o600, (msg) => new WritePolicyError(msg, policy.holder, policy.epoch))
 }
 
 export function writeTokenFilePrivate(tokenFilePath: string, token: string): void {
-  mkdirSync(dirname(tokenFilePath), { recursive: true })
-  const tmpFile = `${tokenFilePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`
-  try {
-    writeFileSync(tmpFile, `${token}\n`, { encoding: 'utf8', mode: 0o600 })
-    chmodSync(tmpFile, 0o600)
-    renameSync(tmpFile, tokenFilePath)
-  } catch (err) {
-    try {
-      unlinkSync(tmpFile)
-    } catch {
-      // ignore cleanup failure
-    }
-    throw err
+  const parent = dirname(tokenFilePath)
+  const parentSt = lstatNoFollow(parent)
+  if (parentSt === undefined) {
+    ensurePrivateDirHardened(parent)
+  } else if (!parentSt.isDirectory()) {
+    throw new DomainError(`token file parent is not a directory: ${parent}`)
   }
+  writeFileAtomicPrivate(tokenFilePath, `${token}\n`, 0o600)
 }
 
 /**
  * Resolve the presented writer token from explicit option, `--writer-token-file`, or
- * `TRACK_WRITER_TOKEN` env var. Throws `WritePolicyError` if an explicit token file is unreadable.
+ * `TRACK_WRITER_TOKEN` env var. Throws `WritePolicyError` if an explicit token file is missing,
+ * a symbolic link, or unreadable.
  */
 export function resolvePresentedWriterToken(
   input: WriterTokenInput = {},
@@ -197,14 +208,17 @@ export function resolvePresentedWriterToken(
     return trimmed.length > 0 ? trimmed : undefined
   }
   if (input.writerTokenFile !== undefined) {
-    if (!existsSync(input.writerTokenFile)) {
-      throw new WritePolicyError(
-        `write refused: journal is in exclusive mode (holder: ${policyForError?.holder ?? 'unknown'}, epoch: ${policyForError?.epoch ?? 0}); writer token file not found: ${input.writerTokenFile}`,
+    const makeErr = (msg: string): Error =>
+      new WritePolicyError(
+        `write refused: journal is in exclusive mode (holder: ${policyForError?.holder ?? 'unknown'}, epoch: ${policyForError?.epoch ?? 0}); ${msg}`,
         policyForError?.holder ?? null,
         policyForError?.epoch ?? 0,
       )
+    const raw = readFileNoFollow(input.writerTokenFile, makeErr)
+    if (raw === undefined) {
+      throw makeErr(`writer token file not found: ${input.writerTokenFile}`)
     }
-    const content = readFileSync(input.writerTokenFile, 'utf8').trim()
+    const content = raw.trim()
     return content.length > 0 ? content : undefined
   }
   const env = input.env ?? process.env
@@ -258,10 +272,7 @@ export function declareExclusiveWriter(
   holder: string,
   opts: { now?: string | undefined; tokenFile?: string | undefined } = {},
 ): { policy: WritePolicyState; token: string } {
-  const trimmedHolder = holder.trim()
-  if (trimmedHolder.length === 0) {
-    throw new DomainError('journal declare-writer: --holder must be non-empty')
-  }
+  const trimmedHolder = assertValidHolder(holder, 'journal declare-writer')
   const now = opts.now ?? new Date().toISOString()
 
   return withFileLock(eventsPath, () => {
@@ -307,14 +318,12 @@ export function takeoverExclusiveWriter(
   reason: string,
   opts: { now?: string | undefined; tokenFile?: string | undefined } = {},
 ): { policy: WritePolicyState; token: string } {
-  const trimmedHolder = holder.trim()
-  if (trimmedHolder.length === 0) {
-    throw new DomainError('journal takeover: --holder must be non-empty')
-  }
+  const trimmedHolder = assertValidHolder(holder, 'journal takeover')
   const trimmedReason = reason.trim()
   if (trimmedReason.length === 0) {
     throw new DomainError('journal takeover: --reason must be non-empty')
   }
+  const maskedReason = maskSecrets(trimmedReason).text
   const now = opts.now ?? new Date().toISOString()
 
   return withFileLock(eventsPath, () => {
@@ -333,7 +342,7 @@ export function takeoverExclusiveWriter(
         holder: trimmedHolder,
         epoch,
         at: now,
-        reason: trimmedReason,
+        reason: maskedReason,
       }),
     }
     writePolicyAtomically(writePolicyPathFor(eventsPath), next)

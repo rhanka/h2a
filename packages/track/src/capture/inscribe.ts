@@ -1,11 +1,10 @@
-import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import type { JournalResolveOptions } from '../cli/journal-reference.js'
 import { EventStore } from '../events/store.js'
 import type { ActorId, CaptureOrigin, Provenance } from '../events/types.js'
-import { tmpCeilingFor } from '../journal/identity.js'
+import { isPathInUnignoredGitTree } from '../fs-private.js'
 import { prepareInscriptionJournal } from '../journal/inscription.js'
 import { DomainError } from '../model/item.js'
 import { maskPrivateTermsWithPolicy, type OwnerTablePolicy } from '../report/owner-table.js'
@@ -18,12 +17,14 @@ import {
   findCaptureEntry,
   listCaptures,
   resolveCaptureRetentionHours,
+  sweepExpiredQueues,
   updateCaptureEntry,
   type CaptureAckKind,
   type CaptureClassKind,
   type CaptureEntry,
   type CaptureInscriptionReceipt,
 } from './queue.js'
+import { maskSecrets } from './secrets.js'
 
 const FORBIDDEN_DEMAND_ORIGINS: ReadonlySet<CaptureOrigin> = new Set([
   'injected',
@@ -41,28 +42,11 @@ export class InscriptionDeferredError extends DomainError {
 /**
  * Determine whether `eventsPath` sits in a git work tree and is NOT gitignored (spec §7.5, plan/07 Lot 4).
  */
-export function isVersionedJournal(eventsPath: string): boolean {
-  const dir = existsSync(dirname(eventsPath)) ? dirname(eventsPath) : dirname(dirname(eventsPath))
-  if (!existsSync(dir)) return false
-  const ceiling = tmpCeilingFor(dir)
-  const env = ceiling !== undefined ? { ...process.env, GIT_CEILING_DIRECTORIES: ceiling } : process.env
-
-  const inTree = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
-    cwd: dir,
-    env,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  })
-  if (inTree.status !== 0 || inTree.stdout.trim() !== 'true') return false
-
-  const ignored = spawnSync('git', ['check-ignore', '-q', eventsPath], {
-    cwd: dir,
-    env,
-    encoding: 'utf8',
-    stdio: ['ignore', 'ignore', 'ignore'],
-  })
-  // git check-ignore exits 0 when ignored, 1 when NOT ignored
-  return ignored.status === 1
+export function isVersionedJournal(
+  eventsPath: string,
+  procEnv: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return isPathInUnignoredGitTree(eventsPath, procEnv)
 }
 
 function loadPolicyForJournal(eventsPath: string, env: NodeJS.ProcessEnv): OwnerTablePolicy | undefined {
@@ -96,7 +80,7 @@ function resolveDecisionTargetId(
   }
   const direct = state.decisions.get(trimmed)
   if (direct === undefined) {
-    throw new DomainError(`capture inscribe: unknown decision "${trimmed}"`)
+    throw new DomainError(`capture inscribe: unknown decision "${maskSecrets(trimmed).text}"`)
   }
   return {
     id: direct.id,
@@ -177,11 +161,13 @@ export function inscribeCaptureEntry(
     env,
   })
 
-  // Apply private-term masking when the journal is versioned (git work tree, not ignored).
-  let textToInscribe = entry.text
-  let titleToInscribe = entry.classification.title
+  // Defense in depth: mask secrets on text and title before journal write, then apply private-term
+  // masking when the journal is versioned (git work tree, not ignored).
+  let textToInscribe = maskSecrets(entry.text).text
+  let titleToInscribe =
+    entry.classification.title !== undefined ? maskSecrets(entry.classification.title).text : undefined
   let maskedAtInscription = false
-  if (isVersionedJournal(journal.eventsPath)) {
+  if (isVersionedJournal(journal.eventsPath, env)) {
     const policy = loadPolicyForJournal(journal.eventsPath, env)
     if (policy !== undefined) {
       const maskedText = maskPrivateTermsWithPolicy(textToInscribe, policy)
@@ -272,17 +258,28 @@ export function inscribeCaptureEntry(
     throw new DomainError(`capture inscribe: cannot inscribe classification "${cls.as}"`)
   }
 
-  // Purge queue text ONLY AFTER journal write succeeded (plan/07 Lot 4).
+  // Purge queue text, folder, and classification.title ONLY AFTER journal write succeeded (plan/07 Lot 4, C1/C4).
   const updated = updateCaptureEntry(
     entry.identity,
     entry.id,
-    (cur) => ({
-      ...cur,
-      state: 'inscribed',
-      text: null,
-      inscribed: receipt,
-    }),
-    { env },
+    (cur) => {
+      const { folder: _strippedFolder, ...rest } = cur
+      const nextClassification =
+        cur.classification !== undefined
+          ? (() => {
+              const { title: _strippedTitle, ...clsRest } = cur.classification
+              return clsRest
+            })()
+          : undefined
+      return {
+        ...rest,
+        state: 'inscribed',
+        text: null,
+        ...(nextClassification !== undefined ? { classification: nextClassification } : {}),
+        inscribed: receipt,
+      }
+    },
+    { env, now },
   )
 
   return { entry: updated, alreadyInscribed: false, receipt }
@@ -336,16 +333,19 @@ export function classifyCaptureEntry(
     const dismissed = updateCaptureEntry(
       effective.identity,
       effective.id,
-      (cur) => ({
-        ...cur,
-        state: 'dismissed',
-        text: null,
-        classification: {
-          as: 'not-a-demand',
-          classifiedAt: now,
-        },
-      }),
-      { env },
+      (cur) => {
+        const { folder: _strippedFolder, ...rest } = cur
+        return {
+          ...rest,
+          state: 'dismissed',
+          text: null,
+          classification: {
+            as: 'not-a-demand',
+            classifiedAt: now,
+          },
+        }
+      },
+      { env, now },
     )
     return { entry: dismissed, inscribed: false }
   }
@@ -371,6 +371,15 @@ export function classifyCaptureEntry(
     }
   }
 
+  const sanitizedTitle =
+    input.title !== undefined && input.title.trim() !== ''
+      ? maskSecrets(input.title.trim()).text
+      : undefined
+  const sanitizedDecisionRef =
+    input.decisionRef !== undefined && input.decisionRef.trim() !== ''
+      ? maskSecrets(input.decisionRef.trim()).text
+      : undefined
+
   const classified = updateCaptureEntry(
     effective.identity,
     effective.id,
@@ -380,14 +389,12 @@ export function classifyCaptureEntry(
       classification: {
         as: input.as,
         classifiedAt: now,
-        ...(input.title !== undefined && input.title.trim() !== '' ? { title: input.title.trim() } : {}),
+        ...(sanitizedTitle !== undefined ? { title: sanitizedTitle } : {}),
         ...(input.demandNumber !== undefined ? { demandNumber: input.demandNumber } : {}),
-        ...(input.decisionRef !== undefined && input.decisionRef.trim() !== ''
-          ? { decisionRef: input.decisionRef.trim() }
-          : {}),
+        ...(sanitizedDecisionRef !== undefined ? { decisionRef: sanitizedDecisionRef } : {}),
       },
     }),
-    { env },
+    { env, now },
   )
 
   try {
@@ -414,6 +421,9 @@ export function inscribeAllClassified(
   const results: InscribeResult[] = []
   for (const entry of classified) {
     results.push(inscribeCaptureEntry(entry.id, identity, ctx))
+  }
+  if (results.length === 0) {
+    sweepExpiredQueues({ env, now })
   }
   return results
 }
@@ -465,15 +475,37 @@ export function acknowledgeExpiredCapture(
       ...(ctx.tokenInput?.writerTokenFile !== undefined ? { writerTokenFile: ctx.tokenInput.writerTokenFile } : {}),
       env,
     })
+
+    // Mask secrets AND private terms (when journal is versioned) before writing to events.jsonl (C1, V8).
+    let textToInscribe = maskSecrets(input.text).text
+    let titleToInscribe = maskSecrets(input.title.trim()).text
+    let maskedAtInscription = false
+    if (isVersionedJournal(journal.eventsPath, env)) {
+      const policy = loadPolicyForJournal(journal.eventsPath, env)
+      if (policy !== undefined) {
+        const maskedText = maskPrivateTermsWithPolicy(textToInscribe, policy)
+        if (maskedText.masked) {
+          textToInscribe = maskedText.text
+          maskedAtInscription = true
+        }
+        const maskedTitle = maskPrivateTermsWithPolicy(titleToInscribe, policy)
+        if (maskedTitle.masked) {
+          titleToInscribe = maskedTitle.text
+          maskedAtInscription = true
+        }
+      }
+    }
+
     const cliProv: Provenance = { transport: 'cli', proposed: false, auth: 'local-user' }
     const track = new Track(store, { by: ctx.by, prov: cliProv, now: () => now })
     const raised = track.raiseNumberedDemand({
       type: 'feature',
-      raw: { text: input.text, title: input.title.trim() },
+      raw: { text: textToInscribe, title: titleToInscribe },
       source: { kind: 'human', ref: effective.id },
       workspace: effective.identity,
-      summary: input.title.trim(),
+      summary: titleToInscribe,
       key: effective.id,
+      ...(maskedAtInscription ? { masked: true } : {}),
     })
     demandId = raised.demandId
     demandNumber = raised.number
@@ -482,18 +514,21 @@ export function acknowledgeExpiredCapture(
   return updateCaptureEntry(
     effective.identity,
     effective.id,
-    (cur) => ({
-      ...cur,
-      state: 'acknowledged',
-      text: null,
-      expiredAt: cur.expiredAt ?? now,
-      acknowledgement: {
-        as: input.as,
-        at: now,
-        ...(demandId !== undefined ? { demandId } : {}),
-        ...(demandNumber !== undefined ? { demandNumber } : {}),
-      },
-    }),
-    { env },
+    (cur) => {
+      const { folder: _strippedFolder, ...rest } = cur
+      return {
+        ...rest,
+        state: 'acknowledged',
+        text: null,
+        expiredAt: cur.expiredAt ?? now,
+        acknowledgement: {
+          as: input.as,
+          at: now,
+          ...(demandId !== undefined ? { demandId } : {}),
+          ...(demandNumber !== undefined ? { demandNumber } : {}),
+        },
+      }
+    },
+    { env, now },
   )
 }

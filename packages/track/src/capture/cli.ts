@@ -37,6 +37,7 @@ import {
   registerCaptureCli,
   type CaptureCliMode,
 } from './registry.js'
+import { maskSecrets } from './secrets.js'
 
 const CAPTURE_USAGE = `usage: track capture <subcommand>
   add --cli <name> [--text-key <key>] [--session <id>] [--folder <dir>] [--origin <class>] [--transcript <ref>] --stdin
@@ -53,7 +54,7 @@ type Flags = Record<string, string | true>
 
 function parseCaptureFlags(args: string[]): { positional: string[]; flags: Flags } {
   const positional: string[] = []
-  const flags: Flags = {}
+  const flags: Flags = Object.create(null) as Flags
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!
     if (a.startsWith('--')) {
@@ -182,7 +183,7 @@ function cmdCaptureAdd(args: string[], io: CliIO): number {
   try {
     const { positional, flags } = parseCaptureFlags(args)
     if (positional.length > 0) {
-      throw new DomainError(`capture add: unexpected positional argument(s): ${positional.join(' ')}`)
+      throw new DomainError(`capture add: unexpected positional argument(s) (${positional.length})`)
     }
     assertOnlyFlags(flags, ['cli', 'text-key', 'session', 'folder', 'origin', 'transcript', 'stdin', 'now'])
     const cliName = req(flags, 'cli').trim()
@@ -224,17 +225,18 @@ function cmdCaptureAdd(args: string[], io: CliIO): number {
       opt(flags, 'transcript') ?? firstStringField(parsedObj, ['transcript_path']) ?? null
 
     const explicitOrigin = opt(flags, 'origin')
+    if (explicitOrigin !== undefined && !(CAPTURE_ORIGINS as readonly string[]).includes(explicitOrigin)) {
+      throw new DomainError(`capture add: --origin must be one of ${CAPTURE_ORIGINS.join('|')}`)
+    }
+    // Spec §7.6 l. 318: an injection marker ALWAYS makes a capture `injected`, regardless of --origin.
     let origin: CaptureOrigin
-    if (explicitOrigin !== undefined) {
-      if (!(CAPTURE_ORIGINS as readonly string[]).includes(explicitOrigin)) {
-        throw new DomainError(
-          `capture add: --origin must be one of ${CAPTURE_ORIGINS.join('|')} (got "${explicitOrigin}")`,
-        )
-      }
+    if (hasInjectionMarker(rawText)) {
+      origin = 'injected'
+    } else if (explicitOrigin !== undefined) {
       origin = explicitOrigin as CaptureOrigin
     } else {
       // Track alone never concludes `owner` (spec §7.6, DS-9, plan/07 Lot 1).
-      origin = hasInjectionMarker(rawText) ? 'injected' : 'doubtful'
+      origin = 'doubtful'
     }
 
     const ident = identityOf(folder)
@@ -266,12 +268,10 @@ function cmdCaptureAdd(args: string[], io: CliIO): number {
     // Update CLI lastCaptureAt in registry when registered
     recordCliLastCapture(cliName, now, { env: procEnv })
 
-    // Sweep expired texts across every queue of the machine (spec §7.5)
-    sweepExpiredQueues({ env: procEnv, now })
-
     return 0
   } catch (err) {
-    io.err(`capture add error: ${err instanceof Error ? err.message : String(err)}\n`)
+    const msg = maskSecrets(err instanceof Error ? err.message : String(err)).text
+    io.err(`capture add error: ${msg}\n`)
     return 0
   }
 }
@@ -294,16 +294,14 @@ export function cmdCapture(
   if (sub === 'register') {
     const { positional, flags } = parseCaptureFlags(rest)
     if (positional.length > 0) {
-      throw new DomainError(`capture register: unexpected argument(s): ${positional.join(' ')}`)
+      throw new DomainError(`capture register: unexpected argument(s) (${positional.length})`)
     }
     assertOnlyFlags(flags, ['cli', 'version', 'mode', 'now'])
     const cliName = req(flags, 'cli')
     const version = req(flags, 'version')
     const mode = req(flags, 'mode')
     if (!(CAPTURE_CLI_MODES as readonly string[]).includes(mode)) {
-      throw new DomainError(
-        `capture register: --mode must be one of ${CAPTURE_CLI_MODES.join('|')} (got "${mode}")`,
-      )
+      throw new DomainError(`capture register: --mode must be one of ${CAPTURE_CLI_MODES.join('|')}`)
     }
     const now = parseNow(flags)
     const entry = registerCaptureCli(
@@ -317,7 +315,7 @@ export function cmdCapture(
   if (sub === 'status') {
     const { positional, flags } = parseCaptureFlags(rest)
     if (positional.length > 0) {
-      throw new DomainError(`capture status: unexpected argument(s): ${positional.join(' ')}`)
+      throw new DomainError(`capture status: unexpected argument(s) (${positional.length})`)
     }
     assertOnlyFlags(flags, ['format', 'now'])
     const format = opt(flags, 'format') ?? 'text'
@@ -373,7 +371,7 @@ export function cmdCapture(
   if (sub === 'list') {
     const { positional, flags } = parseCaptureFlags(rest)
     if (positional.length > 0) {
-      throw new DomainError(`capture list: unexpected argument(s): ${positional.join(' ')}`)
+      throw new DomainError(`capture list: unexpected argument(s) (${positional.length})`)
     }
     assertOnlyFlags(flags, ['session', 'state', 'format', 'now'])
     const format = opt(flags, 'format') ?? 'text'
@@ -382,9 +380,7 @@ export function cmdCapture(
     }
     const stateFilter = opt(flags, 'state')
     if (stateFilter !== undefined && !(CAPTURE_STATES as readonly string[]).includes(stateFilter)) {
-      throw new DomainError(
-        `capture list: --state must be one of ${CAPTURE_STATES.join('|')} (got "${stateFilter}")`,
-      )
+      throw new DomainError(`capture list: --state must be one of ${CAPTURE_STATES.join('|')}`)
     }
     const sessionFilter = opt(flags, 'session')
     const now = parseNow(flags)
@@ -408,7 +404,7 @@ export function cmdCapture(
   if (sub === 'remind') {
     const { positional, flags } = parseCaptureFlags(rest)
     if (positional.length > 0) {
-      throw new DomainError(`capture remind: unexpected argument(s): ${positional.join(' ')}`)
+      throw new DomainError(`capture remind: unexpected argument(s) (${positional.length})`)
     }
     assertOnlyFlags(flags, ['cli', 'stdin', 'session', 'folder', 'format', 'now'])
     req(flags, 'cli')
@@ -436,7 +432,7 @@ export function cmdCapture(
     const entries =
       session !== undefined
         ? consumeUnannouncedForSession(ident.id, session, { env: procEnv, now })
-        : []
+        : (sweepExpiredQueues({ env: procEnv, now }), [])
     if (format === 'json') {
       io.out(`${JSON.stringify(entries, null, 2)}\n`)
       return 0
@@ -468,9 +464,7 @@ export function cmdCapture(
     assertOnlyFlags(flags, ['as', 'title', 'demand', 'decision', 'now'])
     const asRaw = req(flags, 'as')
     if (!(CAPTURE_CLASS_KINDS as readonly string[]).includes(asRaw)) {
-      throw new DomainError(
-        `capture classify: --as must be one of ${CAPTURE_CLASS_KINDS.join('|')} (got "${asRaw}")`,
-      )
+      throw new DomainError(`capture classify: --as must be one of ${CAPTURE_CLASS_KINDS.join('|')}`)
     }
     const now = parseNow(flags)
     const demandRaw = opt(flags, 'demand')
@@ -566,9 +560,7 @@ export function cmdCapture(
     assertOnlyFlags(flags, ['as', 'text', 'stdin', 'title', 'now'])
     const asRaw = req(flags, 'as')
     if (!(CAPTURE_ACK_KINDS as readonly string[]).includes(asRaw)) {
-      throw new DomainError(
-        `capture acknowledge: --as must be one of ${CAPTURE_ACK_KINDS.join('|')} (got "${asRaw}")`,
-      )
+      throw new DomainError(`capture acknowledge: --as must be one of ${CAPTURE_ACK_KINDS.join('|')}`)
     }
     const useStdin = assertBooleanFlag(flags, 'stdin')
     const textFlag = opt(flags, 'text')

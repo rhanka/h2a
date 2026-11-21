@@ -1,8 +1,12 @@
-import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 import { withFileLock } from '../events/lock.js'
+import {
+  ensurePrivateDirHardened,
+  lstatNoFollow,
+  readFileNoFollow,
+  writeFileAtomicPrivate,
+} from '../fs-private.js'
 import { DomainError } from '../model/item.js'
 import { trackStateHome } from '../state-home.js'
 import { canonicalPath } from './identity.js'
@@ -48,8 +52,7 @@ export function journalIndexPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function ensurePrivateDir(dirPath: string): void {
-  mkdirSync(dirPath, { recursive: true, mode: 0o700 })
-  chmodSync(dirPath, 0o700)
+  ensurePrivateDirHardened(dirPath)
 }
 
 function emptyIndex(): JournalIndexV1 {
@@ -89,25 +92,15 @@ function parseIndex(raw: string, filePath: string): JournalIndexV1 {
  */
 export function readJournalIndex(env: NodeJS.ProcessEnv = process.env): JournalIndexV1 {
   const filePath = journalIndexPath(env)
-  if (!existsSync(filePath)) return emptyIndex()
-  return parseIndex(readFileSync(filePath, 'utf8'), filePath)
+  lstatNoFollow(trackStateHome(env))
+  const raw = readFileNoFollow(filePath)
+  if (raw === undefined) return emptyIndex()
+  return parseIndex(raw, filePath)
 }
 
 function writeIndexAtomically(filePath: string, index: JournalIndexV1): void {
-  const tmpFile = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`
   const payload = `${JSON.stringify(index, null, 2)}\n`
-  try {
-    writeFileSync(tmpFile, payload, { encoding: 'utf8', mode: 0o600 })
-    chmodSync(tmpFile, 0o600)
-    renameSync(tmpFile, filePath)
-  } catch (err) {
-    try {
-      unlinkSync(tmpFile)
-    } catch {
-      // ignore cleanup failure
-    }
-    throw err
-  }
+  writeFileAtomicPrivate(filePath, payload, 0o600)
 }
 
 function mutateJournalIndex<T>(
@@ -118,9 +111,8 @@ function mutateJournalIndex<T>(
   ensurePrivateDir(stateHome)
   const filePath = join(stateHome, JOURNAL_INDEX_FILENAME)
   return withFileLock(filePath, () => {
-    const index = existsSync(filePath)
-      ? parseIndex(readFileSync(filePath, 'utf8'), filePath)
-      : emptyIndex()
+    const raw = readFileNoFollow(filePath)
+    const index = raw !== undefined ? parseIndex(raw, filePath) : emptyIndex()
     const result = fn(index)
     writeIndexAtomically(filePath, index)
     return result

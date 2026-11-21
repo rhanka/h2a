@@ -1,17 +1,22 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { runCli } from '../cli/index.js'
-import { identityOf } from '../journal/identity.js'
+import { identityDigest, identityOf } from '../journal/identity.js'
 import {
+  appendCapture,
   captureDirForIdentity,
   captureRootDir,
+  findCaptureEntry,
   listCaptures,
   readCaptureEntry,
+  sweepExpiredQueues,
 } from './queue.js'
+import { registerCaptureCli } from './registry.js'
 
 let scratch: string
 let stateHome: string
@@ -252,5 +257,145 @@ describe('capture queue, permissions, dismissal and hook-safety (lot 3a)', () =>
     }
     const ident = identityOf(project)
     expect(statusJson.identities[ident.id]?.['captured']).toBe(3)
+  })
+
+  it('C3: rejects symlinks at stateHome, capture/, <digest>/, <id>.json, ignores non-digest symlinks in sweep/find, and refuses TRACK_STATE_HOME inside unignored git repo', () => {
+    const project = join(scratch, 'project-symlinks')
+    mkdirSync(project, { recursive: true })
+    const ident = identityOf(project)
+    const digest = identityDigest(ident.id)
+
+    // 1. Symlink at stateHome
+    const realTarget = join(scratch, 'real-target')
+    mkdirSync(realTarget, { recursive: true })
+    const symHome = join(scratch, 'sym-state-home')
+    symlinkSync(realTarget, symHome)
+    expect(() =>
+      appendCapture(
+        {
+          cli: 'claude',
+          session: 's1',
+          folder: project,
+          identity: ident.id,
+          origin: 'doubtful',
+          rawText: 'hello',
+          transcript: null,
+        },
+        { env: { ...process.env, TRACK_STATE_HOME: symHome } },
+      ),
+    ).toThrow(/symbolic link/iu)
+    expect(readdirSync(realTarget)).toEqual([])
+
+    // 2. Symlink at capture/
+    const home2 = join(scratch, 'home-sym-capture')
+    mkdirSync(home2, { recursive: true, mode: 0o700 })
+    const target2 = join(scratch, 'target-capture')
+    mkdirSync(target2, { recursive: true })
+    symlinkSync(target2, join(home2, 'capture'))
+    expect(() =>
+      appendCapture(
+        {
+          cli: 'claude',
+          session: 's1',
+          folder: project,
+          identity: ident.id,
+          origin: 'doubtful',
+          rawText: 'hello',
+          transcript: null,
+        },
+        { env: { ...process.env, TRACK_STATE_HOME: home2 } },
+      ),
+    ).toThrow(/symbolic link/iu)
+    expect(readdirSync(target2)).toEqual([])
+
+    // 3. Non-64-hex symlink under capture/ is ignored by sweepExpiredQueues & findCaptureEntry (no .queue.lock or writes!)
+    const home3 = join(scratch, 'home-sym-sub')
+    mkdirSync(join(home3, 'capture'), { recursive: true, mode: 0o700 })
+    const externalDir = join(scratch, 'external-victim')
+    mkdirSync(externalDir, { recursive: true })
+    const victimEntry = {
+      id: 'VICTIM001',
+      at: '2020-01-01T00:00:00.000Z',
+      cli: 'claude',
+      session: 's',
+      folder: project,
+      identity: ident.id,
+      origin: 'owner',
+      text: 'DO NOT TOUCH',
+      size: 12,
+      maskedSecretCount: 0,
+      transcript: null,
+      announced: false,
+      state: 'captured',
+    }
+    writeFileSync(join(externalDir, 'VICTIM001.json'), JSON.stringify(victimEntry), 'utf8')
+    symlinkSync(externalDir, join(home3, 'capture', 'not-a-digest'))
+    expect(findCaptureEntry('VICTIM001', undefined, { ...process.env, TRACK_STATE_HOME: home3 })).toBeUndefined()
+    expect(sweepExpiredQueues({ env: { ...process.env, TRACK_STATE_HOME: home3 }, now: '2026-11-20T00:00:00.000Z' })).toBe(0)
+    expect(existsSync(join(externalDir, '.queue.lock'))).toBe(false)
+    expect(readFileSync(join(externalDir, 'VICTIM001.json'), 'utf8')).toContain('DO NOT TOUCH')
+
+    // 4. 64-hex symlink under capture/<digest> is rejected by sweepExpiredQueues, findCaptureEntry, and appendCapture
+    symlinkSync(externalDir, join(home3, 'capture', digest))
+    expect(() =>
+      sweepExpiredQueues({ env: { ...process.env, TRACK_STATE_HOME: home3 }, now: '2026-11-20T00:00:00.000Z' }),
+    ).toThrow(/symbolic link/iu)
+    expect(() =>
+      findCaptureEntry('VICTIM001', ident.id, { ...process.env, TRACK_STATE_HOME: home3 }),
+    ).toThrow(/symbolic link/iu)
+    expect(existsSync(join(externalDir, '.queue.lock'))).toBe(false)
+    expect(readFileSync(join(externalDir, 'VICTIM001.json'), 'utf8')).toContain('DO NOT TOUCH')
+
+    // 5. Symlink at <digest>/<id>.json is rejected
+    const home4 = join(scratch, 'home-sym-file')
+    const idDir4 = join(home4, 'capture', digest)
+    mkdirSync(idDir4, { recursive: true, mode: 0o700 })
+    const victimFile = join(scratch, 'victim-file.json')
+    writeFileSync(victimFile, JSON.stringify(victimEntry), 'utf8')
+    symlinkSync(victimFile, join(idDir4, 'VICTIM001.json'))
+    expect(() =>
+      readCaptureEntry(ident.id, 'VICTIM001', { ...process.env, TRACK_STATE_HOME: home4 }),
+    ).toThrow(/symbolic link/iu)
+
+    // 6. TRACK_STATE_HOME inside an unignored git repo is refused by appendCapture and registerCaptureCli
+    const gitRepo = join(scratch, 'git-repo-state-check')
+    mkdirSync(gitRepo, { recursive: true })
+    execFileSync('git', ['init', '-q'], { cwd: gitRepo })
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: gitRepo })
+    execFileSync('git', ['config', 'user.name', 'Test'], { cwd: gitRepo })
+    writeFileSync(join(gitRepo, '.gitignore'), 'ignored-state/\n', 'utf8')
+    execFileSync('git', ['add', '.gitignore'], { cwd: gitRepo })
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: gitRepo })
+
+    const unignoredHome = join(gitRepo, 'unignored-state')
+    expect(() =>
+      appendCapture(
+        {
+          cli: 'claude',
+          session: 's1',
+          folder: project,
+          identity: ident.id,
+          origin: 'doubtful',
+          rawText: 'must fail',
+          transcript: null,
+        },
+        { env: { ...process.env, TRACK_STATE_HOME: unignoredHome } },
+      ),
+    ).toThrow(/git/iu)
+    expect(() =>
+      registerCaptureCli(
+        { cli: 'claude', version: '1.0.0', mode: 'direct' },
+        { env: { ...process.env, TRACK_STATE_HOME: unignoredHome } },
+      ),
+    ).toThrow(/git/iu)
+    expect(existsSync(unignoredHome)).toBe(false)
+
+    // Ignored subdir inside git repo IS allowed
+    const ignoredHome = join(gitRepo, 'ignored-state')
+    const okReg = registerCaptureCli(
+      { cli: 'claude', version: '1.0.0', mode: 'direct' },
+      { env: { ...process.env, TRACK_STATE_HOME: ignoredHome } },
+    )
+    expect(okReg.mode).toBe('direct')
   })
 })

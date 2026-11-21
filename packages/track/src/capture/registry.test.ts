@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { runCli } from '../cli/index.js'
-import { captureRegistryPath, readCaptureRegistry } from './registry.js'
+import { captureRegistryPath, readCaptureRegistry, recordCliLastCapture, registerCaptureCli } from './registry.js'
 
 let scratch: string
 let stateHome: string
@@ -115,5 +115,35 @@ describe('capture registry and header display (T3a-n, lot 3a)', () => {
     expect(rep.out).not.toContain('captation inactive')
     expect(rep.out).toContain('1 message non classé')
     expect(rep.out).toContain('journal ouvert')
+  })
+
+  it('C5/C3: rejects --cli __proto__, multiline/separator CLI names, prevents Object.prototype pollution, and rejects symlinked capture-clis.json', () => {
+    const project = join(scratch, 'proj-reg-sec')
+    mkdirSync(project, { recursive: true })
+
+    // __proto__ must be rejected and NEVER pollute Object.prototype
+    expect(
+      cli(project, ['capture', 'register', '--cli', '__proto__', '--version', '1.0', '--mode', 'direct']).code,
+    ).toBe(1)
+    expect(recordCliLastCapture('__proto__', '2026-11-20T00:00:00.000Z', { env: process.env })).toBe(false)
+    expect(('lastCaptureAt' in Object.prototype)).toBe(false)
+
+    // Newline and middle-dot injection in --cli must be rejected
+    expect(
+      cli(project, ['capture', 'register', '--cli', 'claude\nFakeLine', '--version', '1.0', '--mode', 'direct']).code,
+    ).toBe(1)
+    expect(
+      cli(project, ['capture', 'register', '--cli', 'claude · fake', '--version', '1.0', '--mode', 'direct']).code,
+    ).toBe(1)
+
+    // Symlinked capture-clis.json must be rejected
+    mkdirSync(stateHome, { recursive: true, mode: 0o700 })
+    const target = join(scratch, 'target-reg.json')
+    writeFileSync(target, '{"version":1,"clis":{}}\n', 'utf8')
+    symlinkSync(target, captureRegistryPath(process.env))
+    expect(() => readCaptureRegistry(process.env)).toThrow(/symbolic link/iu)
+    expect(() =>
+      registerCaptureCli({ cli: 'claude', version: '1.0', mode: 'direct' }, { env: process.env }),
+    ).toThrow(/symbolic link/iu)
   })
 })

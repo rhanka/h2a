@@ -29,19 +29,25 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
       /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/gu,
   },
   {
+    kind: 'pgp-private-key',
+    description: 'PGP armored private key block',
+    pattern:
+      /-----BEGIN PGP PRIVATE KEY BLOCK-----[\s\S]*?-----END PGP PRIVATE KEY BLOCK-----/gu,
+  },
+  {
     kind: 'jwt',
     description: 'JSON Web Token (three base64url segments starting with eyJ)',
-    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gu,
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])/gu,
   },
   {
     kind: 'anthropic-key',
     description: 'Anthropic API key (sk-ant-...)',
-    pattern: /\bsk-ant-[A-Za-z0-9_-]{16,}\b/gu,
+    pattern: /\bsk-ant-[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/gu,
   },
   {
     kind: 'openai-key',
     description: 'OpenAI API key (sk-...)',
-    pattern: /\bsk-(?:proj-|svcacct-|live-|test-)?[A-Za-z0-9_-]{20,}\b/gu,
+    pattern: /\bsk-(?:proj-|svcacct-|live-|test-)?[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/gu,
   },
   {
     kind: 'github-token',
@@ -51,7 +57,7 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   {
     kind: 'gitlab-token',
     description: 'GitLab personal access token (glpat-...)',
-    pattern: /\bglpat-[A-Za-z0-9_-]{16,}\b/gu,
+    pattern: /\bglpat-[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/gu,
   },
   {
     kind: 'aws-access-key',
@@ -61,17 +67,17 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   {
     kind: 'google-api-key',
     description: 'Google API key (AIza...)',
-    pattern: /\bAIza[0-9A-Za-z_-]{30,}\b/gu,
+    pattern: /\bAIza[0-9A-Za-z_-]{30,}(?![A-Za-z0-9_-])/gu,
   },
   {
     kind: 'google-oauth-token',
     description: 'Google OAuth2 access or refresh token (ya29. / 1//0)',
-    pattern: /(?:\bya29\.[A-Za-z0-9_-]{20,}\b|\b1\/\/0[A-Za-z0-9_-]{20,}\b)/gu,
+    pattern: /(?:\bya29\.[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])|\b1\/\/0[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-]))/gu,
   },
   {
     kind: 'slack-token',
     description: 'Slack bot/user/app token (xox...)',
-    pattern: /\bxox[baprs]-[0-9A-Za-z-]{16,}\b/gu,
+    pattern: /\bxox[baprs]-[0-9A-Za-z-]{16,}(?![A-Za-z0-9_-])/gu,
   },
   {
     kind: 'huggingface-token',
@@ -89,9 +95,20 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
     pattern: /\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/gu,
   },
   {
+    kind: 'webhook-secret',
+    description: 'Webhook signing secret (whsec_...)',
+    pattern: /\bwhsec_[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])/gu,
+  },
+  {
+    kind: 'age-secret-key',
+    description: 'age secret key (AGE-SECRET-KEY-1...)',
+    pattern: /\bAGE-SECRET-KEY-1[0-9A-Z]{20,}(?![A-Za-z0-9_-])/gu,
+  },
+  {
     kind: 'auth-header',
-    description: 'HTTP Authorization / Proxy-Authorization credential',
-    pattern: /(\b(?:Authorization|Proxy-Authorization)\s*:\s*)(?:Bearer|Basic|Token|ApiKey)\s+[^\s"'`<>]+/giu,
+    description: 'HTTP Authorization / Proxy-Authorization / X-Api-Key / Api-Key / X-Auth-Token header',
+    pattern:
+      /(\b(?:Authorization|Proxy-Authorization)\s*:\s*)(?:Bearer|Basic|Token|ApiKey)\s+(?!\[secret masqué : )[^\s"'`<>]+|(\b(?:X-Api-Key|Api-Key|X-Auth-Token)\s*:\s*)(?:(?:Bearer|Token)\s+)?(?!\[secret masqué : )[^\s"'`<>]+/giu,
     replace: (_m, prefix) => `${prefix}${secretPlaceholder('auth-header')}`,
   },
   {
@@ -102,9 +119,9 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
   {
     kind: 'url-credentials',
-    description: 'Embedded user:password credentials in a URL',
+    description: 'Embedded user:password or :password credentials in a URL',
     pattern:
-      /(\b(?:https?|wss?|ftp|postgres(?:ql)?|mysql|redis|amqp|mongodb(?:\+srv)?):\/\/)([^/\s:@"'`<>]+:[^/\s@"'`<>]+)@/giu,
+      /(\b(?:https?|wss?|ftp|postgres(?:ql)?|mysql|rediss?|amqps?|mongodb(?:\+srv)?):\/\/)(?!\[secret masqué : )([^/\s:@"'`<>]*:[^/\s@"'`<>]+)@/giu,
     replace: (_m, scheme) => `${scheme}${secretPlaceholder('url-credentials')}@`,
   },
   {
@@ -116,9 +133,9 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
   {
     kind: 'secret-assignment',
-    description: 'Key-value secret assignment (password=, api_key=, client_secret=, ...)',
+    description: 'Key-value or JSON secret assignment (password=, *_TOKEN=, *_SECRET=, apiKey=, "client_secret": "...", ...)',
     pattern:
-      /(\b(?:password|passwd|pwd|secret|api_key|apikey|access_token|refresh_token|auth_token|private_key|client_secret|bearer_token|track_writer_token)\s*[:=]\s*["']?)(?!\[secret masqué : )([^\s"',;}\])]{8,})(["']?)/giu,
+      /(\b(?:(?:[A-Za-z0-9_-]*[_-])?(?:password|passwd|pwd|secret(?:[-_]?access[-_]?key|[-_]?key)?|api[-_]?key|private[-_]?key|credentials?|token)|[A-Za-z0-9]+(?:password|secret(?:accesskey|key)?|apikey|privatekey|credentials?|token))["']?\s*[:=]\s*["']?)(?!\[secret masqué : )([^\s"',;}\])]{8,})(["']?)/giu,
     replace: (_m, prefix, _val, suffix) => `${prefix}${secretPlaceholder('secret-assignment')}${suffix}`,
   },
 ] as const

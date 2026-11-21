@@ -1,14 +1,35 @@
-import { randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { withFileLock } from '../events/lock.js'
+import {
+  assertStateHomeOutsideGit,
+  lstatNoFollow,
+  readFileNoFollow,
+  writeFileAtomicPrivate,
+} from '../fs-private.js'
 import { ensurePrivateDir } from '../journal/index-store.js'
 import { DomainError } from '../model/item.js'
 import { trackStateHome } from '../state-home.js'
 
 export const CAPTURE_REGISTRY_VERSION = 1 as const
 export const CAPTURE_REGISTRY_FILENAME = 'capture-clis.json'
+export const SAFE_CLI_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/iu
+const RESERVED_CLI_NAMES: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
+const FORBIDDEN_VERSION_CHARS_RE = /[\x00-\x1f\x7f·]/u
+
+export function assertValidCliName(cli: string, context: string): string {
+  const trimmed = cli.trim()
+  if (
+    trimmed.length === 0 ||
+    !SAFE_CLI_NAME_RE.test(trimmed) ||
+    RESERVED_CLI_NAMES.has(trimmed.toLowerCase())
+  ) {
+    throw new DomainError(
+      `${context}: --cli must match /^[a-z0-9][a-z0-9_-]{0,31}$/i`,
+    )
+  }
+  return trimmed
+}
 
 export const CAPTURE_CLI_MODES = ['direct', 'deferred', 'not-covered'] as const
 export type CaptureCliMode = (typeof CAPTURE_CLI_MODES)[number]
@@ -38,7 +59,10 @@ export function captureRegistryPath(env: NodeJS.ProcessEnv = process.env): strin
 }
 
 function emptyRegistry(): CaptureRegistryV1 {
-  return { version: CAPTURE_REGISTRY_VERSION, clis: {} }
+  return {
+    version: CAPTURE_REGISTRY_VERSION,
+    clis: Object.create(null) as Record<string, CaptureCliEntry>,
+  }
 }
 
 function parseRegistry(raw: string, filePath: string): CaptureRegistryV1 {
@@ -59,50 +83,47 @@ function parseRegistry(raw: string, filePath: string): CaptureRegistryV1 {
       `unsupported capture registry version ${String(obj['version'])} in ${filePath}`,
     )
   }
-  const clis = obj['clis']
-  if (typeof clis !== 'object' || clis === null || Array.isArray(clis)) {
+  const clisRaw = obj['clis']
+  if (typeof clisRaw !== 'object' || clisRaw === null || Array.isArray(clisRaw)) {
     throw new DomainError(`capture registry ${filePath} has invalid clis map`)
+  }
+  const safeClis = Object.create(null) as Record<string, CaptureCliEntry>
+  for (const [key, val] of Object.entries(clisRaw as Record<string, CaptureCliEntry>)) {
+    if (!SAFE_CLI_NAME_RE.test(key) || RESERVED_CLI_NAMES.has(key.toLowerCase())) continue
+    safeClis[key] = val
   }
   return {
     version: CAPTURE_REGISTRY_VERSION,
-    clis: clis as Record<string, CaptureCliEntry>,
+    clis: safeClis,
   }
 }
 
 /**
  * Pure read-only load of `capture-clis.json` (V4): never creates directories, files, or locks.
+ * Fails closed on symbolic links.
  */
 export function readCaptureRegistry(env: NodeJS.ProcessEnv = process.env): CaptureRegistryV1 {
+  const stateHome = trackStateHome(env)
+  lstatNoFollow(stateHome)
   const filePath = captureRegistryPath(env)
-  if (!existsSync(filePath)) return emptyRegistry()
-  return parseRegistry(readFileSync(filePath, 'utf8'), filePath)
+  const raw = readFileNoFollow(filePath)
+  if (raw === undefined) return emptyRegistry()
+  return parseRegistry(raw, filePath)
 }
 
 function writeRegistryAtomically(filePath: string, registry: CaptureRegistryV1): void {
-  const tmpFile = `${filePath}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`
   const payload = `${JSON.stringify(registry, null, 2)}\n`
-  try {
-    writeFileSync(tmpFile, payload, { encoding: 'utf8', mode: 0o600 })
-    chmodSync(tmpFile, 0o600)
-    renameSync(tmpFile, filePath)
-  } catch (err) {
-    try {
-      unlinkSync(tmpFile)
-    } catch {
-      // ignore cleanup failure
-    }
-    throw err
-  }
+  writeFileAtomicPrivate(filePath, payload, 0o600)
 }
 
 function mutateRegistry<T>(env: NodeJS.ProcessEnv, fn: (reg: CaptureRegistryV1) => T): T {
   const stateHome = trackStateHome(env)
+  assertStateHomeOutsideGit(stateHome, env)
   ensurePrivateDir(stateHome)
   const filePath = join(stateHome, CAPTURE_REGISTRY_FILENAME)
   return withFileLock(filePath, () => {
-    const reg = existsSync(filePath)
-      ? parseRegistry(readFileSync(filePath, 'utf8'), filePath)
-      : emptyRegistry()
+    const raw = readFileNoFollow(filePath)
+    const reg = raw !== undefined ? parseRegistry(raw, filePath) : emptyRegistry()
     const result = fn(reg)
     writeRegistryAtomically(filePath, reg)
     return result
@@ -113,20 +134,21 @@ export function registerCaptureCli(
   input: { cli: string; version: string; mode: CaptureCliMode },
   opts: CaptureRegistryOptions = {},
 ): CaptureCliEntry {
-  const cliName = input.cli.trim()
-  if (cliName.length === 0) throw new DomainError('capture register: --cli must be non-empty')
+  const cliName = assertValidCliName(input.cli, 'capture register')
   const version = input.version.trim()
-  if (version.length === 0) throw new DomainError('capture register: --version must be non-empty')
+  if (version.length === 0 || version.length > 64 || FORBIDDEN_VERSION_CHARS_RE.test(version)) {
+    throw new DomainError('capture register: --version must be non-empty, <= 64 chars, without control characters')
+  }
   if (!(CAPTURE_CLI_MODES as readonly string[]).includes(input.mode)) {
     throw new DomainError(
-      `capture register: --mode must be one of ${CAPTURE_CLI_MODES.join('|')} (got "${String(input.mode)}")`,
+      `capture register: --mode must be one of ${CAPTURE_CLI_MODES.join('|')}`,
     )
   }
   const env = opts.env ?? process.env
   const now = opts.now ?? new Date().toISOString()
 
   return mutateRegistry(env, (reg) => {
-    const prev = reg.clis[cliName]
+    const prev = Object.hasOwn(reg.clis, cliName) ? reg.clis[cliName] : undefined
     const entry: CaptureCliEntry = {
       version,
       mode: input.mode,
@@ -148,12 +170,21 @@ export function recordCliLastCapture(
   opts: { env?: NodeJS.ProcessEnv | undefined } = {},
 ): boolean {
   const cliName = cli.trim()
-  if (cliName.length === 0) return false
+  if (
+    cliName.length === 0 ||
+    !SAFE_CLI_NAME_RE.test(cliName) ||
+    RESERVED_CLI_NAMES.has(cliName.toLowerCase())
+  ) {
+    return false
+  }
   const env = opts.env ?? process.env
+  const stateHome = trackStateHome(env)
+  lstatNoFollow(stateHome)
   const filePath = captureRegistryPath(env)
-  if (!existsSync(filePath)) return false
+  if (lstatNoFollow(filePath) === undefined) return false
 
   return mutateRegistry(env, (reg) => {
+    if (!Object.hasOwn(reg.clis, cliName)) return false
     const existing = reg.clis[cliName]
     if (existing === undefined) return false
     existing.lastCaptureAt = at
