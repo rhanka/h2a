@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
+import { canonicalPath, isInsideDir, isJournalIdentity, tmpCeilingFor } from '../journal/identity.js'
+import { readJournalIndex, type JournalIndexV1 } from '../journal/index-store.js'
 import type { State } from '../state/fold.js'
+import { trackStateHome } from '../state-home.js'
 
 export interface DesyncFinding {
   kind: 'desync'
@@ -9,6 +12,23 @@ export interface DesyncFinding {
   reason: string
   /** A concrete remediation suggestion (v2.2c). `validate` detects only — it NEVER applies this. */
   hint: string
+}
+
+export interface DesyncEvaluationOptions {
+  /** Pre-loaded journal index (avoids repeated disk reads when caller already loaded it). */
+  index?: JournalIndexV1 | undefined
+  /** Environment for resolving `TRACK_STATE_HOME` when `index` is not supplied. */
+  env?: NodeJS.ProcessEnv | undefined
+  /** True when the journal itself resides outside any repository (under state home). */
+  offRepo?: boolean | undefined
+  /** Fallback project root for legacy items in an off-repo journal. */
+  fallbackRoot?: string | null | undefined
+}
+
+export interface DesyncEvaluationResult {
+  findings: DesyncFinding[]
+  /** Count of markdown references whose owning identity has no recorded project root in the index. */
+  unverifiedCount: number
 }
 
 /**
@@ -32,17 +52,6 @@ export interface DesyncFinding {
  *          interior whitespace and is not a path token;
  *        - it contains no `:` — a glued prose label ("Ref:docs/x.md", "See:docs/x.md") is prose,
  *          not a clean path (`:` is not used in this repo's paths).
- *
- * POLICY — ESCALATED to the conductor (two intentional, reversible defaults):
- *   (a) A MISSING path that contains whitespace (e.g. `docs/Getting Started.md`) is skipped as
- *       prose. This is IRREDUCIBLE: a spaced path is character-for-character indistinguishable from
- *       a spaced prose body that ends in a "…/foo.md" citation (both have whitespace + `/` + `.md`),
- *       so flagging the former necessarily re-flags the latter — i.e. re-opens the reported bug. The
- *       repo's spec-file convention uses hyphenated, space-free names, so precision-first is safe
- *       here today. If spaced spec filenames are ever adopted, relax the `\s` rule below (one line)
- *       and accept that prose citations will desync again.
- *   (b) A MISSING bare name (no `/`) is not validated, so `.md` domains/emails never desync. A bare
- *       spec is validated only once it exists (rule 1).
  */
 function resolveMarkdownRef(body: string, cwd: string): { path: string; exists: boolean } | null {
   if (!body.endsWith('.md')) return null
@@ -54,20 +63,79 @@ function resolveMarkdownRef(body: string, cwd: string): { path: string; exists: 
   return { path, exists: false } // a clean, nested, missing path: a genuine desync
 }
 
+/** Syntactic check for a relative `.md` document reference when its project folder is unknown. */
+function isRelativeMarkdownRefCandidate(body: string): boolean {
+  if (!body.endsWith('.md')) return false
+  if (/\s/.test(body)) return false
+  if (body.includes(':')) return false
+  if (body.includes('@')) return false
+  return body.includes('/') || /^[A-Za-z0-9._-]+\.md$/u.test(body)
+}
+
+function loadIndexWithCeiling(cwd: string, options: DesyncEvaluationOptions): JournalIndexV1 {
+  if (options.index !== undefined) return options.index
+  const procEnv = options.env ?? process.env
+  const ceiling = tmpCeilingFor(cwd)
+  if (ceiling !== undefined) {
+    const stateHome = trackStateHome(procEnv)
+    const absState = resolve(stateHome)
+    const absCeiling = resolve(ceiling)
+    const realCeiling = canonicalPath(ceiling)
+    if (!isInsideDir(absState, absCeiling) && !isInsideDir(canonicalPath(stateHome), realCeiling)) {
+      return { version: 1, identities: {} }
+    }
+  }
+  try {
+    return readJournalIndex(procEnv)
+  } catch {
+    return { version: 1, identities: {} }
+  }
+}
+
 /**
- * SPEC §4 round-trip / desync rule: when an Item's `body` is a markdown file reference (see
- * {@link resolveMarkdownRef}), that file MUST exist and its H1 title MUST match the Item title. A
- * missing file or a title mismatch is a desync finding (MVP reports; it never auto-repairs).
- * Inline-prose bodies (the common case, incl. BRANCH-imported items and spec citations) are not file
- * references and are skipped. Each finding carries a `hint` — a suggested fix the human/agent may
- * apply (track never does).
+ * Evaluate document desynchronisation findings and unverified document references (spec DS-7,
+ * lot 4a). Items carrying a project/folder identity (`ws:` / `dir:`) resolve against the `root`
+ * recorded in `journals.json`; an identity with no recorded root is not checked and is counted
+ * under `unverifiedCount`. Legacy items in an in-repo journal keep lot 1's rule: `cwd`.
  */
-export function desyncFindings(state: State, cwd: string): DesyncFinding[] {
+export function evaluateDesync(
+  state: State,
+  cwd: string,
+  options: DesyncEvaluationOptions = {},
+): DesyncEvaluationResult {
   const findings: DesyncFinding[] = []
+  let unverifiedCount = 0
+  let index: JournalIndexV1 | undefined
+
   for (const item of state.items.values()) {
     const ref = item.body?.trim()
-    if (ref === undefined) continue
-    const resolved = resolveMarkdownRef(ref, cwd)
+    if (ref === undefined || !ref.endsWith('.md')) continue
+
+    let baseDir: string | null
+    if (isAbsolute(ref)) {
+      baseDir = cwd
+    } else if (isJournalIdentity(item.workspace)) {
+      if (index === undefined) index = loadIndexWithCeiling(cwd, options)
+      const recordedRoot = index.identities[item.workspace]?.root
+      if (recordedRoot !== undefined && recordedRoot.trim() !== '') {
+        baseDir = recordedRoot
+      } else {
+        if (isRelativeMarkdownRefCandidate(ref)) unverifiedCount++
+        continue
+      }
+    } else if (options.offRepo === true) {
+      if (options.fallbackRoot !== undefined && options.fallbackRoot !== null && options.fallbackRoot.trim() !== '') {
+        baseDir = options.fallbackRoot
+      } else {
+        if (isRelativeMarkdownRefCandidate(ref)) unverifiedCount++
+        continue
+      }
+    } else {
+      // Journal inside a repository whose items carry no identity: keep lot 1 rule.
+      baseDir = cwd
+    }
+
+    const resolved = resolveMarkdownRef(ref, baseDir)
     if (resolved === null) continue
     if (!resolved.exists) {
       findings.push({
@@ -96,5 +164,18 @@ export function desyncFindings(state: State, cwd: string): DesyncFinding[] {
       })
     }
   }
-  return findings
+  return { findings, unverifiedCount }
+}
+
+/**
+ * SPEC §4 round-trip / desync rule: when an Item's `body` is a markdown file reference (see
+ * {@link resolveMarkdownRef}), that file MUST exist and its H1 title MUST match the Item title. A
+ * missing file or a title mismatch is a desync finding (MVP reports; it never auto-repairs).
+ */
+export function desyncFindings(
+  state: State,
+  cwd: string,
+  options: DesyncEvaluationOptions = {},
+): DesyncFinding[] {
+  return evaluateDesync(state, cwd, options).findings
 }

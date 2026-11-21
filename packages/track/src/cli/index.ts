@@ -11,7 +11,10 @@ import { cmdAdopt } from './adopt.js'
 import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
 import { resolveJournalOfReference, type JournalReferenceResult } from './journal-reference.js'
-import { resolveOwnerTablePolicyFile } from '../state-home.js'
+import { cmdJournal } from './journal.js'
+import { resolveOwnerTablePolicyFile, trackStateHome } from '../state-home.js'
+import { canonicalPath, identityOf, isInsideDir, isJournalIdentity, tmpCeilingFor } from '../journal/identity.js'
+import { deriveLabelFromIndex, readJournalIndex } from '../journal/index-store.js'
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
@@ -41,13 +44,14 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { ownerTableText, queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
+import { queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
 import { auditOwnerTable, formatOwnerTableNoJournalMessage } from '../report/owner-table.js'
+import { buildQualifiedOwnerTable, renderQualifiedOwnerTable } from '../report/owner-table-qualified.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
 import { durableWorkspaceId } from '../workspace-id.js'
-import { desyncFindings } from './desync.js'
+import { desyncFindings, evaluateDesync } from './desync.js'
 
 export interface CliIO {
   cwd: string
@@ -76,6 +80,7 @@ const USAGE = `usage: track <command>
     may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
+  journal which [--format json|text] | designate <dir> [--by <name>] | attach --to <dir>
   item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--link <kind=locator>] (repeatable --link; trim actor IDs; blank responsible members are dropped)
   item link <itemId> --kind <kind> --locator <locator> [--reason <text>] [--client-token <t>] (attach one link/pin to an existing item; kind spec-exempt requires --reason)
   item reparent <itemId> [--parent <pid>] [--detach]
@@ -577,13 +582,18 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         return cmdEventsContains(rest, io)
       case 'adopt':
         return cmdAdopt(rest, io, resolveOpts, resolveCommit, cliActor)
+      case 'journal':
+        // Journal of reference inspection and explicit designation/attachment (lot 4a).
+        // Dispatched before store resolution so `which` stays a pure read and `designate`/`attach`
+        // operate on explicit project/folder paths.
+        return cmdJournal(rest, io, { ...resolveOpts, processEnv: io.env ?? process.env })
       // READ commands SERVE-EMPTY (launch/serve alignment): they resolve via the non-throwing
       // `resolveTrackDirOrNull`, so an unadopted repo yields rc=0 + an honest-empty view + a stderr
       // `track init` hint, never a boot crash. NEVER creates. A bad EXPLICIT override still throws
       // (user error → the outer catch → rc=1). The reader over a nonexistent log already reads empty.
       case 'report': {
         if (rest.includes('--owner-table')) {
-          const ref = resolveJournalOfReference(resolveOpts)
+          const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: io.env ?? process.env })
           const ctx: Ctx = {
             io,
             eventsPath:
@@ -1527,9 +1537,11 @@ function cmdReport(
     if (noTrackDir) {
       throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, journalRef?.reason))
     }
+    const procEnv = io.env ?? process.env
     const resolvedPolicy = resolveOwnerTablePolicyFile({
       flagPolicyPath: opt(flags, 'policy'),
       trackDir: dirname(ctx.eventsPath),
+      env: procEnv,
     })
     const ownerOpts = {
       baselineCommit: options.baselineCommit,
@@ -1540,28 +1552,72 @@ function cmdReport(
       statePolicyPath: resolvedPolicy.statePolicyPath,
       ...(resolvedPolicy.policyPath !== undefined ? { policyPath: resolvedPolicy.policyPath } : {}),
     }
+    const tableCtx = reader.ownerTableContext(ownerOpts)
     if (strict) {
-      const view = reader.ownerTable(ownerOpts)
-      const audit = auditOwnerTable(view, ownerOpts)
+      const audit = auditOwnerTable(tableCtx.view, ownerOpts)
       for (const notice of audit.notices ?? []) {
         io.err(`Notice: ${notice}\n`)
       }
     }
-    io.out(
-      ownerTableText(
-        reader,
-        {
-          ...ownerOpts,
-          strict,
-          header: {
-            ...(journalRef?.label !== undefined ? { label: journalRef.label } : {}),
-            resolution: journalRef?.resolution ?? 'dossier',
-            localOnlyEventCount: journalRef?.localOnlyEventCount ?? 0,
-          },
-        },
-        format,
-      ),
-    )
+    const ceiling = tmpCeilingFor(io.cwd)
+    const stateHome = trackStateHome(procEnv)
+    const indexAllowed =
+      ceiling === undefined ||
+      isInsideDir(resolve(stateHome), resolve(ceiling)) ||
+      isInsideDir(canonicalPath(stateHome), canonicalPath(ceiling))
+    const journalIndex = indexAllowed ? readJournalIndex(procEnv) : { version: 1 as const, identities: {} }
+    const isOffRepo = journalRef?.resolution === 'journal hors dépôt'
+    const desyncEval = evaluateDesync(tableCtx.state, reader.journalProjectDir(), {
+      index: journalIndex,
+      env: procEnv,
+      offRepo: isOffRepo,
+      fallbackRoot: journalRef?.identityRoot ?? null,
+    })
+
+    // Origin labels for rows raised from an identity different from the journal's own identity (lot 4a).
+    const journalOwnIdentity =
+      journalRef?.conductorIdentity ??
+      (isOffRepo
+        ? journalRef?.identity
+        : journalRef?.trackDir !== null && journalRef?.trackDir !== undefined
+          ? identityOf(reader.journalProjectDir()).id
+          : journalRef?.identity)
+    const rowOriginLabels = new Map<string, string>()
+    for (const row of tableCtx.view.rows) {
+      const ws =
+        tableCtx.state.demands.get(row.id)?.workspace ??
+        tableCtx.state.items.get(row.id)?.workspace ??
+        (row.parentDemandId !== undefined
+          ? tableCtx.state.demands.get(row.parentDemandId)?.workspace
+          : undefined)
+      if (
+        ws !== undefined &&
+        isJournalIdentity(ws) &&
+        journalOwnIdentity !== undefined &&
+        ws !== journalOwnIdentity
+      ) {
+        const shortLabel = deriveLabelFromIndex(ws, journalIndex) ?? 'journal'
+        rowOriginLabels.set(row.id, shortLabel)
+      }
+    }
+
+    const qualified = buildQualifiedOwnerTable(tableCtx.view, {
+      ...ownerOpts,
+      mode: strict ? 'strict' : 'default',
+      policyFound: tableCtx.policyFound,
+      desyncFindings: desyncEval.findings,
+      unverifiedDocsCount: desyncEval.unverifiedCount,
+      unassignedJournal:
+        journalRef !== undefined && !journalRef.designated && journalRef.knownCopies > 1,
+      rowOriginLabels,
+      header: {
+        ...(journalRef?.label !== undefined ? { label: journalRef.label } : {}),
+        resolution: journalRef?.resolution ?? 'dossier',
+        localOnlyEventCount: journalRef?.localOnlyEventCount ?? 0,
+        ...(tableCtx.lastEventAt !== undefined ? { lastEventAt: tableCtx.lastEventAt } : {}),
+      },
+    })
+    io.out(renderQualifiedOwnerTable(qualified, format))
     return 0
   }
   if (inline) {
@@ -1920,7 +1976,7 @@ function cmdValidate(args: string[], ctx: Ctx, noStore = false): number {
   const integrity = validate(events, readHead(ctx.eventsPath))
   const trackDir = dirname(ctx.eventsPath)
   const journalFolder = basename(trackDir) === '.track' ? dirname(trackDir) : trackDir
-  const desync = desyncFindings(new Track(s).state(), journalFolder)
+  const desync = desyncFindings(new Track(s).state(), journalFolder, { env: io.env ?? process.env })
   const findings = [...integrity.findings.map((f) => ({ ...f })), ...desync]
   if (findings.length === 0) {
     io.out(`OK: ${events.length} events, integrity + desync clean\n`)
