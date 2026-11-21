@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 
 import type { UiRenderAssets, UiRenderCatalogEntry } from "./assets.js";
 import { fallbackContent, formatDiagnosticsSummary, truncateUtf8Bytes } from "./fallback.js";
+import { inlineExternalSchemaRefs } from "./schema-inline.js";
 import type { UiRenderValidator } from "./validation.js";
 import { utf8ByteLength } from "./validation.js";
 import {
@@ -154,6 +155,16 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
   const inlineLimitBytes =
     options.inlineLimitBytes ?? 1_048_576 - 16_384; // resolveFrameBudget default − 16 KiB (§5.2)
   const components = Object.keys(assets.catalog.components);
+  // Pre-inline external A2UI $refs once so every exported tool schema and
+  // get_schema payload is self-contained (local #/$defs only, no remote URLs).
+  const envelopeInputSchema = inlineExternalSchemaRefs(assets.envelopeSchema);
+  const componentSchemas: Record<string, Record<string, unknown>> = {};
+  for (const component of components) {
+    const raw = assets.schemas[component];
+    if (raw !== undefined) {
+      componentSchemas[component] = inlineExternalSchemaRefs(raw);
+    }
+  }
   const perComponentUri = (component: string): string => `ui://sentropic/${component}/v1`;
   /** Per-connection intent fallback (§4.2.4); closed sessions can be collected. */
   const sessionStates = new WeakMap<object, { lastRenderedComponent?: string }>();
@@ -205,7 +216,7 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
         name: "render",
         description:
           "Validate and render one SEP-1865 envelope (the arguments ARE the envelope: optional catalogId, contract, optional mode, root) through the linked ui:// resource.",
-        inputSchema: assets.envelopeSchema as unknown as McpToolDescriptor["inputSchema"],
+        inputSchema: envelopeInputSchema as unknown as McpToolDescriptor["inputSchema"],
         annotations: { readOnlyHint: true },
         _meta: {
           ui: {
@@ -225,7 +236,7 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
       }
     ];
     for (const component of components) {
-      const schema = assets.schemas[component];
+      const schema = componentSchemas[component];
       if (schema === undefined) continue; // a workspace overlay may miss per-component schemas
       descriptors.push({
         name: `render_${component}`,
@@ -290,7 +301,7 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
         ]
       });
     }
-    const schema = assets.schemas[component];
+    const schema = componentSchemas[component];
     if (schema === undefined) {
       return refused({
         diagnostics: [
