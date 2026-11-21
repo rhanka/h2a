@@ -25,10 +25,13 @@ import {
 } from "./registry.js";
 import {
   appendHostJournal,
-  createHostJournalWriter,
   readHostJournal,
   resolveHostJournalPath,
 } from "./native-terminal/journal.js";
+// Import createHostJournalWriter from dist/ like journal.test.ts: vitest runs
+// this file as TS source, and a plain node fork of a .ts module fails with
+// ERR_UNKNOWN_FILE_EXTENSION.
+import { createHostJournalWriter } from "../dist/native-terminal/journal.js";
 import { tryAcquireResumeLaunchClaim } from "./relaunch.js";
 import { writeLastLayout } from "./restore.js";
 import {
@@ -223,6 +226,13 @@ describe("lot L0: test-state isolation by construction (D16)", () => {
     const okWriter = createHostJournalWriter(insideLog);
     okWriter.write({ event: "dropped", count: 3 });
     await okWriter.flush();
+    const deadline = Date.now() + 5_000;
+    while (
+      !readHostJournal(insideLog).some((e) => e.event === "dropped" && e.count === 3) &&
+      Date.now() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
     await okWriter.settle();
     expect(readHostJournal(insideLog).some((e) => e.event === "dropped" && e.count === 3)).toBe(true);
   });

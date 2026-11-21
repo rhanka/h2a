@@ -584,6 +584,7 @@ function buildCheckoutOverlayArgs(repoRoot, runRoot, ciImports) {
 
   const scratchLocs = [
     ["", ".test-scratch"],
+    ["src", ".test-scratch"],
     ["src", ".cfg-test"],
     ["src", ".auth-test"],
     ["src", ".stack-test"],
