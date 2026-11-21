@@ -204,8 +204,13 @@ export function readAndValidateSandboxReceipt(env = process.env) {
   if (process.platform === "darwin" && receipt.backend !== "sandbox-exec") {
     throw new UnconfinedTestRunError(`unexpected macOS barrier backend: ${receipt.backend}`);
   }
-  if (typeof receipt.root !== "string" || resolve(receipt.root) !== resolve(stateRoot)) {
-    throw new UnconfinedTestRunError("receipt root does not match H2A_TEST_STATE_ROOT");
+  if (typeof receipt.root !== "string" || !isAbsolute(receipt.root)) {
+    throw new UnconfinedTestRunError("receipt missing valid root path");
+  }
+  if (resolve(receipt.root) !== resolve(stateRoot)) {
+    // Allow narrowing H2A_TEST_STATE_ROOT strictly inside receipt.root
+    // (consistent with test-state-guard.ts), never widening or traversing symlinks.
+    resolveCanonicalInsideRoot(stateRoot, receipt.root);
   }
   if (receipt.nonce !== nonce) {
     throw new UnconfinedTestRunError("receipt nonce does not match invocation nonce");
@@ -597,7 +602,7 @@ export function allocateWorkerRoot(receipt, env = process.env, options = {}) {
       H2A_NATIVE_SOCKET: join(workerRoot, "runtime", "host.sock"),
       H2A_NATIVE_HOST_LOG: hostLog,
       DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(workerRoot, "runtime", "no-bus")}`,
-      [TEST_STATE_ROOT_ENV]: receipt.root,
+      [TEST_STATE_ROOT_ENV]: env[TEST_STATE_ROOT_ENV] || receipt.root,
       [TEST_STATE_QUALIFICATION_ROOT_ENV]: receipt.root,
       [TEST_WORKER_ROOT_ENV]: workerRoot,
       [TEST_WORKER_PID_ENV]: `${options.roleTag ?? "sup"}:${process.pid}`,
@@ -702,7 +707,7 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
   if (!forceNewWorker && !needsFreshNodeTestWorker && hasCustomFixtureEnv) {
     // Preserve fixture child's private environment verbatim; only fill missing
     // isolation defaults inside R without overwriting any caller-provided key.
-    targetEnv[TEST_STATE_ROOT_ENV] = receipt.root;
+    targetEnv[TEST_STATE_ROOT_ENV] = targetEnv[TEST_STATE_ROOT_ENV] || receipt.root;
     targetEnv[TEST_STATE_QUALIFICATION_ROOT_ENV] = receipt.root;
     const baseDir = targetEnv.XDG_RUNTIME_DIR && isPathWithinAttestedRoot(targetEnv.XDG_RUNTIME_DIR, receipt)
       ? resolve(targetEnv.XDG_RUNTIME_DIR)
@@ -729,7 +734,7 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
     isPathWithinAttestedRoot(inheritedWorkerRoot, receipt) &&
     ISOLATED_ENV_KEYS.every((k) => Boolean(targetEnv[k]) && isPathWithinAttestedRoot(targetEnv[k], receipt))
   ) {
-    targetEnv[TEST_STATE_ROOT_ENV] = receipt.root;
+    targetEnv[TEST_STATE_ROOT_ENV] = targetEnv[TEST_STATE_ROOT_ENV] || receipt.root;
     targetEnv[TEST_STATE_QUALIFICATION_ROOT_ENV] = receipt.root;
     return { reused: true, workerRoot: inheritedWorkerRoot };
   }
