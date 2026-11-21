@@ -530,11 +530,12 @@ export type RestoreStationPlan =
   | { readonly ok: true; readonly live: number; readonly dead: number }
   | { readonly ok: false; readonly reason: string };
 
-/** Refusals that still name a dead human session restore knows about. */
+/**
+ * Refusals that name a dead session restore knows about. An unknown host view
+ * or an identity present on two hosts is not "dead": it is never counted (I7).
+ */
 const STATION_DEAD_REFUSALS: ReadonlySet<RestoreRefusalReason> = new Set([
   "unresolved-conversation",
-  "dual-host-ambiguous",
-  "host-unknown",
   "per-project-scan-cap",
   "unclassified-scan",
 ]);
@@ -557,14 +558,17 @@ export function summarizeStationPlan(
   let live = 0;
   let dead = 0;
   for (const classification of plan.classifications) {
+    if (classification.outcome === "refused") {
+      if (!STATION_DEAD_REFUSALS.has(classification.reason)) continue;
+      // The plan refuses a dead registry row whose conversation is unresolved
+      // without building a session for it: it is dead all the same.
+      if (classification.session === undefined) {
+        dead += 1;
+        continue;
+      }
+    }
     const session = classification.session;
     if (session === undefined) continue;
-    if (
-      classification.outcome === "refused" &&
-      !STATION_DEAD_REFUSALS.has(classification.reason)
-    ) {
-      continue;
-    }
     const name = session.managedName;
     const isLive =
       name !== undefined &&

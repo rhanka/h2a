@@ -246,6 +246,7 @@ class FakeHost {
     }
     this.connects += 1;
     const client = new FakeClient(this);
+
     this.clients.add(client);
     return client;
   }
@@ -792,7 +793,10 @@ class Harness {
       connect: async (socketPath) => {
         const host = this.fleet.hosts.get(socketPath);
         if (!host) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-        return host.connect();
+        const client = host.connect();
+        // A connection can take time to establish: the gate lets a test hold it.
+        await this.connectGate?.(socketPath);
+        return client;
       },
     };
   }
@@ -854,10 +858,27 @@ class Harness {
   }
 
   stepError: unknown;
+  connectGate: ((socketPath: string) => Promise<void>) | undefined;
+  /** Runs once the station returned, before the clean-exit invariant. */
+  afterStation: (() => void | Promise<void>) | undefined;
+
+  /** Connections of the station still open (a leak keeps the process alive). */
+  openConnections(): number {
+    return [...this.fleet.hosts.values()].reduce(
+      (count, host) => count + [...host.clients].filter((client) => !client.closed).length,
+      0,
+    );
+  }
 
   async run(): Promise<number> {
     const code = await runStation(this.runtime(), this.options());
     if (this.stepError !== undefined) throw this.stepError;
+    await this.afterStation?.();
+    // Let every promise the station left behind settle, then check the
+    // invariant of a clean exit: no host connection stays open.
+    for (let i = 0; i < 5; i += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(this.openConnections(), "host connections left open by the station").toBe(0);
     return code;
   }
 
@@ -2870,5 +2891,39 @@ describe("Step 7 — D-A18 manual pin through set-manual-pin (INJ double)", () =
     const rows = (h.row("h2a-tracker").extraRows ?? []).map((row) => row.id);
     expect(rows).toEqual(["guard-keep"]);
     expect(h.row("h2a-tracker").draftCapability).toBe("refused-no-capability");
+  });
+});
+
+describe("Clean exit — no host connection outlives the station", () => {
+  it("should close a host connection that was still being established when the station closed", async () => {
+    const h = new Harness();
+    const pending: Array<() => void> = [];
+    h.step(
+      (x) => {
+        // The link to the second host is lost; the next refresh re-establishes it…
+        x.fleet.host("/fake/host-2.sock").restart("gen-2b");
+        x.now += 2_000;
+        // …slowly: the connection is still being set up when Ctrl-\ is typed.
+        x.connectGate = (socketPath) =>
+          socketPath === "/fake/host-2.sock"
+            ? new Promise<void>((resolve) => {
+                pending.push(resolve);
+              })
+            : Promise.resolve();
+      },
+      tick,
+      tick,
+      (x) => x.stdin.type(DETACH),
+    );
+    h.autoDetach = false;
+    let pendingAtClose = -1;
+    h.afterStation = () => {
+      // The station returned although connection attempts are still pending…
+      pendingAtClose = pending.length;
+      for (const release of pending.splice(0)) release();
+    };
+    // …and those late connections are closed, not kept (run() asserts it).
+    await expect(h.run()).resolves.toBe(0);
+    expect(pendingAtClose).toBeGreaterThan(0);
   });
 });

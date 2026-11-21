@@ -164,7 +164,7 @@ describe("S1 step 2 — live/dead count from the pure restore plan", () => {
         outcome: "refused",
         key: "h2a-dead-3",
         label: "dead-3",
-        reason: "unresolved-conversation" as never,
+        reason: "per-project-scan-cap" as never,
         session: discovered({ managedName: "h2a-dead-3" }),
       },
       // A remote tab is neither a live native session nor a dead one.
@@ -178,6 +178,23 @@ describe("S1 step 2 — live/dead count from the pure restore plan", () => {
     ];
     const plan = { ok: true, classifications } as unknown as RestorePlanResult;
     expect(summarizeStationPlan(plan, hostView)).toEqual({ ok: true, live: 3, dead: 3 });
+  });
+
+  it("should count a registry row refused for an unresolved conversation as dead, even without a session", () => {
+    // What the real plan emits for a dead registry row with no resolved
+    // conversation id: a refusal that carries no DiscoveredSession at all.
+    const classifications: RestoreSessionClassification[] = [
+      selected(discovered({ managedName: "h2a-conductor" })),
+      { outcome: "refused", key: "registry:h2a-ghost", label: "ghost", reason: "unresolved-conversation" },
+      { outcome: "refused", key: "scan:abc", label: "guess", reason: "unclassified-scan" as never },
+      // Unknown or ambiguous is never reported as dead (I7).
+      { outcome: "refused", key: "registry:h2a-unknown", label: "unknown", reason: "host-unknown" },
+      { outcome: "refused", key: "registry:h2a-twice", label: "twice", reason: "dual-host-ambiguous" },
+      // Not a human session of the layout at all.
+      { outcome: "refused", key: "registry:h2a-job", label: "job", reason: "delegated" },
+    ];
+    const plan = { ok: true, classifications } as unknown as RestorePlanResult;
+    expect(summarizeStationPlan(plan, hostView)).toEqual({ ok: true, live: 1, dead: 2 });
   });
 
   it("should carry the refusal of an unreadable registry", () => {
