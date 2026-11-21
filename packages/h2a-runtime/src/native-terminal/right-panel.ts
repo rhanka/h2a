@@ -1,7 +1,9 @@
+import type { MouseEncoding, MouseTrackingMode } from "./terminal-modes.js";
+
 /**
- * Native right panel (L0 + L0.5a live selector foundation). Reserved columns
- * mirror the bottom status bar's reserved row: the child PTY is resized to
- * the remaining columns and the panel paints inside the reserved strip.
+ * Native right panel (L0 + L0.5a live selector foundation + L0.5b containment/mouse).
+ * Reserved columns mirror the bottom status bar's reserved row: the child PTY is
+ * resized to the remaining columns and the panel paints inside the reserved strip.
  * Everything here is behind a default-OFF flag; with the flag off nothing is
  * constructed and attach behaviour is byte-identical to before.
  */
@@ -51,6 +53,7 @@ export const RIGHT_PANEL_MIN_WIDTH = 20;
 export const RIGHT_PANEL_MAX_WIDTH = 60;
 export const RIGHT_PANEL_STRIP_COLS = 1;
 export const RIGHT_PANEL_MIN_CHILD_COLS = 40;
+export const RIGHT_PANEL_MIN_ROWS = 10;
 
 export type RightPanelSessionStatus =
   | "running"
@@ -467,7 +470,7 @@ export function parseSgrMouse(data: string): {
 }
 
 export type MouseRoute = Readonly<{
-  zone: "panel" | "cli" | "native-selection" | "status-marker";
+  zone: "panel" | "cli" | "native-selection" | "status-marker" | "status-bar";
   forwardToCli: boolean;
 }>;
 
@@ -484,6 +487,7 @@ export function routePanelMouse(
   opts: { cliMouseEnabled: boolean },
 ): MouseRoute {
   if (event.shift) return { zone: "native-selection", forwardToCli: false };
+  // When the bottom bar is active, the entire last row is reserved (PANEL:181, :385).
   const barActive = geom.statusBarActive !== false;
   if (barActive && event.y >= geom.totalRows) {
     const span = rightPanelStatusBarHitSpan(
@@ -493,9 +497,52 @@ export function routePanelMouse(
     if (span && event.x >= span.startCol && event.x <= span.endCol) {
       return { zone: "status-marker", forwardToCli: false };
     }
+    return { zone: "status-bar", forwardToCli: false };
   }
   if (event.x > geom.childCols) return { zone: "panel", forwardToCli: false };
   return { zone: "cli", forwardToCli: opts.cliMouseEnabled };
+}
+
+/**
+ * Transcode an outer SGR mouse event to the child CLI's negotiated mouse
+ * reporting mode and encoding (PANEL:381, :386; r2:662). Returns undefined
+ * when the child did not subscribe to this event class or coordinates cannot
+ * be represented in the target encoding.
+ */
+export function transcodeSgrMouseForChild(
+  event: SgrMouseEvent,
+  mode: MouseTrackingMode | null,
+  encoding: MouseEncoding,
+): string | undefined {
+  if (mode === null) return undefined;
+  const isMotion = (event.button & 32) !== 0;
+  const isDragMotion = isMotion && (event.button & 3) !== 3;
+  if (mode === 9) {
+    if (event.release || event.wheel || isMotion) return undefined;
+  } else if (mode === 1000) {
+    if (isMotion) return undefined;
+  } else if (mode === 1002) {
+    if (isMotion && !isDragMotion) return undefined;
+  }
+
+  if (encoding === "sgr" || encoding === "sgr-pixel") {
+    return `\x1b[<${event.button};${event.x};${event.y}${event.release ? "m" : "M"}`;
+  }
+  const rawBtn = event.release ? (event.button & ~3) | 3 : event.button;
+  if (encoding === "urxvt") {
+    return `\x1b[${rawBtn + 32};${event.x};${event.y}M`;
+  }
+  if (encoding === "utf8") {
+    if (event.x < 1 || event.y < 1 || event.x > 2015 || event.y > 2015) {
+      return undefined;
+    }
+    return `\x1b[M${String.fromCodePoint(rawBtn + 32, event.x + 32, event.y + 32)}`;
+  }
+  // Legacy X10 / normal 3-byte encoding (coordinates 1..223)
+  if (event.x < 1 || event.y < 1 || event.x > 223 || event.y > 223) {
+    return undefined;
+  }
+  return `\x1b[M${String.fromCharCode(rawBtn + 32, event.x + 32, event.y + 32)}`;
 }
 
 type PanelStdout = {
@@ -513,15 +560,85 @@ export type RightPanelHandleResult = Readonly<{
 
 export type RightPanelHandleInputOptions = Readonly<{
   cliMouseEnabled: boolean;
+  cliMouseMode?: MouseTrackingMode | null;
+  cliMouseEncoding?: MouseEncoding;
   bracketedPasteEnabled?: boolean;
   kittyKeyboardEnabled?: boolean;
   statusBarActive?: boolean;
 }>;
 
+function isWideCodePoint(cp: number): boolean {
+  return (
+    cp >= 0x1100 &&
+    (cp <= 0x115f ||
+      cp === 0x2329 ||
+      cp === 0x232a ||
+      (cp >= 0x2e80 && cp <= 0xa4cf && cp !== 0x303f) ||
+      (cp >= 0xac00 && cp <= 0xd7a3) ||
+      (cp >= 0xf900 && cp <= 0xfaff) ||
+      (cp >= 0xfe10 && cp <= 0xfe19) ||
+      (cp >= 0xfe30 && cp <= 0xfe6f) ||
+      (cp >= 0xff00 && cp <= 0xff60) ||
+      (cp >= 0xffe0 && cp <= 0xffe6) ||
+      (cp >= 0x1f300 && cp <= 0x1faff) ||
+      (cp >= 0x20000 && cp <= 0x3fffd))
+  );
+}
+
+/**
+ * Fit text (which may include ANSI SGR escape sequences) to exact visible
+ * display columns: truncate with "…" if wider, pad with spaces if narrower.
+ */
 function truncate(text: string, width: number): string {
-  const chars = [...text];
-  if (chars.length <= width) return text.padEnd(width, " ");
-  return chars.slice(0, Math.max(0, width - 1)).join("") + "…";
+  if (width <= 0) return "";
+  type Token = { raw: string; cols: number; isAnsi: boolean };
+  const tokens: Token[] = [];
+  let visible = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "\x1b" && text[i + 1] === "[") {
+      let j = i + 2;
+      while (j < text.length && text.charCodeAt(j) >= 0x20 && text.charCodeAt(j) <= 0x3f) {
+        j += 1;
+      }
+      if (j < text.length && text.charCodeAt(j) >= 0x40 && text.charCodeAt(j) <= 0x7e) {
+        tokens.push({ raw: text.slice(i, j + 1), cols: 0, isAnsi: true });
+        i = j + 1;
+        continue;
+      }
+    }
+    const cp = text.codePointAt(i)!;
+    const step = cp > 0xffff ? 2 : 1;
+    const raw = text.slice(i, i + step);
+    const cols = cp < 0x20 || (cp >= 0x7f && cp <= 0x9f) ? 0 : isWideCodePoint(cp) ? 2 : 1;
+    tokens.push({ raw, cols, isAnsi: false });
+    visible += cols;
+    i += step;
+  }
+  if (visible <= width) {
+    return text + " ".repeat(width - visible);
+  }
+  const limit = Math.max(0, width - 1);
+  let out = "";
+  let used = 0;
+  let hasAnsi = false;
+  for (const tok of tokens) {
+    if (tok.isAnsi) {
+      out += tok.raw;
+      hasAnsi = true;
+      continue;
+    }
+    if (used + tok.cols > limit) break;
+    out += tok.raw;
+    used += tok.cols;
+  }
+  if (hasAnsi) out += "\x1b[0m";
+  if (width >= 1) {
+    out += "…";
+    used += 1;
+  }
+  if (used < width) out += " ".repeat(width - used);
+  return out;
 }
 
 function formatSessionBadges(session: RightPanelSession): string {
@@ -543,6 +660,8 @@ export class RightPanelController {
   readonly #width: number;
   readonly #parser = new PanelInputParser();
   readonly #onOpen: (() => void) | undefined;
+  readonly #restoreChildState: (() => string) | undefined;
+  readonly #isStatusBarActive: (() => boolean) | undefined;
   #snapshot: RightPanelSnapshot;
   #open = false;
   #focus = false;
@@ -559,19 +678,34 @@ export class RightPanelController {
     snapshot: RightPanelSnapshot;
     width?: number;
     onOpen?: () => void;
+    restoreChildState?: () => string;
+    isStatusBarActive?: () => boolean;
   }) {
     this.#stdout = opts.stdout;
     this.#snapshot = opts.snapshot;
     this.#width = opts.width ?? RIGHT_PANEL_DEFAULT_WIDTH;
     this.#onOpen = opts.onOpen;
+    this.#restoreChildState = opts.restoreChildState;
+    this.#isStatusBarActive = opts.isStatusBarActive;
+  }
+
+  isPaintActive(): boolean {
+    const totalCols = this.#stdout.columns ?? 0;
+    const totalRows = this.#stdout.rows ?? 0;
+    return totalCols > 0 && totalRows >= RIGHT_PANEL_MIN_ROWS;
   }
 
   isOpen(): boolean {
-    return this.#open;
+    if (!this.#open) return false;
+    const totalCols = this.#stdout.columns ?? 0;
+    if (totalCols > 0 && totalCols - this.#width < RIGHT_PANEL_MIN_CHILD_COLS) {
+      return false;
+    }
+    return true;
   }
 
   hasPanelFocus(): boolean {
-    return this.#open && this.#focus;
+    return this.isOpen() && this.#focus;
   }
 
   selectedSessionIndex(): number {
@@ -620,6 +754,10 @@ export class RightPanelController {
   }
 
   childCols(totalCols: number): number {
+    const totalRows = this.#stdout.rows ?? 0;
+    if (totalRows > 0 && totalRows < RIGHT_PANEL_MIN_ROWS) {
+      return totalCols;
+    }
     return (
       totalCols -
       rightPanelReservedCols({ totalCols, width: this.#width, open: this.#open })
@@ -628,6 +766,10 @@ export class RightPanelController {
 
   reservedCols(): number {
     const total = this.#stdout.columns ?? 0;
+    const totalRows = this.#stdout.rows ?? 0;
+    if (totalRows > 0 && totalRows < RIGHT_PANEL_MIN_ROWS) {
+      return 0;
+    }
     return rightPanelReservedCols({
       totalCols: total,
       width: this.#width,
@@ -636,58 +778,79 @@ export class RightPanelController {
   }
 
   toggle(): void {
-    this.#open = !this.#open;
-    this.#focus = this.#open;
     this.#slashPrompt = undefined;
     this.#notice = undefined;
-    if (this.#open) {
+    if (!this.#open) {
+      const totalCols = this.#stdout.columns ?? 0;
+      if (totalCols > 0 && totalCols - this.#width < RIGHT_PANEL_MIN_CHILD_COLS) {
+        // Opening refused below minimum child columns; keep marker strip intact.
+        this.#open = false;
+        this.#focus = false;
+        this.paint();
+        return;
+      }
+      this.#open = true;
+      this.#focus = true;
       this.#onOpen?.();
-      this.#stdout.write("\x1b[?1000h\x1b[?1006h");
     } else {
-      this.#stdout.write("\x1b[?1006l\x1b[?1000l\x1b[?69l");
+      this.#open = false;
+      this.#focus = false;
     }
     this.paint();
   }
 
   onResize(): void {
+    const totalCols = this.#stdout.columns ?? 0;
+    if (this.#open && totalCols > 0 && totalCols - this.#width < RIGHT_PANEL_MIN_CHILD_COLS) {
+      this.#focus = false;
+    }
     this.paint();
   }
 
   dispose(): void {
-    if (this.#open) this.#stdout.write("\x1b[?1006l\x1b[?1000l\x1b[?69l");
     this.#open = false;
     this.#focus = false;
     this.#parser.reset();
   }
 
+  #panelRows(totalRows: number): number {
+    const barActive = this.#isStatusBarActive ? this.#isStatusBarActive() : true;
+    return barActive ? Math.max(0, totalRows - 1) : totalRows;
+  }
+
   paint(): void {
+    if (!this.isPaintActive()) return;
     const totalCols = this.#stdout.columns ?? 0;
     const totalRows = this.#stdout.rows ?? 0;
-    if (totalCols <= 0 || totalRows <= 0) return;
     const childCols = this.childCols(totalCols);
-    const lines = this.#renderLines(childCols, totalRows);
-    let out = "\x1b[s";
-    if (this.#open) out += `\x1b[?69h\x1b[1;${childCols}s`;
-    for (let row = 1; row <= totalRows - 1; row += 1) {
-      out += `\x1b[${row};${childCols + 1}H${lines[row - 1] ?? ""}`;
+    const width = Math.max(0, totalCols - childCols);
+    if (width <= 0) return;
+    const panelRows = this.#panelRows(totalRows);
+    const lines = this.#renderLines(childCols, panelRows);
+    const blank = " ".repeat(width);
+    // Never use DECSC/SCOSC (ESC 7/8, CSI s/u) or ?69/DECSLRM (PANEL:182-183).
+    // Reset origin/insert/SGR before painting, then restore from the child-sized headless model.
+    let out = "\x1b[?6l\x1b[4l\x1b[0m";
+    for (let row = 1; row <= panelRows; row += 1) {
+      out += `\x1b[${row};${childCols + 1}H${lines[row - 1] ?? blank}\x1b[0m`;
     }
-    out += "\x1b[u";
+    out += this.#restoreChildState?.() ?? "";
     this.#stdout.write(out);
   }
 
-  #renderLines(childCols: number, totalRows: number): string[] {
+  #renderLines(childCols: number, panelRows: number): string[] {
     const width = Math.max(0, (this.#stdout.columns ?? 0) - childCols);
     const lines: string[] = [];
     this.#hitRows.clear();
-    if (!this.#open) {
+    if (!this.isOpen()) {
       const marker = this.#snapshot.degraded
         ? "?"
         : this.#snapshot.collapsedLit
           ? "*"
           : "│";
       const lit = this.#snapshot.collapsedLit && !this.#snapshot.degraded;
-      const mid = Math.max(1, Math.floor(totalRows / 2));
-      for (let row = 1; row <= totalRows - 1; row += 1) {
+      const mid = Math.max(1, Math.floor((panelRows + 1) / 2));
+      for (let row = 1; row <= panelRows; row += 1) {
         const ch = row === mid ? marker : "│";
         lines.push(lit && row === mid ? `\x1b[41m${ch}\x1b[0m` : ch);
       }
@@ -1055,9 +1218,22 @@ export class RightPanelController {
 
   #handleMouseEvent(
     event: SgrMouseEvent,
-    raw: Buffer,
+    _raw: Buffer,
     opts: RightPanelHandleInputOptions,
   ): { dirty: boolean; actions: RightPanelAction[]; forwardBytes?: Buffer } {
+    const effectiveMode: MouseTrackingMode | null =
+      opts.cliMouseMode !== undefined
+        ? opts.cliMouseMode
+        : opts.cliMouseEnabled
+          ? 1000
+          : null;
+    const effectiveEncoding: MouseEncoding = opts.cliMouseEncoding ?? "sgr";
+    const statusBarActive =
+      opts.statusBarActive !== undefined
+        ? opts.statusBarActive
+        : this.#isStatusBarActive
+          ? this.#isStatusBarActive()
+          : true;
     const totalCols = this.#stdout.columns ?? 0;
     const totalRows = this.#stdout.rows ?? 0;
     const route = routePanelMouse(
@@ -1066,18 +1242,16 @@ export class RightPanelController {
         totalCols,
         totalRows,
         childCols: this.childCols(totalCols),
-        open: this.#open,
-        ...(opts.statusBarActive !== undefined
-          ? { statusBarActive: opts.statusBarActive }
-          : {}),
+        open: this.isOpen(),
+        statusBarActive,
         statusBarMarker: this.statusBarMarker(),
       },
-      opts,
+      { cliMouseEnabled: effectiveMode !== null },
     );
-    if (route.zone === "native-selection") {
+    if (route.zone === "native-selection" || route.zone === "status-bar") {
       return { dirty: false, actions: [] };
     }
-    if (route.zone === "status-marker" || (!this.#open && route.zone === "panel")) {
+    if (route.zone === "status-marker" || (!this.isOpen() && route.zone === "panel")) {
       if (!event.release && !event.wheel) {
         this.toggle();
         return { dirty: false, actions: [{ type: "toggle" }] };
@@ -1123,12 +1297,26 @@ export class RightPanelController {
       }
       return { dirty: true, actions: [] };
     }
-    // CLI zone: clicking returns keyboard focus to CLI; forward only if CLI subscribed.
+    // CLI zone: clicking returns keyboard focus to CLI; forward transcoded event only if CLI subscribed.
     if (!event.release && !event.wheel && this.#focus) {
       this.#focus = false;
     }
     if (route.forwardToCli) {
-      return { dirty: false, actions: [], forwardBytes: raw };
+      const encoded = transcodeSgrMouseForChild(
+        event,
+        effectiveMode,
+        effectiveEncoding,
+      );
+      if (encoded !== undefined) {
+        return {
+          dirty: false,
+          actions: [],
+          forwardBytes: Buffer.from(
+            encoded,
+            effectiveEncoding === "x10" ? "latin1" : "utf8",
+          ),
+        };
+      }
     }
     return { dirty: false, actions: [] };
   }
