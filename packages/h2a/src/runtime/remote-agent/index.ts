@@ -46,6 +46,34 @@ export {
   containsForbiddenLocalField
 } from "./catalogue.js";
 export {
+  NODE_KEY_FILE,
+  NODE_KEY_DIR,
+  resolveNodeKeyDir,
+  nodeKeyFingerprint,
+  loadNodeKey,
+  readNodeKeyStatus,
+  generateNodeKey,
+  deleteNodeKey,
+  type NodeKeyLoadResult,
+  type NodeKeyStatus,
+  type NodeKeyOptions
+} from "./node-key.js";
+export {
+  REMOTE_CONTROL_VERBS,
+  REMOTE_CONTROL_GATED_VERBS,
+  REMOTE_CONTROL_GROUP,
+  isRemoteControlVerb,
+  defaultIsInteractive,
+  remoteControlUnknownMessage,
+  remoteControlKillFlagFile,
+  setRemoteControlKillFlag,
+  readRemoteControlKillFlag,
+  runRemoteControlVerb,
+  type RemoteControlVerb,
+  type RemoteControlResult,
+  type RemoteControlRunOptions
+} from "./service.js";
+export {
   resolveFleetValve,
   classifyLaunchHost,
   buildFleetInventory,

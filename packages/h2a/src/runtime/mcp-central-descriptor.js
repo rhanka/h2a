@@ -1355,6 +1355,37 @@ export const embeddedTools = [
     }
   },
   {
+    "name": "h2a_remote_status",
+    "description": "Remote-control status (safe direction). Reports link, agent and kill-flag state via the same service as the `h2a remote status` CLI verb; every verb needs H2A_REMOTE_CONTROL=1. Never run `h2a remote enrol`, `h2a remote up` or `h2a remote on` — those are terminal-only verbs for the human at the terminal.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "h2a_remote_off",
+    "description": "Remote-control off (safe direction). Stops sharing one session from the site via the same service as the `h2a remote off` CLI verb; needs H2A_REMOTE_CONTROL=1. Never run `h2a remote enrol`, `h2a remote up` or `h2a remote on` — those are terminal-only verbs for the human at the terminal.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "h2a_remote_kill",
+    "description": "Remote-control kill (safe direction). Releases remote leases, closes the link, stops the agent and sets the local kill flag via the same service as the `h2a remote kill` CLI verb; needs H2A_REMOTE_CONTROL=1. Never run `h2a remote enrol`, `h2a remote up` or `h2a remote on` — those are terminal-only verbs for the human at the terminal.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "track_report",
     "description": "Legacy deterministic backlog projection. JSON/text/Markdown outputs are compatibility reads and never invoke AI; use track_snapshot for the canonical factual contract and CLI `track report --wp --decisions` for the complete local conductor.",
     "inputSchema": {

@@ -25,6 +25,9 @@ import {
   handleLoopReport,
   handleLoopStatus,
   handleLoopStop,
+  handleRemoteKill,
+  handleRemoteOff,
+  handleRemoteStatus,
   handleEscalate,
   handleInbox,
   handleSend,
@@ -240,7 +243,10 @@ const IDENTITY_INDEPENDENT_TOOLS = new Set<string>([
   "h2a_loop_status",
   "h2a_focus_build",
   "h2a_focus_check",
-  "h2a_focus_template"
+  "h2a_focus_template",
+  // LH-03: remote-control status is a read; off and kill stay
+  // identity-gated.
+  "h2a_remote_status"
 ]);
 
 /** A bounded typed error emitted for a guarded tool while identity is pending. */
@@ -517,6 +523,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleLoopList(store.paths.root);
       case "h2a_loop_status":
         return handleLoopStatus(store.paths.root, args as never);
+      case "h2a_remote_status":
+        return handleRemoteStatus(store.paths.root);
+      case "h2a_remote_off":
+        return handleRemoteOff(store.paths.root, args as never);
+      case "h2a_remote_kill":
+        return handleRemoteKill(store.paths.root);
       case "h2a_run":
         {
           const delegation = options.delegationContext?.();
