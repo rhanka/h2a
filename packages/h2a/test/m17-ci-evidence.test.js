@@ -229,7 +229,7 @@ test('M17 producer seals only a successful same-run report after owned-process a
     fs.writeFileSync(join(root, M17_FILE), `import test from 'node:test';import {spawn} from 'node:child_process';import {once} from 'node:events';\ntest(${JSON.stringify(M17_TITLE)},async()=>{const c=spawn(process.execPath,['--input-type=module','-e',${JSON.stringify(program)}],{env:process.env,stdio:['ignore','pipe','ignore']});await once(c.stdout,'data');c.stdout.destroy();c.unref();console.log(${JSON.stringify(JSON.stringify(proof().backend))});});\n`);
     git('add', M17_FILE); git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'test: expose an owned child surviving the producer fixture');
     const failedEnv = { ...env, GITHUB_SHA: git('rev-parse', 'HEAD'), H2A_TEST_CI_M17_OUTPUT: join(root, 'tmp/failed') };
-    fs.mkdirSync(volume, { mode: 0o700 });
+    fs.mkdirSync(volume, { recursive: true, mode: 0o700 });
     const failed = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'run'], failedEnv);
     assert.notEqual(failed.status, 0);
     assert.match(failed.stderr, /M17 left owned processes alive/);

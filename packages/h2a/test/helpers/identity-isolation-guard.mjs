@@ -30,6 +30,12 @@ for (const name of ['linkSync', 'renameSync', 'copyFileSync']) {
 }
 const open = fs.openSync;
 fs.openSync = (p, flags, ...args) => { check(p, typeof flags === 'string' ? /[wa+]/.test(flags) : Boolean(flags & (fs.constants.O_WRONLY | fs.constants.O_RDWR))); return open(p, flags, ...args); };
+const origProtoSpawn = child.ChildProcess.prototype.spawn;
+child.ChildProcess.prototype.spawn = function (...args) {
+  const result = origProtoSpawn.apply(this, args);
+  if (this.pid) { owned.add(this.pid); rawAppend(ownedFile, this.pid + '\n'); }
+  return result;
+};
 for (const name of ['spawn', 'spawnSync', 'fork']) {
   const original = child[name]; child[name] = (cmd, ...args) => {
     if (['h2a', 'pkill', 'killall'].includes(cmd)) throw new Error('forbidden executable');
