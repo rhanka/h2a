@@ -216,7 +216,7 @@ test("render: an invalid envelope is refused with isError and a diagnostics summ
   assert.match(firstText(result), /\/props/);
 });
 
-test("render: a non-negotiated BarChart client receives the markdown table and the self-contained SVG fallback", async () => {
+test("render: a non-negotiated BarChart client receives only a bounded Markdown table", async () => {
   const module = await createUiRenderModule();
   const example = module.assets.catalog.components.BarChart["x-sentropic"].example;
   const envelope = { contract: "1.0", root: { ...example, id: "root" } };
@@ -224,20 +224,23 @@ test("render: a non-negotiated BarChart client receives the markdown table and t
   assert.ok(result);
   assert.ok(!result.isError);
   assert.deepEqual(result.structuredContent, { envelope, diagnostics: [] });
-  assert.equal(result.content.length, 2);
-  const table = result.content[0].text;
+  assert.equal(result.content.length, 1);
+  const table = firstText(result);
   assert.ok(table.includes("# Revenue (M€)"), table);
   assert.ok(table.includes("| label | value |"), table);
   assert.ok(table.includes("| Q1 | 12 |"), table);
   assert.ok(utf8ByteLength(table) <= 4096);
-  const svg = result.content[1].text;
-  assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'), svg.slice(0, 60));
-  assert.ok(svg.includes('viewBox="0 0 600 320"'));
-  assert.ok(svg.includes("Q1"));
-  assert.ok(svg.includes("Q3"));
-  assert.ok(svg.endsWith("</svg>"));
-  assert.ok(!svg.includes("<script"));
-  assert.ok(utf8ByteLength(svg) <= 32768);
+  assert.doesNotMatch(table, /<svg\b/i);
+
+  const markup = "<svg><rect /></svg>";
+  const markupResult = module.tools.callTool("render", {
+    ...envelope,
+    root: { ...envelope.root, label: markup, data: [{ label: markup, value: 12 }] }
+  }, { uiCapability: NOT_NEGOTIATED });
+  assert.ok(!markupResult.isError);
+  const markupTable = firstText(markupResult);
+  assert.doesNotMatch(markupTable, /<\/?(?:svg|rect)\b/i);
+  assert.match(markupTable, /\| &lt;svg&gt;&lt;rect \/&gt;&lt;\/svg&gt; \| 12 \|/);
 });
 
 test("render_BpmnCanvas: catalogue example passes semantics in UI and fallback modes", async () => {
