@@ -111,4 +111,54 @@ describe("NativeTerminalClient connection loss", () => {
     hostSide.end();
     await expect(pending).rejects.toThrow(/terminal host connection closed/);
   });
+
+  it("LH-04 accepts a legacy v1 host state response with the new fields omitted", async () => {
+    const { client, hostSide } = await connectedPair();
+    hostSide.setEncoding("utf8");
+    let buffer = "";
+    hostSide.on("data", (chunk: string) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const request = JSON.parse(buffer.slice(0, newline)) as { id: string };
+      hostSide.write(`${JSON.stringify({
+        version: 1,
+        id: request.id,
+        ok: true,
+        result: {
+          id: "legacy-session",
+          generation: "legacy-gen",
+          incarnation: "legacy-inc",
+          pid: 9001,
+          status: "running",
+          latestSeq: 5,
+          exit: null,
+          stopSignal: null,
+          controlled: true,
+          controllerEpoch: 2,
+          controller: {
+            pid: 42,
+            tty: "/dev/pts/1",
+            since: "2026-11-21T00:00:00.000Z",
+          },
+          lastHumanActivityAt: null,
+        },
+      })}\n`);
+    });
+
+    const state = await client.state("legacy-session");
+    expect(state).toMatchObject({
+      id: "legacy-session",
+      generation: "legacy-gen",
+      incarnation: "legacy-inc",
+      controlled: true,
+      controllerEpoch: 2,
+      latestSeq: 5,
+    });
+    expect(state.cols).toBeUndefined();
+    expect(state.rows).toBeUndefined();
+    expect(state.lastLocalSize).toBeUndefined();
+    expect(state.holderKind).toBeUndefined();
+    expect(state.controller?.controllerId).toBeUndefined();
+  });
 });

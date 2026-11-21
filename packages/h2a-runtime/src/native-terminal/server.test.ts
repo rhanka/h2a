@@ -28,7 +28,7 @@ import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
 import { isStagedSocketName, proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
-import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
+import { NATIVE_TERMINAL_MAX_FRAME_BYTES, parseNativeTerminalResponse } from "./protocol.js";
 import { assertListenerFaultExit } from "../../test/helpers/listener-fault.js";
 
 class StubPty implements PtyHandle {
@@ -176,6 +176,7 @@ async function acquireControllerWithoutProvenance(
   socketPath: string,
   id: string,
   controllerId: string,
+  onAcquired?: () => Promise<void> | void,
 ): Promise<void> {
   const socket = createConnection(socketPath);
   socket.setEncoding("utf8");
@@ -199,9 +200,15 @@ async function acquireControllerWithoutProvenance(
       params: { id, controllerId },
     })}\n`);
   });
-  socket.end();
-  await new Promise<void>((resolve) => socket.once("close", resolve));
   expect(response).toMatchObject({ ok: true });
+  try {
+    if (onAcquired !== undefined) {
+      await onAcquired();
+    }
+  } finally {
+    socket.end();
+    await new Promise<void>((resolve) => socket.once("close", resolve));
+  }
 }
 
 describe("native terminal local transport", () => {
@@ -271,6 +278,75 @@ describe("native terminal local transport", () => {
       ),
     ).rejects.toThrow(/recent human activity/i);
     expect(ptys.get("legacy-provenance")!.write).not.toHaveBeenCalled();
+  });
+
+  it("LH-04 classifies omitted provenance as human while held, protects recent activity after disconnect and rejects activity remote", async () => {
+    const { socketPath, client, ptys } = await service();
+    await client.create(createOptions("legacy-lh04"));
+
+    let observedHolderKind: string | undefined;
+    let observedControllerId: string | undefined;
+    await acquireControllerWithoutProvenance(
+      socketPath,
+      "legacy-lh04",
+      "legacy-raw-secret",
+      async () => {
+        const whileHeld = await client.state("legacy-lh04");
+        expect(whileHeld.controlled).toBe(true);
+        observedHolderKind = whileHeld.holderKind;
+        observedControllerId = whileHeld.controller?.controllerId;
+        expect(JSON.stringify(whileHeld)).not.toContain("legacy-raw-secret");
+      },
+    );
+
+    expect(observedHolderKind).toBe("human");
+    expect(typeof observedControllerId).toBe("string");
+
+    const afterDisconnect = await eventually(
+      () => client.state("legacy-lh04"),
+      (state) => state.controlled === false,
+    );
+    expect(afterDisconnect.holderKind).toBe("none");
+    expect(afterDisconnect.lastHumanActivityAt).toEqual(expect.any(Number));
+    await expect(
+      client.acquireAutomationControllerIfNoRecentHuman("legacy-lh04", "drive", 4_000),
+    ).rejects.toThrow(/recent human activity/i);
+    expect(ptys.get("legacy-lh04")!.write).not.toHaveBeenCalled();
+
+    // Generic acquire-controller declaring activity: "remote" is rejected and leaves session free.
+    const rawSocket = createConnection(socketPath);
+    rawSocket.setEncoding("utf8");
+    cleanup.push(async () => { rawSocket.destroy(); });
+    await new Promise<void>((resolve, reject) => {
+      rawSocket.once("connect", resolve);
+      rawSocket.once("error", reject);
+    });
+    const remoteReject = await new Promise<unknown>((resolve, reject) => {
+      let buffer = "";
+      rawSocket.once("error", reject);
+      rawSocket.on("data", (chunk: string) => {
+        buffer += chunk;
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) return;
+        resolve(JSON.parse(buffer.slice(0, newline)));
+      });
+      rawSocket.write(`${JSON.stringify({
+        version: 1,
+        id: "reject-remote-activity",
+        operation: "acquire-controller",
+        params: { id: "legacy-lh04", controllerId: "remote-client", activity: "remote" },
+      })}\n`);
+    });
+    expect(remoteReject).toMatchObject({
+      ok: false,
+      error: {
+        code: "operation-failed",
+        message: expect.stringMatching(/human or automation/i),
+      },
+    });
+    const stillFree = await client.state("legacy-lh04");
+    expect(stillFree.controlled).toBe(false);
+    expect(stillFree.holderKind).toBe("none");
   });
 
   it("should bound fragmented replay and keep the client connected", async () => {
@@ -506,6 +582,123 @@ describe("native terminal local transport", () => {
     await observer.stop(replacement.value, "SIGKILL");
     expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
     expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+  });
+
+  it("LH-04 publishes size and holder across two connections, enforces connection ownership on resize/release and preserves v1 decoding", async () => {
+    const { socketPath, client, ptys } = await service();
+    const observer = await NativeTerminalClient.connect(socketPath);
+    cleanup.push(async () => observer.close());
+
+    await client.create({
+      ...createOptions("lh04-two-conn"),
+      cols: 96,
+      rows: 32,
+    });
+    const lease = await client.acquireController("lh04-two-conn", "primary-conn-secret", "human", {
+      pid: 7777,
+      tty: "/dev/pts/7",
+    });
+    await client.resize(lease, 118, 40);
+    ptys.get("lh04-two-conn")!.emitData("two-conn-output");
+
+    const stateByObserver = await observer.state("lh04-two-conn");
+    const listByObserver = await observer.list();
+    const readByObserver = await observer.readOutput("lh04-two-conn", 0);
+    const listedRow = listByObserver.find((row) => row.id === "lh04-two-conn");
+
+    for (const observed of [stateByObserver, listedRow, readByObserver.state]) {
+      expect(observed).toBeDefined();
+      expect(observed?.cols).toBe(118);
+      expect(observed?.rows).toBe(40);
+      expect(observed?.lastLocalSize).toEqual({ cols: 118, rows: 40 });
+      expect(observed?.holderKind).toBe("human");
+      expect(typeof observed?.controller?.controllerId).toBe("string");
+      expect(observed?.controller?.controllerId).toBe(stateByObserver.controller?.controllerId);
+      expect(observed?.controller?.since).toBe(stateByObserver.controller?.since);
+      expect(JSON.stringify(observed)).not.toContain("primary-conn-secret");
+      // Historical v1 subset remains intact.
+      expect(observed).toMatchObject({
+        id: "lh04-two-conn",
+        generation: "unit-generation",
+        incarnation: lease.incarnation,
+        controlled: true,
+        controllerEpoch: lease.epoch,
+        latestSeq: 1,
+      });
+    }
+
+    // Observer attachment and reads preserve sizes, epoch and human activity timestamp.
+    await observer.attachObserver("lh04-two-conn");
+    await observer.readOutput("lh04-two-conn", 1);
+    const afterObserverReads = await observer.state("lh04-two-conn");
+    expect(afterObserverReads.cols).toBe(118);
+    expect(afterObserverReads.rows).toBe(40);
+    expect(afterObserverReads.lastLocalSize).toEqual({ cols: 118, rows: 40 });
+    expect(afterObserverReads.controllerEpoch).toBe(stateByObserver.controllerEpoch);
+    expect(afterObserverReads.lastHumanActivityAt).toBe(stateByObserver.lastHumanActivityAt);
+
+    // Presenting primary's full lease from the second connection is rejected for resize and releaseController.
+    await expect(observer.resize(lease, 150, 50)).rejects.toThrow(/not owned by this connection/i);
+    await expect(observer.releaseController(lease)).rejects.toThrow(/not owned by this connection/i);
+    expect(ptys.get("lh04-two-conn")!.resize).toHaveBeenCalledTimes(1);
+    const afterRejectedCrossConn = await observer.state("lh04-two-conn");
+    expect(afterRejectedCrossConn.holderKind).toBe("human");
+    expect(afterRejectedCrossConn.controller?.controllerId).toBe(stateByObserver.controller?.controllerId);
+    expect(afterRejectedCrossConn.cols).toBe(118);
+    expect(afterRejectedCrossConn.rows).toBe(40);
+
+    // Raw v1 wire envelope decodes through the untouched protocol parser.
+    const rawWire = createConnection(socketPath);
+    rawWire.setEncoding("utf8");
+    cleanup.push(async () => { rawWire.destroy(); });
+    await new Promise<void>((resolve, reject) => {
+      rawWire.once("connect", resolve);
+      rawWire.once("error", reject);
+    });
+    const rawEnvelope = await new Promise<unknown>((resolve, reject) => {
+      let buffer = "";
+      rawWire.once("error", reject);
+      rawWire.on("data", (chunk: string) => {
+        buffer += chunk;
+        const newline = buffer.indexOf("\n");
+        if (newline < 0) return;
+        resolve(JSON.parse(buffer.slice(0, newline)));
+      });
+      rawWire.write(`${JSON.stringify({
+        version: 1,
+        id: "v1-parse-check",
+        operation: "state",
+        params: { id: "lh04-two-conn" },
+      })}\n`);
+    });
+    const parsed = parseNativeTerminalResponse(rawEnvelope);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.result).toMatchObject({
+        id: "lh04-two-conn",
+        generation: "unit-generation",
+        incarnation: lease.incarnation,
+        controlled: true,
+        controllerEpoch: lease.epoch,
+        latestSeq: 1,
+        cols: 118,
+        rows: 40,
+        lastLocalSize: { cols: 118, rows: 40 },
+        holderKind: "human",
+      });
+    }
+
+    // Closing the first connection releases the lease and publishes holderKind "none" to the observer.
+    client.close();
+    const afterPrimaryClose = await eventually(
+      () => observer.state("lh04-two-conn"),
+      (state) => state.controlled === false,
+    );
+    expect(afterPrimaryClose.holderKind).toBe("none");
+    expect(afterPrimaryClose.controller).toBeNull();
+    expect(afterPrimaryClose.cols).toBe(118);
+    expect(afterPrimaryClose.rows).toBe(40);
+    expect(afterPrimaryClose.lastLocalSize).toEqual({ cols: 118, rows: 40 });
   });
 
   it("should time out a request when a connected peer stops responding", async () => {
