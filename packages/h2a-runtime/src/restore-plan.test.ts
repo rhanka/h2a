@@ -37,11 +37,13 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...actual, homedir: homedirMock };
 });
 
-const { launchLayout, restore } = await import("./restore.js");
+const { launchLayout, reconcileRunConvIds, registrySessions, restore, tabCommand } =
+  await import("./restore.js");
 const {
   buildRestorePlan,
   decideLayoutTab,
   groupSessionsWithClassification,
+  managedLiveLookupFromSnapshot,
   planLayoutLaunch,
 } = await import("./restore-plan.js");
 type RegistryEntry = import("./registry.js").RegistryEntry;
@@ -1093,5 +1095,245 @@ describe("S0 Step 2 & 4 — pure restore plan, classification, and per-tab decis
         }
       }
     }
+  });
+});
+
+describe("D4 — symmetric run/hook dedup by exact managed name", () => {
+  it("should emit one attach action for duplicate unresolved rows of the same terminal", () => {
+    const home = "/isolated/home";
+    const cfg: LayoutConfig = {
+      maxAgeHours: 48,
+      maxPerWindow: 4,
+      sharedWindows: 1,
+      multiSession: {},
+      multiSessionDefault: 1,
+      groups: [],
+    };
+    const unclaimedUuid = "3f2504e0-4f89-41d3-9a0c-0305e82c3399";
+    const runRow: RegistryEntry = {
+      id: "dup-sess",
+      label: "dup-sess",
+      tool: "claude",
+      kind: "local-native",
+      cwd: `${home}/src/alpha`,
+      convId: "dup-sess",
+      tmuxSession: "h2a-dup-sess",
+      sessionClass: "human",
+      source: "run",
+      enrolledAt: "2026-11-20T10:00:00.000Z",
+      lastSeenAt: "2026-11-20T10:05:00.000Z",
+    };
+    const hookRow: RegistryEntry = {
+      id: unclaimedUuid,
+      tool: "claude",
+      kind: "local",
+      cwd: `${home}/src/alpha`,
+      convId: unclaimedUuid,
+      tmuxSession: "h2a-dup-sess",
+      sessionClass: "human",
+      source: "hook",
+      enrolledAt: "2026-11-20T10:00:00.000Z",
+      lastSeenAt: "2026-11-20T10:06:00.000Z",
+    };
+    const hostView = {
+      tmux: { known: true, sessions: [] },
+      native: {
+        known: true,
+        complete: true,
+        sessions: [
+          {
+            name: "h2a-dup-sess",
+            controlled: false,
+            applicationFacet: "cli",
+            applicationIncarnation: "inc-dup",
+            foregroundProcessGroup: 101,
+            foregroundRevision: 1,
+          },
+        ],
+      },
+    } as unknown as HostViewSnapshot;
+    const evidence = { home, liveTmuxSessions: [] };
+
+    for (const [order, entries] of [
+      ["run-then-hook", [runRow, hookRow]],
+      ["hook-then-run", [hookRow, runRow]],
+    ] as const) {
+      const plan = buildRestorePlan({
+        home,
+        config: cfg,
+        registryRead: { state: "ok", entries, unreadable: [] },
+        scanned: [],
+        hostView,
+        evidence,
+        customTitleFor: () => undefined,
+        remoteTabs: [],
+      });
+
+      const tabs = plan.windows.flatMap((w) => w.tabs);
+      expect(tabs, order).toHaveLength(1);
+      expect(tabs[0], order).toMatchObject({
+        managedName: "h2a-dup-sess",
+        attachLive: true,
+        sid: "",
+      });
+      expect(tabCommand(tabs[0]!)).toBe("h2a attach 'h2a-dup-sess'");
+      expect(tabCommand(tabs[0]!)).not.toContain("h2a run");
+
+      const conflicts = Reflect.get(plan, "registryConflicts") as
+        | Array<{ label?: string; managedName?: string }>
+        | undefined;
+      expect(conflicts, order).toBeDefined();
+      expect(conflicts!.some((c) => c.managedName === "h2a-dup-sess" || c.label === "dup-sess")).toBe(true);
+
+      const resolution = reconcileRunConvIds(entries, () => undefined, evidence);
+      const listed = registrySessions(
+        home,
+        entries,
+        resolution,
+        evidence,
+        managedLiveLookupFromSnapshot(hostView),
+      );
+      expect(listed, order).toHaveLength(1);
+      expect(listed[0]!.managedName).toBe("h2a-dup-sess");
+    }
+  });
+
+  it("keeps distinct managed names and UUIDs separate even when labels collide", () => {
+    const home = "/isolated/home";
+    const cfg: LayoutConfig = {
+      maxAgeHours: 48,
+      maxPerWindow: 4,
+      sharedWindows: 1,
+      multiSession: {},
+      multiSessionDefault: 1,
+      groups: [],
+    };
+    const entries: RegistryEntry[] = [
+      {
+        id: "one",
+        label: "same-label",
+        tool: "claude",
+        kind: "local-native",
+        cwd: `${home}/src/alpha`,
+        convId: "4f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        tmuxSession: "h2a-one",
+        sessionClass: "human",
+        source: "run",
+        enrolledAt: "2026-11-20T10:00:00.000Z",
+        lastSeenAt: "2026-11-20T10:05:00.000Z",
+      },
+      {
+        id: "two",
+        label: "same-label",
+        tool: "claude",
+        kind: "local-native",
+        cwd: `${home}/src/alpha`,
+        convId: "4f2504e0-4f89-41d3-9a0c-0305e82c3302",
+        tmuxSession: "h2a-two",
+        sessionClass: "human",
+        source: "run",
+        enrolledAt: "2026-11-20T10:00:00.000Z",
+        lastSeenAt: "2026-11-20T10:04:00.000Z",
+      },
+    ];
+    const plan = buildRestorePlan({
+      home,
+      config: cfg,
+      registryRead: { state: "ok", entries, unreadable: [] },
+      scanned: [],
+      hostView: {
+        tmux: { known: true, sessions: [] },
+        native: { known: true, complete: true, sessions: [] },
+      },
+      evidence: { home, liveTmuxSessions: [] },
+      customTitleFor: () => undefined,
+      remoteTabs: [],
+    });
+    const tabs = plan.windows.flatMap((w) => w.tabs);
+    expect(tabs).toHaveLength(2);
+    expect(tabs.map((t) => t.managedName).sort()).toEqual(["h2a-one", "h2a-two"]);
+  });
+});
+
+describe("D2 — foreground facet decisions in decideLayoutTab and planLayoutLaunch", () => {
+  const CONV = "3f2504e0-4f89-41d3-9a0c-0305e82c3303";
+  const tab: LayoutTab = {
+    cwd: "/repo/a",
+    label: "a",
+    tool: "claude",
+    sid: CONV,
+    hostKind: "local-native",
+    managedName: "h2a-a",
+  };
+
+  it("defers controlled shell candidates with deferred:needs-inject and keeps controlled CLI already-active", () => {
+    const cliHost = {
+      tmux: { known: true, sessions: [] },
+      native: {
+        known: true,
+        complete: true,
+        sessions: [
+          {
+            name: "h2a-a",
+            controlled: true,
+            applicationFacet: "cli",
+            applicationIncarnation: "inc-cli-1",
+            foregroundProcessGroup: 101,
+            foregroundRevision: 1,
+          },
+        ],
+      },
+    } as unknown as HostViewSnapshot;
+    const shellHost = {
+      tmux: { known: true, sessions: [] },
+      native: {
+        known: true,
+        complete: true,
+        sessions: [
+          {
+            name: "h2a-a",
+            controlled: true,
+            applicationFacet: "shell",
+            applicationIncarnation: null,
+            foregroundProcessGroup: 102,
+            foregroundRevision: 2,
+          },
+        ],
+      },
+    } as unknown as HostViewSnapshot;
+    const otherHost = {
+      tmux: { known: true, sessions: [] },
+      native: {
+        known: true,
+        complete: true,
+        sessions: [
+          {
+            name: "h2a-a",
+            controlled: true,
+            applicationFacet: "other",
+            applicationIncarnation: "inc-other-1",
+            foregroundProcessGroup: 103,
+            foregroundRevision: 3,
+          },
+        ],
+      },
+    } as unknown as HostViewSnapshot;
+
+    const cliDecision = decideLayoutTab(tab, cliHost);
+    expect(cliDecision.kind).toBe("skip-live");
+    expect(Reflect.get(cliDecision, "ledgerOutcome")).toBe("already-active");
+    expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], cliHost).windows[0]!.decisions[0]).toEqual(cliDecision);
+
+    const shellDecision = decideLayoutTab(tab, shellHost);
+    expect(shellDecision.kind).toBe("defer");
+    expect(Reflect.get(shellDecision, "reason")).toBe("needs-inject");
+    expect(Reflect.get(shellDecision, "ledgerOutcome")).toBe("deferred:needs-inject");
+    expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], shellHost).windows[0]!.decisions[0]).toEqual(shellDecision);
+
+    const otherDecision = decideLayoutTab(tab, otherHost);
+    expect(otherDecision.kind).toBe("defer");
+    expect(Reflect.get(otherDecision, "reason")).toBe("foreground-other");
+    expect(Reflect.get(otherDecision, "ledgerOutcome")).toBe("deferred:foreground-other");
+    expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], otherHost).windows[0]!.decisions[0]).toEqual(otherDecision);
   });
 });
