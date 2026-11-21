@@ -216,7 +216,7 @@ test("render: an invalid envelope is refused with isError and a diagnostics summ
   assert.match(firstText(result), /\/props/);
 });
 
-test("render: a non-negotiated BarChart client receives the markdown table and the self-contained SVG fallback", async () => {
+test("render: a non-negotiated BarChart client receives only the deterministic markdown table fallback", async () => {
   const module = await createUiRenderModule();
   const example = module.assets.catalog.components.BarChart["x-sentropic"].example;
   const envelope = { contract: "1.0", root: { ...example, id: "root" } };
@@ -224,20 +224,55 @@ test("render: a non-negotiated BarChart client receives the markdown table and t
   assert.ok(result);
   assert.ok(!result.isError);
   assert.deepEqual(result.structuredContent, { envelope, diagnostics: [] });
-  assert.equal(result.content.length, 2);
+  assert.equal(result.content.length, 1);
   const table = result.content[0].text;
   assert.ok(table.includes("# Revenue (M€)"), table);
   assert.ok(table.includes("| label | value |"), table);
   assert.ok(table.includes("| Q1 | 12 |"), table);
+  assert.ok(table.includes("| Q3 |"), table);
+  assert.equal(table, fallbackContent("BarChart", envelope.root)[0].text);
+  assert.ok(!table.toLowerCase().includes("<svg"), "BarChart fallback must not contain <svg");
   assert.ok(utf8ByteLength(table) <= 4096);
-  const svg = result.content[1].text;
-  assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'), svg.slice(0, 60));
-  assert.ok(svg.includes('viewBox="0 0 600 320"'));
-  assert.ok(svg.includes("Q1"));
-  assert.ok(svg.includes("Q3"));
-  assert.ok(svg.endsWith("</svg>"));
-  assert.ok(!svg.includes("<script"));
-  assert.ok(utf8ByteLength(svg) <= 32768);
+});
+
+test("fallback: no MCP text fallback for any component ever contains <svg", async () => {
+  const module = await createUiRenderModule();
+  const components = Object.entries(module.assets.catalog.components);
+  assert.ok(components.length > 0, "catalog must expose at least one component");
+
+  for (const [component, entry] of components) {
+    const example = entry["x-sentropic"].example;
+    const root = { ...example, id: "root" };
+    const envelope = { contract: entry["x-sentropic"].contract, root };
+
+    const directItems = fallbackContent(component, root);
+    assert.ok(directItems.length > 0, `${component}: direct fallback must not be empty`);
+    for (const item of directItems) {
+      assert.equal(item.type, "text");
+      assert.ok(
+        !item.text.toLowerCase().includes("<svg"),
+        `${component}: fallbackContent emitted <svg`
+      );
+    }
+
+    for (const tool of ["render", `render_${component}`]) {
+      const result = module.tools.callTool(tool, envelope, { uiCapability: NOT_NEGOTIATED });
+      assert.ok(result, `${tool} returned a result`);
+      assert.ok(!result.isError, `${tool} succeeded for ${component}`);
+      assert.ok(Array.isArray(result.content) && result.content.length > 0);
+      for (const item of result.content) {
+        assert.equal(item.type, "text");
+        assert.ok(
+          !item.text.toLowerCase().includes("<svg"),
+          `${tool} fallback for ${component} emitted <svg`
+        );
+      }
+    }
+  }
+
+  const unknownItems = fallbackContent("UnknownComponent", { id: "root", component: "UnknownComponent" });
+  assert.equal(unknownItems.length, 1);
+  assert.ok(!unknownItems[0].text.toLowerCase().includes("<svg"));
 });
 
 test("render_BpmnCanvas: catalogue example passes semantics in UI and fallback modes", async () => {
