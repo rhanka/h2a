@@ -63,12 +63,13 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Measure CLI I/O on an otherwise idle disposable VM (no-systemd witness)
         env:
           MODE: ${{ matrix.mode }}
+          H2A_TEST_EXPECTED_SHA: ${{ inputs.ref || github.sha }}
         shell: bash
-        run: 'node --test --test-name-pattern="startup-matrix: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs'
+        run: 'node scripts/test-host-qualification.mjs startup --mode="$MODE"'
       # R3 P2 effective-systemd path on the same disposable VM: real user
       # manager bus, same budgets, effective cgroup readout. Fresh/resume
       # only (restore is reported separately); the no-systemd leg above stays
@@ -79,13 +80,14 @@ jobs:
         if: always() && (matrix.mode == 'fresh' || matrix.mode == 'resume')
         env:
           MODE: ${{ matrix.mode }}
+          H2A_TEST_EXPECTED_SHA: ${{ inputs.ref || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           sudo loginctl enable-linger "$(id -un)"
           sudo systemctl start "user@$(id -u).service"
           export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
-          node --test --test-name-pattern="startup-matrix-systemd: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs
+          node scripts/test-host-qualification.mjs startup-systemd --mode="$MODE"
       - name: Clean the disposable TMPDIR
         if: always()
         shell: bash
@@ -112,16 +114,18 @@ jobs:
           echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Qualify on the disposable VM user manager, with hard worker limits
+        env:
+          H2A_TEST_EXPECTED_SHA: ${{ inputs.ref || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           sudo loginctl enable-linger "$(id -un)"
           sudo systemctl start "user@$(id -u).service"
           export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
-          node scripts/owner-lab/mutations.mjs
-          node --test scripts/owner-lab/isolation.qualification.mjs
+          node scripts/test-host-qualification.mjs mutations
+          node scripts/test-host-qualification.mjs effective-cgroups
       - name: Clean the disposable TMPDIR
         if: always()
         shell: bash

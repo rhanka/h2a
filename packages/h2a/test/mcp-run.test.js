@@ -17,7 +17,9 @@ import {
 
 function withWorkspace(fn) {
   const workspaceRoot = realpathSync(process.cwd());
-  const workspace = mkdtempSync(join(workspaceRoot, ".h2a-run-test-"));
+  const tmpBase = join(workspaceRoot, "tmp");
+  mkdirSync(tmpBase, { recursive: true });
+  const workspace = mkdtempSync(join(tmpBase, ".h2a-run-test-"));
   const storeRoot = mkdtempSync(join(tmpdir(), "h2a-run-store-"));
   try {
     return fn({ workspaceRoot, workspace, storeRoot });
@@ -39,7 +41,9 @@ function withUnsafeTemporaryWorkspace(fn) {
 
 async function withWorkspaceAsync(fn) {
   const workspaceRoot = realpathSync(process.cwd());
-  const workspace = mkdtempSync(join(workspaceRoot, ".h2a-run-test-"));
+  const tmpBase = join(workspaceRoot, "tmp");
+  mkdirSync(tmpBase, { recursive: true });
+  const workspace = mkdtempSync(join(tmpBase, ".h2a-run-test-"));
   const storeRoot = mkdtempSync(join(tmpdir(), "h2a-run-store-"));
   try {
     return await fn({ workspaceRoot, workspace, storeRoot });

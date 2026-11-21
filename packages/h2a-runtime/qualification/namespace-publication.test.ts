@@ -1,5 +1,5 @@
 // @ts-ignore The qualification boundary never ships in the runtime.
-import { createPrivateTestDirectory, nativeTestEnvironment, setupNativeTestEnvironment, spawnIsolatedNative as spawn } from "../../h2a/test/helpers/native-isolation.js";
+import { createVmIsolationApi } from "../../../scripts/run-namespace-qualification.mjs";
 import { afterAll, expect, it, vi } from "vitest";
 import { once } from "node:events";
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -11,6 +11,12 @@ import { NativeTerminalHost } from "../src/native-terminal/host.js";
 import { NativeTerminalClient } from "../src/native-terminal/client.js";
 import { startNativeTerminalHostServer } from "../src/native-terminal/server.js";
 
+const {
+  createPrivateTestDirectory,
+  nativeTestEnvironment,
+  setupNativeTestEnvironment,
+  spawnIsolatedNative: spawn,
+} = createVmIsolationApi(process.env);
 setupNativeTestEnvironment(afterAll);
 // Deliberately no skip: missing namespace privileges are a failed qualification.
 it("should forbid kill(-pgid) and unlink across real PID and network namespaces", async () => {

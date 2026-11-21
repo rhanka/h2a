@@ -67,7 +67,12 @@ function provisionLegacyHostDir(root) {
   if (preset && existsSync(join(preset, LEGACY_HOST_ENTRY))) return { dir: preset, owned: false };
   ensureHistoricalGitRef(root, LEGACY_HOST_REF);
   const dir = mkdtempSync(join(tmpdir(), "h2a-legacy-host-"));
-  const archive = spawnSync("git", ["archive", LEGACY_HOST_REF], { cwd: root, encoding: "buffer", maxBuffer: 200 * 1024 * 1024 });
+  const archive = spawnSync("git", ["archive", LEGACY_HOST_REF], {
+    cwd: root,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    encoding: "buffer",
+    maxBuffer: 200 * 1024 * 1024,
+  });
   if (archive.status !== 0 || !archive.stdout) throw new Error(`node-suite-env: git archive ${LEGACY_HOST_REF} failed`);
   const extract = spawnSync("tar", ["-x", "-C", dir], { input: archive.stdout });
   if (extract.status !== 0) throw new Error(`node-suite-env: extracting ${LEGACY_HOST_REF} failed`);

@@ -11,7 +11,10 @@ export const M17_TITLE = 'M17 backend stress should reconcile 10,000 mutations p
 const DOMAINS = ['presence', 'registry', 'inbox', 'negotiations', 'blockage', 'launches', 'payloads'];
 const INPUTS = ['package-lock.json', M17_FILE, 'packages/h2a/test/helpers/mh-l5-campaign.js',
   'packages/h2a/test/helpers/mh-l5-writer.mjs', 'scripts/node-evidence-reporter.mjs',
-  'scripts/m17-ci-evidence.mjs', 'scripts/ci-m17-proof.mjs'];
+  'scripts/m17-ci-evidence.mjs', 'scripts/ci-m17-proof.mjs', 'scripts/ci-m17-temp.mjs',
+  'scripts/test-sandbox.mjs', 'scripts/test-sandbox-contract.mjs',
+  'packages/h2a/test/helpers/native-isolation.js', 'packages/h2a/test/helpers/native-isolation-core.js',
+  '.github/workflows/ci.yml', '.github/workflows/node-qualification.yml'];
 const keys = (value, expected) => assert.deepEqual(Object.keys(value).sort(), [...expected].sort());
 
 export function m17Context(root, env = process.env) {
