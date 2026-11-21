@@ -401,9 +401,9 @@ export function verifySandboxConfinement(env = process.env, options = {}) {
 
     let mounts;
     try {
-      mounts = parseMountInfo(readFileSync("/proc/self/mountinfo", "utf8"));
+      mounts = parseMountInfo(readFileSync(`/proc/${process.pid}/mountinfo`, "utf8"));
     } catch (error) {
-      throw new UnconfinedTestRunError(`cannot read /proc/self/mountinfo: ${error.message}`);
+      throw new UnconfinedTestRunError(`cannot read /proc/${process.pid}/mountinfo: ${error.message}`);
     }
 
     const rMount = findCoveringMount(mounts, SANDBOX_MOUNT_ROOT);
@@ -688,23 +688,27 @@ export function ensureWorkerEnvironment(receipt, targetEnv = process.env, option
   }
 
   // Does this child already carry a custom fixture environment inside R
-  // (e.g. a test spawned a child with its own mkdtemp fixture HOME/XDG,
+  // (e.g. a test spawned a child with its own mkdtemp fixture HOME,
   // distinct from both supervisor default R/home and parent worker W/home)?
-  // Preserve it even when NODE_TEST_CONTEXT was inherited via ...process.env.
+  // Preserve every caller-set variable verbatim even when NODE_TEST_CONTEXT
+  // was inherited via ...process.env or when only a subset of XDG_* was set.
   const hasCustomFixtureEnv =
-    CORE_ISOLATED_ENV_KEYS.every(
-      (k) => Boolean(targetEnv[k]) && isPathWithinAttestedRoot(targetEnv[k], receipt),
-    ) &&
+    Boolean(targetEnv.HOME) &&
+    isPathWithinAttestedRoot(targetEnv.HOME, receipt) &&
     !isSupervisorDefaultPath(targetEnv.HOME, receipt.root) &&
     (!targetEnv[TEST_WORKER_ROOT_ENV] ||
       resolve(targetEnv.HOME) !== join(resolve(targetEnv[TEST_WORKER_ROOT_ENV]), "home"));
 
-  if (!forceNewWorker && hasCustomFixtureEnv) {
-    // Preserve fixture child's private environment verbatim; only ensure TMPDIR if omitted.
+  if (!forceNewWorker && !needsFreshNodeTestWorker && hasCustomFixtureEnv) {
+    // Preserve fixture child's private environment verbatim; only fill missing
+    // isolation defaults inside R without overwriting any caller-provided key.
     targetEnv[TEST_STATE_ROOT_ENV] = receipt.root;
     targetEnv[TEST_STATE_QUALIFICATION_ROOT_ENV] = receipt.root;
+    const baseDir = targetEnv.XDG_RUNTIME_DIR && isPathWithinAttestedRoot(targetEnv.XDG_RUNTIME_DIR, receipt)
+      ? resolve(targetEnv.XDG_RUNTIME_DIR)
+      : dirname(resolve(targetEnv.HOME));
     if (!targetEnv.TMPDIR) {
-      const fallbackTmp = join(resolve(targetEnv.XDG_RUNTIME_DIR), "tmp");
+      const fallbackTmp = join(baseDir, "tmp");
       try { mkdirSync(fallbackTmp, { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
       targetEnv.TMPDIR = fallbackTmp;
       targetEnv.TMP = fallbackTmp;
