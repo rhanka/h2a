@@ -34,6 +34,26 @@ function sameProcess(first: PtyProcess, current: PtyProcess): boolean {
     sameTerminal(first, current);
 }
 
+function isDeadProcess(state: string): boolean {
+  return state === "Z" || state === "X" || state === "x";
+}
+
+function shellOwnsForeground(shell: PtyProcess): boolean {
+  if (shell.processGroup !== shell.foregroundProcessGroup) return false;
+  // The managed wrapper execs this exact login shell. An inherited role
+  // after a manual exec does not identify a replacement command as a shell.
+  if (readFileSync(`/proc/${shell.pid}/cmdline`, "utf8") !== "/bin/bash\0-l\0") return false;
+  // With job control off, the shell and a command can share the TTY's
+  // foreground group. In that case the group alone cannot identify the reader.
+  const children = launchChildren(shell.pid);
+  if (children.length > MAX_LAUNCH_PROCESSES) return false;
+  return children.every((pid) => {
+    const child = readPtyProcess(pid);
+    return child !== undefined && child.parent === shell.pid &&
+      (child.processGroup !== shell.processGroup || isDeadProcess(child.state));
+  });
+}
+
 /**
  * Observe only the launch chain under the PTY leader we spawned. The native
  * launch wrapper stamps the specific exec PID. A child inheriting that label
@@ -47,21 +67,24 @@ export const readApplicationForeground: ApplicationForegroundReader = (ptyPid, p
 
   let application: PtyProcess | undefined;
   let shell: PtyProcess | undefined;
+  let sawRole = false;
   const queue = [{ process: root, depth: 0 }];
   try {
     for (let index = 0; index < queue.length; index++) {
       const { process: candidate, depth } = queue[index]!;
-      if (candidate.state === "Z" || candidate.state === "X") continue;
+      if (isDeadProcess(candidate.state)) continue;
       const env = readFileSync(`/proc/${candidate.pid}/environ`, "utf8").split("\0");
       if (!env.includes(token)) return undefined;
       const isApplication = env.includes(`${APPLICATION_ROLE_ENV}=cli:${candidate.pid}`);
       const isShell = env.includes(`${APPLICATION_ROLE_ENV}=shell:${candidate.pid}`);
       if (isApplication || isShell) {
-        if (application || shell || (isApplication && isShell)) return undefined;
+        if (sawRole || (isApplication && isShell)) return undefined;
+        sawRole = true;
+        const observedShell = isShell && shellOwnsForeground(candidate);
         const confirmed = readPtyProcess(candidate.pid);
         if (!confirmed || !sameProcess(candidate, confirmed)) return undefined;
         if (isApplication) application = confirmed;
-        else shell = confirmed;
+        else if (observedShell) shell = confirmed;
         continue;
       }
       // forkpty guardian -> launch wrapper -> application. The guardian and
@@ -111,7 +134,7 @@ export class ApplicationFacetState {
       return this.#update("unknown", null, null);
     }
     const { application, shell, foregroundProcessGroup: group } = observation;
-    if (application && !["Z", "X", "x"].includes(application.state)) {
+    if (application && !isDeadProcess(application.state)) {
       if (this.#application?.pid === application.pid && this.#application.birth !== application.birth) {
         return this.#update("unknown", null, group);
       }
