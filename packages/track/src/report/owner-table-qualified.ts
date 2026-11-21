@@ -1,3 +1,4 @@
+import type { CaptureCliStatusView, CaptureReaderView } from '../capture/reader.js'
 import type { DesyncFinding } from '../cli/desync.js'
 import type { JournalResolutionKind } from '../cli/journal-reference.js'
 import { DomainError } from '../model/item.js'
@@ -24,18 +25,24 @@ import {
   computeAgeDays,
   FALLBACK_JOURNAL_LABEL,
   formatBlockingDecisionTodoCause,
+  formatCapturedWaitingHeading,
+  formatCapturedWaitingLine,
   formatDecisionCellToken,
   formatDecisionsHeading,
   formatDecisionSummaryLine,
   formatFlagSuffix,
+  formatHeaderCaptureLine,
   formatHeaderJournalLine,
   formatHeaderLocalCopyLine,
   formatHeaderMotifsLine,
+  formatHeaderNoJournalActiveCaptureLine,
   formatMaskText,
   formatMotifUnverifiedDocs,
   formatOwnerGateLine,
   formatPartialScopeNoDecisionsSentence,
   formatReplyLine,
+  formatRequestCellCapturedDoubtful,
+  formatRequestCellCapturedOwner,
   formatRequestCellNotCaptured,
   formatRequestCellWithOriginLabel,
   formatToAttachHeading,
@@ -186,6 +193,9 @@ export interface QualifiedOwnerTableRow extends OwnerTableRow {
   flags: QualifiedRowFlag[]
   masks: QualifiedRowMask[]
   captured: boolean
+  /** Separate E7 mask on captured short title vs captured text (spec §5). */
+  requestTitleMask?: MaskMotif | undefined
+  requestTextMask?: MaskMotif | undefined
   /** Short origin label when the demand was raised from another project/folder identity (lot 4a). */
   originLabel?: string | undefined
 }
@@ -196,7 +206,18 @@ export interface QualifiedToAttachItem {
   createdAt: string | null
   text: string
   captured: boolean
+  captureOrigin?: string | undefined
   maskMotif?: MaskMotif | undefined
+}
+
+export interface QualifiedCapturedWaitingItem {
+  id: string
+  date: string
+  at: string
+  classKind: 'new-demand' | 'follow-up' | 'decision-answer'
+  title: string
+  demandNumber?: number | undefined
+  decisionRef?: string | undefined
 }
 
 export interface QualifiedDecisionItem {
@@ -233,6 +254,10 @@ export interface QualifiedHeaderMeta {
   lastEventAt: string | null
   lastEventDate: string | null
   localOnlyEventCount: number
+  noJournal?: boolean | undefined
+  writeMode: 'open' | 'exclusive'
+  writeHolder: string | null
+  captureClis: CaptureCliStatusView[]
 }
 
 export interface QualifiedOwnerTableCounts {
@@ -253,6 +278,9 @@ export interface QualifiedOwnerTableCounts {
   maskedCells: number
   desyncCount: number
   unverifiedDocs: number
+  unclassified: number
+  expiredUnclassified: number
+  capturedNotInscribed: number
 }
 
 export interface QualifiedOwnerTableOptions extends AuditOwnerTableOptions {
@@ -263,7 +291,13 @@ export interface QualifiedOwnerTableOptions extends AuditOwnerTableOptions {
     resolution?: JournalResolutionKind
     lastEventAt?: string
     localOnlyEventCount?: number
+    noJournal?: boolean
   }
+  writePolicy?: {
+    mode: 'open' | 'exclusive'
+    holder: string | null
+  }
+  captureView?: CaptureReaderView
   policyFound?: boolean
   desyncFindings?: readonly DesyncFinding[]
   unverifiedDocsCount?: number
@@ -280,6 +314,7 @@ export interface QualifiedOwnerTableView {
   scope: OwnerTableScopeEvaluation
   rows: QualifiedOwnerTableRow[]
   toAttach: QualifiedToAttachItem[]
+  capturedWaiting: QualifiedCapturedWaitingItem[]
   decisions: QualifiedDecisionItem[]
   gaps: QualifiedGapRecord[]
   counts: QualifiedOwnerTableCounts
@@ -337,6 +372,8 @@ export function buildQualifiedOwnerTable(
   // Index E3 flags and E7 masks by rowId and decisionId
   const rowFlagsMap = new Map<string, QualifiedRowFlag[]>()
   const rowMasksMap = new Map<string, Map<OwnerTableCell, { motif: MaskMotif; check: OwnerTableGateCheck | undefined }>>()
+  const rowCapturedTitleMasks = new Map<string, MaskMotif>()
+  const rowCapturedTextMasks = new Map<string, MaskMotif>()
   const decisionQualifiersMap = new Map<string, Set<DecisionQualifierLabel>>()
   const decisionMasksMap = new Map<string, Map<string, MaskMotif>>()
 
@@ -365,6 +402,17 @@ export function buildQualifiedOwnerTable(
       const motif = maskMotifForCheck(violation.check)
       if (violation.rowId !== undefined) {
         const cell = violation.cell ?? 'request'
+        if (cell === 'request' && violation.message.includes('(title)')) {
+          rowCapturedTitleMasks.set(
+            violation.rowId,
+            pickHigherMask(rowCapturedTitleMasks.get(violation.rowId), motif),
+          )
+        } else if (cell === 'request' && violation.message.includes('(text)')) {
+          rowCapturedTextMasks.set(
+            violation.rowId,
+            pickHigherMask(rowCapturedTextMasks.get(violation.rowId), motif),
+          )
+        }
         let cellMap = rowMasksMap.get(violation.rowId)
         if (cellMap === undefined) {
           cellMap = new Map()
@@ -458,8 +506,9 @@ export function buildQualifiedOwnerTable(
         id: row.id,
         date: formatUtcDate(row.createdAt, options.now),
         createdAt: row.createdAt ?? null,
-        text: row.request,
-        captured: false,
+        text: row.captured === true ? (row.capturedText ?? row.request) : row.request,
+        captured: row.captured === true,
+        ...(row.captureOrigin !== undefined ? { captureOrigin: row.captureOrigin } : {}),
         ...(reqMask !== undefined ? { maskMotif: reqMask } : {}),
       })
       continue
@@ -480,6 +529,8 @@ export function buildQualifiedOwnerTable(
           ? FALLBACK_JOURNAL_LABEL
           : rawOriginLabel.trim()
         : undefined
+    const titleMask = rowCapturedTitleMasks.get(row.id)
+    const textMask = rowCapturedTextMasks.get(row.id)
     numberedRows.push({
       ...row,
       decisionIds: row.decisionIds ?? [],
@@ -487,7 +538,9 @@ export function buildQualifiedOwnerTable(
       sansObjetDecisionIds: row.sansObjetDecisionIds ?? [],
       flags,
       masks,
-      captured: false,
+      captured: row.captured === true,
+      ...(titleMask !== undefined ? { requestTitleMask: titleMask } : {}),
+      ...(textMask !== undefined ? { requestTextMask: textMask } : {}),
       ...(sanitizedOriginLabel !== undefined ? { originLabel: sanitizedOriginLabel } : {}),
     })
   }
@@ -532,13 +585,33 @@ export function buildQualifiedOwnerTable(
 
   const lastEventAt = options.header?.lastEventAt ?? null
   const lastEventDate = lastEventAt !== null ? formatUtcDate(lastEventAt, options.now) : null
+  const captureView = options.captureView
+  const captureClis = captureView?.clis ?? []
+  const writeMode = options.writePolicy?.mode ?? 'open'
+  const writeHolder = options.writePolicy?.holder ?? null
   const header: QualifiedHeaderMeta = {
     label,
     resolution: options.header?.resolution ?? 'dossier',
     lastEventAt,
     lastEventDate,
     localOnlyEventCount: options.header?.localOnlyEventCount ?? 0,
+    ...(options.header?.noJournal === true ? { noJournal: true } : {}),
+    writeMode,
+    writeHolder,
+    captureClis,
   }
+
+  const capturedWaiting: QualifiedCapturedWaitingItem[] = (captureView?.capturedNotInscribed ?? []).map(
+    (item) => ({
+      id: item.id,
+      at: item.at,
+      date: formatUtcDate(item.at, options.now),
+      classKind: item.classKind,
+      title: hasTextGateViolation(item.title, labelGateOpts) ? formatMaskText('terme réservé') : item.title,
+      ...(item.demandNumber !== undefined ? { demandNumber: item.demandNumber } : {}),
+      ...(item.decisionRef !== undefined ? { decisionRef: item.decisionRef } : {}),
+    }),
+  )
 
   // Counts (V2: each counter equals the exact number of elements it names; qualifiers are never summed)
   const activeDemands = numberedRows.filter((r) => (r.kind ?? 'single') !== 'lot').length
@@ -556,6 +629,9 @@ export function buildQualifiedOwnerTable(
   const decisionsWithOpenQuestions = qualifiedDecisions.filter((d) => d.openQuestionCount > 0).length
 
   const unverifiedDocs = options.unverifiedDocsCount ?? 0
+  const unclassified = captureView?.unclassifiedCount ?? 0
+  const expiredUnclassified = captureView?.expiredUnclassifiedCount ?? 0
+  const capturedNotInscribed = capturedWaiting.length
 
   const counts: QualifiedOwnerTableCounts = {
     activeDemands,
@@ -575,6 +651,9 @@ export function buildQualifiedOwnerTable(
     maskedCells,
     desyncCount: desync.length,
     unverifiedDocs,
+    unclassified,
+    expiredUnclassified,
+    capturedNotInscribed,
   }
 
   const scope = evaluateOwnerTableScope({
@@ -589,6 +668,10 @@ export function buildQualifiedOwnerTable(
     openQuestionCount,
     maskedCells,
     desyncCount: desync.length,
+    captureClis,
+    unclassifiedCount: unclassified,
+    expiredUnclassifiedCount: expiredUnclassified,
+    capturedNotInscribedCount: capturedNotInscribed,
   })
   // Annex F order 1: unassigned reference journal when several copies are known.
   if (options.unassignedJournal === true) {
@@ -650,6 +733,7 @@ export function buildQualifiedOwnerTable(
     scope,
     rows: numberedRows,
     toAttach,
+    capturedWaiting,
     decisions: qualifiedDecisions,
     gaps,
     counts,
@@ -713,14 +797,20 @@ export function renderQualifiedOwnerTable(
 
   const lines: string[] = []
 
-  // Header (up to 3 lines in lot 1)
-  lines.push(
-    formatHeaderJournalLine(
-      qualified.header.label,
-      qualified.header.resolution,
-      qualified.header.lastEventDate,
-    ),
-  )
+  // Header (up to 4 lines from lot 3a)
+  if (qualified.header.noJournal === true) {
+    lines.push(formatHeaderNoJournalActiveCaptureLine(qualified.header.label))
+  } else {
+    lines.push(
+      formatHeaderJournalLine(
+        qualified.header.label,
+        qualified.header.resolution,
+        qualified.header.lastEventDate,
+        { mode: qualified.header.writeMode, holder: qualified.header.writeHolder },
+      ),
+    )
+  }
+  lines.push(formatHeaderCaptureLine(qualified.header.captureClis))
   lines.push(formatHeaderMotifsLine(qualified.scope.motifs.map((m) => m.text)))
   if (qualified.header.localOnlyEventCount > 0) {
     lines.push(formatHeaderLocalCopyLine(qualified.header.localOnlyEventCount))
@@ -738,8 +828,26 @@ export function renderQualifiedOwnerTable(
       const statusCell = applyCellMasksAndFlags(formatOwnerStatusCell(row), 'status', row)
       const stageCell = applyCellMasksAndFlags(formatOwnerStageCell(row), 'stage', row)
       const etaCell = applyCellMasksAndFlags(formatOwnerEtaCell(row.etas), 'eta', row)
-      const requestBase = formatRequestCellNotCaptured(row.request)
-      const requestWithMask = applyCellMasksAndFlags(requestBase, 'request', row)
+      let requestWithMask: string
+      if (row.captured) {
+        const capText = row.capturedText ?? row.request
+        const capTitle = row.capturedTitle
+        const capOpts = {
+          ...(row.maskedAtInscription === true ? { maskedAtInscription: true } : {}),
+          ...(row.requestTitleMask !== undefined ? { titleMask: row.requestTitleMask } : {}),
+          ...(row.requestTextMask !== undefined ? { textMask: row.requestTextMask } : {}),
+        }
+        requestWithMask =
+          row.captureOrigin === 'owner'
+            ? formatRequestCellCapturedOwner(capText, capTitle, capOpts)
+            : formatRequestCellCapturedDoubtful(capText, capTitle, capOpts)
+        for (const flag of row.flags) {
+          if (flag.cell === 'request') requestWithMask += formatFlagSuffix(flag.motif)
+        }
+      } else {
+        const requestBase = formatRequestCellNotCaptured(row.request)
+        requestWithMask = applyCellMasksAndFlags(requestBase, 'request', row)
+      }
       const requestCell =
         row.originLabel !== undefined
           ? formatRequestCellWithOriginLabel(row.originLabel, requestWithMask)
@@ -776,7 +884,25 @@ export function renderQualifiedOwnerTable(
           date: item.date,
           text: item.text.trim() === '' ? '—' : cleanDisplayText(item.text),
           captured: item.captured,
+          captureOrigin: item.captureOrigin,
           maskMotif: item.maskMotif,
+        }),
+      )
+    }
+  }
+
+  // « Captées, pas encore inscrites » section (lot 3a)
+  if (qualified.capturedWaiting.length > 0) {
+    lines.push('')
+    lines.push(formatCapturedWaitingHeading(qualified.capturedWaiting.length))
+    for (const item of qualified.capturedWaiting) {
+      lines.push(
+        formatCapturedWaitingLine({
+          date: item.date,
+          classKind: item.classKind,
+          title: cleanDisplayText(item.title),
+          demandNumber: item.demandNumber,
+          decisionRef: item.decisionRef,
         }),
       )
     }

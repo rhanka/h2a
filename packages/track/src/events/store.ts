@@ -17,6 +17,9 @@ import { withFileLock, type LockOptions } from './lock.js'
 import { resealEvents, type ResealResult } from './reseal.js'
 import type { CommandEvent, EventCore, Sha256, TrackEvent, Ulid } from './types.js'
 import { validate } from './validate.js'
+import { assertWritePolicyAllows, type WriterTokenInput } from '../write-policy.js'
+
+export interface EventStoreOptions extends WriterTokenInput {}
 
 /**
  * Operational-only lock timeout override (`TRACK_LOCK_TIMEOUT_MS`). Lets a caller cap how long a
@@ -40,7 +43,10 @@ function lockOptionsFromEnv(): LockOptions {
  * tampered/reordered/truncated log cannot be silently grown.
  */
 export class EventStore {
-  constructor(private readonly filePath: string) {}
+  constructor(
+    private readonly filePath: string,
+    private readonly options: EventStoreOptions = {},
+  ) {}
 
   /** All events in stream (append) order. Throws on a malformed (e.g. torn) line. */
   readAll(): TrackEvent[] {
@@ -117,6 +123,9 @@ export class EventStore {
     // it, two concurrent writers compute the same prevHash/seq and corrupt the single stream, which the
     // fail-closed guard below then turns into a permanent write-DoS for every future writer (see lock.ts).
     return withFileLock(this.filePath, () => {
+      // Lot 3a write-policy gate: checked under the journal lock BEFORE integrity check or any write.
+      assertWritePolicyAllows(this.filePath, this.options)
+
       const existing = this.readAll()
       const before = existing.length
 
@@ -223,6 +232,9 @@ export class EventStore {
     return withFileLock(
       this.filePath,
       () => {
+        // Lot 3a write-policy gate: in-place re-chaining is a journal mutation and requires the holder token.
+        assertWritePolicyAllows(this.filePath, this.options)
+
         const { events, result } = resealEvents(this.readAll())
         this.rewriteAtomic(events)
         writeHead(this.filePath, {

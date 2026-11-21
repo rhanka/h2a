@@ -74,14 +74,27 @@ function assertPlanShape(plan: RestructurePlan): void {
  * failure throws AFTER the appends (the append-only log surfaces the incompleteness loudly — the
  * pre-conditions above are what protect "nothing written on bad input").
  */
-export function applyRestructurePlan(eventsPath: string, plan: RestructurePlan, opts: { by?: ActorId } = {}): ApplyResult {
+export function applyRestructurePlan(
+  eventsPath: string,
+  plan: RestructurePlan,
+  opts: {
+    by?: ActorId
+    writerToken?: string | undefined
+    writerTokenFile?: string | undefined
+    env?: NodeJS.ProcessEnv | undefined
+  } = {},
+): ApplyResult {
   assertPlanShape(plan)
   const planHash = computePlanHash(plan.edges)
   if (plan.planHash !== undefined && plan.planHash !== planHash) {
     throw new DomainError(`restructure apply: planHash mismatch — declared "${plan.planHash}" ≠ computed "${planHash}" (re-plan)`)
   }
 
-  const store = new EventStore(eventsPath)
+  const store = new EventStore(eventsPath, {
+    ...(opts.writerToken !== undefined ? { writerToken: opts.writerToken } : {}),
+    ...(opts.writerTokenFile !== undefined ? { writerTokenFile: opts.writerTokenFile } : {}),
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+  })
   const before = store.readAll()
   const state0 = fold(before)
 

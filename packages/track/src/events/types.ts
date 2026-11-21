@@ -121,6 +121,10 @@ export const EVENT_TYPES = [
   'demand.owner-summary-updated',
   'demand.owner-archived',
   'demand.eta-set',
+  // Lot 3a (additive) — verbatim owner messages inscribed from the capture queue onto a demand or
+  // decision (never settles a decision; absent on pre-3a logs ⇒ zero hash/seq change).
+  'demand.owner-message-added',
+  'decision.owner-message-added',
   'item.eta-set',
   'spec.started',
   'spec.abandoned',
@@ -151,6 +155,9 @@ export interface ProvenanceSignature {
  *  pre-check predicate can be typed against the same union. */
 export type ProvenanceAuth = 'local-user' | 'unauthenticated' | 'signed'
 
+/** Attribution origin of a captured owner message (spec §7.6, DS-9, lot 3a). */
+export type CaptureOrigin = 'owner' | 'doubtful' | 'injected' | 'subagent' | 'background'
+
 /**
  * Provenance of a write (D3, "hybrid A→B"). `by` is the actor (on whose behalf); `prov` records HOW
  * the write arrived and its TRUST level, so a reviewer of the immutable log can tell a human-CLI
@@ -159,8 +166,9 @@ export type ProvenanceAuth = 'local-user' | 'unauthenticated' | 'signed'
  */
 export interface Provenance {
   /** Channel the write arrived through. `'http'` records that the trusted CALLER received the write
-   *  over HTTP — track does NOT host HTTP (M3 is library-import; see M3-deps-raci-DESIGN.md). */
-  transport: 'cli' | 'mcp-stdio' | 'import' | 'internal' | 'http'
+   *  over HTTP — track does NOT host HTTP (M3 is library-import; see M3-deps-raci-DESIGN.md).
+   *  `'capture'` records that the write was inscribed verbatim from the capture queue (lot 3a). */
+  transport: 'cli' | 'mcp-stdio' | 'import' | 'internal' | 'http' | 'capture'
   /** Agent-PROPOSED (LLM proposes) vs human/deterministic. */
   proposed: boolean
   /**
@@ -175,6 +183,8 @@ export interface Provenance {
   principal?: string
   /** The attestation signature, recorded for audit (see ProvenanceSignature). RECORDED, not verified. */
   sig?: ProvenanceSignature
+  /** Attribution origin when `transport === 'capture'` (lot 3a, DS-9). Additive, absent on pre-3a events. */
+  origin?: CaptureOrigin
 }
 
 /**

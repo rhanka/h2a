@@ -81,6 +81,7 @@
 - [ ] `attention` to `cond`: record here the date and holder name of the declaration made on this repository's journal after merge, and the place where the holder keeps its token.
 - [ ] `attention` to `arch`: the two additive events of Lot 4 and the file names of the queue and of the registry are named by this plan, not by the spec; say so in the pull request so the reviewer checks them.
 - [ ] `attention` to `plugins`: the commands, flags and the registry file below are what lots 3b, 3c and 4b consume; tell `plugins` and `runtime` of any change.
+- [x] `BR807-EX1` (exception for `packages/track/src/cli/adopt.ts` and `packages/track/src/adopt/apply.ts`): Lot 5a (`adopt`) landed after `plan/07` was written and constructs its own `new EventStore(eventsPath)` at `packages/track/src/adopt/apply.ts:626` while parsing `--writer-token-file` locally in `cli/adopt.ts:158`. Extracting `--writer-token-file` globally in `cli/index.ts` and enforcing write policy in `EventStore` requires forwarding the token option into `cmdAdopt` and `new EventStore(eventsPath, ...)` in `adopt/apply.ts` so `adopt apply --writer-token-file` keeps working without `TRACK_WRITER_TOKEN`. Impact: 2 files, minimal signature/constructor forwarding; rollback: revert this commit.
 
 ## Orchestration Mode (AI-selected)
 

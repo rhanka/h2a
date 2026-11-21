@@ -41,6 +41,7 @@ export interface ApplyAdoptionOptions extends BuildAdoptionPlanOptions {
   by?: ActorId
   writerToken?: string
   writerTokenFile?: string
+  env?: NodeJS.ProcessEnv
 }
 
 function sha256Hex(input: string): string {
@@ -623,7 +624,11 @@ export function applyAdoptionPlan(
     )
   }
 
-  const store = new EventStore(eventsPath)
+  const store = new EventStore(eventsPath, {
+    ...(options.writerToken !== undefined ? { writerToken: options.writerToken } : {}),
+    ...(options.writerTokenFile !== undefined ? { writerTokenFile: options.writerTokenFile } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
+  })
   const existingEvents = store.readAll()
   const existingTokens = new Set(
     existingEvents.map((e) => e.clientToken).filter((t): t is string => typeof t === 'string'),
