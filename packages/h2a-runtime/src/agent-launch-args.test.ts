@@ -304,9 +304,18 @@ describe("agent launch allowlists", () => {
     expect(isAgentLaunchEffort("xhigh")).toBe(true);
     expect(isAgentLaunchEffort("max")).toBe(false);
     expect(isAgentLaunchEffort("max", "muse")).toBe(true);
-    expect(isAgentLaunchEffort("max", "codex")).toBe(false);
+    expect(isAgentLaunchEffort("max", "codex")).toBe(true);
     expect(isAgentLaunchEffort("max", "claude")).toBe(false);
     expect(isAgentLaunchEffort("max", "unknown")).toBe(false);
+  });
+
+  it.each([
+    ["gpt-6.2-astra", "max"],
+    ["gpt-6.2-sol", "xhigh"],
+  ] as const)("passes Codex %s at %s unchanged to the headless command", (model, effort) => {
+    expect(isAgentLaunchEffort(effort, "codex")).toBe(true);
+    expect(buildAgentLaunchArgs({ profile: "codex", model, effort, prompt: "Reply OK", headless: true }))
+      .toEqual(["-m", model, "-c", `model_reasoning_effort="${effort}"`, "exec", "-"]);
   });
 
   it("rejects unsafe model tokens and unbounded prompts", () => {

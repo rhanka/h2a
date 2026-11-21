@@ -127,12 +127,19 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
 
   it("rejects effort levels unsupported by the selected CLI", () => {
     expect(() =>
-      buildDelegateArgs("codex", "do X", false, undefined, "max"),
+      buildDelegateArgs("codex", "do X", false, undefined, "extreme"),
     ).toThrow(/invalid Codex effort/);
     expect(() =>
       buildDelegateArgs("claude", "do X", false, undefined, "extreme"),
     ).toThrow(/invalid Claude effort/);
     expect(() => assertDelegateEffort("codex", "xhigh")).not.toThrow();
+  });
+
+  it("passes Astra max through Codex delegation", () => {
+    expect(buildDelegateArgs("codex", "do X", false, "gpt-6.2-astra", "max")).toEqual({
+      command: "codex",
+      args: ["-m", "gpt-6.2-astra", "-c", 'model_reasoning_effort="max"', "do X"],
+    });
   });
 
   it("a task with shell metacharacters stays ONE argv element (no injection)", () => {

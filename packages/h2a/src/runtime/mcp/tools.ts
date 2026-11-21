@@ -684,7 +684,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
             prompt: { type: "string" },
             model: { type: "string" },
             name: { type: "string" },
-            effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
+            effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"], description: "Only Codex accepts max." },
             gateway: { type: "string", enum: ["auto", "required", "off"] }
           },
           required: ["profile", "workspace", "prompt", "model", "name"]
@@ -714,7 +714,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
             prompt: { type: "string" },
             model: { type: "string" },
             name: { type: "string" },
-            effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
+            effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"], description: "Only Codex accepts max." },
             gateway: { type: "string", enum: ["auto", "required", "off"] }
           },
           required: ["profile", "workspace", "prompt", "model", "name"]
@@ -810,7 +810,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         effort: {
           type: "string",
           enum: ["low", "medium", "high", "xhigh", "max"],
-          description: "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Muse additionally accepts max and maps effort to its native --reasoning-effort."
+          description: "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Codex also accepts max for models that support it. Muse accepts max and maps effort to its native --reasoning-effort."
         },
         role: { type: "string", enum: ["review", "challenge", "build"], description: "AGY Claude credits: reviews and adversarial challenges first; build requires allowClaudeBuild:true." },
         allowClaudeBuild: { type: "boolean", description: "Explicit opt-in to spend the reserved AGY Claude pool on a build role." },
