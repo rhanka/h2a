@@ -293,6 +293,17 @@ async function createStationFixture(opts: {
       pinChild: (pid: number) => {
         processPins.add(pinPrivateNativeProcess(pid, env));
       },
+      /**
+       * The input opens at t6, once the sentinel went out and was answered:
+       * anything typed before is dropped by design. Wait for sentinel n.
+       */
+      inputOpen: async (count: number): Promise<void> => {
+        await until(() => sentinels >= count, 30_000, `input open (sentinel ${count})`);
+        await sleep(50);
+      },
+      /** Everything a child echoed back, whatever the way its reads were split. */
+      echoed: (tag: string): string =>
+        [...output.matchAll(new RegExp(`${tag}_RX:([0-9a-f]+)`, "g"))].map((m) => m[1]).join(""),
       /** Give the panel the keyboard without changing any geometry. */
       focusPanel: () => {
         terminal.write(`\x1b[<0;${opts.cols};${opts.rows - 3}M`);
@@ -372,9 +383,10 @@ describe.skipIf(process.platform !== "linux")(
       expect(outer.output()).toContain("1 dead");
       // Panel open ⇒ the displayed PTY has the columns left of the panel.
       await until(() => outer.output().includes("ALPHA_WINCH:88x30"), 10_000, "child resize");
+      await outer.inputOpen(1);
 
       outer.terminal.write("for-alpha");
-      await until(() => outer.output().includes(`ALPHA_RX:${hex("for-alpha")}`), 10_000, "echo of A");
+      await until(() => outer.echoed("ALPHA").includes(hex("for-alpha")), 10_000, "echo of A");
 
       // Switch: panel focus, second row of the tab.
       const switched = outer.mark();
@@ -388,20 +400,19 @@ describe.skipIf(process.platform !== "linux")(
       expect(after.indexOf("\x1b[2J\x1b[3J\x1b[H")).toBeLessThan(after.indexOf("BRAVO_READY"));
       expect(outer.output()).not.toContain("\x1bc");
       await until(() => outer.since(switched).includes("BRAVO_WINCH:88x30"), 10_000, "resize of B");
+      await outer.inputOpen(2);
 
       outer.terminal.write("for-bravo");
-      await until(() => outer.output().includes(`BRAVO_RX:${hex("for-bravo")}`), 10_000, "echo of B");
+      await until(() => outer.echoed("BRAVO").includes(hex("for-bravo")), 10_000, "echo of B");
 
       // I4, on the PTY side: A never received a byte typed for B, and vice versa.
-      const alpha = await f.printed("h2a-alpha");
-      const bravo = await f.printed("h2a-bravo");
-      expect(alpha).toContain(`ALPHA_RX:${hex("for-alpha")}`);
-      expect(alpha).not.toContain(hex("for-bravo"));
-      expect(bravo).toContain(`BRAVO_RX:${hex("for-bravo")}`);
-      expect(bravo).not.toContain(hex("for-alpha"));
-      // The digit and the panel click stayed in the panel.
-      expect(alpha).not.toContain("ALPHA_RX:32");
-      expect(alpha).not.toContain(hex("\x1b[<0;"));
+      const received = (printed: string, tag: string): string =>
+        [...printed.matchAll(new RegExp(`${tag}_RX:([0-9a-f]+)`, "g"))].map((m) => m[1]).join("");
+      const alpha = received(await f.printed("h2a-alpha"), "ALPHA");
+      const bravo = received(await f.printed("h2a-bravo"), "BRAVO");
+      // Each PTY received exactly what was typed while it was displayed.
+      expect(alpha).toBe(hex("for-alpha"));
+      expect(bravo).toBe(hex("for-bravo"));
 
       // On this host (no composer broker) A is kept under a compatibility guard.
       expect((await f.client.state("h2a-alpha")).controlled).toBe(true);
@@ -436,17 +447,20 @@ describe.skipIf(process.platform !== "linux")(
       });
       const outer = f.station();
       await until(() => outer.output().includes("ALPHA_WINCH:88x30"), 20_000, "launch");
+      await outer.inputOpen(1);
       const toBravo = outer.mark();
       outer.focusPanel();
       outer.terminal.write("2");
       await until(() => outer.since(toBravo).includes("BRAVO_WINCH:88x30"), 15_000, "switch to B");
+      await outer.inputOpen(2);
       const back = outer.mark();
       outer.focusPanel();
       outer.terminal.write("1");
       await until(() => outer.since(back).includes("ALPHA_READY"), 15_000, "back to A");
+      await outer.inputOpen(3);
       // Type for A and wait for the echo: any late resize report would precede it.
       outer.terminal.write("probe");
-      await until(() => outer.since(back).includes(`ALPHA_RX:${hex("probe")}`), 10_000, "echo of A");
+      await until(() => outer.echoed("ALPHA").includes(hex("probe")), 10_000, "echo of A");
       const alpha = await f.printed("h2a-alpha");
       // A was resized once, at its first display; coming back printed nothing new.
       expect(alpha.split("ALPHA_WINCH:").length - 1).toBe(1);
@@ -470,15 +484,18 @@ describe.skipIf(process.platform !== "linux")(
       const outer = f.station(true);
       await until(() => outer.output().includes("ALPHA_READY"), 25_000, "launch");
       await until(() => outer.output().includes("[demo]"), 10_000, "panel");
+      await outer.inputOpen(1);
       // One switch and back, so guards, bar, mouse, title and child modes are all live.
       const toBravo = outer.mark();
       outer.focusPanel();
       outer.terminal.write("2");
       await until(() => outer.since(toBravo).includes("BRAVO_READY"), 15_000, "switch to B");
+      await outer.inputOpen(2);
       const back = outer.mark();
       outer.focusPanel();
       outer.terminal.write("1");
       await until(() => outer.since(back).includes("ALPHA_READY"), 15_000, "back to A");
+      await outer.inputOpen(3);
       expect(outer.output()).toContain("\x1b[?1049h");
 
       const childPids = (
@@ -541,7 +558,7 @@ describe.skipIf(process.platform !== "linux")(
       const outer = f.station();
       await until(() => outer.output().includes("SMALL_READY"), 25_000, "launch");
       await until(() => outer.output().includes("[demo]"), 10_000, "panel");
-      await sleep(300);
+      await outer.inputOpen(1);
 
       // Rows of the tab, by label: k256 (1), m4 (2), small (3).
       const measure = async (digit: string, ready: string): Promise<number> => {
