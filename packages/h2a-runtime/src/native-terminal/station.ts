@@ -537,6 +537,8 @@ class Station {
   #trackCache: TrackJournalCache | undefined;
   /** Nothing is painted before the launch decided what to display. */
   #started = false;
+  /** Set when the station is leaving: no connection may be opened or kept. */
+  #closing = false;
 
   constructor(runtime: StationRuntime, options: StationOptions) {
     this.#runtime = runtime;
@@ -611,6 +613,7 @@ class Station {
   // --- hosts ---------------------------------------------------------------
 
   async #link(socketPath: string): Promise<HostLink> {
+    if (this.#closing) throw new Error("station is closing");
     const existing = this.#links.get(socketPath);
     if (existing) return existing;
     const pending = this.#linking.get(socketPath);
@@ -619,6 +622,9 @@ class Station {
       const client = await this.#runtime.connect(socketPath);
       try {
         const ping = await client.ping();
+        // A connection that completes after the station left is not kept:
+        // an open socket would hold the process (and its leases) alive.
+        if (this.#closing) throw new Error("station is closing");
         const link: HostLink = {
           socketPath,
           client,
@@ -2164,6 +2170,7 @@ class Station {
       const reason = this.#inventory?.hosts.find((host) => host.reason)?.reason ?? "unknown";
       this.#emit({ type: "notice", key });
       this.#stdout.write(`[h2a] ${this.#t(key, { reason: singleLine(reason) })}\r\n`);
+      this.#closing = true;
       this.#refresher.dispose();
       for (const socketPath of [...this.#links.keys()]) this.#dropLink(socketPath);
       return 1;
@@ -2174,6 +2181,7 @@ class Station {
     const wasRaw = stdin.isRaw === true;
     const terminate = (): void => {
       this.#ended ??= "terminate";
+      this.#closing = true;
       try {
         const view = this.#view;
         if (view && !view.modesSuspended) {
@@ -2273,6 +2281,7 @@ class Station {
       }
     } finally {
       const reason = this.#ended ?? "terminate";
+      this.#closing = true;
       try {
         const view = this.#view;
         if (view && !view.modesSuspended) {
