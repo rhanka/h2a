@@ -98,37 +98,100 @@ interface InstallResult {
   readonly unchanged: string[]
 }
 
-const TRACK_SLASH_COMMAND_MD = `---
-description: Run Track commands from the repo root; report output is the deterministic conductor and any contextual prose is advisory agent work.
+const TRACK_BIN_BOOTSTRAP_SH = `min_track_version="0.98.11"
+track_bin=""
+npm_global_root="$(npm root -g 2>/dev/null || true)"
+track_version_ge() {
+  case "$1" in [0-9]*.[0-9]*.[0-9]*) ;; *) return 1 ;; esac
+  _cur="\${1%%-*}"
+  _c1="\${_cur%%.*}"; _rest="\${_cur#*.}"; _c2="\${_rest%%.*}"; _c3="\${_rest#*.}"; _c3="\${_c3%%.*}"
+  _m1="\${2%%.*}"; _mrest="\${2#*.}"; _m2="\${_mrest%%.*}"; _m3="\${_mrest#*.}"
+  case "$_c1$_c2$_c3" in *[!0-9]*) return 1 ;; esac
+  [ "$_c1" -gt "$_m1" ] && return 0
+  [ "$_c1" -lt "$_m1" ] && return 1
+  [ "$_c2" -gt "$_m2" ] && return 0
+  [ "$_c2" -lt "$_m2" ] && return 1
+  [ "$_c3" -ge "$_m3" ]
+}
+try_track_bin() {
+  [ -n "$track_bin" ] && return 0
+  [ -n "$1" ] && [ -f "$1" ] || return 1
+  _abs="$(cd "$(dirname "$1")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$1")")" || return 1
+  _ver="$(node "$_abs" --version 2>/dev/null | head -n 1 | tr -d '\\r')" || return 1
+  track_version_ge "$_ver" "$min_track_version" || return 1
+  node "$_abs" report --help 2>/dev/null | grep -q -- '--owner-table' || return 1
+  track_bin="$_abs"
+}
+cwd_abs="$(pwd -P)"
+try_track_bin "\${TRACK_BIN:-}" || true
+try_track_bin "$cwd_abs/packages/track/dist/cli/bin.js" || true
+try_track_bin "$cwd_abs/node_modules/@sentropic/track/dist/cli/bin.js" || true
+if [ -n "$npm_global_root" ]; then
+  try_track_bin "$npm_global_root/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -n "\${HOME:-}" ]; then
+  try_track_bin "$HOME/.npm-global/lib/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/lib/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/share/h2a/upgrade/current/lib/node_modules/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -n "$npm_global_root" ]; then
+  try_track_bin "$npm_global_root/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -n "\${HOME:-}" ]; then
+  try_track_bin "$HOME/.npm-global/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+  try_track_bin "$HOME/.local/share/h2a/upgrade/current/lib/node_modules/@sentropic/h2a/node_modules/@sentropic/track/dist/cli/bin.js" || true
+fi
+if [ -z "$track_bin" ]; then
+  printf 'track binary >= %s with --owner-table not found (tried TRACK_BIN, packages/track/dist/cli/bin.js, node_modules/@sentropic/track/dist/cli/bin.js, global npm prefix, per-user home prefix, and @sentropic/track nested in global @sentropic/h2a; never falls back to bare track on PATH).\\n' "$min_track_version" >&2
+  exit 1
+fi`
+
+export const TRACK_SLASH_COMMAND_MD = `---
+description: Run Track commands from the repo root; serves the owner status table through a verified track binary and keeps contextual prose advisory.
 argument-hint: report [--commit <ref>] | <track args...>
 ---
 
 You are the Track slash command.
 
-If \`$ARGUMENTS\` is empty or starts with \`report\`, run the Track report from the repository root:
+First resolve a verified \`track\` binary (\`>= 0.98.11\` with \`--owner-table\`) from the repository root without falling back to a bare \`track\` on \`PATH\`:
 
-\`\`\`bash
-track report --wp --decisions --format text --commit HEAD
+\`\`\`sh
+${TRACK_BIN_BOOTSTRAP_SH}
 \`\`\`
 
-If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
-arguments, run \`track $ARGUMENTS\` from the repository root.
+If \`$ARGUMENTS\` is empty or starts with \`report\`, serve the owner table from the repository root:
+
+\`\`\`sh
+node "$track_bin" report --owner-table --format md
+\`\`\`
+
+If the user supplied \`report --commit <ref>\`, pass \`--commit <ref>\`. For any other
+arguments, run \`node "$track_bin" $ARGUMENTS\` from the repository root.
 
 When returning a report/status, paste the deterministic output verbatim inside a fenced \`text\` code block.
 Do not claim it is AI-prepared or adapter-backed. A contextual summary is advisory agent behaviour: state its
 period, focus, and lane/model inputs, and say when any of those inputs are unavailable.
 `
 
-const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; report output is the deterministic conductor and any contextual prose is advisory agent work"
+export const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; serves the owner status table through a verified track binary and keeps contextual prose advisory"
 prompt = '''
 You are the Track custom command.
 
-If the argument is empty or starts with \`report\`, run from the repository root:
+First resolve a verified \`track\` binary (\`>= 0.98.11\` with \`--owner-table\`) from the repository root without falling back to a bare \`track\` on \`PATH\`:
 
-    track report --wp --decisions --format text --commit HEAD
+\`\`\`sh
+${TRACK_BIN_BOOTSTRAP_SH}
+\`\`\`
 
-If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
-arguments, run \`track <arguments>\` from the repository root.
+If the argument is empty or starts with \`report\`, serve the owner table from the repository root:
+
+\`\`\`sh
+node "$track_bin" report --owner-table --format md
+\`\`\`
+
+If the user supplied \`report --commit <ref>\`, pass \`--commit <ref>\`. For any other
+arguments, run \`node "$track_bin" <arguments>\` from the repository root.
 
 When returning a report/status, paste the deterministic output verbatim inside a fenced \`text\` code block.
 Do not claim it is AI-prepared or adapter-backed. A contextual summary is advisory agent behaviour: state its
