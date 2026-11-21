@@ -87,6 +87,7 @@ import {
   type DemandRaisedPayload,
   type DemandRef,
   type DemandStatus,
+  type DemandType,
 } from './model/demand.js'
 import {
   decisionTargetsAggregate,
@@ -1090,6 +1091,99 @@ export class Track {
     this.withDemandRecheck(recheck, () => {
       this.emit('demand', demandId, 'demand.owner-numbered', { number })
     })
+  }
+
+  /**
+   * Reconstruct an unnumbered legacy owner-request item into a numbered demand in one atomic batch
+   * (`demand.raised` + `demand.owner-numbered` + `demand.qualifying-started` + `demand.agreed`
+   * linking the existing `itemId`). Enforces global number uniqueness under the lock (same guard as
+   * `numberDemand`) and suppresses the duplicate unnumbered legacy item row in `projectOwnerTable`.
+   */
+  adoptItemAsDemand(
+    itemId: ItemId,
+    input: { number: number; text: string; type?: DemandType; handler?: ActorId },
+  ): DemandId {
+    if (!Number.isInteger(input.number) || input.number < 1) {
+      throw new DomainError('adoptItemAsDemand: number must be a positive integer')
+    }
+    const text = typeof input.text === 'string' ? input.text.trim() : ''
+    if (text.length === 0) {
+      throw new DomainError('adoptItemAsDemand: text must be a non-empty string')
+    }
+    const assertLegal = (events: readonly TrackEvent[]): ItemState => {
+      const state = fold(events)
+      const item = state.items.get(itemId)
+      if (!item) throw new DomainError(`unknown item ${itemId}`)
+      for (const existingDemand of state.demands.values()) {
+        if (existingDemand.itemIds?.includes(itemId)) {
+          throw new DomainError(`item ${itemId} is already linked to demand ${existingDemand.id}`)
+        }
+        if (existingDemand.ownerNumber === input.number) {
+          throw new DomainError(`owner request number #${input.number} is already assigned to demand ${existingDemand.id}`)
+        }
+      }
+      for (const other of state.items.values()) {
+        if (other.report?.ownerNumber === input.number) {
+          throw new DomainError(`owner request number #${input.number} is already assigned to item ${other.id}`)
+        }
+      }
+      for (const ev of events) {
+        if (ev.type === 'demand.owner-numbered') {
+          const prev = (ev.payload as { number?: number }).number
+          if (prev === input.number) {
+            throw new DomainError(`owner request number #${input.number} is already assigned to demand ${ev.aggregateId}`)
+          }
+        } else if (ev.type === 'item.report-updated') {
+          const prev = (ev.payload as { ownerNumber?: number }).ownerNumber
+          if (prev === input.number) {
+            throw new DomainError(`owner request number #${input.number} is already assigned to item ${ev.aggregateId}`)
+          }
+        }
+      }
+      return item
+    }
+    const item = assertLegal(this.store.readAll())
+    const handler = this.resolveHandler(input.handler)
+    const demandType: DemandType =
+      input.type ?? (item.kind === 'bug' || item.kind === 'defect' ? 'defect' : item.kind === 'chore' ? 'chore' : 'feature')
+    const validated = assertDemandRaised({
+      type: demandType,
+      raw: { text },
+      source: { kind: 'human' },
+      handler,
+    })
+    const demandId = this.newId()
+    const parts: EventPart[] = [
+      {
+        aggregate: 'demand',
+        aggregateId: demandId,
+        type: 'demand.raised',
+        payload: { ...validated, workspace: item.workspace },
+      },
+      {
+        aggregate: 'demand',
+        aggregateId: demandId,
+        type: 'demand.owner-numbered',
+        payload: { number: input.number },
+      },
+      {
+        aggregate: 'demand',
+        aggregateId: demandId,
+        type: 'demand.qualifying-started',
+        payload: { handler },
+      },
+      {
+        aggregate: 'demand',
+        aggregateId: demandId,
+        type: 'demand.agreed',
+        payload: { handler, itemIds: [itemId] },
+      },
+    ]
+    const recheck: RecheckHook = (_inputs, existing) => {
+      assertLegal(existing)
+    }
+    const persisted = this.withDemandRecheck(recheck, () => this.emitBatch(parts))
+    return (persisted[0]?.aggregateId as DemandId) ?? demandId
   }
 
   /**
