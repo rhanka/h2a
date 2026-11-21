@@ -169,7 +169,7 @@ export type OwnerTableGateCode =
 export const OWNER_TABLE_NO_DEMANDS_MESSAGE =
   'aucune demande owner numérotée dans le journal (.track) — tableau owner refusé ' +
   '(des demandes ou décisions owner ouvertes peuvent exister hors journal ; ' +
-  'ingère une ligne `demand.raise` avec `track ingest <file.jsonl> --workspace <w>` puis numérote-la avec `track demand number <demandId> --number <n>`, ' +
+  'enregistre une demande avec `track demand raise --text <text>`, ' +
   'ou utilise `track report --status-table` pour la vue technique)'
 
 export const OWNER_TABLE_ALL_ARCHIVED_MESSAGE =

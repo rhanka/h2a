@@ -240,6 +240,31 @@ export function isConsolidationEligible(state: State, itemId: ItemId): boolean {
  * state, checks the transition against it (rejecting illegal ones BEFORE any append — SPEC §3),
  * then appends. Lots 3+ extend this with decisions, acceptance, priority.
  */
+/** Internal retryable conflict marker for concurrent demand/decision auto-numbering. */
+class NumberConflictError extends DomainError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NumberConflictError'
+  }
+}
+
+const DEFAULT_NUMBER_RETRY_LIMIT = 16
+
+/** Highest registered demand/request number across the entire journal (demands + legacy numbered items, no workspace filter). */
+function highestDemandNumber(events: readonly TrackEvent[]): number {
+  let max = 0
+  for (const ev of events) {
+    if (ev.type === 'demand.owner-numbered') {
+      const n = (ev.payload as { number?: unknown }).number
+      if (typeof n === 'number' && Number.isInteger(n) && n > max) max = n
+    } else if (ev.type === 'item.report-updated') {
+      const n = (ev.payload as { ownerNumber?: unknown }).ownerNumber
+      if (typeof n === 'number' && Number.isInteger(n) && n > max) max = n
+    }
+  }
+  return max
+}
+
 export class Track {
   private readonly clock: () => string
   private readonly newId: () => Ulid
@@ -895,6 +920,116 @@ export class Track {
     // Result id = the PERSISTED event's aggregateId (createItem pattern) — stable under a concurrent-retry dedup.
     const [persisted] = this.emit('demand', demandId, 'demand.raised', { ...validated, workspace })
     return (persisted?.aggregateId as DemandId) ?? demandId
+  }
+
+  /**
+   * Raise a demand and assign its next journal-wide request number (`#1..#N`) in ONE atomic `cmdId` batch
+   * (spec V11, G2). When `summary` is given, `demand.owner-summary-updated` lands in the same batch.
+   * When `key` is given, the under-lock dedupe hook searches all existing `demand.raised` events in the
+   * journal for `clientToken === key` (independent of newly minted aggregateIds) and returns the original
+   * demand's batch, appending nothing. Concurrent writers recompute the next number under the lock up to
+   * `maxRetries` times before failing loud.
+   */
+  raiseNumberedDemand(input: {
+    type: DemandRaisedPayload['type']
+    raw: DemandRaisedPayload['raw']
+    source: DemandRaisedPayload['source']
+    workspace: string
+    handler?: ActorId
+    sourceKey?: string
+    concerns?: DemandRaisedPayload['concerns']
+    links?: DemandRaisedPayload['links']
+    summary?: string
+    key?: string
+    maxRetries?: number
+  }): { demandId: DemandId; number: number } {
+    const workspace = typeof input.workspace === 'string' ? input.workspace.trim() : ''
+    if (workspace.length === 0) {
+      throw new DomainError('raiseNumberedDemand: workspace is required')
+    }
+    const handler = this.resolveHandler(input.handler)
+    const validated = assertDemandRaised({ ...input, handler })
+    let summary: string | undefined
+    if (input.summary !== undefined) {
+      summary = input.summary.trim()
+      if (summary.length === 0) {
+        throw new DomainError('raiseNumberedDemand: summary must be a non-empty string')
+      }
+    }
+    let key: string | undefined
+    if (input.key !== undefined) {
+      key = input.key.trim()
+      if (key.length === 0) {
+        throw new DomainError('raiseNumberedDemand: key must be a non-empty string')
+      }
+    }
+    const maxRetries =
+      input.maxRetries !== undefined && Number.isInteger(input.maxRetries) && input.maxRetries >= 0
+        ? input.maxRetries
+        : DEFAULT_NUMBER_RETRY_LIMIT
+
+    const dedupe: DedupeHook | undefined =
+      key !== undefined
+        ? (_inputs, existing) => {
+            const raised = existing.find((e) => e.type === 'demand.raised' && e.clientToken === key)
+            if (raised === undefined) return null
+            if (raised.cmdId !== undefined) {
+              return existing.filter((e) => e.cmdId === raised.cmdId)
+            }
+            return existing.filter((e) => e.aggregateId === raised.aggregateId && e.clientToken === key)
+          }
+        : undefined
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const candidateNumber = highestDemandNumber(this.store.readAll()) + 1
+      const demandId = this.newId()
+      const parts: EventPart[] = [
+        { aggregate: 'demand', aggregateId: demandId, type: 'demand.raised', payload: { ...validated, workspace } },
+        { aggregate: 'demand', aggregateId: demandId, type: 'demand.owner-numbered', payload: { number: candidateNumber } },
+      ]
+      if (summary !== undefined) {
+        parts.push({
+          aggregate: 'demand',
+          aggregateId: demandId,
+          type: 'demand.owner-summary-updated',
+          payload: { summary },
+        })
+      }
+      const recheck: RecheckHook = (_inputs, existing) => {
+        const expected = highestDemandNumber(existing) + 1
+        if (candidateNumber !== expected) {
+          throw new NumberConflictError(
+            `raiseNumberedDemand: demand number conflict (candidate #${candidateNumber}, expected #${expected})`,
+          )
+        }
+      }
+      try {
+        const runBatch = (): TrackEvent[] => this.withDemandRecheck(recheck, () => this.emitBatch(parts))
+        const persisted =
+          key !== undefined
+            ? this.withClientToken(key, runBatch, { ...(dedupe !== undefined ? { dedupe } : {}) })
+            : runBatch()
+        const raisedEv = persisted.find((e) => e.type === 'demand.raised')
+        const numberedEv = persisted.find((e) => e.type === 'demand.owner-numbered')
+        const resolvedId = (raisedEv?.aggregateId as DemandId) ?? demandId
+        const resolvedNum = (numberedEv?.payload as { number?: number } | undefined)?.number
+        if (typeof resolvedNum !== 'number' || !Number.isInteger(resolvedNum) || resolvedNum < 1) {
+          throw new DomainError(`raiseNumberedDemand: persisted batch for demand ${resolvedId} has no owner number`)
+        }
+        return { demandId: resolvedId, number: resolvedNum }
+      } catch (err) {
+        if (err instanceof NumberConflictError && attempt < maxRetries) {
+          continue
+        }
+        if (err instanceof NumberConflictError) {
+          throw new DomainError(
+            `raiseNumberedDemand: failed to allocate a unique demand number after ${maxRetries + 1} attempt(s)`,
+          )
+        }
+        throw err
+      }
+    }
+    throw new DomainError('raiseNumberedDemand: failed to allocate demand number')
   }
 
   /**
