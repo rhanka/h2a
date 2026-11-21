@@ -46,6 +46,7 @@ import {
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { appendCrashLog } from "./crash-log.js";
+import { recordInjectionBestEffort } from "./injection-ledger.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
@@ -792,8 +793,16 @@ export async function startNativeSessionSingleShot(
   }
 }
 
+const pendingNativeInput = new Map<string, string>();
+
 /** sendKeysLiteral twin: raw keystrokes, no interpretation. */
 export function nativeSendKeysLiteral(name: string, text: string, socketPath?: string): boolean {
+  if (text === "\u0015") {
+    pendingNativeInput.delete(name);
+  } else if (text.trim().length > 0) {
+    recordInjectionBestEffort(`native:${name}`, text);
+    pendingNativeInput.set(name, text);
+  }
   const { status } = runOp(
     ["write", "--id", name, "--b64", Buffer.from(text, "utf8").toString("base64")],
     { allowFailure: true, socketPath },
@@ -803,6 +812,8 @@ export function nativeSendKeysLiteral(name: string, text: string, socketPath?: s
 
 /** paste-buffer -p twin: the text lands as ONE bracketed block. */
 export function nativePasteBlock(name: string, text: string, socketPath?: string): boolean {
+  recordInjectionBestEffort(`native:${name}`, text);
+  pendingNativeInput.set(name, text);
   const { status } = runOp(
     ["paste", "--id", name, "--b64", Buffer.from(text, "utf8").toString("base64")],
     { allowFailure: true, socketPath },
@@ -812,6 +823,11 @@ export function nativePasteBlock(name: string, text: string, socketPath?: string
 
 /** The Enter that submits a composed block. */
 export function nativeSendEnter(name: string, socketPath?: string): boolean {
+  const pending = pendingNativeInput.get(name);
+  if (pending !== undefined) {
+    recordInjectionBestEffort(`native:${name}`, pending);
+    pendingNativeInput.delete(name);
+  }
   const { status } = runOp(["enter", "--id", name], { allowFailure: true, socketPath });
   return status === 0;
 }
@@ -1149,6 +1165,18 @@ export function driveNativeInstruction(
   target: string,
   instruction: string,
 ): NativeDriveInstructionOutcome {
+  if (target) {
+    recordInjectionBestEffort(`native:${target}`, instruction);
+    const sep = target.indexOf(":");
+    const rawSlug = sep > 0 && sep < target.length - 1 ? target.slice(sep + 1) : target;
+    const canonicalName =
+      rawSlug.startsWith("h2a-") || rawSlug.startsWith("remote-")
+        ? rawSlug
+        : localSessionName(rawSlug);
+    if (canonicalName !== target) {
+      recordInjectionBestEffort(`native:${canonicalName}`, instruction);
+    }
+  }
   const { status, payload } = runOp(
     [
       "drive",

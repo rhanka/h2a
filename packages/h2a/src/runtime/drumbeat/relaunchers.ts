@@ -34,6 +34,7 @@ import {
 } from "../remote/client.js";
 import type { H2ADrumbeatFinding } from "./scan.js";
 import type { H2ARelauncher } from "./watch.js";
+import { recordInjectionBestEffort } from "./injection-ledger.js";
 
 /** Process I/O the adapters need — injected so tests supply a fake. */
 export interface RelauncherRuntime {
@@ -146,6 +147,22 @@ export function tmuxTarget(t: { session: string; window?: string; pane: string }
   return t.window !== undefined ? `${t.session}:${t.window}.${t.pane}` : t.pane;
 }
 
+function resolveTmuxSessionNameForSubmit(
+  runtime: Partial<Pick<RelauncherRuntime, "capture">>,
+  target: string
+): string | undefined {
+  const clean = target.startsWith("=") ? target.slice(1) : target;
+  if (clean && !clean.startsWith("%") && !clean.startsWith("@") && !clean.startsWith("$")) {
+    const colon = clean.indexOf(":");
+    const session = colon === -1 ? clean : clean.slice(0, colon);
+    if (session.length > 0) return session;
+  }
+  if (!runtime.capture) return undefined;
+  const raw = runtime.capture("tmux", ["display-message", "-p", "-t", target, "#{session_name}"]);
+  const session = raw?.trim();
+  return session ? session : undefined;
+}
+
 /**
  * Type `text` into a tmux pane AND submit it. Sends the text literally (`-l`, so
  * spaces / special chars aren't interpreted as tmux key names) then Enter as a
@@ -156,10 +173,14 @@ export function tmuxTarget(t: { session: string; window?: string; pane: string }
  * for both the drumbeat relauncher and the EVO-1 wake/drive local-tmux driver.
  */
 export function tmuxSendSubmit(
-  runtime: Pick<RelauncherRuntime, "run">,
+  runtime: Pick<RelauncherRuntime, "run"> & Partial<Pick<RelauncherRuntime, "capture">>,
   target: string,
   text: string
 ): boolean {
+  const sessionName = resolveTmuxSessionNameForSubmit(runtime, target);
+  if (sessionName) {
+    recordInjectionBestEffort(`tmux:${sessionName}`, text);
+  }
   const typed = runtime.run("tmux", ["send-keys", "-t", target, "-l", text]);
   const enter1 = runtime.run("tmux", ["send-keys", "-t", target, "Enter"]);
   const enter2 = runtime.run("tmux", ["send-keys", "-t", target, "Enter"]);

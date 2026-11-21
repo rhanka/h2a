@@ -23,6 +23,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { recordInjectionBestEffort } from "./injection-ledger.js";
 import { tmpdir } from "node:os";
 
 import { resolveConfigPath } from "./config.js";
@@ -366,6 +367,8 @@ export type RelaunchWakeResult =
 export type RelaunchWakeOptions = {
   confirmationClearMs?: number;
   pollMs?: number;
+  /** Session ledger key (`native:<name>` or `tmux:<name>`) for attribution. */
+  sessionKey?: string;
 };
 
 /**
@@ -378,6 +381,7 @@ export function wakeRelaunchedSession(
   deps: RelaunchWakeDeps,
   options: RelaunchWakeOptions = {},
 ): RelaunchWakeResult {
+  recordInjectionBestEffort(options.sessionKey, prompt);
   let delivery = deps.deliverContinuation(prompt);
   if (delivery.state === "working") {
     return { state: "working", confirmation: "not-present", delivery };
@@ -426,6 +430,7 @@ export function wakeRelaunchedSession(
     }
   }
 
+  recordInjectionBestEffort(options.sessionKey, prompt);
   delivery = deps.deliverContinuation(prompt);
   if (delivery.state === "working") {
     return { state: "working", confirmation: "auto-passed", delivery };
