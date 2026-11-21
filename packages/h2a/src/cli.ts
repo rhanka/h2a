@@ -89,7 +89,11 @@ import { centralOperator, centralOperatorExitCode, centralFailureExitCode, centr
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
-import { nativeSkillArtifacts } from "./hosts/native-skills.js";
+import {
+  convergeDirectHostSkillsAndCommand,
+  historicalHashesForHostSkill,
+  historicalTrackReportLegacyNames
+} from "./hosts/native-skills.js";
 import { NATIVE_QUESTION_GUIDANCE } from "./hosts/native-questions.js";
 import { assertNativePath, atomicNativeWrite, digest as nativeDigest, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
 import { clearVibeDirectRemoved, editVibeMcpServers, setVibeDirectRemoved, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
@@ -7109,15 +7113,10 @@ function renderSkillAsGeminiToml(skill: ParsedSkill): string {
   const promptHeader = `You are the ${skill.name} custom command for Gemini CLI.\n\n`;
   const promptBody = `${promptHeader}${skill.body}`;
   // TOML multiline literal: '''...''' is verbatim, no escaping needed beyond
-  // disallowing the closing triple-quote in content. The bundled skills do
-  // not contain '''.
-  return [
-    `description = "${escapedDescription}"`,
-    `prompt = '''`,
-    promptBody,
-    `'''`,
-    ""
-  ].join("\n");
+  // disallowing the closing triple-quote in content. Keep the trailing newline
+  // of `skill.body` exact without appending an extra blank line before '''.
+  const trailing = promptBody.endsWith("\n") ? "" : "\n";
+  return `description = "${escapedDescription}"\nprompt = '''\n${promptBody}${trailing}'''\n`;
 }
 
 interface HostSkillTargetSpec {
@@ -7285,6 +7284,27 @@ function pruneLegacy(
       }
     }
   }
+  for (const legacyName of historicalTrackReportLegacyNames()) {
+    const file =
+      spec.host === "gemini" || spec.host === "agy"
+        ? join(base, `${legacyName}.toml`)
+        : join(base, legacyName, "SKILL.md");
+    if (!existsSync(file)) continue;
+    try {
+      const hash = nativeDigest(readFileSync(file));
+      if (!historicalHashesForHostSkill(spec.host, legacyName).includes(hash)) continue;
+      if (spec.host === "gemini" || spec.host === "agy") {
+        unlinkSync(file);
+        pruned.push({ name: legacyName, path: file });
+      } else {
+        const dir = join(base, legacyName);
+        rmSync(dir, { recursive: true, force: true });
+        pruned.push({ name: legacyName, path: dir });
+      }
+    } catch {
+      // best-effort
+    }
+  }
   return pruned;
 }
 
@@ -7439,36 +7459,57 @@ function collectInstallableSkills(): SkillCollection {
     dir: string | undefined,
     source: SkillProvenance,
     names: readonly string[] | undefined,
+    pathPrefix: string,
     renameTo?: (name: string) => string
-  ): { count: number; error?: { message: string; exit: number } } => {
-    if (!dir || !existsSync(dir)) return { count: 0 };
+  ): {
+    count: number;
+    entries: Array<{ name: string; path: string; sha256: string }>;
+    error?: { message: string; exit: number };
+  } => {
+    if (!dir || !existsSync(dir)) return { count: 0, entries: [] };
     const dirNames =
       names ??
       readdirSync(dir, { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name);
     let count = 0;
+    const entries: Array<{ name: string; path: string; sha256: string }> = [];
     for (const name of dirNames) {
       const outcome = readSkillFrom(dir, name, source, renameTo?.(name));
       if (outcome.kind === "skip") continue;
       if (outcome.kind === "error") {
-        return { count, error: { message: outcome.message, exit: outcome.exit } };
+        return { count, entries, error: { message: outcome.message, exit: outcome.exit } };
       }
       skills.push(outcome.skill);
+      entries.push({
+        name: outcome.skill.installName,
+        path: `${pathPrefix}/${name}/SKILL.md`,
+        sha256: nativeDigest(outcome.skill.parsed.body)
+      });
       count++;
     }
-    return { count };
+    return { count, entries };
   };
 
   // 1) h2a — this plugin's own bundled skill(s).
-  const h2aRes = collectFromDir(SKILLS_DIR, "h2a", undefined);
-  sources.push({ source: "h2a", dir: existsSync(SKILLS_DIR) ? SKILLS_DIR : null, count: h2aRes.count });
+  const h2aRes = collectFromDir(SKILLS_DIR, "h2a", undefined, "skills");
+  sources.push({
+    source: "h2a",
+    dir: existsSync(SKILLS_DIR) ? SKILLS_DIR : null,
+    count: h2aRes.count,
+    skills: h2aRes.entries
+  });
   if (h2aRes.error) return { skills, sources, error: h2aRes.error };
 
   // 2) track — rendered from the installed @sentropic/track package (native names).
   const trackDir = resolvePackageSkillSource("@sentropic/track").dir;
-  const trackRes = collectFromDir(trackDir, "track", undefined);
-  sources.push({ source: "track", dir: trackDir ?? null, count: trackRes.count });
+  const trackRes = collectFromDir(trackDir, "track", undefined, "skills");
+  sources.push({
+    source: "track",
+    dir: trackDir ?? null,
+    count: trackRes.count,
+    skills: trackRes.entries
+  });
   if (trackRes.error) return { skills, sources, error: trackRes.error };
 
   // 3) harness — rendered from the h2a vendored harness package, prefixed
@@ -7478,9 +7519,15 @@ function collectInstallableSkills(): SkillCollection {
     harnessDir,
     "harness",
     HARNESS_SKILLS.map((s) => s.name),
+    "skills/harness",
     (name) => `harness-${name}`
   );
-  sources.push({ source: "harness", dir: harnessDir ?? null, count: harnessRes.count });
+  sources.push({
+    source: "harness",
+    dir: harnessDir ?? null,
+    count: harnessRes.count,
+    skills: harnessRes.entries
+  });
   if (harnessRes.error) return { skills, sources, error: harnessRes.error };
 
   const engram = resolvePackageSkillSource('@sentropic/engram');
@@ -7567,56 +7614,37 @@ function cmdInstallSkills(
         prunedLegacy: [], skipped: 'conflicts' in result ? result.conflicts.map(path => ({ path, reason: 'customized or unknown provenance; preserved' })) : [],
         ...(host === 'muse' ? { verifyHint: 'muse skills list   # project scope requires workspace trust' } : {}),
         ...(host === 'vibe' ? { verifyHint: 'vibe   # skills load at session open; nouvelle session ou reprise propre' } : {}),
-        ...(host === 'agy' ? { importHint: 'agy plugin import gemini   # then: agy plugin enable h2a' } : {}) }, null, 2)}\n`);
+        ...(host === 'agy' ? {
+          skillSurface: 'command only',
+          skillSurfaceReason: 'agy CLI (1.5.13) exposes no skill-listing command; skills install as shared Gemini TOML commands under .gemini/commands and require `agy plugin import gemini`',
+          importHint: 'agy plugin import gemini   # then: agy plugin enable h2a'
+        } : {}) }, null, 2)}\n`);
       return result.ok ? 0 : 2;
     } catch (error) { streams.stderr.write(`h2a install-skills: ${(error as Error).message}\n`); return 3; }
   }
   // DEC-057: prune the pre-consolidation skill names if they linger on disk.
   const prunedLegacy = isNativeHost(host) || host === 'gemini' ? [] : pruneLegacy(spec, targetBase);
 
-  const installed: string[] = [];
-  const skipped: Array<{ name: string; reason: string }> = [];
-
-  for (const skill of collection.skills) {
-    const skillName = skill.installName;
-    // Keep each producer skill, its resources and its receipt together on refusal.
-    const probeTarget =
-      spec.host === "gemini" || spec.host === "agy"
-        ? join(targetBase, `${skillName}.toml`)
-        : join(targetBase, skillName, "SKILL.md");
-    try {
-      // Every host needs referenced resources, including the native-question
-      // instructions used by present-decision. Keep both scopes on one renderer.
-      const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: scope === 'project', version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
-      const conflicts = skill.producer ? artifacts.filter(artifact => {
-        assertNativePath(artifact.path);
-        return existsSync(artifact.path) && !readFileSync(artifact.path).equals(Buffer.from(artifact.bytes)) && flags.force !== "true";
-      }) : [];
-      if (conflicts.length) {
-        for (const artifact of conflicts)
-          skipped.push({ name: skillName, reason: `${artifact.path} already exists (use --force to overwrite)` });
-        continue;
-      }
-      for (const artifact of artifacts) {
-        assertNativePath(artifact.path);
-        if (existsSync(artifact.path) && readFileSync(artifact.path).equals(Buffer.from(artifact.bytes))) continue;
-        if (existsSync(artifact.path) && flags.force !== "true") {
-          skipped.push({ name: skillName, reason: `${artifact.path} already exists (use --force to overwrite)` });
-          if (skill.producer) break;
-          continue;
-        }
-        mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
-        // Resources precede the entrypoint; the producer receipt comes last.
-        if (skill.producer && !readFileSync(artifact.path).equals(Buffer.from(artifact.bytes))) throw new Error(`installed bytes differ: ${artifact.path}`);
-        installed.push(artifact.path);
-      }
-    } catch (error) {
-      streams.stderr.write(
-        `h2a install-skills: failed to write ${probeTarget} (${(error as Error).message})\n`
-      );
-      return 3;
-    }
+  let directResult: ReturnType<typeof convergeDirectHostSkillsAndCommand>;
+  try {
+    directResult = convergeDirectHostSkillsAndCommand({
+      host,
+      root: dirname(targetBase),
+      project: scope === "project",
+      version: currentCliVersion(),
+      skills: collection.skills,
+      renderGemini: renderSkillAsGeminiToml,
+      force: flags.force === "true"
+    });
+  } catch (error) {
+    streams.stderr.write(
+      `h2a install-skills: failed to write under ${targetBase} (${(error as Error).message})\n`
+    );
+    return 3;
   }
+  const installed = directResult.installed;
+  const skipped = directResult.skipped;
+  prunedLegacy.push(...directResult.prunedCommands);
 
   streams.stdout.write(
     `${JSON.stringify(
@@ -7636,7 +7664,11 @@ function cmdInstallSkills(
         // The TOML above is written to the shared ~/.gemini location; the user
         // then pulls it into agy with `agy plugin import gemini`.
         ...(host === "agy"
-          ? { importHint: "agy plugin import gemini   # then: agy plugin enable h2a" }
+          ? {
+              skillSurface: "command only",
+              skillSurfaceReason: "agy CLI (1.5.13) exposes no skill-listing command; skills install as shared Gemini TOML commands under .gemini/commands and require `agy plugin import gemini`",
+              importHint: "agy plugin import gemini   # then: agy plugin enable h2a"
+            }
           : {}),
         // muse owns its store ($CONFIG_DIR/skills for user scope); no import
         // step — verify pickup with `muse skills list`.

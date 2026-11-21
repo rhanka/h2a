@@ -117,9 +117,13 @@ describe('track install-skills — claude', () => {
     const skillMd = join(home, '.claude', 'skills', 'present-decision', 'SKILL.md')
     expect(existsSync(skillMd)).toBe(true)
     const trackCommand = join(home, '.claude', 'commands', 'track.md')
-    expect(readFileSync(trackCommand, 'utf8')).toContain('track report --wp --decisions --format text --commit HEAD')
-    expect(readFileSync(trackCommand, 'utf8')).toContain('paste the deterministic output verbatim')
-    expect(readFileSync(trackCommand, 'utf8')).toContain('contextual summary is advisory agent behaviour')
+    const trackCommandText = readFileSync(trackCommand, 'utf8')
+    expect(trackCommandText).toContain('node "$track_bin" report --owner-table --format md')
+    expect(trackCommandText).toContain('TRACK_BIN')
+    expect(trackCommandText).toContain('npm root -g')
+    expect(trackCommandText).not.toContain('track report --wp --decisions')
+    expect(trackCommandText).toContain('paste the deterministic output verbatim')
+    expect(trackCommandText).toContain('contextual summary is advisory agent behaviour')
     // copied verbatim — frontmatter intact
     expect(readFileSync(skillMd, 'utf8')).toContain('name: present-decision')
     // assets tree copied too
@@ -171,7 +175,9 @@ describe('track install-skills — codex', () => {
     const skillMd = join(home, '.codex', 'skills', 'present-decision', 'SKILL.md')
     expect(existsSync(skillMd)).toBe(true)
     expect(existsSync(join(home, '.codex', 'skills', 'present-decision', 'assets', 'self-audit.md'))).toBe(true)
-    expect(readFileSync(join(home, '.codex', 'prompts', 'track.md'), 'utf8')).toContain('track report --wp --decisions --format text --commit HEAD')
+    const codexTrackCmd = readFileSync(join(home, '.codex', 'prompts', 'track.md'), 'utf8')
+    expect(codexTrackCmd).toContain('node "$track_bin" report --owner-table --format md')
+    expect(codexTrackCmd).not.toContain('track report --wp --decisions')
   })
 
   it('writes every skill to ~/.codex/skills (propose-workpackages too)', () => {
@@ -236,7 +242,10 @@ describe('track install-skills — gemini / agy', () => {
     // every shipped skill gets its own TOML
     expect(existsSync(join(home, '.gemini', 'commands', 'propose-workpackages.toml'))).toBe(true)
     expect(existsSync(join(home, '.gemini', 'commands', 'track-operation.toml'))).toBe(true)
-    expect(readFileSync(join(home, '.gemini', 'commands', 'track.toml'), 'utf8')).toContain('track report --wp --decisions --format text --commit HEAD')
+    const geminiTrackCmd = readFileSync(join(home, '.gemini', 'commands', 'track.toml'), 'utf8')
+    expect(geminiTrackCmd).toContain('node "$track_bin" report --owner-table --format md')
+    expect(geminiTrackCmd).toContain('TRACK_BIN')
+    expect(geminiTrackCmd).not.toContain('track report --wp --decisions')
   })
 
   it('agy is an alias for the same gemini TOML target', () => {

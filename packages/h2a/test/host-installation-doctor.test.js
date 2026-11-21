@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { runCli as runTrackCli } from "@sentropic/track";
 import {
   doctorHostInstallations as productionDoctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
@@ -3421,6 +3422,148 @@ test("doctor leaves an unproven stale Claude settings-only marketplace byte-iden
     );
     assert.equal(readFileSync(settingsPath, "utf8"), settings);
   } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor flags a stale skill copy and a stale track command, and passes when both are current (TD-d)", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const previousEnv = {
+    HOME: process.env.HOME,
+    CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+    CODEX_HOME: process.env.CODEX_HOME,
+    TRACK_INSTALL_HOME: process.env.TRACK_INSTALL_HOME
+  };
+  try {
+    process.env.HOME = home;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CODEX_HOME;
+    process.env.TRACK_INSTALL_HOME = home;
+
+    const claudeSkill = join(home, ".claude", "skills", "harness-track-report", "SKILL.md");
+    const codexSkill = join(home, ".codex", "skills", "harness-track-report", "SKILL.md");
+    const claudeCmd = join(home, ".claude", "commands", "track.md");
+    const codexCmd = join(home, ".codex", "prompts", "track.md");
+    const staleSkillContent = "---\nname: harness-track-report\ndescription: stale\n---\nold body\n";
+    const staleCmdContent = "---\ndescription: old track\n---\ntrack report --wp --decisions --format text --commit HEAD\n";
+
+    mkdirSync(join(claudeSkill, ".."), { recursive: true });
+    mkdirSync(join(codexSkill, ".."), { recursive: true });
+    mkdirSync(join(claudeCmd, ".."), { recursive: true });
+    mkdirSync(join(codexCmd, ".."), { recursive: true });
+    writeFileSync(claudeSkill, staleSkillContent, "utf8");
+    writeFileSync(codexSkill, staleSkillContent, "utf8");
+    writeFileSync(claudeCmd, staleCmdContent, "utf8");
+    writeFileSync(codexCmd, staleCmdContent, "utf8");
+
+    // Without --repair: flags both stale skill and stale command, mutates nothing
+    const inspected = doctorHostInstallations({ home, version, repair: false });
+    assert.equal(inspected.ok, false, JSON.stringify(inspected, null, 2));
+    for (const [hostName, skillPath, cmdPath] of [
+      ["claude", claudeSkill, claudeCmd],
+      ["codex", codexSkill, codexCmd]
+    ]) {
+      const host = inspected.hosts.find((entry) => entry.host === hostName);
+      assert.ok(
+        host?.findings.some((f) => f.code === "skill-stale" && f.path === skillPath),
+        `${hostName}: expected skill-stale for ${skillPath}: ${JSON.stringify(host?.findings)}`
+      );
+      assert.ok(
+        host?.findings.some((f) => f.code === "command-stale" && f.path === cmdPath),
+        `${hostName}: expected command-stale for ${cmdPath}: ${JSON.stringify(host?.findings)}`
+      );
+      assert.equal(readFileSync(skillPath, "utf8"), staleSkillContent);
+      assert.equal(readFileSync(cmdPath, "utf8"), staleCmdContent);
+    }
+
+    // Missing SKILL.md inside an installed skill directory -> skill-missing
+    rmSync(claudeSkill);
+    const missingReport = doctorHostInstallations({ home, version, repair: false });
+    const claudeMissing = missingReport.hosts.find((entry) => entry.host === "claude");
+    assert.ok(
+      claudeMissing?.findings.some((f) => f.code === "skill-missing" && f.path === claudeSkill),
+      `claude: expected skill-missing for ${claudeSkill}: ${JSON.stringify(claudeMissing?.findings)}`
+    );
+
+    // Install current skills (via h2a install-skills) and current /track command (via track install-skills)
+    for (const hostName of ["claude", "codex"]) {
+      const io = streams(home);
+      const rc = runCli(["install-skills", "--host", hostName, "--scope", "user", "--force"], io);
+      // Stale unknown /track command may still cause exit 2 until replaced by track install-skills --force
+      assert.ok(rc === 0 || rc === 2, `${hostName}: unexpected rc ${rc}: ${io.stderrText}`);
+      const trackRc = runTrackCli(["install-skills", "--host", hostName, "--scope", "user", "--force"], {
+        cwd: home,
+        out: () => {},
+        err: () => {}
+      });
+      assert.equal(trackRc, 0);
+    }
+
+    // After both skills and /track commands are current -> 0 skill/command findings and ok === true
+    const cleanAfter = doctorHostInstallations({ home, version, repair: false });
+    assert.equal(cleanAfter.ok, true, JSON.stringify(cleanAfter, null, 2));
+    for (const host of cleanAfter.hosts) {
+      assert.deepEqual(
+        host.findings.filter((f) => ["skill-missing", "skill-stale", "command-stale"].includes(f.code)),
+        [],
+        `${host.host}: expected zero skill/command findings after current install`
+      );
+    }
+
+    // Seed a proven historical h2a copy -> doctor --repair converges it through the install-skills code
+    const vendors = JSON.parse(
+      readFileSync(new URL("../fixtures/native-host-renderers.json", import.meta.url), "utf8")
+    );
+    const historicalH2a = vendors.find((v) => v.host === "vibe" && v.name === "h2a")?.rendered;
+    assert.ok(historicalH2a, "expected historical h2a sample");
+    const claudeH2a = join(home, ".claude", "skills", "h2a", "SKILL.md");
+    writeFileSync(claudeH2a, historicalH2a, "utf8");
+    const beforeRepair = doctorHostInstallations({ home, version, repair: false });
+    assert.ok(
+      beforeRepair.hosts.find((h) => h.host === "claude")?.findings.some((f) => f.code === "skill-stale" && f.path === claudeH2a),
+      "expected skill-stale for seeded historical copy"
+    );
+    const afterRepair = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: () => ({ ok: true })
+    });
+    assert.equal(afterRepair.ok, true, JSON.stringify(afterRepair, null, 2));
+    assert.notEqual(readFileSync(claudeH2a, "utf8"), historicalH2a);
+
+    // Native path (agy/gemini): unowned stale commands/track.toml is reported by doctor
+    const root = join(home, "bus");
+    const fakeBin = join(home, "fake-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const fakeAgy = join(fakeBin, "agy");
+    writeFileSync(fakeAgy, "#!/bin/sh\nexit 0\n", "utf8");
+    chmodSync(fakeAgy, 0o755);
+    const savedPath = process.env.PATH;
+    try {
+      process.env.PATH = `${fakeBin}:${savedPath ?? ""}`;
+      assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+      const agyInstallIo = streams(home);
+      assert.equal(runCli(["install-skills", "--host", "agy", "--scope", "user"], agyInstallIo), 0, agyInstallIo.stderrText);
+      const agyTrackCmd = join(home, ".gemini", "commands", "track.toml");
+      writeFileSync(agyTrackCmd, 'description = "old"\nprompt = "track report --wp"\n', "utf8");
+      const agyDoctorIo = streams(home);
+      runCli(["doctor", "--root", root, "--host", "agy"], agyDoctorIo);
+      const agyDoctorReport = JSON.parse(agyDoctorIo.stdoutText);
+      const agyHost = agyDoctorReport.checks.nativeHostInstallations.hosts.find((h) => h.host === "agy");
+      assert.ok(agyHost && agyHost.installation !== "absent", `expected detected agy host: ${JSON.stringify(agyHost)}`);
+      assert.ok(
+        agyHost.conflicts?.includes(agyTrackCmd) && agyHost.unownedCommands?.includes(agyTrackCmd),
+        `agy doctor must report unowned stale track.toml: ${JSON.stringify(agyHost)}`
+      );
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     rmSync(home, { recursive: true, force: true });
   }
 });

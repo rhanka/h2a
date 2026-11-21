@@ -4,9 +4,11 @@ import { atomicNativeWrite, assertNativePath, digest, jsonBytes, nativeRelativeP
 import type { NativeManifest } from './native-files.js';
 import { recoverNativeHooks } from './native-toml.js';
 export interface NativeArtifact { path: string; bytes: string | Buffer; source: string; selected?: boolean; historical?: readonly string[]; skillTarget?: string; }
+export interface NativeObsoleteArtifact { path: string; historical: readonly string[]; expected?: string; }
 export interface NativeChanges { changed: string[]; adopted: string[]; conflicts: string[]; missing: string[]; planned: string[]; }
 export function convergeArtifacts(options: {
   state: string; root: string; host: string; version: string; artifacts: readonly NativeArtifact[];
+  obsolete?: readonly NativeObsoleteArtifact[];
   repair: boolean; dryRun?: boolean; configure?: (manifest: NativeManifest) => void;
   manifestName?: string; force?: boolean; prune?: boolean; preserveSourcePackages?: readonly string[];
   finalize?: () => void;
@@ -77,6 +79,19 @@ export function convergeArtifacts(options: {
       if (previous && digest(previous.bytes) !== entry.sha256) { changes.conflicts.push(path); continue; }
       if (previous) { changes.planned.push(path); removals.push({ path, previous }); }
       delete manifest.files[key];
+    }
+    for (const item of options.obsolete ?? []) {
+      const key = nativeRelativePath(root, item.path);
+      if (desired.has(key) || manifest.files[key]) continue;
+      const previous = snapshot(item.path);
+      if (!previous) continue;
+      if (item.expected !== undefined && previous.bytes.equals(Buffer.from(item.expected))) continue;
+      if (item.historical.includes(digest(previous.bytes))) {
+        changes.planned.push(item.path);
+        removals.push({ path: item.path, previous });
+      } else {
+        changes.conflicts.push(item.path);
+      }
     }
     options.configure?.(manifest);
     manifest.version = version;

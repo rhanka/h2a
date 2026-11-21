@@ -1,8 +1,13 @@
+import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { convergeArtifacts } from './native-artifacts.js';
-import type { NativeArtifact } from './native-artifacts.js';
-import { nativeSkillArtifacts } from './native-skills.js';
+import type { NativeArtifact, NativeObsoleteArtifact } from './native-artifacts.js';
+import {
+  historicalTrackCommandHashes,
+  nativeSkillArtifacts,
+  trackSlashCommandTarget
+} from './native-skills.js';
 import type { NativeSkill } from './native-skills.js';
 import { historicalSkillHashes } from './native-catalog.js';
 import { inspectNativeHost } from './native-inspection.js';
@@ -10,7 +15,7 @@ import { planVibeEquipment } from './vibe-equipment.js';
 import { isNativeHost, nativeRoot, stateRoot } from './native-paths.js';
 import { inspectVibeDiscovery } from './vibe-discovery.js';
 import { agyWorkspaceScopeDefinition, renderWorkspaceScope, withoutWorkspaceScopeGuardHooks } from './plugin.js';
-import { snapshot, digest, readNativeManifest } from './native-files.js';
+import { snapshot, digest, nativeRelativePath, readNativeManifest } from './native-files.js';
 import { h2aPackageRoot, shellQuote } from './vibe-equipment.js';
 export interface NativeConvergenceOptions {
   host: string; version: string; skills: readonly NativeSkill[]; renderGemini: (skill: NativeSkill['parsed']) => string;
@@ -85,10 +90,37 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
     workspaceScope: options.workspaceScope, maskingHooks: discovery?.maskingHooks } : undefined;
   const vibe = vibeOptions ? planVibeEquipment(vibeOptions) : undefined;
   if (vibe) artifacts.push(...vibe.artifacts);
-  const result = convergeArtifacts({ state, root, host: shared ? 'gemini-commands' : host, version, artifacts, repair, dryRun,
+  const obsolete: NativeObsoleteArtifact[] = [];
+  const trackCommand = trackSlashCommandTarget(host, root);
+  if (trackCommand) {
+    obsolete.push({
+      path: trackCommand.path,
+      historical: historicalTrackCommandHashes(host, trackCommand.relPath),
+      expected: trackCommand.expected
+    });
+  }
+  const result = convergeArtifacts({ state, root, host: shared ? 'gemini-commands' : host, version, artifacts, obsolete, repair, dryRun,
     force: options.explicitInstall && options.force, prune: options.sourcesComplete !== false, preserveSourcePackages: options.preserveSourcePackages,
     ...(shared ? { manifestName: 'shared-owner.json' } : {}),
     configure: vibe?.configure ?? (current => { current.workspaceScope = { enabled: scopeEnabled, ...(ownerKey ? { ownerKey } : {}) }; }), finalize: vibe?.finish });
+  const unownedCommands: string[] = [];
+  if (shared) {
+    const commandsDir = join(root, 'commands');
+    if (existsSync(commandsDir)) {
+      const desiredKeys = new Set(artifacts.map((a) => nativeRelativePath(root, a.path)));
+      for (const entry of readdirSync(commandsDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const fullPath = join(commandsDir, entry.name);
+        const relKey = nativeRelativePath(root, fullPath);
+        if (desiredKeys.has(relKey) || result.manifest.files[relKey]) continue;
+        if (trackCommand && fullPath === trackCommand.path) {
+          const prev = snapshot(fullPath);
+          if (prev?.bytes.equals(Buffer.from(trackCommand.expected))) continue;
+        }
+        unownedCommands.push(fullPath);
+      }
+    }
+  }
   if (installMuseScope) {
     const scope = convergeArtifacts({ state: join(museScopeRoot, '.h2a-scope-install'), root: museScopeRoot,
       host: 'muse-scope', version, artifacts: museScopeArtifacts, repair, dryRun, force: options.explicitInstall && options.force });
@@ -141,5 +173,5 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
     coverage: 'convergence native couverte; qualification native distincte', observation: effectivePublicObservation, discovery: effectiveDiscovery,
     ...result.changes, missingSources, manifest: result.manifest, guard: installedVibe?.guard, lifecycle: installedVibe?.lifecycle,
     ...(vibe ? { rendered: vibe.rendered, restart: vibe.restart, lifecycleScope: vibe.scope, mcp: reportedMcp } : {}),
-    ...(shared ? { sharedGeminiEffect: true, sharedOwner: join(state, 'shared-owner.json') } : {}) };
+    ...(shared ? { sharedGeminiEffect: true, sharedOwner: join(state, 'shared-owner.json'), unownedCommands } : {}) };
 }

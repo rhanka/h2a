@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { runCli } from "../dist/index.js";
+import { parseNativeToml } from "../dist/hosts/native-toml.js";
 import { HARNESS_SKILLS } from "../dist/vendor/harness/index.js";
 import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs';
 import { statSync } from 'node:fs';
@@ -602,4 +603,262 @@ test("memory skill is read from the published @sentropic/engram package source p
   assert.equal(readFileSync(target, "utf8"), raw.toString());
   const receipt = JSON.parse(readFileSync(join(report.targetBase, "engram-memory/.h2a-source.json")));
   assert.deepEqual(receipt, { package: "@sentropic/engram", version: pinned, path: "skills/engram-memory/SKILL.md", sha256: sha256(raw), renderedSha256: sha256(readFileSync(target)) });
+});
+
+function withIsolatedHostEnv(roots, fn) {
+  const keys = ["HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "VIBE_HOME"];
+  const previous = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    process.env.HOME = roots.home;
+    process.env.CLAUDE_CONFIG_DIR = roots.claude;
+    process.env.CODEX_HOME = roots.codex;
+    process.env.VIBE_HOME = roots.vibe;
+    return fn();
+  } finally {
+    for (const k of keys) {
+      if (previous[k] === undefined) delete process.env[k];
+      else process.env[k] = previous[k];
+    }
+  }
+}
+
+function extractSkillBody(host, artifactPath) {
+  const raw = readFileSync(artifactPath, "utf8");
+  if (host === "gemini" || host === "agy") {
+    const parsed = parseNativeToml(raw);
+    const prefix = "You are the harness-track-report custom command for Gemini CLI.\n\n";
+    assert.ok(
+      typeof parsed.prompt === "string" && parsed.prompt.startsWith(prefix),
+      `${host}: expected Gemini TOML prompt wrapper`
+    );
+    return parsed.prompt.slice(prefix.length);
+  }
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n+([\s\S]*)$/.exec(raw);
+  assert.ok(match, `${host}: expected SKILL.md YAML frontmatter wrapper`);
+  return match[1];
+}
+
+test("the six hosts receive the same track-report skill body (TD-a)", () => {
+  const root = freshCwd();
+  const cwd = freshCwd();
+  const hosts = ["claude", "codex", "gemini", "agy", "muse", "vibe"];
+  try {
+    const bodies = new Map();
+    const digests = new Map();
+    for (const host of hosts) {
+      const hostRoot = join(root, host);
+      const roots = {
+        home: join(hostRoot, "home"),
+        claude: join(hostRoot, "claude"),
+        codex: join(hostRoot, "codex"),
+        vibe: join(hostRoot, "vibe")
+      };
+      mkdirSync(roots.home, { recursive: true });
+      mkdirSync(roots.claude, { recursive: true });
+      mkdirSync(roots.codex, { recursive: true });
+      mkdirSync(roots.vibe, { recursive: true });
+
+      const report = withIsolatedHostEnv(roots, () => {
+        const streams = captureStreams(cwd);
+        const rc = runCli(["install-skills", "--host", host, "--scope", "user"], streams);
+        assert.equal(rc, 0, `${host}: ${streams.stderrText}`);
+        return JSON.parse(streams.stdoutText);
+      });
+
+      const artifactPath =
+        host === "gemini" || host === "agy"
+          ? join(report.targetBase, "harness-track-report.toml")
+          : join(report.targetBase, "harness-track-report", "SKILL.md");
+      assert.ok(existsSync(artifactPath), `${host}: missing ${artifactPath}`);
+      bodies.set(host, extractSkillBody(host, artifactPath));
+
+      const harnessSource = report.sources.find((s) => s.source === "harness");
+      const entry = harnessSource?.skills?.find((s) => s.name === "harness-track-report");
+      digests.set(host, entry?.sha256);
+    }
+
+    const referenceBody = bodies.get("claude");
+    for (const host of hosts) {
+      assert.equal(
+        bodies.get(host),
+        referenceBody,
+        `${host}: track-report body must equal claude body after wrapper removal`
+      );
+    }
+    const referenceDigest = digests.get("claude");
+    assert.ok(referenceDigest, "claude: install output must report harness-track-report sha256");
+    for (const host of hosts) {
+      assert.equal(
+        digests.get(host),
+        referenceDigest,
+        `${host}: install output must name the same harness-track-report digest`
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("agy exposes track-report where its CLI lists skills, or is reported command-only with its reason (TD-c)", () => {
+  const root = freshCwd();
+  const cwd = freshCwd();
+  try {
+    const roots = {
+      home: join(root, "home"),
+      claude: join(root, "claude"),
+      codex: join(root, "codex"),
+      vibe: join(root, "vibe")
+    };
+    mkdirSync(roots.home, { recursive: true });
+    const report = withIsolatedHostEnv(roots, () => {
+      const streams = captureStreams(cwd);
+      const rc = runCli(["install-skills", "--host", "agy", "--scope", "user"], streams);
+      assert.equal(rc, 0, streams.stderrText);
+      return JSON.parse(streams.stdoutText);
+    });
+    assert.ok(existsSync(join(report.targetBase, "harness-track-report.toml")));
+    // Probe of Lot 0 (agy CLI 1.5.13): agy exposes no skill-listing CLI command.
+    assert.equal(report.skillSurface, "command only");
+    assert.ok(
+      typeof report.skillSurfaceReason === "string" && report.skillSurfaceReason.length > 0,
+      "agy install output must state the reason for command-only classification"
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("install-skills purges only the stale copies it can prove it wrote (TD-e)", () => {
+  const root = freshCwd();
+  const cwd = freshCwd();
+  const vendors = JSON.parse(
+    readFileSync(new URL("../fixtures/native-host-renderers.json", import.meta.url), "utf8")
+  );
+  const rawHistorical = vendors.find((v) => v.host === "vibe" && v.name === "h2a")?.rendered;
+  const tomlHistorical = vendors.find((v) => v.host === "gemini" && v.name === "h2a")?.rendered;
+  assert.ok(rawHistorical && tomlHistorical, "expected historical samples in native-host-renderers.json");
+
+  try {
+    for (const host of ["claude", "codex", "vibe", "muse", "gemini", "agy"]) {
+      const isToml = host === "gemini" || host === "agy";
+      const historicalBytes = isToml ? tomlHistorical : rawHistorical;
+      const unknownBytes = isToml
+        ? 'description = "Personal"\nprompt = "User owned content"\n'
+        : "---\nname: h2a\ndescription: Personal\n---\nUser owned content.\n";
+
+      // (1) Copy whose digest is in the historical catalogue -> replaced without --force
+      const case1Root = join(root, `${host}-historical`);
+      const roots1 = {
+        home: join(case1Root, "home"),
+        claude: join(case1Root, "claude"),
+        codex: join(case1Root, "codex"),
+        vibe: join(case1Root, "vibe")
+      };
+      const targetBase1 =
+        host === "claude"
+          ? join(roots1.claude, "skills")
+          : host === "codex"
+            ? join(roots1.codex, "skills")
+            : host === "vibe"
+              ? join(roots1.vibe, "skills")
+              : host === "muse"
+                ? join(roots1.home, ".config", "muse", "skills")
+                : join(roots1.home, ".gemini", "commands");
+      const skillPath1 = isToml ? join(targetBase1, "h2a.toml") : join(targetBase1, "h2a", "SKILL.md");
+      mkdirSync(join(skillPath1, ".."), { recursive: true });
+      writeFileSync(skillPath1, historicalBytes, "utf8");
+
+      const res1 = withIsolatedHostEnv(roots1, () => {
+        const streams = captureStreams(cwd);
+        const rc = runCli(["install-skills", "--host", host, "--scope", "user"], streams);
+        return { rc, report: JSON.parse(streams.stdoutText), stderr: streams.stderrText };
+      });
+      assert.equal(res1.rc, 0, `${host} historical copy must be replaced cleanly: ${res1.stderr}`);
+      assert.notEqual(
+        readFileSync(skillPath1, "utf8"),
+        historicalBytes,
+        `${host}: historical skill copy must be replaced with current bytes`
+      );
+
+      // (2) File at the same path with unknown content -> left in place and reported
+      const case2Root = join(root, `${host}-unknown`);
+      const roots2 = {
+        home: join(case2Root, "home"),
+        claude: join(case2Root, "claude"),
+        codex: join(case2Root, "codex"),
+        vibe: join(case2Root, "vibe")
+      };
+      const targetBase2 =
+        host === "claude"
+          ? join(roots2.claude, "skills")
+          : host === "codex"
+            ? join(roots2.codex, "skills")
+            : host === "vibe"
+              ? join(roots2.vibe, "skills")
+              : host === "muse"
+                ? join(roots2.home, ".config", "muse", "skills")
+                : join(roots2.home, ".gemini", "commands");
+      const skillPath2 = isToml ? join(targetBase2, "h2a.toml") : join(targetBase2, "h2a", "SKILL.md");
+      mkdirSync(join(skillPath2, ".."), { recursive: true });
+      writeFileSync(skillPath2, unknownBytes, "utf8");
+
+      const res2 = withIsolatedHostEnv(roots2, () => {
+        const streams = captureStreams(cwd);
+        const rc = runCli(["install-skills", "--host", host, "--scope", "user"], streams);
+        return { rc, report: JSON.parse(streams.stdoutText), stderr: streams.stderrText };
+      });
+      assert.equal(res2.rc, 2, `${host}: unknown content at skill path must be reported as conflict/skip`);
+      assert.equal(
+        readFileSync(skillPath2, "utf8"),
+        unknownBytes,
+        `${host}: unknown content must never be overwritten or deleted`
+      );
+      assert.ok(
+        Array.isArray(res2.report.skipped) && res2.report.skipped.length > 0,
+        `${host}: unknown content must be reported in skipped`
+      );
+
+      // (3) Unknown stale /track command on hosts that receive /track commands -> left in place and reported
+      if (host === "claude" || host === "codex" || host === "gemini" || host === "agy") {
+        const case3Root = join(root, `${host}-unknown-track-cmd`);
+        const roots3 = {
+          home: join(case3Root, "home"),
+          claude: join(case3Root, "claude"),
+          codex: join(case3Root, "codex"),
+          vibe: join(case3Root, "vibe")
+        };
+        const cmdPath =
+          host === "claude"
+            ? join(roots3.claude, "commands", "track.md")
+            : host === "codex"
+              ? join(roots3.codex, "prompts", "track.md")
+              : join(roots3.home, ".gemini", "commands", "track.toml");
+        const unknownCmd = "# custom user /track command\n";
+        mkdirSync(join(cmdPath, ".."), { recursive: true });
+        writeFileSync(cmdPath, unknownCmd, "utf8");
+
+        const res3 = withIsolatedHostEnv(roots3, () => {
+          const streams = captureStreams(cwd);
+          const rc = runCli(["install-skills", "--host", host, "--scope", "user"], streams);
+          return { rc, report: JSON.parse(streams.stdoutText), stderr: streams.stderrText };
+        });
+        assert.equal(
+          readFileSync(cmdPath, "utf8"),
+          unknownCmd,
+          `${host}: unknown /track command must be left in place`
+        );
+        assert.equal(res3.rc, 2, `${host}: unknown /track command must be reported`);
+        assert.ok(
+          Array.isArray(res3.report.skipped) &&
+            res3.report.skipped.some((entry) => JSON.stringify(entry).includes(cmdPath)),
+          `${host}: skipped must name the unknown /track command path ${cmdPath}`
+        );
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
