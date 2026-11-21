@@ -61,6 +61,42 @@ test("AGY MCP preserves a typed non-zero provider completion", () => workspace(d
   assert.equal(executeH2aRunWithSpawn(req,()=>({status:1,stdout:JSON.stringify(failure),stderr:""})).code,failure.code);
 }));
 
+test("AGY MCP reports the durable Gemini outcome on a same-name poll", () => workspace(dir => {
+  const req = validateH2aRunRequest({ ...request(dir), model: "gemini-4-argon-high" }, dir);
+  const path = join(dir, ".h2a", "runs", req.name, "result.json");
+  mkdirSync(join(dir, ".h2a", "runs", req.name), { recursive: true });
+  const previous = { kind: "h2a.run.completion", version: 1, state: "done", exitCode: 0 };
+  writeFileSync(path, JSON.stringify(previous));
+  let launches = 0;
+  const launch = createH2aRunLauncher(() => {
+    launches++;
+    return { state: "started", result: { path } };
+  });
+  assert.equal(launch(req).state, "started");
+  assert.equal(launch(req).state, "started");
+  const failure = { kind: "h2a.run.failure", version: 1, state: "failed", exitCode: 1,
+    code: "agy-auth-required", retrySafe: false };
+  writeFileSync(path, JSON.stringify(failure));
+  assert.equal(launch(req).code, failure.code);
+  assert.equal(launch(req).state, "failed");
+  assert.equal(launches, 1);
+}));
+
+test("AGY MCP reads a legacy Gemini exit receipt written after handoff", () => workspace(dir => {
+  const req = validateH2aRunRequest({ ...request(dir), model: "gemini-4-argon-high" }, dir);
+  const path = join(dir, "result.json");
+  const launch = createH2aRunLauncher(() => ({ state: "started", result: { path } }));
+  assert.equal(launch(req).state, "started");
+  writeFileSync(path, JSON.stringify({ state: "done", exitCode: 1 }));
+  assert.equal(launch(req).state, "started");
+  writeFileSync(path, JSON.stringify({ state: "failed", exitCode: 1 }));
+  assert.deepEqual(launch(req), {
+    kind: "h2a.run.failure", version: 1, state: "failed", exitCode: 1,
+    launchId: req.name, result: { path }, logs: undefined,
+    code: "agy-process-failed", error: "AGY exited with code 1", retrySafe: false,
+  });
+}));
+
 test("AGY MCP accepts a new result whose filesystem timestamp lags the launch clock", () => workspace(dir => {
   const req=validateH2aRunRequest(request(dir),dir);
   const path=join(dir,".h2a/runs",req.name,"result.json");
