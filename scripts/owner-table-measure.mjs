@@ -376,7 +376,7 @@ function summarizeA1(rows) {
     journalsWithUnsettled: withUnsettled.length,
     unsettledWithOptions: total - noOptions,
     unsettledWithoutOptions: noOptions,
-    openDossierQuestions: rows.reduce((s, r) => s + r.pending.openQuestions, 0),
+    openDossierQuestions: rows.reduce((s, r) => s + r.pending.openQuestions + r.deferred.openQuestions, 0),
     ownerGateLines: rows.reduce((s, r) => s + r.ownerGateLines, 0),
     journalsWithDuplicateIds: rows.filter((r) => r.duplicateIdLines > 0).map((r) => `${r.label} (${r.duplicateIdLines})`),
     firstViolationCodes: firstCodes,
@@ -609,7 +609,7 @@ function renderMd(result, opts) {
           r.demandEvents,
           `${r.pending.count} (${r.pending.noOptions})`,
           `${r.deferred.count} (${r.deferred.noOptions})`,
-          r.pending.openQuestions,
+          r.pending.openQuestions + r.deferred.openQuestions,
           r.report.rc,
           r.report.renders ? '0, renders' : r.report.violations,
           r.report.firstCode || '—',
@@ -626,7 +626,7 @@ function renderMd(result, opts) {
     lines.push(`- Journals: ${s.journals} · refuse: ${s.refuse} · render: ${s.render} · with \`demand.*\` events: ${s.withDemandEvents}`)
     lines.push(`- First violation of the refusals: ${Object.entries(s.firstViolationCodes).map(([k, v]) => `[${k}] × ${v}`).join(', ') || '—'}`)
     lines.push(`- Unsettled decisions: ${s.unsettledDecisions} in ${s.journalsWithUnsettled} journals — ${s.unsettledWithOptions} with options, ${s.unsettledWithoutOptions} without`)
-    lines.push(`- Unanswered dossier questions (pending decisions): ${s.openDossierQuestions}`)
+    lines.push(`- Unanswered dossier questions (pending and deferred decisions): ${s.openDossierQuestions}`)
     lines.push(`- \`OWNER GATE\` occurrences: ${s.ownerGateLines}`)
     lines.push(`- Journals holding the same event id on several lines: ${s.journalsWithDuplicateIds.join(', ') || 'none'}`)
     if (s.oldestUnsettled) {

@@ -10,6 +10,8 @@
  *      declared by the spec has a row in its traceability annex naming at least
  *      one test; every test identifier the spec names is defined by exactly one
  *      plan, in the plan of its own lot; the eleven build lots each have a plan.
+ *      Annex B covers every OwnerTableGateCode plus the three planned codes;
+ *      this checks code coverage, not the semantics of every audit branch.
  *   2. PRIVATE-TERM GATE — the spec and the plans pass the reader's own gate
  *      (`banned-word`: banned word, private term, private path, private digest).
  *      The gate is the one compiled in the given Track build: it is called, not
@@ -68,9 +70,28 @@ function lotOf(testId) {
   return testId.slice(1, testId.lastIndexOf('-')).toLowerCase()
 }
 
+function checkAuditCodes(spec, failures) {
+  const source = readFileSync(join(ROOT, 'packages/track/src/report/owner-table.ts'), 'utf8')
+  const union = /export type OwnerTableGateCode =([\s\S]*?)(?=\nexport )/u.exec(source)?.[1]
+  const current = new Set([...(union ?? '').matchAll(/^\s*\| '([a-z-]+)'/gmu)].map((m) => m[1]))
+  if (current.size === 0) failures.push('audit-code coverage: cannot read OwnerTableGateCode')
+  const planned = ['journal-integrity', 'document-desync', 'decision-unnumbered']
+  const expected = new Set([...current, ...planned])
+  const annex = /^### B\. ([\s\S]*?)(?=^### C\. )/mu.exec(spec)?.[1] ?? ''
+  const documented = new Set([...annex.matchAll(/^\| `([a-z-]+)`/gmu)].map((m) => m[1]))
+  for (const code of expected) {
+    if (!documented.has(code)) failures.push(`audit-code coverage: ${code} has no classification in annex B`)
+  }
+  for (const code of documented) {
+    if (!expected.has(code)) failures.push(`audit-code coverage: unknown code ${code} in annex B`)
+  }
+  return { current: current.size, planned: planned.filter((code) => !current.has(code)).length }
+}
+
 function checkTraceability(failures) {
   const spec = readFileSync(join(ROOT, SPEC), 'utf8')
   const lines = spec.split('\n')
+  const auditCodes = checkAuditCodes(spec, failures)
 
   const declared = new Set()
   for (const line of lines) {
@@ -131,7 +152,7 @@ function checkTraceability(failures) {
   for (const id of [...definitions.keys()].sort()) {
     if (!named.has(id)) failures.push(`traceability: ${definitions.get(id)} defines ${id}, which the spec never names`)
   }
-  return { declared: declared.size, traced: traced.size, tests: definitions.size, plans: planFiles }
+  return { declared: declared.size, traced: traced.size, tests: definitions.size, plans: planFiles, auditCodes }
 }
 
 async function checkGate(opts, planFiles, failures) {
@@ -189,6 +210,7 @@ async function main() {
     `traceability: ${trace.declared} invariants and refusal classes declared, ${trace.traced} rows in annex A, ` +
       `${trace.tests} tests defined by ${trace.plans.length} plans\n`,
   )
+  process.stdout.write(`audit-code coverage: ${trace.auditCodes.current} current codes, ${trace.auditCodes.planned} planned codes\n`)
   if (opts.skipGate) {
     process.stdout.write('private-term gate: skipped (--skip-gate)\n')
   } else {
