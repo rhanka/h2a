@@ -1,4 +1,4 @@
-import type { TrackEvent } from '../events/types.js'
+import type { CaptureOrigin, TrackEvent } from '../events/types.js'
 import {
   isValidMeasuredVelocityProvenance,
   normalizeReportStage,
@@ -48,6 +48,7 @@ import type {
   DemandState,
   DispositionOutcome,
   DemandRef,
+  OwnerMessage,
 } from '../model/demand.js'
 
 /**
@@ -831,6 +832,36 @@ function applyEvent(state: State, event: TrackEvent, streamIndex: number): void 
       break
     }
 
+    case 'decision.owner-message-added': {
+      // Lot 3a: record verbatim owner message on the decision; NEVER settles `outcome`.
+      const decision = state.decisions.get(event.aggregateId)
+      if (decision) {
+        const p = event.payload as {
+          captureId?: unknown
+          at?: unknown
+          origin?: unknown
+          text?: unknown
+          masked?: unknown
+        }
+        if (
+          typeof p.captureId === 'string' &&
+          typeof p.at === 'string' &&
+          typeof p.origin === 'string' &&
+          typeof p.text === 'string'
+        ) {
+          const msg: OwnerMessage = {
+            captureId: p.captureId,
+            at: p.at,
+            origin: p.origin as CaptureOrigin,
+            text: p.text,
+            ...(p.masked === true ? { masked: true } : {}),
+          }
+          decision.ownerMessages = [...(decision.ownerMessages ?? []), msg]
+        }
+      }
+      break
+    }
+
     case 'acceptance.criterion.added': {
       const payload = event.payload as { criterionId: string; statement: string }
       state.criteria.set(payload.criterionId, {
@@ -964,6 +995,7 @@ function applyEvent(state: State, event: TrackEvent, streamIndex: number): void 
       // the immutable capture; `handler` is a payload field (NOT folded into demand state in Build 1 — the
       // per-step handler log is read raw from the events). Legality (none→raised) is implicit (a fresh id).
       const payload = event.payload as unknown as DemandRaisedPayload & { workspace: string }
+      const isCaptured = event.prov?.transport === 'capture'
       const demand: DemandState = {
         id: event.aggregateId,
         workspace: payload.workspace,
@@ -974,6 +1006,9 @@ function applyEvent(state: State, event: TrackEvent, streamIndex: number): void 
         ...(payload.sourceKey !== undefined ? { sourceKey: payload.sourceKey } : {}),
         ...(payload.concerns !== undefined ? { concerns: payload.concerns } : {}),
         ...(payload.links !== undefined ? { links: payload.links } : {}),
+        ...(isCaptured ? { captured: true } : {}),
+        ...(isCaptured && event.prov?.origin !== undefined ? { captureOrigin: event.prov.origin } : {}),
+        ...(payload.masked === true ? { maskedAtInscription: true } : {}),
       }
       state.demands.set(demand.id, demand)
       break
@@ -1061,6 +1096,36 @@ function applyEvent(state: State, event: TrackEvent, streamIndex: number): void 
         const nextJournal = foldEtaJournalEntry(state, demand.etaJournal, event, streamIndex)
         if (nextJournal !== undefined) {
           demand.etaJournal = nextJournal
+        }
+      }
+      break
+    }
+
+    case 'demand.owner-message-added': {
+      const demand = state.demands.get(event.aggregateId)
+      if (demand) {
+        const p = event.payload as {
+          captureId?: unknown
+          at?: unknown
+          origin?: unknown
+          text?: unknown
+          masked?: unknown
+        }
+        if (
+          typeof p.captureId === 'string' &&
+          typeof p.at === 'string' &&
+          typeof p.origin === 'string' &&
+          typeof p.text === 'string'
+        ) {
+          const msg: OwnerMessage = {
+            captureId: p.captureId,
+            at: p.at,
+            origin: p.origin as CaptureOrigin,
+            text: p.text,
+            ...(p.masked === true ? { masked: true } : {}),
+          }
+          demand.ownerMessages = [...(demand.ownerMessages ?? []), msg]
+          if (p.masked === true) demand.maskedAtInscription = true
         }
       }
       break

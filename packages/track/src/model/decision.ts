@@ -6,6 +6,7 @@ import {
   type Realization,
 } from './item.js'
 import type { ActorId, ProvenanceSignature } from '../events/types.js'
+import type { OwnerMessage } from './demand.js'
 import type { PriorityAssessment } from './priority.js'
 
 export type DecisionKind = Gate // a Decision's kind == the gate it settles (SPEC §2.10)
@@ -118,6 +119,8 @@ export interface DecisionState {
   settledOrder?: number
   /** Stable 1..N decision number (`D<n>` in `--owner-table`), never reassigned. */
   ownerNumber?: number
+  /** Ordered owner messages recorded on this decision from the capture queue (never settles it). */
+  ownerMessages?: OwnerMessage[]
 }
 
 /** True when a decision title denotes a session-bound OWNER GATE (never receives a `D<n>` number). */

@@ -1,3 +1,4 @@
+import type { CaptureCliMode } from '../capture/registry.js'
 import type { JournalResolutionKind } from '../cli/journal-reference.js'
 
 /**
@@ -78,11 +79,48 @@ export function formatHeaderJournalLine(
   label: string,
   resolution: JournalResolutionKind,
   lastEventDate: string | null,
+  writeMode?: { mode: 'open' | 'exclusive'; holder?: string | null },
 ): string {
-  if (lastEventDate === null) {
-    return `Journal : ${label} · ${resolution} · aucun événement`
+  const base =
+    lastEventDate === null
+      ? `Journal : ${label} · ${resolution} · aucun événement`
+      : `Journal : ${label} · ${resolution} · dernier événement ${lastEventDate}`
+  if (writeMode === undefined) return base
+  return `${base}${formatHeaderWriteModeSuffix(writeMode)}`
+}
+
+export function formatHeaderNoJournalActiveCaptureLine(label: string): string {
+  return `Journal : aucun · dossier ${label} · créé à la première inscription`
+}
+
+export function formatHeaderWriteModeSuffix(writeMode: {
+  mode: 'open' | 'exclusive'
+  holder?: string | null
+}): string {
+  if (writeMode.mode === 'exclusive') {
+    return ` · rédacteur exclusif : ${writeMode.holder ?? 'inconnu'}`
   }
-  return `Journal : ${label} · ${resolution} · dernier événement ${lastEventDate}`
+  return ' · journal ouvert'
+}
+
+export function formatCaptureCliState(mode: CaptureCliMode | 'unqualified'): string {
+  switch (mode) {
+    case 'direct':
+      return 'directe'
+    case 'deferred':
+      return 'différée'
+    case 'not-covered':
+      return 'non couverte'
+    case 'unqualified':
+      return 'non qualifiée'
+  }
+}
+
+export function formatHeaderCaptureLine(
+  clis: readonly { cli: string; mode: CaptureCliMode | 'unqualified' }[],
+): string {
+  if (clis.length === 0) return 'Captation : aucune CLI recensée'
+  return `Captation : ${clis.map((c) => `${c.cli} ${formatCaptureCliState(c.mode)}`).join(' · ')}`
 }
 
 export function formatHeaderMotifsLine(motifs: readonly string[]): string {
@@ -102,6 +140,18 @@ export const MOTIF_CAPTURE_PARTIAL = 'captation partielle'
 export const MOTIF_FREE_TEXT_QUESTIONS = 'questions en texte libre non suivies'
 export const MOTIF_POLICY_ABSENT = 'politique de termes privés absente'
 export const MOTIF_ZERO_DEMANDS = '0 demande enregistrée'
+
+export function formatMotifUnclassified(count: number): string {
+  return `${count} ${pluralize(count, 'message non classé', 'messages non classés')}`
+}
+
+export function formatMotifExpiredUnclassified(count: number): string {
+  return `${count} ${pluralize(count, 'expiré non classé', 'expirés non classés')}`
+}
+
+export function formatMotifCapturedNotInscribed(count: number): string {
+  return `${count} ${pluralize(count, 'capté non inscrit', 'captés non inscrits')}`
+}
 
 export function formatMotifAllArchived(archivedCount: number): string {
   return `0 demande active, ${archivedCount} ${pluralize(archivedCount, 'archivée', 'archivées')}`
@@ -158,15 +208,44 @@ export function formatToAttachLine(params: {
   date: string
   text: string
   captured: boolean
+  captureOrigin?: string | undefined
   maskMotif?: MaskMotif | undefined
 }): string {
   if (params.maskMotif !== undefined) {
     return `- ${params.date} · ${formatMaskText(params.maskMotif)}`
   }
   if (params.captured) {
-    return `- ${params.date} · capté · « ${cutCapturedDisplayText(params.text)} »`
+    const cut = cutCapturedDisplayText(params.text)
+    if (params.captureOrigin === 'owner') {
+      return `- ${params.date} · capté · « ${cut} »`
+    }
+    return `- ${params.date} · capté · ${cut} (capté, origine non prouvée)`
   }
   return `- ${params.date} · non capté · ${params.text}`
+}
+
+export function formatCapturedWaitingHeading(count: number): string {
+  return `Captées, pas encore inscrites — ${count}`
+}
+
+export function formatCapturedWaitingClass(params: {
+  classKind: 'new-demand' | 'follow-up' | 'decision-answer'
+  demandNumber?: number | undefined
+  decisionRef?: string | undefined
+}): string {
+  if (params.classKind === 'new-demand') return 'nouvelle demande'
+  if (params.classKind === 'follow-up') return `suite de #${params.demandNumber ?? '?'}`
+  return `réponse à ${params.decisionRef ?? 'D?'}`
+}
+
+export function formatCapturedWaitingLine(params: {
+  date: string
+  classKind: 'new-demand' | 'follow-up' | 'decision-answer'
+  title: string
+  demandNumber?: number | undefined
+  decisionRef?: string | undefined
+}): string {
+  return `- ${params.date} · ${formatCapturedWaitingClass(params)} · ${params.title}`
 }
 
 export const DECISIONS_HEADING_EMPTY = "Décisions qui t'attendent"
@@ -320,20 +399,48 @@ export function formatRequestCellWithOriginLabel(originLabel: string, requestCel
   return `[${originLabel}] ${requestCell}`
 }
 
-export function formatRequestCellCapturedOwner(text: string, title?: string): string {
-  const cut = cutCapturedDisplayText(text)
-  if (title !== undefined && title.trim() !== '') {
-    return `${title.trim()} — « ${cut} »`
-  }
-  return `« ${cut} »`
+export const MASKED_AT_INSCRIPTION_LABEL = 'masqué'
+
+export function formatRequestCellCapturedOwner(
+  text: string,
+  title?: string,
+  opts?: { maskedAtInscription?: boolean; titleMask?: MaskMotif; textMask?: MaskMotif },
+): string {
+  const titlePart =
+    title !== undefined && title.trim() !== ''
+      ? opts?.titleMask !== undefined
+        ? formatMaskText(opts.titleMask)
+        : title.trim()
+      : undefined
+  const textPart =
+    opts?.textMask !== undefined
+      ? formatMaskText(opts.textMask)
+      : `« ${cutCapturedDisplayText(text)} »`
+  const base = titlePart !== undefined ? `${titlePart} — ${textPart}` : textPart
+  return opts?.maskedAtInscription === true ? `${base} (${MASKED_AT_INSCRIPTION_LABEL})` : base
 }
 
-export function formatRequestCellCapturedDoubtful(text: string, title?: string): string {
-  const cut = cutCapturedDisplayText(text)
-  if (title !== undefined && title.trim() !== '') {
-    return `${title.trim()} — ${cut} (capté, origine non prouvée)`
-  }
-  return `${cut} (capté, origine non prouvée)`
+export function formatRequestCellCapturedDoubtful(
+  text: string,
+  title?: string,
+  opts?: { maskedAtInscription?: boolean; titleMask?: MaskMotif; textMask?: MaskMotif },
+): string {
+  const titlePart =
+    title !== undefined && title.trim() !== ''
+      ? opts?.titleMask !== undefined
+        ? formatMaskText(opts.titleMask)
+        : title.trim()
+      : undefined
+  const textPart =
+    opts?.textMask !== undefined
+      ? formatMaskText(opts.textMask)
+      : cutCapturedDisplayText(text)
+  const suffix =
+    opts?.maskedAtInscription === true
+      ? `(capté, origine non prouvée, ${MASKED_AT_INSCRIPTION_LABEL})`
+      : '(capté, origine non prouvée)'
+  const base = titlePart !== undefined ? `${titlePart} — ${textPart}` : textPart
+  return `${base} ${suffix}`
 }
 
 export function formatMaskText(motif: MaskMotif): string {

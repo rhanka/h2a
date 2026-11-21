@@ -22,3 +22,6 @@ apps/*/*.tsbuildinfo
 # h2a runtime store artifacts (created when running h2a from the repo root)
 /registry/
 /.h2a-schema.json
+
+# Track machine-local write policy (lot 3a, spec §7.4)
+.track/write-policy.json

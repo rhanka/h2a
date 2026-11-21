@@ -83,6 +83,7 @@ export function cmdAdopt(
   resolveOpts: ResolveOptions,
   resolveCommitFn: (cwd: string, commit?: string) => string,
   resolveActorFn: (cwd: string) => ActorId,
+  globalWriterTokenFile?: string,
 ): number {
   const sub = args[0]
   if (sub === 'plan') {
@@ -155,7 +156,7 @@ export function cmdAdopt(
       throw new DomainError(`adopt apply: cannot read valid JSON plan from ${planArg}`)
     }
 
-    const tokenFileArg = opt(flags, 'writer-token-file')
+    const tokenFileArg = opt(flags, 'writer-token-file') ?? globalWriterTokenFile
     const writerTokenFile =
       tokenFileArg !== undefined
         ? isAbsolute(tokenFileArg)
@@ -169,6 +170,7 @@ export function cmdAdopt(
       ...(nowArg !== undefined ? { now: nowArg } : {}),
       ...(opt(flags, 'policy') !== undefined ? { policyPath: opt(flags, 'policy')! } : {}),
       ...(writerTokenFile !== undefined ? { writerTokenFile } : {}),
+      ...(io.env !== undefined ? { env: io.env } : {}),
     })
     io.out(formatApplyResultLines(result))
     return result.refused > 0 ? 1 : 0

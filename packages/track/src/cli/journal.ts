@@ -1,15 +1,22 @@
 import { statSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { canonicalPath, identityOf, isInsideDir, tmpCeilingFor } from '../journal/identity.js'
 import { attachSatellite, designateJournal, recordCopy } from '../journal/index-store.js'
 import { DomainError } from '../model/item.js'
+import { formatOwnerTableNoJournalMessage } from '../report/owner-table.js'
 import { trackStateHome } from '../state-home.js'
+import {
+  declareExclusiveWriter,
+  readWritePolicy,
+  releaseExclusiveWriter,
+  takeoverExclusiveWriter,
+} from '../write-policy.js'
 import type { CliIO } from './index.js'
 import { resolveJournalOfReference, type JournalResolveOptions } from './journal-reference.js'
 
 const JOURNAL_USAGE =
-  'usage: track journal <which [--format json|text] | designate <dir> [--by <name>] | attach --to <dir>>\n'
+  'usage: track journal <which [--format json|text] | designate <dir> [--by <name>] | attach --to <dir> | declare-writer --holder <name> [--token-file <path>] | takeover --holder <name> --reason <text> [--token-file <path>] | release | status [--format json|text]>\n'
 
 function isDir(p: string): boolean {
   try {
@@ -21,7 +28,7 @@ function isDir(p: string): boolean {
 
 function parseSimpleFlags(args: string[]): { positional: string[]; flags: Record<string, string | true> } {
   const positional: string[] = []
-  const flags: Record<string, string | true> = {}
+  const flags: Record<string, string | true> = Object.create(null) as Record<string, string | true>
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!
     if (a.startsWith('--')) {
@@ -66,6 +73,7 @@ export function cmdJournal(
   args: string[],
   io: CliIO,
   resolveOpts: JournalResolveOptions,
+  writerTokenFile?: string,
 ): number {
   const sub = args[0]
   const { positional, flags } = parseSimpleFlags(args.slice(1))
@@ -73,7 +81,7 @@ export function cmdJournal(
 
   if (sub === 'which') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal which: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal which (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'format') throw new DomainError(`unknown flag --${k} for journal which`)
@@ -165,7 +173,7 @@ export function cmdJournal(
 
   if (sub === 'attach') {
     if (positional.length > 0) {
-      throw new DomainError(`unexpected argument(s) for journal attach: ${positional.join(' ')}`)
+      throw new DomainError(`unexpected argument(s) for journal attach (${positional.length})`)
     }
     for (const k of Object.keys(flags)) {
       if (k !== 'to') throw new DomainError(`unknown flag --${k} for journal attach`)
@@ -191,6 +199,140 @@ export function cmdJournal(
     const entry = attachSatellite(satRef.identity, satRef.identityRoot, condIdent.id, { env: procEnv })
     io.out(
       `attached ${satRef.identity} (root ${entry.root}) to conductor ${condIdent.id}\n`,
+    )
+    return 0
+  }
+
+  if (sub === 'declare-writer') {
+    if (positional.length > 0) {
+      throw new DomainError(`unexpected argument(s) for journal declare-writer (${positional.length})`)
+    }
+    for (const k of Object.keys(flags)) {
+      if (k !== 'holder' && k !== 'token-file') {
+        throw new DomainError(`unknown flag --${k} for journal declare-writer`)
+      }
+    }
+    const holder = flags['holder']
+    if (holder === undefined || holder === true) {
+      io.err('usage: track journal declare-writer --holder <name> [--token-file <path>]\n')
+      return 2
+    }
+    const rawTokenFile = flags['token-file']
+    if (rawTokenFile === true) throw new DomainError('--token-file requires a path')
+    const tokenFile =
+      rawTokenFile !== undefined
+        ? isAbsolute(rawTokenFile)
+          ? rawTokenFile
+          : resolve(io.cwd, rawTokenFile)
+        : undefined
+
+    const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: procEnv })
+    if (ref.trackDir === null) {
+      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
+    }
+    const eventsPath = join(ref.trackDir, 'events.jsonl')
+    const { policy, token } = declareExclusiveWriter(eventsPath, holder, {
+      ...(tokenFile !== undefined ? { tokenFile } : {}),
+    })
+    if (tokenFile !== undefined) {
+      io.out(
+        `declared exclusive writer "${policy.holder}" (epoch ${policy.epoch}); token written to ${tokenFile}\n`,
+      )
+    } else {
+      io.out(`${token}\n`)
+    }
+    return 0
+  }
+
+  if (sub === 'takeover') {
+    if (positional.length > 0) {
+      throw new DomainError(`unexpected argument(s) for journal takeover (${positional.length})`)
+    }
+    for (const k of Object.keys(flags)) {
+      if (k !== 'holder' && k !== 'reason' && k !== 'token-file') {
+        throw new DomainError(`unknown flag --${k} for journal takeover`)
+      }
+    }
+    const holder = flags['holder']
+    const reason = flags['reason']
+    if (holder === undefined || holder === true || reason === undefined || reason === true) {
+      io.err('usage: track journal takeover --holder <name> --reason <text> [--token-file <path>]\n')
+      return 2
+    }
+    const rawTokenFile = flags['token-file']
+    if (rawTokenFile === true) throw new DomainError('--token-file requires a path')
+    const tokenFile =
+      rawTokenFile !== undefined
+        ? isAbsolute(rawTokenFile)
+          ? rawTokenFile
+          : resolve(io.cwd, rawTokenFile)
+        : undefined
+
+    const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: procEnv })
+    if (ref.trackDir === null) {
+      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
+    }
+    const eventsPath = join(ref.trackDir, 'events.jsonl')
+    const { policy, token } = takeoverExclusiveWriter(eventsPath, holder, reason, {
+      ...(tokenFile !== undefined ? { tokenFile } : {}),
+    })
+    if (tokenFile !== undefined) {
+      io.out(
+        `takeover complete: exclusive writer "${policy.holder}" (epoch ${policy.epoch}); token written to ${tokenFile}\n`,
+      )
+    } else {
+      io.out(`${token}\n`)
+    }
+    return 0
+  }
+
+  if (sub === 'release') {
+    if (positional.length > 0) {
+      throw new DomainError(`unexpected argument(s) for journal release (${positional.length})`)
+    }
+    for (const k of Object.keys(flags)) {
+      throw new DomainError(`unknown flag --${k} for journal release`)
+    }
+    const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: procEnv })
+    if (ref.trackDir === null) {
+      throw new DomainError(formatOwnerTableNoJournalMessage(io.cwd, ref.reason))
+    }
+    const eventsPath = join(ref.trackDir, 'events.jsonl')
+    const policy = releaseExclusiveWriter(eventsPath, {
+      ...(writerTokenFile !== undefined ? { writerTokenFile } : {}),
+      env: procEnv,
+    })
+    io.out(`released exclusive writer; journal is now ${policy.mode} (epoch ${policy.epoch})\n`)
+    return 0
+  }
+
+  if (sub === 'status') {
+    if (positional.length > 0) {
+      throw new DomainError(`unexpected argument(s) for journal status (${positional.length})`)
+    }
+    for (const k of Object.keys(flags)) {
+      if (k !== 'format') throw new DomainError(`unknown flag --${k} for journal status`)
+    }
+    const rawFormat = flags['format']
+    if (rawFormat === true) throw new DomainError('--format requires a value (json|text)')
+    const format = rawFormat ?? 'text'
+    if (format !== 'json' && format !== 'text') {
+      throw new DomainError('--format must be one of: json|text')
+    }
+
+    const ref = resolveJournalOfReference({ ...resolveOpts, processEnv: procEnv })
+    const policy =
+      ref.trackDir !== null
+        ? readWritePolicy(join(ref.trackDir, 'events.jsonl'))
+        : { mode: 'open' as const, holder: null, epoch: 0 }
+    if (format === 'json') {
+      io.out(
+        `${JSON.stringify({ mode: policy.mode, holder: policy.holder, epoch: policy.epoch }, null, 2)}\n`,
+      )
+      return 0
+    }
+    io.out(
+      `mode: ${policy.mode}\nholder: ${policy.holder ?? 'none'}\nepoch: ${policy.epoch}\n`,
     )
     return 0
   }

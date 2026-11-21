@@ -485,6 +485,8 @@ export function queryText(
 export interface OwnerTableCommandOptions extends ProjectOwnerTableOptions {
   strict?: boolean
   header?: QualifiedOwnerTableOptions['header']
+  writePolicy?: QualifiedOwnerTableOptions['writePolicy']
+  captureView?: QualifiedOwnerTableOptions['captureView']
 }
 
 /**
@@ -499,13 +501,15 @@ export function ownerTableText(
   format: Format = 'md',
 ): string {
   assertReportFormat(format)
-  const { strict, header, ...projOpts } = options
+  const { strict, header, writePolicy, captureView, ...projOpts } = options
   const ctx = reader.ownerTableContext(projOpts)
   const qualified = buildQualifiedOwnerTable(ctx.view, {
     ...projOpts,
     mode: strict === true ? 'strict' : 'default',
     policyFound: ctx.policyFound,
     desyncFindings: ctx.desync,
+    ...(writePolicy !== undefined ? { writePolicy } : {}),
+    ...(captureView !== undefined ? { captureView } : {}),
     header: {
       ...header,
       ...(ctx.lastEventAt !== undefined ? { lastEventAt: ctx.lastEventAt } : {}),
