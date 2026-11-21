@@ -8,8 +8,13 @@ import type {
   NativeTerminalSessionState,
 } from "./host.js";
 import { NativeTerminalRemoteError } from "./protocol.js";
-import { TerminalModeTracker } from "./terminal-modes.js";
+import {
+  H2A_OUTER_MOUSE_ENABLE,
+  H2A_OUTER_MOUSE_RESET,
+  TerminalModeTracker,
+} from "./terminal-modes.js";
 import { TerminalResetRelay } from "./reset-relay.js";
+import { TerminalUndoRegistry } from "./attach-recovery.js";
 import {
   appendCrashLog,
   crashSignalName,
@@ -84,6 +89,7 @@ export type NativeSessionViewOptions = {
   readonly tty: string;
   readonly statusBar: SessionViewStatusBar;
   readonly takeover?: boolean | undefined;
+  readonly ownOuterMouse?: boolean | undefined;
   readonly saveTerminalReset?: ((sequence: string) => void) | undefined;
   readonly getChildCols?: (() => number | undefined) | undefined;
   readonly onCrashLog?: ((entry: CrashLogEntry) => void) | undefined;
@@ -103,13 +109,14 @@ export class NativeSessionView {
   readonly statusBar: SessionViewStatusBar;
   readonly #now: () => number;
   readonly #tty: string;
+  readonly #ownOuterMouse: boolean;
   readonly #saveTerminalReset: ((sequence: string) => void) | undefined;
   readonly #getChildCols: () => number | undefined;
   readonly #logCrash: (entry: CrashLogEntry) => void;
 
+  readonly undoRegistry = new TerminalUndoRegistry();
   modes: TerminalModeTracker;
   modesSuspended = false;
-  #savedReset = "";
   resetRelay: TerminalResetRelay;
   detached = false;
   terminalEnded = false;
@@ -130,6 +137,7 @@ export class NativeSessionView {
     this.statusBar = options.statusBar;
     this.#now = options.now;
     this.#tty = options.tty;
+    this.#ownOuterMouse = options.ownOuterMouse === true;
     this.#saveTerminalReset = options.saveTerminalReset;
     this.#getChildCols =
       options.getChildCols ?? (() => this.stdout.columns);
@@ -142,17 +150,49 @@ export class NativeSessionView {
     // consume it themselves so detached sessions also return to a clean shell.
     this.resetRelay = new TerminalResetRelay(
       (data) => this.relayOutput(data),
-      () => this.modes.resetSequence(),
+      () => this.modes.resetSequence({ excludeMouse: this.#ownOuterMouse }),
+    );
+  }
+
+  /**
+   * Register an h2a-owned terminal state undo sequence and publish the updated
+   * receipt STRICTLY BEFORE writing the activation sequence to stdout.
+   */
+  activateOuterState(
+    slot: string,
+    undoSequence: string,
+    activationSequence: string,
+  ): void {
+    this.undoRegistry.set(slot, undoSequence);
+    this.saveReset();
+    if (activationSequence) {
+      this.stdout.write(activationSequence);
+    }
+  }
+
+  /** Enable h2a-owned whole-attach outer mouse tracking (?1000h ?1006h). */
+  enableOuterMouse(): void {
+    if (!this.#ownOuterMouse) return;
+    this.undoRegistry.set("h2a-hygiene", "\x1b[4l\x1b[?6l\x1b[r\x1b[0m");
+    this.activateOuterState(
+      "h2a-mouse",
+      H2A_OUTER_MOUSE_RESET,
+      H2A_OUTER_MOUSE_ENABLE,
     );
   }
 
   saveReset(): void {
-    const reset = this.modesSuspended
-      ? ""
-      : `${this.statusBar.peekRestoreSequence()}${this.modes.resetSequence()}`;
-    if (reset === this.#savedReset) return;
-    this.#saveTerminalReset?.(reset);
-    this.#savedReset = reset;
+    if (this.modesSuspended) {
+      this.undoRegistry.clear();
+      this.undoRegistry.publish(this.#saveTerminalReset);
+      return;
+    }
+    this.undoRegistry.set("status-bar", this.statusBar.peekRestoreSequence());
+    this.undoRegistry.set(
+      "child-modes",
+      this.modes.resetSequence({ excludeMouse: this.#ownOuterMouse }),
+    );
+    this.undoRegistry.publish(this.#saveTerminalReset);
   }
 
   restoreBarForNotice(): void {
@@ -163,9 +203,18 @@ export class NativeSessionView {
   }
 
   relayOutput(data: string): void {
+    if (this.#ownOuterMouse) {
+      const filtered = this.modes.feedAndFilterOuterMouse(data);
+      // Pre-publish child mode undos BEFORE relaying activation bytes to stdout.
+      this.saveReset();
+      const transformed = this.statusBar.transformChildOutput(filtered);
+      if (transformed) this.stdout.write(transformed);
+      return;
+    }
     this.modes.feed(data);
-    this.stdout.write(this.statusBar.transformChildOutput(data));
+    // Pre-publish child mode undos BEFORE relaying activation bytes to stdout.
     this.saveReset();
+    this.stdout.write(this.statusBar.transformChildOutput(data));
   }
 
   feedReplay(replay: NativeTerminalReplay): void {
@@ -174,9 +223,12 @@ export class NativeSessionView {
       this.modes = new TerminalModeTracker();
       this.resetRelay = new TerminalResetRelay(
         (data) => this.relayOutput(data),
-        () => this.modes.resetSequence(),
+        () => this.modes.resetSequence({ excludeMouse: this.#ownOuterMouse }),
       );
       this.modesSuspended = false;
+      if (this.#ownOuterMouse) {
+        this.enableOuterMouse();
+      }
       this.statusBar.resumeAfterReset();
       if (replay.terminalModePrefix) {
         this.resetRelay.feed(replay.terminalModePrefix);
@@ -191,6 +243,14 @@ export class NativeSessionView {
 
   flushRelay(): void {
     this.resetRelay.flush();
+    if (this.#ownOuterMouse) {
+      const pending = this.modes.flushMouseFilterPending();
+      if (pending) {
+        this.saveReset();
+        const transformed = this.statusBar.transformChildOutput(pending);
+        if (transformed) this.stdout.write(transformed);
+      }
+    }
   }
 
   resetModes(): void {
@@ -198,8 +258,12 @@ export class NativeSessionView {
     this.modesSuspended = true;
     const pending = this.statusBar.flushPendingSequence();
     const barRestore = this.statusBar.restoreSequence();
-    const reset = this.modes.resetSequence();
-    const sequence = `${pending}${barRestore}${reset}`;
+    this.undoRegistry.set("status-bar", barRestore);
+    this.undoRegistry.set(
+      "child-modes",
+      this.modes.resetSequence({ excludeMouse: this.#ownOuterMouse }),
+    );
+    const sequence = `${pending}${this.undoRegistry.compose()}`;
     if (!sequence) {
       this.saveReset();
       return;

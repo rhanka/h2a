@@ -5,6 +5,62 @@ import { spawnSync } from "node:child_process";
 
 const RECEIPT_ENV = "H2A_ATTACH_RESET_RECEIPT";
 
+const UNDO_ORDER = [
+  "status-bar",
+  "child-modes",
+  "h2a-margins",
+  "h2a-mouse",
+  "h2a-hygiene",
+] as const;
+
+/**
+ * Single registry of every outer-terminal state activated by h2a or the relayed
+ * child during an attach. Every activation registers its undo sequence here and
+ * publishes the composed receipt BEFORE writing the activation bytes to stdout,
+ * so even an uncatchable SIGKILL leaves the surviving guard able to restore the
+ * outer terminal to a clean fresh-terminal state (03-L0.5b Step 5; r2:469).
+ */
+export class TerminalUndoRegistry {
+  readonly #entries = new Map<string, string>();
+  #lastPublished = "";
+
+  set(slot: string, undoSequence: string): void {
+    if (!undoSequence) this.#entries.delete(slot);
+    else this.#entries.set(slot, undoSequence);
+  }
+
+  delete(slot: string): void {
+    this.#entries.delete(slot);
+  }
+
+  clear(): void {
+    this.#entries.clear();
+  }
+
+  compose(): string {
+    let out = "";
+    const seen = new Set<string>();
+    for (const slot of UNDO_ORDER) {
+      const seq = this.#entries.get(slot);
+      if (seq) out += seq;
+      seen.add(slot);
+    }
+    for (const [slot, seq] of this.#entries) {
+      if (!seen.has(slot) && seq) out += seq;
+    }
+    return out;
+  }
+
+  /** Publish the composed undo sequence if it changed since the last publish. */
+  publish(sink: ((sequence: string) => void) | undefined, force = false): string {
+    const seq = this.compose();
+    if (!force && seq === this.#lastPublished) return seq;
+    sink?.(seq);
+    this.#lastPublished = seq;
+    return seq;
+  }
+}
+
 /** Publish before relaying changed modes to retain cleanup across attach death.
  * The launch parent creates the private directory; only this attach writes it.
  */
