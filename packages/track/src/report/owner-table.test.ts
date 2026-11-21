@@ -231,7 +231,29 @@ describe('owner-table — 14/11 binding owner decisions', () => {
 
     const cliRes = cli(['report', '--owner-table', '--commit', 'c1', '--now', '2026-11-14T12:00:00.000Z', '--format', 'md'])
     expect(cliRes.code, cliRes.err).toBe(0)
-    expect(cliRes.out).toBe(md)
+    expect(cliRes.out).toContain('| # | Statut | Étape | ETA (étape cible) | Ta demande | Fait | À faire (qui) | Décision |')
+    expect(cliRes.out).toContain('🔵 sur la voie')
+    expect(cliRes.out).toContain('spec (demandée)')
+    expect(cliRes.out).toContain('dev → 2026-11-15 (engagé : Marie)')
+    expect(cliRes.out).toContain('🔴 bloqué')
+    expect(cliRes.out).toContain('🚩 D1 bloquante')
+    expect(cliRes.out).toContain('Dossier : docs/dossiers/canal-notification.md')
+    expect(cliRes.out).toContain("Décisions qui t'attendent — 1")
+    expect(cliRes.out).toContain('`Réponse : D1 A`')
+
+    const strictRes = cli([
+      'report',
+      '--owner-table',
+      '--strict',
+      '--commit',
+      'c1',
+      '--now',
+      '2026-11-14T12:00:00.000Z',
+      '--format',
+      'md',
+    ])
+    expect(strictRes.code, strictRes.err).toBe(0)
+    expect(strictRes.out).toBe(cliRes.out)
   })
 
   it('enforces uniqueness and immutability on numberDemand/setReportStatus and requires a settled go decision for archiving (Findings 1, 2, P3-4)', () => {
@@ -642,7 +664,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
         },
       ],
       decisions: [],
-      replyLine: 'Réponse : aucune décision en attente',
+      replyLine: '',
     })
 
     expect(auditOwnerTable(baseView()).ok).toBe(true)
@@ -930,7 +952,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       let out = ''
       let err = ''
       const code = runCli(
-        ['--track-dir', join(dir, '.track'), 'report', '--owner-table', '--commit', 'c1'],
+        ['--track-dir', join(dir, '.track'), 'report', '--owner-table', '--strict', '--commit', 'c1'],
         {
           cwd: otherCwd,
           out: (s) => {
@@ -2104,7 +2126,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     for (const format of ['md', 'text', 'json'] as const) {
       const out: string[] = []
       const err: string[] = []
-      const code = runCli(['report', '--owner-table', '--format', format, '--commit', 'c1'], {
+      const code = runCli(['report', '--owner-table', '--strict', '--format', format, '--commit', 'c1'], {
         cwd: dir,
         out: (s) => out.push(s),
         err: (s) => err.push(s),
@@ -2149,7 +2171,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
     })
     const outOrphan: string[] = []
     const errOrphan: string[] = []
-    const codeOrphan = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+    const codeOrphan = runCli(['report', '--owner-table', '--strict', '--format', 'md', '--commit', 'c1'], {
       cwd: dir,
       out: (s) => outOrphan.push(s),
       err: (s) => errOrphan.push(s),
@@ -2167,7 +2189,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       expect(runCli(['init'], { cwd: initDir, out: () => {}, err: () => {} })).toBe(0)
       const initOut: string[] = []
       const initErr: string[] = []
-      const initCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+      const initCode = runCli(['report', '--owner-table', '--strict', '--format', 'md', '--commit', 'c1'], {
         cwd: initDir,
         out: (s) => initOut.push(s),
         err: (s) => initErr.push(s),
@@ -2193,7 +2215,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
       })
       const unnumOut: string[] = []
       const unnumErr: string[] = []
-      const unnumCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+      const unnumCode = runCli(['report', '--owner-table', '--strict', '--format', 'md', '--commit', 'c1'], {
         cwd: initDir,
         out: (s) => unnumOut.push(s),
         err: (s) => unnumErr.push(s),
@@ -2250,7 +2272,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
 
         const out: string[] = []
         const err: string[] = []
-        const code = runCli(['report', '--owner-table', '--format', 'md'], {
+        const code = runCli(['report', '--owner-table', '--strict', '--format', 'md'], {
           cwd: caseDir,
           out: (s) => out.push(s),
           err: (s) => err.push(s),
@@ -2305,7 +2327,7 @@ describe('owner-table — 14/11 binding owner decisions', () => {
 
       const archOut: string[] = []
       const archErr: string[] = []
-      const archCode = runCli(['report', '--owner-table', '--format', 'md', '--commit', 'c1'], {
+      const archCode = runCli(['report', '--owner-table', '--strict', '--format', 'md', '--commit', 'c1'], {
         cwd: archivedDir,
         out: (s) => archOut.push(s),
         err: (s) => archErr.push(s),
