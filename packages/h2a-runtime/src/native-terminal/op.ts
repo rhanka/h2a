@@ -29,7 +29,7 @@
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
-import { existsSync, readFileSync, readlinkSync, writeSync } from "node:fs";
+import { existsSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,7 +51,6 @@ import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
 import { collectNativeInventory, publicationContenderObserved, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
-import { TerminalModeTracker } from "./terminal-modes.js";
 import {
   RightPanelController,
   buildRightPanelSnapshot,
@@ -61,37 +60,22 @@ import {
 } from "./right-panel.js";
 import { readRemoteConfig } from "../config.js";
 import { publishAttachReset } from "./attach-recovery.js";
-import { TerminalResetRelay } from "./reset-relay.js";
-import { appendCrashLog, crashSignalName, installCrashHandlers, type CrashLogEntry } from "../crash-log.js";
+import {
+  ATTACH_PENDING_INPUT_MAX_BYTES,
+  createSessionView,
+  sessionExitCrashEntry,
+  type NativeTerminalAttachClient,
+} from "./session-view.js";
+import { appendCrashLog, installCrashHandlers } from "../crash-log.js";
 import type {
   NativeStatusBarLinkState,
   NativeStatusBarSnapshot,
   ReadNativeStatusBarOptions,
 } from "../status-projection.js";
 
-const DETACH_BYTE = 0x1c; // Ctrl-\
+export { sessionExitCrashEntry };
 
-/**
- * Build the crash-log record for an observed session exit. Only observed
- * values are recorded: `exitCode` comes from the session's exit report and
- * `signal` from the stop order (`stopSignal`) or the pty exit signal. Either
- * field is omitted when unknown — never defaulted to 0/1.
- */
-export function sessionExitCrashEntry(
-  state: Pick<NativeTerminalSessionState, "exit" | "stopSignal">,
-  options: { sessionId: string; reason?: string | undefined; detail?: string | undefined },
-): CrashLogEntry {
-  const exitCode = state.exit?.exitCode;
-  const signal = state.stopSignal ?? crashSignalName(state.exit?.signal ?? undefined);
-  return {
-    event: "sessionExit",
-    sessionId: options.sessionId,
-    ...(options.reason ? { reason: options.reason } : {}),
-    ...(options.detail ? { detail: options.detail } : {}),
-    ...(typeof exitCode === "number" && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
-    ...(signal ? { signal } : {}),
-  };
-}
+const DETACH_BYTE = 0x1c; // Ctrl-\
 
 type Parsed = {
   op: string;
@@ -373,17 +357,6 @@ function nativeDriveInstruction(text: string): string | undefined {
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-type NativeTerminalAttachClient = Pick<
-  NativeTerminalClient,
-  | "readOutput"
-  | "state"
-  | "acquireController"
-  | "releaseController"
-  | "write"
-  | "resize"
-  | "close"
->;
-
 export type NativeTerminalAttachRuntime = {
   connect(): Promise<NativeTerminalAttachClient>;
   stdin: NodeJS.ReadStream;
@@ -404,7 +377,6 @@ const ATTACH_IDLE_POLL_MIN_MS = 100;
 const ATTACH_IDLE_POLL_MAX_MS = 500;
 const ATTACH_RECONNECT_MIN_MS = 100;
 const ATTACH_RECONNECT_MAX_MS = 2_000;
-const ATTACH_PENDING_INPUT_MAX_BYTES = 64 * 1024;
 
 function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
   const signals = { SIGTERM: 15, SIGHUP: 1, SIGINT: 2, SIGQUIT: 3 } as const;
@@ -457,11 +429,6 @@ function isStateRequestTimeout(error: unknown): boolean {
     (error instanceof Error && error.name === "NativeTerminalRequestTimeoutError")
   );
 }
-
-type ActiveAttachConnection = {
-  client: NativeTerminalAttachClient;
-  lease: NativeTerminalControllerLease;
-};
 
 export type NativeAttachStatusBarOptions = Omit<
   ReadNativeStatusBarOptions,
@@ -1394,249 +1361,85 @@ export async function runAttach(
         resolveRightPanelWidth(opt?.env ?? process.env, config),
     });
   })();
-  let modes = new TerminalModeTracker();
-  let modesSuspended = false;
-  let savedReset = "";
-  const saveReset = (): void => {
-    const reset = modesSuspended
-      ? ""
-      : `${statusBar.peekRestoreSequence()}${modes.resetSequence()}`;
-    if (reset === savedReset) return;
-    runtime.saveTerminalReset?.(reset);
-    savedReset = reset;
-  };
-  const restoreBarForNotice = (): void => {
-    const pending = statusBar.flushPendingSequence();
-    const barRestore = statusBar.restoreSequence();
-    const seq = `${pending}${barRestore}`;
-    if (seq) stdout.write(seq);
-  };
-  const relayOutput = (data: string): void => {
-    modes.feed(data);
-    stdout.write(statusBar.transformChildOutput(data));
-    saveReset();
-  };
-  // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
-  // consume it themselves so detached sessions also return to a clean shell.
-  let resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
-  const resetModes = (): void => {
-    if (modesSuspended) return;
-    modesSuspended = true;
-    const pending = statusBar.flushPendingSequence();
-    const barRestore = statusBar.restoreSequence();
-    const reset = modes.resetSequence();
-    const sequence = `${pending}${barRestore}${reset}`;
-    if (!sequence) { saveReset(); return; }
-    // Signals and fatal exits cannot wait for an asynchronous pipe flush.
-    const fd = (stdout as NodeJS.WriteStream & { fd?: number }).fd;
-    if (typeof fd === "number") writeSync(fd, sequence);
-    else stdout.write(sequence);
-    saveReset();
-  };
   const isRawCapable = stdin.isTTY === true;
   const wasRaw = stdin.isRaw === true;
-  let detached = false;
-  let terminalEnded = false;
-  let exitCode = 0;
-  let active: ActiveAttachConnection | undefined;
-  let transportFailure: unknown;
-  let interruptedAt: number | undefined;
-  let pendingInputBytes = 0;
-  const pendingInput: Buffer[] = [];
-  let inputPump: Promise<void> | undefined;
-  let takeoverPending = options.takeover === true;
   let tty = "not-a-tty";
   try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
 
-  const controllerChanged = (state: NativeTerminalSessionState, lease: NativeTerminalControllerLease): boolean => {
-    if (state.status === "exited" && !state.stopSignal) return false;
-    if (state.generation === lease.generation && state.incarnation === lease.incarnation &&
-        (state.controllerEpoch === undefined || state.controllerEpoch === lease.epoch)) return false;
-    const reason = state.stopSignal ? `session stopped (${state.stopSignal})`
-      : state.status === "exited" ? "session exited"
-      : state.controller ? `controller taken over by pid=${state.controller.pid ?? "unknown"} tty=${state.controller.tty} since=${state.controller.since}`
-      : "controller released or session replaced";
-    restoreBarForNotice();
-    stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
-    exitCode = state.status === "exited" && !state.stopSignal ? state.exit?.exitCode ?? 0 : 0;
-    if (state.status === "exited") appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: reason }));
-    else appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "controller-changed", detail: reason });
-    terminalEnded = true;
-    return true;
-  };
+  const view = createSessionView({
+    sessionId: id,
+    stdout,
+    now: () => runtime.now(),
+    tty,
+    statusBar,
+    takeover: options.takeover,
+    saveTerminalReset: runtime.saveTerminalReset,
+    getChildCols: () =>
+      rightPanel ? rightPanel.childCols(stdout.columns ?? 0) : stdout.columns,
+  });
 
-  const closeActive = (): void => {
-    const current = active;
-    active = undefined;
-    current?.client.close();
-  };
   const terminate = (): void => {
-    detached = true;
-    try { resetRelay.flush(); resetModes(); } finally {
+    view.detached = true;
+    try { view.flushRelay(); view.resetModes(); } finally {
       if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
-      closeActive();
+      view.closeActive();
     }
   };
   runtime.onTerminate?.(terminate);
 
-  const markTransportFailure = (
-    connection: ActiveAttachConnection,
-    error: unknown,
-    inputDeliveryUncertain = false,
-  ): void => {
-    if (inputDeliveryUncertain && !detached) {
-      appendCrashLog("attach", {
-        event: "refusal",
-        sessionId: id,
-        reason: "input-delivery-uncertain",
-        detail:
-          "terminal input delivery became uncertain during reconnect; " +
-          "the in-flight chunk was not replayed to avoid duplicate input",
-      });
-    }
-    // A request from the previous socket may settle after recovery. Fence that
-    // stale failure so it can never tear down the newly-acquired controller.
-    if (active !== connection) return;
-    if (error instanceof NativeTerminalRemoteError && error.message === "stale terminal controller lease") {
-      restoreBarForNotice();
-      stdout.write("\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n");
-      appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "stale-controller-lease" });
-      terminalEnded = true;
-      closeActive();
-      return;
-    }
-    if (transportFailure === undefined) {
-      transportFailure = error;
-      interruptedAt = runtime.now();
-    }
-    closeActive();
-  };
-
-  const pumpInput = (): void => {
-    if (inputPump !== undefined || detached || active === undefined) return;
-    inputPump = (async () => {
-      while (!detached && pendingInput.length > 0) {
-        const current = active;
-        if (current === undefined) return;
-        const chunk = pendingInput[0]!;
-        try {
-          await current.client.write(current.lease, chunk.toString("utf8"));
-          pendingInput.shift();
-          pendingInputBytes -= chunk.length;
-        } catch (error) {
-          // The host may have accepted the write before the response path
-          // broke. Drop this ONE uncertain chunk with an explicit warning;
-          // replaying it could duplicate a command. Later queued input stays
-          // ordered and is delivered only after a fresh exclusive lease.
-          pendingInput.shift();
-          pendingInputBytes -= chunk.length;
-          markTransportFailure(current, error, true);
-          return;
-        }
-      }
-    })().finally(() => {
-      inputPump = undefined;
-      if (!detached && active !== undefined && pendingInput.length > 0) {
-        pumpInput();
-      }
-    });
-  };
-
   const onInput = (value: Buffer | string): void => {
     const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
     if (chunk.includes(DETACH_BYTE)) {
-      detached = true;
-      closeActive();
+      view.detached = true;
+      view.closeActive();
       return;
     }
     if (rightPanel) {
       const handled = rightPanel.handleInput(chunk.toString("utf8"), {
-        cliMouseEnabled: modes.isMouseTrackingEnabled(),
+        cliMouseEnabled: view.modes.isMouseTrackingEnabled(),
       });
       if (handled.consumed) {
-        if (handled.actions.length > 0) sendChildResize();
+        if (handled.actions.length > 0) view.sendChildResize();
         return;
       }
       if (handled.forward !== undefined) {
         const forward = Buffer.from(handled.forward, "utf8");
         if (forward.length === 0) return;
-        pendingInput.push(forward);
-        pendingInputBytes += forward.length;
-        pumpInput();
+        view.pushInput(forward);
         return;
       }
     }
-    if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
-      restoreBarForNotice();
+    if (!view.enqueueInput(chunk, ATTACH_PENDING_INPUT_MAX_BYTES)) {
+      view.restoreBarForNotice();
       stdout.write(
         "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
           "without stopping the session\r\n",
       );
-      appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
-      detached = true;
-      closeActive();
+      appendCrashLog("attach", { event: "refusal", sessionId: view.sessionId, reason: "input-buffer-full" });
+      view.detached = true;
+      view.closeActive();
       return;
     }
-    pendingInput.push(chunk);
-    pendingInputBytes += chunk.length;
-    pumpInput();
   };
   stdin.on("data", onInput);
-  const onEnd = (): void => { detached = true; closeActive(); };
+  const onEnd = (): void => { view.detached = true; view.closeActive(); };
   stdin.on("end", onEnd);
-  const sendChildResize = (): void => {
-    const current = active;
-    const rows = statusBar.childRows();
-    const cols = rightPanel
-      ? rightPanel.childCols(stdout.columns ?? 0)
-      : stdout.columns;
-    if (current && cols && rows) {
-      void current.client
-        .resize(current.lease, cols, rows)
-        .catch((error) => markTransportFailure(current, error));
-    }
-  };
   const resize = (): void => {
-    sendChildResize();
-    statusBar.onResize();
+    view.sendChildResize();
+    view.statusBar.onResize();
     rightPanel?.onResize();
-    saveReset();
+    view.saveReset();
   };
   runtime.onResize(resize);
 
-  const connectAndAcquire = async (): Promise<NativeTerminalSessionState> => {
-    const client = await runtime.connect();
-    try {
-      const state = await client.state(id);
-      if (state.status === "exited") {
-        client.close();
-        return state;
-      }
-      const lease = await client.acquireController(
-        id,
-        `h2a-attach-${process.pid}`,
-        "human",
-        { takeover: takeoverPending, pid: process.pid, tty },
-      );
-      // A reconnect must never take the terminal back from a newer attach.
-      takeoverPending = false;
-      active = { client, lease };
-      transportFailure = undefined;
-      await statusBar.probe(true, "attached");
-      rightPanel?.paint();
-      sendChildResize();
-      saveReset();
-      pumpInput();
-      return state;
-    } catch (error) {
-      client.close();
-      throw error;
-    }
-  };
+  const connectAndAcquire = (): Promise<NativeTerminalSessionState> =>
+    view.connectAndAcquire(
+      () => runtime.connect(),
+      () => { rightPanel?.paint(); },
+    );
 
   // Paint the existing scrollback once, then follow the stream.
-  let seq = 0;
   try {
     if (isRawCapable) stdin.setRawMode(true);
     stdin.resume();
@@ -1649,12 +1452,12 @@ export async function runAttach(
       if (!isDefinitiveNativeTerminalAbsence(error)) throw error;
       appendCrashLog("attach", sessionExitCrashEntry(
         { exit: null, stopSignal: null },
-        { sessionId: id, reason: "definitive-absence", detail: "session absent at attach; exit code unknown" },
+        { sessionId: view.sessionId, reason: "definitive-absence", detail: "session absent at attach; exit code unknown" },
       ));
       return 1;
     }
     if (initial.status === "exited") {
-      appendCrashLog("attach", sessionExitCrashEntry(initial, { sessionId: id, detail: "session already exited at attach" }));
+      appendCrashLog("attach", sessionExitCrashEntry(initial, { sessionId: view.sessionId, detail: "session already exited at attach" }));
       return initial.exit?.exitCode ?? 0;
     }
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
@@ -1662,44 +1465,44 @@ export async function runAttach(
     let nextStatePollAt = runtime.now() + statePollMs;
 
     for (;;) {
-      if (detached || terminalEnded) break;
+      if (view.detached || view.terminalEnded) break;
 
-      if (active === undefined || transportFailure !== undefined) {
-        const disconnectStartedAt = interruptedAt ?? runtime.now();
+      if (view.active === undefined || view.transportFailure !== undefined) {
+        const disconnectStartedAt = view.interruptedAt ?? runtime.now();
         const failureCause =
-          transportFailure instanceof Error
-            ? transportFailure.message
-            : transportFailure !== undefined
-              ? String(transportFailure)
+          view.transportFailure instanceof Error
+            ? view.transportFailure.message
+            : view.transportFailure !== undefined
+              ? String(view.transportFailure)
               : "connection interrupted";
         const failureReason =
-          transportFailure instanceof NativeTerminalRequestTimeoutError
-            ? `timeout:${transportFailure.operation}`
+          view.transportFailure instanceof NativeTerminalRequestTimeoutError
+            ? `timeout:${view.transportFailure.operation}`
             : "transport-interrupted";
-        closeActive();
-        await statusBar.probe(false, "reconnecting");
+        view.closeActive();
+        await view.statusBar.probe(false, "reconnecting");
         let reconnectDelayMs = ATTACH_RECONNECT_MIN_MS;
         for (;;) {
-          if (detached) break;
+          if (view.detached) break;
           try {
             const state = await connectAndAcquire();
             const durationMs = Math.max(0, runtime.now() - disconnectStartedAt);
-            interruptedAt = undefined;
+            view.interruptedAt = undefined;
             if (state.status === "exited") {
-              exitCode = state.exit?.exitCode ?? 0;
+              view.exitCode = state.exit?.exitCode ?? 0;
               appendCrashLog("attach", {
                 ...sessionExitCrashEntry(state, {
-                  sessionId: id,
+                  sessionId: view.sessionId,
                   detail: `session exited during reconnect after ${durationMs}ms (${failureCause})`,
                 }),
                 durationMs,
               });
-              terminalEnded = true;
+              view.terminalEnded = true;
               break;
             }
             appendCrashLog("attach", {
               event: "reconnect",
-              sessionId: id,
+              sessionId: view.sessionId,
               instanceId: state.generation,
               reason: failureReason,
               durationMs,
@@ -1712,16 +1515,16 @@ export async function runAttach(
           } catch (error) {
             const durationMs = Math.max(0, runtime.now() - disconnectStartedAt);
             if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
-              restoreBarForNotice();
+              view.restoreBarForNotice();
               stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
               appendCrashLog("attach", {
                 event: "refusal",
-                sessionId: id,
+                sessionId: view.sessionId,
                 reason: "already-has-controller",
                 durationMs,
                 detail: error.message,
               });
-              terminalEnded = true;
+              view.terminalEnded = true;
               break;
             }
             if (isDefinitiveNativeTerminalAbsence(error)) {
@@ -1729,15 +1532,15 @@ export async function runAttach(
                 ...sessionExitCrashEntry(
                   { exit: null, stopSignal: null },
                   {
-                    sessionId: id,
+                    sessionId: view.sessionId,
                     reason: "definitive-absence",
                     detail: `session proven absent during reconnect after ${durationMs}ms (${failureCause}); exit code unknown`,
                   },
                 ),
                 durationMs,
               });
-              exitCode = 1;
-              terminalEnded = true;
+              view.exitCode = 1;
+              view.terminalEnded = true;
               break;
             }
             await runtime.delay(reconnectDelayMs);
@@ -1747,36 +1550,22 @@ export async function runAttach(
             );
           }
         }
-        if (terminalEnded) break;
+        if (view.terminalEnded) break;
         continue;
       }
 
-      const current = active;
+      const current = view.active;
       try {
         const replay = await current.client.readOutput(
-          id,
-          seq,
+          view.sessionId,
+          view.seq,
           NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
         );
-        if (detached) break;
-        if (replay.gap) {
-          resetModes();
-          modes = new TerminalModeTracker();
-          resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
-          modesSuspended = false;
-          statusBar.resumeAfterReset();
-          if (replay.terminalModePrefix) {
-            resetRelay.feed(replay.terminalModePrefix);
-          }
-        }
-        for (const chunk of replay.chunks) {
-          resetRelay.feed(chunk.data);
-          seq = chunk.seq;
-        }
-        statusBar.flushAfterOutputBatch();
+        if (view.detached) break;
+        view.feedReplay(replay);
         if (rightPanel?.isOpen()) rightPanel.paint();
-        await statusBar.probe(false);
-        seq = replay.latestSeq;
+        await view.statusBar.probe(false);
+        view.seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
           await runtime.delay(idlePollMs);
           idlePollMs = Math.min(ATTACH_IDLE_POLL_MAX_MS, idlePollMs * 2);
@@ -1790,16 +1579,16 @@ export async function runAttach(
         if (replay.state !== undefined) {
           statePollMs = ATTACH_STATE_POLL_MS;
           nextStatePollAt = runtime.now() + statePollMs;
-          if (controllerChanged(replay.state, current.lease)) break;
+          if (view.controllerChanged(replay.state, current.lease)) break;
           if (replay.state.status === "exited") {
-            exitCode = replay.state.exit?.exitCode ?? 0;
-            appendCrashLog("attach", sessionExitCrashEntry(replay.state, { sessionId: id, detail: "session exited during attach" }));
+            view.exitCode = replay.state.exit?.exitCode ?? 0;
+            appendCrashLog("attach", sessionExitCrashEntry(replay.state, { sessionId: view.sessionId, detail: "session exited during attach" }));
             break;
           }
         } else if (runtime.now() >= nextStatePollAt) {
           let state: NativeTerminalSessionState | undefined;
           try {
-            state = await current.client.state(id);
+            state = await current.client.state(view.sessionId);
             statePollMs = ATTACH_STATE_POLL_MS;
             nextStatePollAt = runtime.now() + statePollMs;
           } catch (stateError) {
@@ -1810,35 +1599,35 @@ export async function runAttach(
             nextStatePollAt = runtime.now() + statePollMs;
           }
           if (state !== undefined) {
-            if (controllerChanged(state, current.lease)) break;
+            if (view.controllerChanged(state, current.lease)) break;
             if (state.status === "exited") {
-              exitCode = state.exit?.exitCode ?? 0;
-              appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during attach" }));
+              view.exitCode = state.exit?.exitCode ?? 0;
+              appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: view.sessionId, detail: "session exited during attach" }));
               break;
             }
           }
         }
       } catch (error) {
-        if (detached) break;
+        if (view.detached) break;
         if (isDefinitiveNativeTerminalAbsence(error)) {
           appendCrashLog("attach", sessionExitCrashEntry(
             { exit: null, stopSignal: null },
-            { sessionId: id, reason: "definitive-absence", detail: "session proven absent during attach; exit code unknown" },
+            { sessionId: view.sessionId, reason: "definitive-absence", detail: "session proven absent during attach; exit code unknown" },
           ));
-          exitCode = 1;
+          view.exitCode = 1;
           break;
         }
-        markTransportFailure(current, error);
+        view.markTransportFailure(current, error);
       }
     }
   } finally {
     try {
-      resetRelay.flush();
-      if (detached) {
-        restoreBarForNotice();
+      view.flushRelay();
+      if (view.detached) {
+        view.restoreBarForNotice();
         stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
       }
-      resetModes();
+      view.resetModes();
     } finally {
       runtime.offTerminate?.(terminate);
       runtime.offResize(resize);
@@ -1846,18 +1635,13 @@ export async function runAttach(
       stdin.removeListener("end", onEnd);
       if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
-      if (inputPump !== undefined) await inputPump.catch(() => {});
-      const current = active;
-      active = undefined;
-      if (current !== undefined) {
-        await current.client.releaseController(current.lease).catch(() => {});
-        current.client.close();
-      }
+      await view.drainInputPump();
+      await view.releaseActive();
       rightPanel?.dispose();
-      statusBar.dispose();
+      view.dispose();
     }
   }
-  return exitCode;
+  return view.exitCode;
 }
 
 export async function runNativeTerminalOp(
