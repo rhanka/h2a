@@ -1987,3 +1987,290 @@ describe("Step 5 — synthetic focus and mouse release, receipt before mode", ()
     expect(h.receipts.at(-1)).toBe("");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Step 8 — the thirteen exit branches of runAttach (r2 M5) and reconnection
+// ---------------------------------------------------------------------------
+
+describe("Step 8 — no exit branch closes the station, except the three wanted ones", () => {
+  it("should close on the end of stdin and release every lease", async () => {
+    const h = new Harness();
+    h.autoDetach = false;
+    h.step((x) => x.activate("h2a-tracker"), (x) => x.stdin.emit("end"));
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.of("closed")).toEqual([{ type: "closed", reason: "stdin-end" }]);
+    // The active lease and the compatibility guard both went with the station.
+    expect(h.heldByStation()).toEqual([]);
+    expect(h.fleet.all().every((session) => session.status === "running")).toBe(true);
+  });
+
+  it("should close on a termination signal with every lease released and the terminal undone", async () => {
+    const h = modeFixture({ brokerProtected: false });
+    h.autoDetach = false;
+    let mark = -1;
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        mark = x.stdout.mark();
+        x.terminateListener?.();
+      },
+    );
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.of("closed")).toEqual([{ type: "closed", reason: "terminate" }]);
+    expect(h.heldByStation()).toEqual([]);
+    const undo = h.stdout.since(mark);
+    // Child modes of the displayed session, the h2a mouse and the title are undone.
+    expect(undo).toContain(`${E}[?2004l`);
+    expect(undo).toContain(`${E}[?1000l`);
+    expect(undo).toContain(`${E}[23;0t`);
+  });
+
+  it("should turn a takeover of the displayed session into a card and stay alive", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      (x) => {
+        // Another terminal takes the displayed session by force.
+        api.controlElsewhere({ pid: 777, tty: "/dev/pts/3" });
+        x.stdin.type("lost");
+      },
+      tick,
+      (x) => {
+        expect(x.of("card").map((e) => [e.kind, e.text])).toEqual([
+          ["controlled-elsewhere", "api: controlled by pid 777 tty /dev/pts/3 since 2026-11-21T08:00:00.000Z"],
+        ]);
+        expect(plain(x.stdout.text())).toContain("[h2a] api: controlled by pid 777 tty /dev/pts/3");
+        expect(plain(x.stdout.text())).toContain("[h2a] F12: panel · choose a session");
+        // The lease is not taken back without a confirmation.
+        expect(api.controllerId).toBe("elsewhere-2");
+        expect(x.row("h2a-api")).toMatchObject({ controlledElsewhere: true });
+        // The station is alive: another session can be displayed.
+        x.activate("h2a-tracker");
+      },
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+        x.stdin.type("alive");
+      },
+      tick,
+    );
+    await h.run();
+    expect(api.writes).toEqual([]);
+    expect(tracker.writes.join("")).toBe("alive");
+    expect(api.acquireRequests).toBe(1);
+    expect(h.of("closed")).toEqual([{ type: "closed", reason: "detach" }]);
+  });
+
+  it("should take the session back only through an activation and its confirmation", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    h.step(
+      () => void api.controlElsewhere({ pid: 777, tty: "/dev/pts/3" }),
+      tick,
+      (x) => x.activate("h2a-api"),
+      (x) => {
+        expect(x.of("switch-refused").map((e) => e.reason)).toEqual(["controlled-elsewhere"]);
+        x.stdin.type("\r");
+      },
+      (x) => x.stdin.type("back"),
+      tick,
+    );
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-api"]);
+    expect(h.fleet.host("/fake/host-1.sock").log).toContain("acquire:h2a-api:takeover");
+    expect(api.writes.join("")).toBe("back");
+  });
+
+  it.each([
+    ["exits while followed", (s: FakeSession) => s.end(7), "ended", "api: session ended (exit code 7)"],
+    [
+      "is proven absent on read",
+      (s: FakeSession) => void s.host.sessions.delete(s.id),
+      "disappeared",
+      "api: session disappeared",
+    ],
+  ] as const)("should show a card when the displayed session %s", async (_label, arrange, kind, text) => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      () => arrange(api),
+      tick,
+      (x) => {
+        expect(x.of("card").map((e) => [e.kind, e.text])).toEqual([[kind, text]]);
+        x.stdin.type("into-the-void");
+        x.activate("h2a-tracker");
+      },
+      (x) => x.stdin.type("next"),
+      tick,
+    );
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    expect(tracker.writes.join("")).toBe("next");
+    // Typed with no session to receive it: dropped, never delivered elsewhere.
+    expect(h.of("input-dropped").some((e) => e.reason === "no-session")).toBe(true);
+    expect(h.fleet.all().flatMap((s) => s.writes).join("")).toBe("next");
+  });
+
+  it("should show a card when a write finds the lease stale", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    h.fleet.host("/fake/host-1.sock").hooks.beforeWrite = (session) => {
+      // The takeover lands between the keystroke and its delivery.
+      if (session.id === "h2a-api" && session.controllerId === h.stationController) {
+        session.controlElsewhere({ pid: 888, tty: "/dev/pts/5" });
+      }
+    };
+    h.step((x) => x.stdin.type("x"), tick, tick);
+    await h.run();
+    expect(h.of("card").map((e) => e.kind)).toEqual(["controlled-elsewhere"]);
+    expect(api.writes).toEqual([]);
+    expect(h.of("closed")).toEqual([{ type: "closed", reason: "detach" }]);
+  });
+
+  it("should reconnect after a host restart and take its leases again without force", async () => {
+    const h = new Harness();
+    const host = h.fleet.host("/fake/host-1.sock");
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      (x) => {
+        expect(x.heldByStation()).toEqual(["h2a-api", "h2a-tracker"]);
+        host.restart("gen-restarted");
+        expect(x.heldByStation()).toEqual([]);
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.of("reconnected").map((e) => e.sessionId)).toEqual(["h2a-tracker"]);
+        // Active lease and compatibility guard are back, on the new generation.
+        expect(x.heldByStation()).toEqual(["h2a-api", "h2a-tracker"]);
+        expect(x.row("h2a-api").compatGuard).toBe(true);
+        x.stdin.type("after-restart");
+      },
+      tick,
+    );
+    await h.run();
+    expect(tracker.writes.join("")).toBe("after-restart");
+    expect(api.writes).toEqual([]);
+    expect(host.log.filter((entry) => entry.includes("takeover"))).toEqual([]);
+    expect(h.of("guard").map((e) => [e.action, e.sessionId])).toEqual([
+      ["kept", "h2a-api"],
+      ["reacquired", "h2a-api"],
+    ]);
+    expect(h.persisted().state.compatGuards).toEqual({
+      "h2a-api": { generation: "gen-restarted", incarnation: "inc-1" },
+    });
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+  });
+
+  it.each([
+    ["ended during the reconnection", (s: FakeSession) => s.end(9), "ended", "api: session ended (exit code 9)"],
+    [
+      "controlled elsewhere at the reconnection",
+      (s: FakeSession) => void s.controlElsewhere({ pid: 999, tty: "/dev/pts/8" }),
+      "controlled-elsewhere",
+      "api: controlled by pid 999 tty /dev/pts/8 since 2026-11-21T08:00:00.000Z",
+    ],
+    [
+      "proven absent during the reconnection",
+      (s: FakeSession) => void s.host.sessions.delete(s.id),
+      "disappeared",
+      "api: session disappeared",
+    ],
+  ] as const)("should show a card when the session is %s", async (_label, arrange, kind, text) => {
+    const h = new Harness();
+    const host = h.fleet.host("/fake/host-1.sock");
+    const api = h.fleet.session("h2a-api");
+    h.step(
+      () => {
+        host.restart("gen-restarted");
+        arrange(api);
+      },
+      tick,
+      tick,
+      tick,
+      (x) => {
+        expect(x.of("card").map((e) => [e.kind, e.text])).toEqual([[kind, text]]);
+        expect(x.of("reconnected")).toEqual([]);
+        x.activate("h2a-tracker");
+      },
+      tick,
+    );
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    expect(host.log.filter((entry) => entry.includes("takeover"))).toEqual([]);
+  });
+
+  it("should purge a saturated input queue with a notice and reopen the input after reconnection", async () => {
+    const h = new Harness();
+    const host = h.fleet.host("/fake/host-1.sock");
+    const api = h.fleet.session("h2a-api");
+    const flood = "f".repeat(40 * 1024);
+    h.step(
+      () => {
+        host.down = true;
+        host.restart("gen-restarted");
+      },
+      tick,
+      (x) => {
+        // Typed while the session is unreachable: queued, then over the bound.
+        x.stdin.type(flood);
+        x.stdin.type(flood);
+        x.stdin.type("dropped-while-closed");
+      },
+      (x) => {
+        expect(x.of("input-purged")).toEqual([
+          { type: "input-purged", bytes: 2 * flood.length, reason: "queue-full" },
+        ]);
+        expect(x.of("notice").map((e) => e.key)).toContain("station.notice.inputPurged");
+        expect(x.of("closed")).toEqual([]);
+        host.down = false;
+      },
+      tick,
+      tick,
+      tick,
+      (x) => {
+        expect(x.of("reconnected").map((e) => e.sessionId)).toEqual(["h2a-api"]);
+        x.stdin.type("reopened");
+      },
+      tick,
+    );
+    const code = await h.run();
+    expect(code).toBe(0);
+    // Nothing of the flood was delivered late; the input works again.
+    expect(api.writes.join("")).toBe("reopened");
+    expect(h.of("input-dropped").some((e) => e.reason === "closed")).toBe(true);
+    expect(h.displayed()).toEqual(["h2a-api"]);
+  });
+
+  it("should leave the geometry and the lease of the other sessions untouched by a card", async () => {
+    const h = new Harness();
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    let guardEpoch = -1;
+    h.step(
+      (x) => x.activate("h2a-tracker"),
+      () => {
+        guardEpoch = api.controllerEpoch;
+        tracker.end(1);
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.of("card").map((e) => e.kind)).toEqual(["ended"]);
+        // The guard on A is the same lease; A was not resized nor written to.
+        expect(api.controllerEpoch).toBe(guardEpoch);
+        expect(api.controllerId).toBe(x.stationController);
+        expect(api.resizes).toHaveLength(1);
+        expect(api.writes).toEqual([]);
+      },
+    );
+    await h.run();
+  });
+});
