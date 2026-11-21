@@ -75,6 +75,7 @@
 
 - [ ] `attention` to `plugins`: the facade verbs are not part of the pinned verb contract — they are listed in `cli.ts` and duplicated in `bin-routing.ts`, and three tests pin the lists. No golden file moves; `bash scripts/check-public-contract.sh` must still pass.
 - [ ] `attention` to `cond`: after this lot, existing structured decisions read `à numéroter` until the writer of each journal numbers them once (Lot 3).
+- [ ] `BR805-EX1`: allow updating `packages/track/src/report/legacy-like-journal.fixture.test.ts` (added by lot 1 after this plan was authored). Reason: its `buildLegacyLikeJournal` called `track.createDecision`, which now appends `decision.owner-numbered` under lot 3, whereas the committed pre-lot-2 legacy fixture must remain unnumbered so E9 (`[decision-unnumbered]`) is tested on T1-a and T1-b. Impact: emits pre-lot-2 unnumbered `decision.created` + `blocker.opened` batches via `EventStore.appendCommand` (the same pattern already used in that file for the pre-structured legacy decision); the committed fixture files stay byte-identical. Rollback: revert the commit on `legacy-like-journal.fixture.test.ts`.
 
 ## Orchestration Mode (AI-selected)
 
