@@ -28,7 +28,8 @@ test(`portable ${backend}: frozen data, visible content and offline browser pari
         page.on('pageerror', e => errors.push(e.message));
         page.on('request', r => { if (/^https?:/.test(r.url())) network.push(r.url()); });
         await page.goto(file.href);
-        await page.locator(backend === 'vue' ? '[data-scene-occurrence]' : '.svelte-flow__node').first().waitFor();
+        const variant = width < 1200 ? 'narrow' : 'wide';
+        await page.locator(backend === 'vue' ? '[data-scene-occurrence]' : `[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`).first().waitFor({ state: 'visible' });
         const result = await observe(page);
         const baseline = JSON.parse(readFileSync(new URL(`${name}-${width}.svelte.json`, fixtureRoot)));
         assert.equal(result.title, baseline.title);

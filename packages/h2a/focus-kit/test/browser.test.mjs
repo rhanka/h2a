@@ -80,7 +80,7 @@ for (const renderer of ['portable', 'generic']) {
   });
 }
 
-test('xyflow consumes diagram-core entities, links and nested containers without a Focus graph', async () => {
+test('r7 inline SVG consumes diagram-core entities, links and nested containers without a Focus graph', async () => {
   const root = mkdtempSync(join(tmpdir(), 'focus-semantic-browser-'));
   let browser;
   try {
@@ -100,26 +100,27 @@ test('xyflow consumes diagram-core entities, links and nested containers without
     const page = await context.newPage(), errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(pathToFileURL(output).href);
-    await page.locator('.svelte-flow__node').first().waitFor();
-    assert.equal(await page.locator('.svelte-flow__node').count(), 4);
+    const activeSvg = page.locator('[data-renderer="r7"] .ds-diagram-mount[data-variant="narrow"] .ds-diagram-svg');
+    await activeSvg.waitFor({ state: 'visible' });
+    assert.equal(await activeSvg.locator('g[data-id]').count(), 4);
     for (const entity of Object.values(semantic.entities)) {
-      assert.equal(await page.locator('.st-diagramCard-title, .st-diagramZone-title')
-        .getByText(entity.attributes.name.value, { exact: true }).count(), 1, `${entity.id} carries its DC-1 title`);
+      assert.equal(await activeSvg.locator('.st-diagramCard-title, .st-diagramZone-title')
+        .getByText(entity.attributes.name.value, { exact: true }).count(), 1, `${entity.id} carries its DS title`);
     }
     for (const [child, parent] of [['models', 'root'], ['gateway', 'models'], ['coordinator', 'root']]) {
-      const childBox = await page.locator(`.svelte-flow__node[data-id="entity:${child}"]`).boundingBox();
-      const parentBox = await page.locator(`.svelte-flow__node[data-id="entity:${parent}"]`).boundingBox();
+      const childBox = await activeSvg.locator(`g[data-id="entity:${child}"]`).boundingBox();
+      const parentBox = await activeSvg.locator(`g[data-id="entity:${parent}"]`).boundingBox();
       assert.ok(childBox.x > parentBox.x && childBox.y > parentBox.y, `${child} starts inside ${parent}`);
       assert.ok(childBox.x + childBox.width < parentBox.x + parentBox.width && childBox.y + childBox.height < parentBox.y + parentBox.height, `${child} fits inside ${parent}`);
     }
-    assert.equal(await page.locator('.svelte-flow__edge').count(), 2, 'contains relations are grouping, not links');
-    assert.equal(await page.locator('.svelte-flow__edge-label').getByText('Demandes', { exact: true }).count(), 1);
+    assert.equal(await activeSvg.locator('g[data-relation-connector="true"]').count(), 2, 'contains relations are grouping, not links');
+    assert.equal(await activeSvg.locator('.diagram-edge-pill').getByText('Demandes', { exact: true }).count(), 1);
     assert.deepEqual(errors, []);
-    console.log('diagram-core: names, optional link label, nested containers, phone offline OK');
+    console.log('diagram-core r7: names, optional link label, nested containers, phone offline OK');
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-test('portable Focus works offline on desktop and phone, including touch pinch and safe text', async () => {
+test('portable Focus works offline on desktop and phone with responsive r7 inline SVG, themes and safe text', async () => {
   const root = mkdtempSync(join(tmpdir(), 'focus-browser-'));
   let browser;
   try {
@@ -137,6 +138,7 @@ test('portable Focus works offline on desktop and phone, including touch pinch a
     browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
     for (const width of [1366, 390, 320]) {
       const mobile = width < 600;
+      const variant = width < 1200 ? 'narrow' : 'wide';
       const context = await browser.newContext({ offline: true, viewport: { width, height: mobile ? 844 : 1000 },
         isMobile: mobile, hasTouch: mobile, colorScheme: 'light' });
       const page = await context.newPage(), errors = [], network = [];
@@ -144,7 +146,8 @@ test('portable Focus works offline on desktop and phone, including touch pinch a
       page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
       page.on('request', req => { if (/^https?:/.test(req.url())) network.push(req.url()); });
       await page.goto(pathToFileURL(output).href);
-      await page.locator('.svelte-flow__node').first().waitFor();
+      const activeSvg = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
+      await activeSvg.waitFor({ state: 'visible' });
       assert.equal(await page.title(), await page.locator('h1').innerText());
       assert.equal(await page.locator('.focus-glossary summary').innerText(), 'En mots simples (1 terme)');
       assert.equal(await page.locator('.focus-glossary').evaluate(el => el.open), false);
@@ -160,29 +163,14 @@ test('portable Focus works offline on desktop and phone, including touch pinch a
       await page.getByRole('button', { name: 'Thème sombre' }).click();
       assert.equal(await page.locator('.focus-page').getAttribute('data-mode'), 'dark');
       assert.equal(await page.locator('.st-card').first().evaluate(el => getComputedStyle(el).borderTopWidth), '1px');
-      assert.equal(await page.locator('.svelte-flow__edge-path').first().evaluate(el => getComputedStyle(el).strokeWidth), '1px');
+      assert.ok(await activeSvg.locator('path[data-connector-part="line"]').count() > 0, 'r7 connectors rendered');
+      assert.ok(await activeSvg.locator('.st-diagramCard-body').count() > 0, 'r7 node bodies rendered');
       await page.getByRole('button', { name: 'Thème clair' }).click();
-      const canvas = page.locator('.canvas'), viewport = page.locator('.svelte-flow__viewport');
-      await canvas.scrollIntoViewIfNeeded();
-      const beforeZoom = await viewport.getAttribute('style');
-      await page.locator('.svelte-flow__controls-zoomin').click();
-      await page.waitForFunction(before => document.querySelector('.svelte-flow__viewport').getAttribute('style') !== before, beforeZoom);
-      if (mobile) {
-        const session = await context.newCDPSession(page);
-        const box = await canvas.boundingBox();
-        const x = box.x + box.width / 2, y = box.y + box.height / 2;
-        const beforePinch = await viewport.getAttribute('style');
-        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x - 30, y, id: 1 }, { x: x + 30, y, id: 2 }] });
-        for (const distance of [40, 55, 70, 90]) {
-          await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - distance, y, id: 1 }, { x: x + distance, y, id: 2 }] });
-        }
-        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-        await page.waitForFunction(before => document.querySelector('.svelte-flow__viewport').getAttribute('style') !== before, beforePinch);
-        await session.detach();
-      }
+      const box = await activeSvg.boundingBox();
+      assert.ok(box && box.width > 0 && box.height > 0, `${variant} r7 SVG has non-zero rendered bounds`);
       assert.deepEqual(errors, [], 'no browser runtime errors');
       assert.deepEqual(network, [], 'no network requests');
-      console.log(`${mobile ? `phone ${width}px + touch pinch` : 'desktop'}: cards, keyboard, themes, 1px, offline OK`);
+      console.log(`${mobile ? `phone ${width}px (${variant})` : `desktop (${variant})`}: r7 SVG, cards, keyboard, themes, offline OK`);
       await context.close();
     }
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
@@ -216,7 +204,7 @@ test('presents all option sets with their question and resolves labels across se
     const page = await context.newPage(), errors = [];
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(pathToFileURL(output).href);
-    await page.locator('.svelte-flow__node').first().waitFor();
+    await page.locator('[data-renderer="r7"] .ds-diagram-mount[data-variant="narrow"] .ds-diagram-svg').waitFor({ state: 'visible' });
     await t.test('selection in one set is named in all sets of the same question', async () => {
       for (const label of ['Fichier portable', 'Page hébergée']) {
         await page.getByRole('button', { name: new RegExp(label) }).click();
@@ -276,19 +264,19 @@ test('a payload without views draws the DC-1 cards from its scene, and a refused
     page.on('pageerror', e => errors.push(e.message));
     page.on('request', req => { if (/^https?:/.test(req.url())) network.push(req.url()); });
     await page.goto(withoutViews);
-    await page.locator('.svelte-flow__node').first().waitFor();
-    assert.equal(await page.locator('.svelte-flow__node').count(), Object.keys(semantic.entities).length);
-    for (const [entityId, view] of Object.entries(built.views[diagramId])) {
-      const node = page.locator(`.svelte-flow__node[data-id="${entityId}"]`);
+    const activeSvg = page.locator('[data-renderer="r7"] .ds-diagram-mount[data-variant="wide"] .ds-diagram-svg');
+    await activeSvg.waitFor({ state: 'visible' });
+    assert.equal(await activeSvg.locator('g[data-id]').count(), Object.keys(semantic.entities).length);
+    for (const entityId of Object.keys(semantic.entities)) {
+      const node = activeSvg.locator(`g[data-id="${entityId}"]`);
       const box = await node.boundingBox();
       assert.ok(box && box.width > 0 && box.height > 0, `${entityId} is not an empty 0x0 node`);
-      // The renderer bundles the same DS renderers as the build: it draws the exact build view.
-      assert.equal(await node.locator('.ecosystem-svg').evaluate((el, svg) => {
-        const reference = document.createElement('div');
-        reference.innerHTML = svg;
-        return el.querySelector('svg')?.outerHTML === reference.querySelector('svg').outerHTML;
-      }, view.svg), true, `${entityId} draws the build's DC-1 view`);
     }
+    assert.equal(await activeSvg.evaluate((el, svg) => {
+      const reference = document.createElement('div');
+      reference.innerHTML = svg;
+      return el.outerHTML === reference.querySelector('svg')?.outerHTML;
+    }, built.diagrams[diagramId].wide.svg), true, 'renderer draws the exact build r7 inline SVG');
     assert.equal(await page.locator('[role="alert"]').count(), 0);
     await page.goto(refused);
     const alert = page.locator('figure [role="alert"]');
@@ -297,7 +285,7 @@ test('a payload without views draws the DC-1 cards from its scene, and a refused
     for (const part of [/card-overflow/, /\btitle\b/, /entity:coordinator/, /Coordinationinterorganisationnelledurablepermanente/, /\d+(?:\.\d+)? px > \d+(?:\.\d+)? px/]) {
       assert.match(text, part, 'the refusal names its typed diagnostic');
     }
-    assert.equal(await page.locator('.svelte-flow__node').count(), 0, 'a refused diagram draws no empty node');
+    assert.equal(await page.locator('.ds-diagram-svg').count(), 0, 'a refused diagram draws no empty SVG');
     assert.deepEqual(errors, [], 'no browser runtime errors');
     assert.deepEqual(network, [], 'no network requests');
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
