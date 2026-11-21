@@ -16,8 +16,10 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   launchLayout,
@@ -66,6 +68,10 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import { listNativeSessions } from "./native-host.js";
+import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
+import { STATION_STATE_FILE_NAME } from "./native-terminal/station-state.js";
+import { humanOutputText } from "./human-output.js";
+import type { RestorePlanResult, RestoreRefusalReason } from "./restore-plan.js";
 
 // Compatibility re-exports: the layout renderer lives in launch-layout.ts and
 // the pure restore plan lives in restore-plan.ts (neither has host readers).
@@ -509,4 +515,161 @@ export function readLastLayout(): LastLayout | undefined {
   } catch {
     return undefined;
   }
+}
+
+// ---------------------------------------------------------------------------
+// `h2a restore --station` — the single-terminal station (panel lot S1)
+// ---------------------------------------------------------------------------
+
+/** Station state, next to `layout-last.json` (atomic, owner-only, tolerant). */
+export function stationStatePath(): string {
+  return join(dirname(resolveConfigPath()), STATION_STATE_FILE_NAME);
+}
+
+export type RestoreStationPlan =
+  | { readonly ok: true; readonly live: number; readonly dead: number }
+  | { readonly ok: false; readonly reason: string };
+
+/** Refusals that still name a dead human session restore knows about. */
+const STATION_DEAD_REFUSALS: ReadonlySet<RestoreRefusalReason> = new Set([
+  "unresolved-conversation",
+  "dual-host-ambiguous",
+  "host-unknown",
+  "per-project-scan-cap",
+  "unclassified-scan",
+]);
+
+/**
+ * Live and dead sessions of the pure restore plan. Before S2 the station
+ * neither lists nor relaunches a dead session: it displays their number. An
+ * unknown host view never reads as dead sessions.
+ */
+export function summarizeStationPlan(
+  plan: Pick<RestorePlanResult, "ok" | "refusalDetail" | "classifications">,
+  hostView: HostViewSnapshot,
+): RestoreStationPlan {
+  if (!plan.ok) return { ok: false, reason: plan.refusalDetail ?? "unknown" };
+  if (!hostView.native.known) return { ok: true, live: 0, dead: 0 };
+  const native = new Set(hostView.native.sessions.map((session) => session.name));
+  const tmux = new Set(
+    hostView.tmux.known ? hostView.tmux.sessions.map((session) => session.name) : [],
+  );
+  let live = 0;
+  let dead = 0;
+  for (const classification of plan.classifications) {
+    const session = classification.session;
+    if (session === undefined) continue;
+    if (
+      classification.outcome === "refused" &&
+      !STATION_DEAD_REFUSALS.has(classification.reason)
+    ) {
+      continue;
+    }
+    const name = session.managedName;
+    const isLive =
+      name !== undefined &&
+      (session.hostKind === "local-tmux" ? tmux.has(name) : native.has(name));
+    if (isLive) live += 1;
+    else dead += 1;
+  }
+  return { ok: true, live, dead };
+}
+
+/** The same plan as `restore()`, read-only: nothing is written or launched. */
+export function planRestoreStation(): RestoreStationPlan {
+  const home = homedir();
+  const registryRead = loadRegistry();
+  if (registryRead.state === "unknown") return { ok: false, reason: registryRead.reason };
+  const cfg = getLayoutConfig();
+  const hostView = captureHostViewSnapshot();
+  const plan = buildRestorePlan(
+    {
+      home,
+      config: cfg,
+      registryRead,
+      scanned: discoverSessions(cfg.maxAgeHours * 3600 * 1000),
+      hostView,
+      evidence: legacySessionEvidence(home),
+      customTitleFor: (cwd, convId) => readConversationCustomTitle(home, cwd, convId),
+      remoteTabs: [],
+    },
+    {},
+  );
+  return summarizeStationPlan(plan, hostView);
+}
+
+/**
+ * Internal op entry of the station bridge. Same resolution as the attach
+ * launcher of native-host.ts (its helper is private to that module): the
+ * sibling `op.js` in dist, or the compiled twin when executing from src.
+ */
+function stationBridgeEntryPath(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sibling = join(here, "native-terminal", "op.js");
+  if (existsSync(sibling)) return sibling;
+  if (basename(here) === "src") {
+    const built = join(dirname(here), "dist", "native-terminal", "op.js");
+    if (existsSync(built)) return built;
+  }
+  return sibling;
+}
+
+/** Guard process + bridge, as `h2a attach`: the guard survives a killed bridge. */
+function launchStationBridge(args: readonly string[]): number {
+  const result = withAttachTerminalRecovery((env) =>
+    spawnSync(process.execPath, [stationBridgeEntryPath(), ...args], {
+      stdio: "inherit",
+      env,
+    }),
+  );
+  return result.status ?? 1;
+}
+
+export type RestoreStationOptions = {
+  /** Accepted, not used before S2 (it becomes the initial tab there). */
+  group?: string;
+  stdinIsTTY?: boolean;
+  stdoutIsTTY?: boolean;
+  stderr?: { write(chunk: string): unknown };
+  plan?: () => RestoreStationPlan;
+  launch?: (args: readonly string[]) => number;
+  statePath?: string;
+  locale?: string;
+};
+
+/**
+ * `h2a restore --station`: every live native session in this terminal, with
+ * the side panel. TTY only in S1: without one the refusal is clear and has no
+ * effect (no inventory, no plan, no file). Returns the process exit code.
+ */
+export function restoreStation(opts: RestoreStationOptions = {}): number {
+  const stderr = opts.stderr ?? process.stderr;
+  const say = (key: string, vars: Record<string, string> = {}): void => {
+    const text = humanOutputText(key, opts.locale).replace(
+      /\{(\w+)\}/g,
+      (match, name: string) => vars[name] ?? match,
+    );
+    stderr.write(`[h2a] ${text}\n`);
+  };
+  const stdinIsTTY = opts.stdinIsTTY ?? process.stdin.isTTY === true;
+  const stdoutIsTTY = opts.stdoutIsTTY ?? process.stdout.isTTY === true;
+  if (!stdinIsTTY || !stdoutIsTTY) {
+    say("station.refusal.notTty");
+    return 1;
+  }
+  if (opts.group !== undefined) say("station.notice.groupIgnored", { group: opts.group });
+  const plan = (opts.plan ?? planRestoreStation)();
+  if (!plan.ok) {
+    stderr.write(
+      `[h2a] restore refused: the local registry is unreadable (${plan.reason}); nothing was launched (fail closed).\n`,
+    );
+    return 1;
+  }
+  return (opts.launch ?? launchStationBridge)([
+    "station",
+    "--state-file",
+    opts.statePath ?? stationStatePath(),
+    "--dead-count",
+    String(plan.dead),
+  ]);
 }
