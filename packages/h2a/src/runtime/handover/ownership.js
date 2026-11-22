@@ -1437,7 +1437,7 @@ export class OperationLedger {
             processed++;
             if (performance.now() - sliceStart >= MIGRATION_MAX_SLICE_MS) break;
           }
-          scheduleNext(false);
+          scheduleNext(true);
           return;
         }
 
