@@ -845,7 +845,7 @@ test('T1.7: concurrent begin()/finish() on central and external peer during back
   const peerScript = `
     import { OwnershipRegistry, OperationLedger } from ${JSON.stringify(OWNERSHIP_DIST)};
     const reg = new OwnershipRegistry({ directory: process.env.STATE_DIR, generation: process.env.GEN, processIdentity: JSON.parse(process.env.ID), lockDirectory: process.env.LOCK_DIR });
-    const ledger = new OperationLedger(reg);
+    const ledger = new OperationLedger(reg, { skipAutoMigration: true });
     const token = JSON.parse(process.env.TOKEN);
     for (let i = 0; i < 25; i++) {
       const op = ledger.begin(token, 'peer-op-' + i, 'call');
@@ -856,6 +856,7 @@ test('T1.7: concurrent begin()/finish() on central and external peer during back
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, STATE_DIR: stateDir, GEN: gen, ID: JSON.stringify(id), LOCK_DIR: lockDir, TOKEN: JSON.stringify(tokenPeer) }
   });
+  const peerExitPromise = new Promise(resolve => peerProc.once('exit', resolve));
   let peerStderr = '';
   peerProc.stderr.on('data', d => { peerStderr += d; });
 
@@ -869,7 +870,7 @@ test('T1.7: concurrent begin()/finish() on central and external peer during back
     centralOpIds.push(opId);
   }
 
-  const peerExit = await new Promise(resolve => peerProc.once('exit', resolve));
+  const peerExit = await peerExitPromise;
   assert.equal(peerExit, 0, `peer failed: ${peerStderr}`);
 
   // Wait for background migration to finish.
