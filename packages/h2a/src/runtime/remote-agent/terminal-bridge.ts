@@ -17,8 +17,10 @@ import {
   TERMINAL_OUTPUT_POLL_INTERVAL_MS,
   TerminalOutputAssembler
 } from "./terminal-output.js";
+import type { TerminalInputModule } from "./terminal-input.js";
 import type {
   TrunkChannelContext,
+  TrunkLinkTerminationCause,
   TrunkTerminalConsumer
 } from "./trunk-client.js";
 import type { CreditAvailability } from "./trunk-credit.js";
@@ -102,6 +104,7 @@ export interface TerminalBridgeOptions {
   readonly pollIntervalMs?: number;
   readonly coalesceMs?: number;
   readonly onAudit?: (event: TerminalBridgeAuditEvent) => void;
+  readonly input?: TerminalInputModule;
 }
 
 export interface TerminalBridge extends TrunkTerminalConsumer {
@@ -199,10 +202,12 @@ interface ChannelState {
   readonly ctx: TrunkChannelContext;
   closed: boolean;
   openedSent: boolean;
+  attachedToInput: boolean;
   exitSent: boolean;
   awaitingInitialReplay: boolean;
   readInFlight: boolean;
   nativeId?: string;
+  socketPath?: string;
   generation?: string;
   incarnation?: string;
   client: NativeTerminalObserverClient | null;
@@ -220,6 +225,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
   const pollIntervalMs = options.pollIntervalMs ?? TERMINAL_OUTPUT_POLL_INTERVAL_MS;
   const coalesceMs = options.coalesceMs ?? TERMINAL_OUTPUT_COALESCE_MS;
   const onAudit = options.onAudit;
+  const input = options.input;
 
   const channels = new Map<number, ChannelState>();
   let disposed = false;
@@ -273,9 +279,12 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     }
   }
 
-  function teardownChannelLocal(chState: ChannelState): void {
+  function teardownChannelLocal(chState: ChannelState, reason = "local"): void {
     if (chState.closed) return;
     chState.closed = true;
+    if (chState.attachedToInput) {
+      input?.onChannelClose(chState.ch, reason);
+    }
     if (channels.get(chState.ch) === chState) {
       channels.delete(chState.ch);
     }
@@ -290,6 +299,21 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     }
   }
 
+  function attachChannelToInput(chState: ChannelState): void {
+    if (chState.attachedToInput || chState.closed || !input) return;
+    if (!chState.nativeId || !chState.socketPath || !chState.generation || !chState.incarnation) return;
+    chState.attachedToInput = true;
+    input.attachChannel({
+      ch: chState.ch,
+      sid: chState.sid,
+      nativeId: chState.nativeId,
+      socketPath: chState.socketPath,
+      generation: chState.generation,
+      incarnation: chState.incarnation,
+      ctx: chState.ctx
+    });
+  }
+
   function abortChannelWithErr(
     chState: ChannelState,
     code: string,
@@ -298,7 +322,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
   ): void {
     if (chState.closed) return;
     const wasOpened = sendTermClose;
-    teardownChannelLocal(chState);
+    teardownChannelLocal(chState, code === "excluded" ? "excluded" : "error");
     audit("channel-error", chState, code);
     chState.ctx.sendControl({ t: "err", code, retryable });
     if (wasOpened) {
@@ -338,7 +362,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     if (chState.generation !== undefined && chState.incarnation !== undefined) {
       rangeIndex.deleteIncarnation(sid, chState.generation, chState.incarnation);
     }
-    teardownChannelLocal(chState);
+    teardownChannelLocal(chState, "exit");
     chState.ctx.close();
     audit("channel-exit", chState);
   }
@@ -591,6 +615,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       }
       chState.openedSent = true;
       chState.awaitingInitialReplay = false;
+      attachChannelToInput(chState);
     } else if (replay.gap !== null) {
       rangeIndex.pruneBefore(chState.sid, chState.generation!, chState.incarnation!, replay.gap.toSeq + 1);
       chState.assembler.resetForGap(replay.gap.toSeq);
@@ -646,6 +671,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     }
 
     chState.nativeId = resolved.nativeId;
+    chState.socketPath = resolved.socketPath;
     chState.generation = resolved.generation;
     chState.incarnation = resolved.incarnation;
 
@@ -748,6 +774,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return;
       }
       chState.openedSent = true;
+      attachChannelToInput(chState);
       if (hasUsableCredit(chState.ctx.availableOutput())) {
         schedulePoll(chState);
       }
@@ -800,6 +827,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         ctx,
         closed: false,
         openedSent: false,
+        attachedToInput: false,
         exitSent: false,
         awaitingInitialReplay: false,
         readInFlight: false,
@@ -837,17 +865,59 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       const chState = channels.get(ch);
       if (!chState || chState.closed) return;
 
+      if (!chState.openedSent) {
+        switch (record.t) {
+          case "term.in":
+            chState.ctx.sendControl({
+              t: "term.in.ack",
+              inSeq: record.inSeq,
+              result: "refused",
+              reason: "not-controller"
+            });
+            audit("refused-observe-input", chState, "not-controller");
+            break;
+          case "term.in.sync":
+          case "term.ctl":
+          case "term.resize":
+          case "term.stop":
+            chState.ctx.sendControl({
+              t: "err",
+              code: "channel-not-ready",
+              retryable: true
+            });
+            audit("refused-channel-not-ready", chState, "channel-not-ready");
+            break;
+          default:
+            break;
+        }
+        return;
+      }
+
+      if (input && chState.attachedToInput) {
+        switch (record.t) {
+          case "term.in":
+          case "term.in.sync":
+          case "term.ctl":
+          case "term.resize":
+          case "term.stop":
+            input.onRecord(ch, record);
+            return;
+          default:
+            return;
+        }
+      }
+
       switch (record.t) {
         case "term.in":
           chState.ctx.sendControl({
             t: "term.in.ack",
-            sid: chState.sid,
             inSeq: record.inSeq,
             result: "refused",
             reason: "not-controller"
           });
           audit("refused-observe-input", chState, "not-controller");
           break;
+        case "term.in.sync":
         case "term.ctl":
         case "term.resize":
         case "term.stop":
@@ -863,17 +933,22 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       }
     },
 
-    onClose(ch: number): void {
+    onClose(ch: number, reason = "local"): void {
       const chState = channels.get(ch);
       if (chState) {
-        teardownChannelLocal(chState);
+        teardownChannelLocal(chState, reason);
       }
     },
 
-    onLinkLost(): void {
+    onLinkLost(info: { readonly linkGeneration: number; readonly reason: string; readonly at: number }): void {
+      input?.onLinkLost(info);
       for (const chState of [...channels.values()]) {
-        teardownChannelLocal(chState);
+        teardownChannelLocal(chState, "link");
       }
+    },
+
+    onLinkTerminated(info: { readonly cause: TrunkLinkTerminationCause; readonly at: number }): void {
+      input?.onLinkTerminated(info);
     },
 
     dispose(): void {
@@ -881,8 +956,9 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       disposed = true;
       unsubscribeUnavailable();
       for (const chState of [...channels.values()]) {
-        teardownChannelLocal(chState);
+        teardownChannelLocal(chState, "dispose");
       }
+      input?.dispose();
       rangeIndex.clear();
     }
   };

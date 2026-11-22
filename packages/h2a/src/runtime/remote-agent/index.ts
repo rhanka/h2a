@@ -206,6 +206,7 @@ export {
   type CatalogueEmitEvent,
   type TrunkCatalogueSource,
   type TrunkChannelContext,
+  type TrunkLinkTerminationCause,
   type TrunkTerminalConsumer,
   type TrunkInstanceBindPayload,
   type PreparedCatalogueRecord,
@@ -265,3 +266,33 @@ export {
   type TerminalBridgeOptions,
   type TerminalBridge
 } from "./terminal-bridge.js";
+export {
+  openTerminalInputLog,
+  purgeStaleIncarnationLogs,
+  type InputLogEntryResult,
+  type InputLogEntry,
+  type EpochEndReason,
+  type EpochStatus,
+  type ClassifyInSeqResult,
+  type ReplayAfterResult,
+  type TerminalInputLog
+} from "./terminal-input-log.js";
+export {
+  isAllowlistedTerminalReply,
+  createTerminalReplyFilter,
+  type TerminalReplyClock,
+  type TerminalReplyCheckResult,
+  type TerminalReplyFilter
+} from "./terminal-reply-filter.js";
+export {
+  createTerminalInput,
+  type TerminalControlLease,
+  type TerminalControlAcquireResult,
+  type TerminalControlPort,
+  type TerminalControlPortFactory,
+  type TerminalInputClock,
+  type TerminalInputAuditEvent,
+  type TerminalInputOptions,
+  type TerminalInputChannelAttachment,
+  type TerminalInputModule
+} from "./terminal-input.js";

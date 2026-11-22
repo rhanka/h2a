@@ -442,9 +442,9 @@ test("LH-08 host e2e: real PTY authority, coalescing cut, agent restart, zero in
   assert.ok(firstOut.firstSeq === 1 && firstOut.lastSeq >= 3);
 
   // Active commands injected on observe view -> refused, zero bytes reach child
-  stack.peer.sendRecord(stack.conn, { t: "term.in", ch: 4, sid, generation: rx3.openedRecords[0].generation, incarnation: rx3.openedRecords[0].incarnation, epoch: 1, inSeq: 1, origin: "user", dataB64: Buffer.from("SHOULD_NOT_ARRIVE\n").toString("base64") });
+  stack.peer.sendRecord(stack.conn, { t: "term.in", ch: 4, sid, generation: rx3.openedRecords[0].generation, incarnation: rx3.openedRecords[0].incarnation, epoch: 1, inSeq: 1, ackThrough: 0, origin: "user", dataB64: Buffer.from("SHOULD_NOT_ARRIVE\n").toString("base64") });
   stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 4, sid, cols: 200, rows: 80 });
-  stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 4, sid, incarnation: rx3.openedRecords[0].incarnation });
+  stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 4, sid, generation: rx3.openedRecords[0].generation, incarnation: rx3.openedRecords[0].incarnation });
   await delay(100);
   rx3.drain(stack.conn, 4);
   assert.equal(rx3.ackRecords.some((a) => a.result === "refused"), true);

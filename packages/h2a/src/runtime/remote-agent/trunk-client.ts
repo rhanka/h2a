@@ -144,6 +144,14 @@ export interface TrunkChannelContext {
   close(): void;
 }
 
+export type TrunkLinkTerminationCause =
+  | "superseded"
+  | "revoked"
+  | "killed"
+  | "stopped"
+  | "disabled"
+  | "auth-refused";
+
 export interface TrunkTerminalConsumer {
   onOpen(
     open: TermOpen,
@@ -153,6 +161,7 @@ export interface TrunkTerminalConsumer {
   onRecord?(ch: number, record: TrunkTerminalRecord): void;
   onClose?(ch: number, reason: string): void;
   onLinkLost?(info: { readonly linkGeneration: number; readonly reason: string; readonly at: number }): void;
+  onLinkTerminated?(info: { readonly cause: TrunkLinkTerminationCause; readonly at: number }): void;
   onLinkReady?(info: { readonly linkGeneration: number; readonly at: number }): void;
 }
 
@@ -508,12 +517,14 @@ export class TrunkClient {
       }
       this.#teardownConnection(conn, reason, { notifyLoss: false });
     }
+    const at = this.#opts.clock.now();
     this.#activeAuthority = null;
     this.#state = "stopped";
-    this.#persistStatus({ state: "stopped", reason, updatedAt: this.#opts.clock.now() });
+    this.#persistStatus({ state: "stopped", reason, updatedAt: at });
     this.#instanceManager?.dispose();
     this.#clearStatusRetryTimer();
-    this.#emitLinkEvent({ kind: "stopped", at: this.#opts.clock.now(), reason });
+    this.#emitLinkEvent({ kind: "stopped", at, reason });
+    this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: "stopped", at });
   }
 
   bindInstance(instanceId: string): { readonly ok: boolean; readonly reason?: string } {
@@ -592,25 +603,30 @@ export class TrunkClient {
     if (!isRemoteControlEnabled(env)) {
       this.#clearReconnectTimer();
       this.#state = "disabled";
+      this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: "disabled", at: this.#opts.clock.now() });
       return { ok: false, reason: "remote-control-disabled" };
     }
     if (isRemoteControlKilledByEnv(env)) {
+      const at = this.#opts.clock.now();
       this.#terminalStopped = true;
       this.#clearReconnectTimer();
       setRemoteControlKillFlag(this.#opts.root);
       this.#state = "killed";
-      this.#persistStatus({ state: "killed", reason: "killed-by-env", updatedAt: this.#opts.clock.now() });
+      this.#persistStatus({ state: "killed", reason: "killed-by-env", updatedAt: at });
       this.#emitAudit({ kind: "kill-switch-env", reason: "killed-by-env" });
-      this.#emitLinkEvent({ kind: "killed", at: this.#opts.clock.now(), reason: "killed-by-env" });
+      this.#emitLinkEvent({ kind: "killed", at, reason: "killed-by-env" });
+      this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: "killed", at });
       return { ok: false, reason: "killed-by-env" };
     }
     if (readRemoteControlKillFlag(this.#opts.root).kill) {
+      const at = this.#opts.clock.now();
       this.#terminalStopped = true;
       this.#clearReconnectTimer();
       this.#state = "killed";
-      this.#persistStatus({ state: "killed", reason: "killed", updatedAt: this.#opts.clock.now() });
+      this.#persistStatus({ state: "killed", reason: "killed", updatedAt: at });
       this.#emitAudit({ kind: "kill-switch-file", reason: "killed" });
-      this.#emitLinkEvent({ kind: "killed", at: this.#opts.clock.now(), reason: "killed" });
+      this.#emitLinkEvent({ kind: "killed", at, reason: "killed" });
+      this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: "killed", at });
       return { ok: false, reason: "killed" };
     }
     if (!this.#opts.contract) {
@@ -893,15 +909,17 @@ export class TrunkClient {
       return;
     }
     if (!err.retryable || DEFINITIVE_AUTH_ERRORS.has(code)) {
+      const at = this.#opts.clock.now();
       this.#terminalStopped = true;
       this.#clearReconnectTimer();
       this.#state = "auth-refused";
       this.#persistStatus({
         state: "auth-refused",
         reason: code,
-        updatedAt: this.#opts.clock.now()
+        updatedAt: at
       });
       this.#emitAudit({ kind: "auth-refused", reason: code });
+      this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: "auth-refused", at });
       return;
     }
     this.#scheduleReconnectBackoff();
@@ -1197,6 +1215,7 @@ export class TrunkClient {
       rec.t === "term.out" ||
       rec.t === "term.gap" ||
       rec.t === "term.in.ack" ||
+      rec.t === "term.in.synced" ||
       rec.t === "term.ctl.state" ||
       rec.t === "term.exit"
     ) {
@@ -1539,6 +1558,7 @@ export class TrunkClient {
           this.#clearReconnectTimer();
           this.#teardownConnection(conn, "remote-control-disabled", { notifyLoss: false });
           this.#state = "disabled";
+          this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: "disabled", at: this.#opts.clock.now() });
           return;
         }
         scheduleKillWatchdog();
@@ -1612,14 +1632,16 @@ export class TrunkClient {
       this.#opts.onEnrolmentRevoked?.(this.#opts.enrolment);
     }
 
+    const at = this.#opts.clock.now();
     this.#persistStatus({
       state,
       reason,
       ...(conn.linkGeneration !== undefined ? { linkGeneration: conn.linkGeneration } : {}),
-      updatedAt: this.#opts.clock.now()
+      updatedAt: at
     });
     this.#emitAudit({ kind: `link-${state}`, reason, linkGeneration: conn.linkGeneration });
-    this.#emitLinkEvent({ kind: state, at: this.#opts.clock.now(), reason, linkGeneration: conn.linkGeneration });
+    this.#emitLinkEvent({ kind: state, at, reason, linkGeneration: conn.linkGeneration });
+    this.#opts.terminalConsumer?.onLinkTerminated?.({ cause: state, at });
   }
 
   #closeSyncFault(conn: ActiveConnectionState): void {
@@ -1695,7 +1717,7 @@ export class TrunkClient {
 
   #handleConnectionLoss(conn: ActiveConnectionState, reason: string, scheduleReconnect: boolean): void {
     if (conn.closed) return;
-    const wasReady = conn.phase === "ready";
+    const wasReady = conn.phase === "ready" && !this.#terminalStopped;
     this.#teardownConnection(conn, reason, { notifyLoss: wasReady });
     if (this.#terminalStopped) return;
     this.#state = "disconnected";
