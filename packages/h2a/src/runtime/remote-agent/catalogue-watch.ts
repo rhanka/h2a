@@ -31,6 +31,7 @@ import {
   presenceCatalogueSid,
   projectJoinedCatalogueRow
 } from "./catalogue.js";
+import { wireInstanceId } from "./wire-ids.js";
 import {
   isSidExcluded,
   linkExclusionAlias,
@@ -605,10 +606,11 @@ export function createCatalogueProjector(
       const excluded = exclRes.ok
         ? isSidExcluded(exclRes.file, nSid, pSid ? [pSid] : [])
         : false;
-      const instanceId = winner?.session.instance;
+      const rawInstanceId = winner?.session.instance;
+      const instanceWireId = rawInstanceId ? wireInstanceId(rawInstanceId) : undefined;
       const instanceStatus: CatalogueInstanceStatus | undefined =
-        instanceId !== undefined
-          ? (revokedInstances.has(instanceId) ? "revoked" : "live")
+        instanceWireId !== undefined
+          ? (revokedInstances.has(instanceWireId) ? "revoked" : "live")
           : undefined;
 
       if (matches.length > 1) {
@@ -734,9 +736,10 @@ export function createCatalogueProjector(
       admissibleSids.push(pSid);
       const hostKind = classifyLaunchHost(ev.session.launchContext);
       const excluded = exclRes.ok ? isSidExcluded(exclRes.file, pSid) : false;
-      const instanceStatus: CatalogueInstanceStatus = revokedInstances.has(ev.session.instance)
-        ? "revoked"
-        : "live";
+      const instanceStatus: CatalogueInstanceStatus =
+        ev.session.instance && revokedInstances.has(wireInstanceId(ev.session.instance))
+          ? "revoked"
+          : "live";
       rows.push(
         projectJoinedCatalogueRow({
           sessionId: pSid,

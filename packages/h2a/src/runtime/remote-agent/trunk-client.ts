@@ -205,6 +205,7 @@ export interface TrunkAuditEvent {
   readonly tenantId: string;
   readonly enrolmentRef: string;
   readonly instanceId?: string;
+  readonly instanceHandle?: string;
   readonly fingerprint?: string;
   readonly reason?: string;
   readonly linkGeneration?: number;
@@ -213,6 +214,7 @@ export interface TrunkAuditEvent {
 export interface TrunkLinkRefusal {
   readonly code: string;
   readonly instanceId?: string;
+  readonly instanceHandle?: string;
   readonly at: number;
 }
 
@@ -284,6 +286,7 @@ function sanitizeStatus(raw: unknown): TrunkLinkStatus | undefined {
       out.lastRefusal = {
         code: lr["code"],
         ...(typeof lr["instanceId"] === "string" ? { instanceId: lr["instanceId"] } : {}),
+        ...(typeof lr["instanceHandle"] === "string" ? { instanceHandle: lr["instanceHandle"] } : {}),
         at: lr["at"]
       };
     }

@@ -21,7 +21,8 @@ import {
   generateNodeKey,
   nativeCatalogueSid,
   setSessionExcluded,
-  TrunkClient
+  TrunkClient,
+  wireInstanceId
 } from "../dist/runtime/remote-agent/index.js";
 import {
   FakeBinaryTrunkPeer,
@@ -360,11 +361,13 @@ test("LH-07 + LH-06 integration: offline ready.revokedInstances marks A revoked 
     assert.equal(firstRecord.t, "cat.snapshot");
     assert.equal(firstRecord.ch, 1);
 
+    const wireA = wireInstanceId(instA);
+    const wireB = wireInstanceId(instB);
     // No intermediate image may ever show A as live
     for (const frame of conn.receivedCatalogue) {
       const rows = frame.record.t === "cat.snapshot" ? frame.record.rows : frame.record.adds ?? [];
       for (const r of rows) {
-        if (r.instanceId === instA) {
+        if (r.instanceId === wireA) {
           assert.equal(r.instanceStatus, "revoked", "A must never appear as live in any frame");
         }
       }
@@ -381,12 +384,12 @@ test("LH-07 + LH-06 integration: offline ready.revokedInstances marks A revoked 
     const rowExcl = rows.find((r) => r.sessionId === sidExcl);
 
     assert.ok(rowA, "row A must be present");
-    assert.equal(rowA.instanceId, instA);
+    assert.equal(rowA.instanceId, wireA);
     assert.equal(rowA.instanceStatus, "revoked");
     assert.equal(rowA.workspaceLabel, "ws-alpha");
 
     assert.ok(rowB, "row B must be present");
-    assert.equal(rowB.instanceId, instB);
+    assert.equal(rowB.instanceId, wireB);
     assert.equal(rowB.instanceStatus, "live");
     assert.equal(rowB.operable, true);
 
@@ -560,9 +563,10 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
     assert.equal(conn.receivedTermOut.get(2)?.length, 1);
 
     // Push live instance.revoked for A and measure push-to-delta delay on peer clock
+    const wireA = wireInstanceId(instA);
     const framesBeforePush = conn.receivedCatalogue.length;
     const pushAt = clock.now();
-    peer.sendInstanceRevoked(conn, instA, "owner-ui");
+    peer.sendInstanceRevoked(conn, wireA, "owner-ui");
 
     // Immediate refusal for A + audit naming A; B still authorized
     const actA = client.admitInstanceAct(instA);
@@ -570,7 +574,7 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
     assert.equal(actA.reason, "instance-revoked");
     assert.equal(client.admitInstanceAct(instB).ok, true);
     assert.ok(
-      audits.some((e) => e.instanceId === instA && (e.kind === "instance-revoked" || e.reason === "instance-revoked")),
+      audits.some((e) => e.instanceId === wireA && (e.kind === "instance-revoked" || e.reason === "instance-revoked")),
       "audit log must name revoked instance A"
     );
 
@@ -587,7 +591,7 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
     assert.deepEqual(deltaRec.adds, []);
     assert.deepEqual(deltaRec.removes, []);
     assert.deepEqual(deltaRec.updates, [
-      { sessionId: sidA, instanceId: instA, instanceStatus: "revoked" }
+      { sessionId: sidA, instanceId: wireA, instanceStatus: "revoked" }
     ]);
 
     // Same link generation, B still acts, and terminal channel 2 still streams after push

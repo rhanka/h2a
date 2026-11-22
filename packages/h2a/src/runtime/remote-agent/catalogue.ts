@@ -8,10 +8,15 @@
  * snapshot capping (<= 512 rows, <= 256 KiB canonical JSON).
  */
 
-import { createHash } from "node:crypto";
 import type { H2ALaunchContext, H2ASession } from "../../session.js";
 import { sanitizePresenceForMirror } from "../mirror/sanitize.js";
 import { classifyLaunchHost } from "./fleet-inventory.js";
+import {
+  isCanonicalCatalogueSid,
+  nativeCatalogueSid,
+  presenceCatalogueSid,
+  wireInstanceId
+} from "./wire-ids.js";
 import {
   CATALOGUE_MAX_ROWS,
   CATALOGUE_ROW_MAX_BYTES,
@@ -66,7 +71,6 @@ const ALLOWED_OPERABILITY_REASONS = new Set<CatalogueOperabilityReason>([
   "open-with-h2a-to-operate"
 ]);
 
-const CANONICAL_SID_RE = /^[np]-[0-9a-f]{64}$/;
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f-\u009f]/;
 const UNIX_ABS_PATH_RE = /(?:^|[\s=:(,"'])\/(?:\S|$)/;
 const WINDOWS_ABS_PATH_RE = /[A-Za-z]:[\\/]/;
@@ -77,21 +81,7 @@ export function isInternalCompanionNativeId(nativeId: string): boolean {
   return typeof nativeId === "string" && nativeId.endsWith(".h2a");
 }
 
-export function isCanonicalCatalogueSid(value: string): boolean {
-  return typeof value === "string" && CANONICAL_SID_RE.test(value);
-}
-
-function sha256HexUtf8(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-export function nativeCatalogueSid(nativeId: string): string {
-  return `n-${sha256HexUtf8(nativeId)}`;
-}
-
-export function presenceCatalogueSid(presenceSessionId: string): string {
-  return `p-${sha256HexUtf8(presenceSessionId)}`;
-}
+export { isCanonicalCatalogueSid, nativeCatalogueSid, presenceCatalogueSid };
 
 function containsKey(value: unknown, path: readonly string[] = []): string[] | null {
   if (value === null || typeof value !== "object") return null;
@@ -215,7 +205,10 @@ export function projectJoinedCatalogueRow(input: ProjectJoinedRowInput): Catalog
   // `host` keeps its CLI vocabulary (e.g. "claude", "codex") and must not be
   // stripped when `launchContext.command` happens to equal the CLI name.
   const safeHost = sanitizeDisplayScalar(mirrored.host);
-  const instanceId = mirrored.instance;
+  const instanceId =
+    typeof mirrored.instance === "string" && mirrored.instance.length > 0
+      ? wireInstanceId(mirrored.instance)
+      : undefined;
   const instanceStatus: CatalogueInstanceStatus = input.instanceStatus ?? "live";
   const workStatus = input.presenceFresh ? (mirrored.workStatus ?? "unknown") : "unknown";
 

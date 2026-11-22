@@ -163,6 +163,13 @@ export {
   type CreditUpdateResult
 } from "./trunk-credit.js";
 export {
+  normalizeCatalogueSid,
+  wireInstanceId,
+  isWireInstanceId,
+  wireNodeId,
+  isWireNodeId
+} from "./wire-ids.js";
+export {
   extractRawEd25519PublicKeyBase64,
   formatWET2Fingerprint,
   loadLocalInstancePossession,
@@ -170,7 +177,9 @@ export {
   persistRevokedInstancesRegistry,
   TrunkInstanceManager,
   type LocalInstancePossession,
-  type InstanceActResult
+  type InstanceActResult,
+  type RevokedInstancesScopeEntry,
+  type RevokedInstancesRegistryRead
 } from "./trunk-instance.js";
 export {
   TrunkClient,
