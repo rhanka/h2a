@@ -338,6 +338,15 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
     });
   }
 
+  function checkLocalControlGuard(sid: string): string | null {
+    if (isKilled()) return "killed";
+    const shareRes = withShareAllowed(sid, () => {});
+    if (!shareRes.allowed) {
+      return shareRes.reason === "excluded" ? "excluded" : shareRes.reason;
+    }
+    return null;
+  }
+
   function clearLeaseTimers(lease: ActiveLeaseState): void {
     if (lease.idleTimer !== null) {
       clock.clearTimeout(lease.idleTimer);
@@ -431,8 +440,18 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
 
   async function runWatchTick(lease: ActiveLeaseState): Promise<void> {
     if (lease.closing || lease.incarnationEnded || disposed || lease.watchInFlight) return;
-    if (lease.boundCh === null && isKilled()) {
+    if (isKilled()) {
       releaseAll("killed");
+      return;
+    }
+    const shareRes = withShareAllowed(lease.sid, () => {});
+    if (!shareRes.allowed) {
+      try {
+        void lease.port.release(lease.lease).catch(() => {});
+      } catch {
+        // ignore
+      }
+      closeEpoch(lease, "released");
       return;
     }
     lease.watchInFlight = true;
@@ -616,6 +635,12 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
         port.close();
         return;
       }
+      const postConnectGuard = checkLocalControlGuard(chState.sid);
+      if (postConnectGuard !== null) {
+        port.close();
+        sendErr(chState, postConnectGuard, false);
+        return;
+      }
       const controllerId = `h2a-remote:${randomUUID()}`;
       const res = await port.acquire(chState.nativeId, controllerId, REMOTE_CONTROL_ACTIVITY_WINDOW_MS);
       if (res.granted) {
@@ -640,6 +665,17 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
             // ignore
           }
           port.close();
+          return;
+        }
+        const postAcquireGuard = checkLocalControlGuard(chState.sid);
+        if (postAcquireGuard !== null) {
+          try {
+            await port.release(res.lease);
+          } catch {
+            // ignore
+          }
+          port.close();
+          sendErr(chState, postAcquireGuard, false);
           return;
         }
         const log = getOrOpenLog(chState.sid, chState.generation, chState.incarnation);
@@ -1012,6 +1048,11 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
   }
 
   function handleTermResize(chState: AttachedChannelState, rec: TermResize): void {
+    const entryGuard = checkLocalControlGuard(chState.sid);
+    if (entryGuard !== null) {
+      sendErr(chState, entryGuard, false);
+      return;
+    }
     const existing = leasesBySid.get(chState.sid);
     if (
       !existing ||
@@ -1039,13 +1080,19 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
     const cols = rec.cols;
     const rows = rec.rows;
     existing.queue = existing.queue.then(async () => {
+      if (chState.closed || disposed) {
+        return;
+      }
+      const queuedGuard = checkLocalControlGuard(chState.sid);
+      if (queuedGuard !== null) {
+        sendErr(chState, queuedGuard, false);
+        return;
+      }
       if (
         existing.closing ||
         existing.incarnationEnded ||
         leasesBySid.get(chState.sid) !== existing ||
-        existing.boundCh !== chState.ch ||
-        chState.closed ||
-        disposed
+        existing.boundCh !== chState.ch
       ) {
         sendErr(chState, "not-controller", false);
         return;
@@ -1072,6 +1119,11 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
       sendErr(chState, "control-unavailable", false);
       return;
     }
+    const entryGuard = checkLocalControlGuard(chState.sid);
+    if (entryGuard !== null) {
+      sendErr(chState, entryGuard, false);
+      return;
+    }
     const existing = leasesBySid.get(chState.sid);
     if (
       existing &&
@@ -1096,6 +1148,11 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
     try {
       port = await connectControlPort(chState.socketPath);
       if (chState.closed || disposed) return;
+      const postConnectGuard = checkLocalControlGuard(chState.sid);
+      if (postConnectGuard !== null) {
+        sendErr(chState, postConnectGuard, false);
+        return;
+      }
       await port.stopIfIncarnation(chState.nativeId, chState.generation, chState.incarnation);
       audit("terminal-stop", chState.ch, chState.sid, { result: "stopped" });
     } catch (err) {
@@ -1138,6 +1195,13 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
           existingLease.incarnation !== attachment.incarnation)
       ) {
         endIncarnation(existingLease.sid, existingLease.generation, existingLease.incarnation);
+      }
+      const currentLogKey = incKey(attachment.sid, attachment.generation, attachment.incarnation);
+      const sidPrefix = `${attachment.sid}\0`;
+      for (const key of [...logsByIncarnation.keys()]) {
+        if (key.startsWith(sidPrefix) && key !== currentLogKey) {
+          logsByIncarnation.delete(key);
+        }
       }
       purgeStaleIncarnationLogs(
         root,
@@ -1262,6 +1326,7 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
         chState.closed = true;
       }
       channels.clear();
+      logsByIncarnation.clear();
     }
   };
 }

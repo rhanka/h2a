@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import test from "node:test";
@@ -23,7 +23,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  clearSessionExcluded,
   CoalescedRangeIndex,
   createCatalogueProjector,
   createTerminalBridge,
@@ -228,6 +227,55 @@ function b64(s) {
   return Buffer.from(s, "utf8").toString("base64");
 }
 
+function stripAnsi(text) {
+  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").replace(/\r/g, "");
+}
+
+function runCliAsync(args, env) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [H2A_BIN, ...args], {
+      env,
+      cwd: REPO_ROOT,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (b) => { stdout += b; });
+    child.stderr.on("data", (b) => { stderr += b; });
+    child.on("error", rejectPromise);
+    child.on("exit", (code, signal) => {
+      resolvePromise({ code, signal, stdout, stderr });
+    });
+  });
+}
+
+async function runInRealPty(args, env) {
+  const ptyMod = await import("node-pty");
+  const spawnPty = ptyMod.spawn ?? ptyMod.default?.spawn;
+  assert.equal(typeof spawnPty, "function", "node-pty must be available for real PTY test");
+  return new Promise((resolvePromise, rejectPromise) => {
+    let output = "";
+    const term = spawnPty(process.execPath, [H2A_BIN, ...args], {
+      name: "xterm-256color",
+      cols: 120,
+      rows: 30,
+      cwd: REPO_ROOT,
+      env
+    });
+    const timer = setTimeout(() => {
+      try { term.kill(); } catch { /* ignore */ }
+      rejectPromise(new Error(`PTY command timed out: ${args.join(" ")}; output=${output}`));
+    }, 15_000);
+    term.onData((chunk) => {
+      output += chunk;
+    });
+    term.onExit(({ exitCode }) => {
+      clearTimeout(timer);
+      resolvePromise({ exitCode, output });
+    });
+  });
+}
+
 function logFileFor(root, scope, sid, generation, incarnation) {
   const a = createHash("sha256").update(`${scope}\n${sid}`).digest("hex").slice(0, 32);
   const b = createHash("sha256").update(`${generation}\n${incarnation}`).digest("hex").slice(0, 32);
@@ -284,7 +332,7 @@ function setupRealStack(fx, sockets, opts = {}) {
     root: fx.storeDir,
     configDir: fx.configDir,
     env: fx.env,
-    pollIntervalMs: opts.pollIntervalMs ?? 200,
+    ...(opts.pollIntervalMs !== undefined ? { pollIntervalMs: opts.pollIntervalMs } : {}),
     readNativeInventory: () => listNativeInventoryForRemote({ socketPaths: sockets(), connectTimeoutMs: 250, requestTimeoutMs: 250 }),
     readPresences: () => []
   });
@@ -393,8 +441,8 @@ test("LH-09b host #1/#3/#4/#5/#6/#7: real PTY acquire, echo 42, size & localSize
   assert.deepEqual(rx2.errRecords.slice(-3).map((e) => e.code), ["invalid-size", "invalid-size", "invalid-size"]);
 
   // #6 Reprise locale via witness human takeover -> <500ms taken-back, human sets local size 100x30, next input stale-epoch, refused-recent-human, then >30s acquire succeeds
-  const tTakeover = Date.now();
   const humanLease = await witness.acquireController(id, "human-witness", "human", { takeover: true, pid: process.pid, tty: "/dev/pts/1" });
+  const tTakeover = Date.now();
   await eventually(() => { rx2.drain(stack.conn, 2); return rx2.ctlStateRecords.some((r) => r.state === "taken-back"); }, Boolean, "taken-back received", 2_000);
   const takenBackDelayMs = Date.now() - tTakeover;
   assert.ok(takenBackDelayMs < 500, `taken-back delay=${takenBackDelayMs}ms must be < 500ms`);
@@ -473,7 +521,8 @@ test("LH-09b host #9/#12/#19/#20/#21: off <1s, unknown state error, term.stop & 
     directPort.close();
   }
 
-  const stack = setupRealStack(fx, () => [socketPath], { pollIntervalMs: 100 });
+  // Production catalogue pollIntervalMs (2 000 ms default): release on off MUST still be < 1 000 ms
+  const stack = setupRealStack(fx, () => [socketPath]);
   stack.peer.sendWatchStart(stack.conn);
   const sidA = nativeCatalogueSid(idA);
   await eventually(async () => (await stack.projector.resolveOpen(sidA)).ok, Boolean, "projector discovers idA");
@@ -493,14 +542,14 @@ test("LH-09b host #9/#12/#19/#20/#21: off <1s, unknown state error, term.stop & 
   await eventually(() => { rx.drain(stack.conn, 2); return rx.ctlStateRecords.some((r) => r.state === "granted"); }, Boolean, "idA acquired");
   const epochA = rx.ctlStateRecords.at(-1).epoch;
 
-  // #9 Exclusion sous contrôle: `h2a remote off <sid>`
+  // #9 Exclusion sous contrôle: non-blocking `h2a remote off <sid>` with production 2 000 ms poll
+  const offRes = await runCliAsync(["remote", "off", sidA, "--root", fx.storeDir], fx.env);
+  assert.equal(offRes.code, 0, offRes.stderr);
   const tOff = Date.now();
-  const offRes = spawnSync(process.execPath, [H2A_BIN, "remote", "off", sidA, "--root", fx.storeDir], { env: fx.env, encoding: "utf8" });
-  assert.equal(offRes.status, 0, offRes.stderr);
   await eventually(async () => (await witness.state(idA)).holderKind, (hk) => hk === "none", "host releases on off", 2_000);
   const offDelayMs = Date.now() - tOff;
   assert.ok(offDelayMs < 1_000, `off release delay=${offDelayMs}ms must be < 1000ms`);
-  await eventually(() => { rx.drain(stack.conn, 2); return rx.closeRecords.length >= 1; }, Boolean, "ch=2 closed after off");
+  await eventually(() => { rx.drain(stack.conn, 2); return rx.closeRecords.length >= 1; }, Boolean, "ch=2 closed after off", 2_000);
 
   // Verify order: term.ctl.state(released) before err(excluded) before term.close
   const ch2Ordered = stack.conn.decodedClientRecords.filter((r) => r.ch === 2);
@@ -510,17 +559,42 @@ test("LH-09b host #9/#12/#19/#20/#21: off <1s, unknown state error, term.stop & 
   assert.ok(idxReleased >= 0 && idxExcluded > idxReleased && idxClose > idxExcluded, `expected released < excluded < term.close, got ${JSON.stringify(ch2Ordered.map((r) => r.t))}`);
   assert.deepEqual(stack.input.getLog(sidA, genA, incA)?.epochStatus(epochA), { status: "ended", reason: "released", maxInSeq: 0 });
 
-  // Re-enable exclusion -> acquire on new channel succeeds
-  const onRes = clearSessionExcluded(sidA, { root: fx.storeDir, env: fx.env });
-  assert.equal(onRes.ok, true);
-  // Wait for projector poll to clear exclusion before opening ch=3
+  // Post-off keystroke must NOT reach the child PTY
+  stack.peer.sendRecord(stack.conn, {
+    t: "term.in", ch: 2, sid: sidA, generation: genA, incarnation: incA,
+    epoch: epochA, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("AFTER_OFF\n")
+  });
+  await delay(100);
+  assert.equal(readChildStatus(childA.statusFile).inputBytes, 0, "post-off term.in must deliver 0 bytes to child");
+
+  // Re-enable exclusion via real CLI `h2a remote on <sid> --confirm on` in a real node-pty PTY
+  const ptyOn = await runInRealPty(["remote", "on", sidA, "--confirm", "on", "--root", fx.storeDir], fx.env);
+  assert.equal(ptyOn.exitCode, 0, `h2a remote on failed: ${ptyOn.output}`);
+  const cleanPtyOn = stripAnsi(ptyOn.output);
+  const jsonStart = cleanPtyOn.indexOf("{");
+  assert.ok(jsonStart >= 0, `expected JSON output from h2a remote on, got: ${cleanPtyOn}`);
+  const ptyOnJson = JSON.parse(cleanPtyOn.slice(jsonStart).trim());
+  assert.equal(ptyOnJson.ok, true);
+  assert.equal(ptyOnJson.excluded, false);
+
+  // If the post-off term.in on closed ch=2 triggered unallocated-channel reconnect, use the fresh ready connection
+  let connAfterOn = stack.conn;
+  if (connAfterOn.closed) {
+    connAfterOn = await eventually(
+      () => stack.peer.allConnections().find((c) => !c.closed && c.phase === "ready"),
+      Boolean,
+      "reconnected ready link after post-off term.in",
+      10_000
+    );
+    stack.peer.sendWatchStart(connAfterOn);
+  }
   await eventually(async () => (await stack.projector.resolveOpen(sidA)).ok, Boolean, "projector re-enables idA");
   const rxOn = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid: sidA, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
-  stack.peer.sendCredit(stack.conn, 3, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
-  await eventually(() => { rxOn.drain(stack.conn, 3); return rxOn.openedRecords.length === 1; }, Boolean, "ch=3 opened after on");
-  stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 3, sid: sidA, generation: genA, incarnation: incA, action: "acquire" });
-  await eventually(() => { rxOn.drain(stack.conn, 3); return rxOn.ctlStateRecords.some((r) => r.state === "granted"); }, Boolean, "re-acquired after on");
+  stack.peer.sendTermOpen(connAfterOn, { ch: 3, sid: sidA, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
+  stack.peer.sendCredit(connAfterOn, 3, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
+  await eventually(() => { rxOn.drain(connAfterOn, 3); return rxOn.openedRecords.length === 1; }, Boolean, "ch=3 opened after on");
+  stack.peer.sendRecord(connAfterOn, { t: "term.ctl", ch: 3, sid: sidA, generation: genA, incarnation: incA, action: "acquire" });
+  await eventually(() => { rxOn.drain(connAfterOn, 3); return rxOn.ctlStateRecords.some((r) => r.state === "granted"); }, Boolean, "re-acquired after on");
 
   // #21 Surveillance sans réponse (hôte réel): close control port socket while idle -> released in <1s & holderKind: none
   // Wrap defaultConnectNativeControlPort only to expose the underlying port so we can close its socket directly
@@ -593,6 +667,9 @@ test("LH-09b host #9/#12/#19/#20/#21: off <1s, unknown state error, term.stop & 
   });
   await eventually(() => { rxB.drain(stackB.conn, 2); return rxB.ackRecords.length >= 1; }, Boolean, "uncertain ack");
   assert.equal(rxB.ackRecords[0].result, "uncertain");
+  await delay(50);
+  const brokenWriteInputBytes = readChildStatus(childB.statusFile)?.inputBytes ?? 0;
+  assert.ok(brokenWriteInputBytes === 0 || brokenWriteInputBytes === Buffer.byteLength("BROKEN\n"), `brokenWriteInputBytes=${brokenWriteInputBytes} must reflect at-most-once delivery`);
 
   // #19 Arrêt from observer channel, then relaunch same id & present old couple -> stale-incarnation
   const rxBObs = new HostReceiver();
@@ -623,7 +700,7 @@ test("LH-09b host #9/#12/#19/#20/#21: off <1s, unknown state error, term.stop & 
   assert.equal(rxB2.errRecords[0].code, "stale-incarnation");
   assert.equal((await witness.state(idB)).status, "running");
 
-  t.diagnostic(`metrics: offDelayMs=${offDelayMs}, idleBreakDelayMs=${idleBreakDelayMs}`);
+  t.diagnostic(`metrics: offDelayMs=${offDelayMs}, idleBreakDelayMs=${idleBreakDelayMs}, brokenWriteInputBytes=${brokenWriteInputBytes}`);
   stackB.bridge.dispose();
   stackB.projector.stopWatch();
   stackB.client.stop();
@@ -763,6 +840,15 @@ test("LH-09b host #13/#14/#16: real monotonic clock 20s reconnect, 40s timeout, 
 
   stack.peer.sendRecord(conn3, { t: "term.in.sync", ch: 2, sid, generation: gen, incarnation: inc, epoch, lastAckedInSeq: 1 });
   await eventually(() => { rx3.drain(conn3, 2); return rx3.ctlStateRecords.some((r) => r.state === "lost-link"); }, Boolean, "lost-link replayed");
+  const acksBeforeStale40 = rx3.ackRecords.length;
+  stack.peer.sendRecord(conn3, {
+    t: "term.in", ch: 2, sid, generation: gen, incarnation: inc,
+    epoch, inSeq: 3, ackThrough: 2, origin: "user", dataB64: b64("STALE40\n")
+  });
+  await eventually(() => { rx3.drain(conn3, 2); return rx3.ackRecords.length > acksBeforeStale40; }, Boolean, "stale-epoch after 40s cut");
+  assert.equal(rx3.ackRecords.at(-1).result, "refused");
+  assert.equal(rx3.ackRecords.at(-1).reason, "stale-epoch");
+  assert.equal(readFileSync(child.inputLogFile, "utf8"), "A1\nA2\n");
 
   // Kill file during grace -> released in <1s
   stack.peer.sendRecord(conn3, { t: "term.ctl", ch: 2, sid, generation: gen, incarnation: inc, action: "acquire" });

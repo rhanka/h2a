@@ -17,6 +17,7 @@ import {
 import { join, resolve } from "node:path";
 
 import {
+  clearSessionExcluded,
   CoalescedRangeIndex,
   createCatalogueProjector,
   createTerminalBridge,
@@ -2927,7 +2928,7 @@ test("LH-09b sim #18/#19/#21/#24: Inactivité 15 min, Arrêt observer, Surveilla
     const clock = new AsyncFakeClock();
     const host = makeSimHost();
     host.setSession("h2a-misc");
-    const stack = setupStack(iso, host, clock);
+    const stack = setupStack(iso, host, clock, { bridgePollIntervalMs: 1_000 });
     const sid = await openAndAttachSession(stack, clock, "h2a-misc", 2);
     const epoch = await acquireLease(stack, clock, sid, 2);
 
@@ -3020,6 +3021,334 @@ test("LH-09b sim #18/#19/#21/#24: Inactivité 15 min, Arrêt observer, Surveilla
     assert.equal(host.sessions.get("h2a-misc").holderKind, "none");
 
     stack.bridge.dispose();
+    stack.projector.stopWatch();
+    stack.client.stop();
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b fix B-1a: passive off <1s with prod 2000ms poll (idle PTY, watch.stop, grace) & bound isKilled()", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+
+    // Case 1: idle PTY + watch.stop + default 2000ms catalogue poll -> released & closed <1s in exact wire order
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-off-ws");
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-off-ws", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.sendRecord(stack.conn, { t: "watch.stop", ch: 1 });
+      await clock.advance(10);
+
+      const cur = stack.conn.decodedClientRecords.length;
+      const offRes = setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+      assert.equal(offRes.ok, true);
+      await clock.advance(300);
+
+      assert.equal(host.sessions.get("h2a-off-ws").holderKind, "none", "lease must release <1s under watch.stop");
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 0
+      });
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      const idxRel = recs.findIndex((r) => r.t === "term.ctl.state" && r.state === "released");
+      const idxExcl = recs.findIndex((r) => r.t === "err" && r.code === "excluded");
+      const idxClose = recs.findIndex((r) => r.t === "term.close");
+      assert.ok(
+        idxRel >= 0 && idxExcl > idxRel && idxClose > idxExcl,
+        `expected released < excluded < term.close under watch.stop, got ${JSON.stringify(recs.map((r) => ({ t: r.t, state: r.state, code: r.code })))}`
+      );
+
+      clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case 2: idle PTY + watch.stop + bridge poll paused (10s) -> runWatchTick (250ms) releases lease <1s
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-off-tick");
+      const stack = setupStack(iso, host, clock, { bridgePollIntervalMs: 10_000 });
+      const sid = await openAndAttachSession(stack, clock, "h2a-off-tick", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.sendRecord(stack.conn, { t: "watch.stop", ch: 1 });
+      await clock.advance(10);
+
+      const cur = stack.conn.decodedClientRecords.length;
+      const offRes = setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+      assert.equal(offRes.ok, true);
+      await clock.advance(300);
+
+      assert.equal(host.sessions.get("h2a-off-tick").holderKind, "none", "runWatchTick must release lease <1s even when bridge poll is paused");
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 0
+      });
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.filter((r) => r.t === "term.ctl.state" && r.state === "released").length, 1);
+
+      clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case 3: off during 30s grace -> runWatchTick releases lease <1s without waiting for 30s grace
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-off-grace");
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-off-grace", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.dropConnection(stack.conn, "cut-for-off");
+      await clock.advance(100);
+      assert.equal(host.sessions.get("h2a-off-grace").holderKind, "remote");
+
+      const offRes = setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+      assert.equal(offRes.ok, true);
+      await clock.advance(300);
+
+      assert.equal(host.sessions.get("h2a-off-grace").holderKind, "none", "off during grace must release lease in <1s");
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 0
+      });
+
+      clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case 4: isKilled() toggled while lease is bound -> runWatchTick releases lease <1s
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-kill-bound");
+      let killed = false;
+      const stack = setupStack(iso, host, clock, { isKilled: () => killed });
+      const sid = await openAndAttachSession(stack, clock, "h2a-kill-bound", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+
+      const cur = stack.conn.decodedClientRecords.length;
+      killed = true;
+      await clock.advance(300);
+
+      assert.equal(host.sessions.get("h2a-kill-bound").holderKind, "none", "isKilled() on bound lease must release in <1s");
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 0
+      });
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.some((r) => r.t === "term.ctl.state" && r.state === "released"), true);
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b fix B-1b: term.stop, term.resize, and in-flight acquire refused under killed / excluded", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-guard");
+    let killed = false;
+    let holdConnectResolve = null;
+    const wrappedConnect = async (...args) => {
+      if (holdConnectResolve) {
+        await new Promise((r) => {
+          const prev = holdConnectResolve;
+          holdConnectResolve = null;
+          prev(r);
+        });
+      }
+      return host.connectControlPort(...args);
+    };
+    const hostWithConnect = { ...host, connectControlPort: wrappedConnect };
+    const stack = setupStack(iso, hostWithConnect, clock, {
+      isKilled: () => killed,
+      bridgePollIntervalMs: 10_000
+    });
+    const sid = await openAndAttachSession(stack, clock, "h2a-guard", 2);
+    await openAndAttachSession(stack, clock, "h2a-guard", 3);
+    const epoch = await acquireLease(stack, clock, sid, 2);
+
+    // 1. Entry guards on term.stop (controller ch=2 & observer ch=3) and term.resize (controller ch=2) under killed
+    killed = true;
+    let cur2 = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 2, sid, generation: "gen-1", incarnation: "inc-1" });
+    stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 3, sid, generation: "gen-1", incarnation: "inc-1" });
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 100, rows: 30 });
+    await clock.advance(10);
+    assert.deepEqual(
+      collectChannelRecords(stack.conn, 2, cur2).records.map((r) => ({ t: r.t, code: r.code, retryable: r.retryable })),
+      [
+        { t: "err", code: "killed", retryable: false },
+        { t: "err", code: "killed", retryable: false }
+      ]
+    );
+    assert.deepEqual(
+      collectChannelRecords(stack.conn, 3, cur2).records.map((r) => ({ t: r.t, code: r.code, retryable: r.retryable })),
+      [{ t: "err", code: "killed", retryable: false }]
+    );
+    assert.equal(host.calls.stopIfIncarnation.length, 0);
+    assert.equal(host.calls.resize.length, 0);
+
+    // 2. Entry guards on term.stop (ch=2 & ch=3) and term.resize (ch=2) under excluded (in window before poll/watch closes channel)
+    killed = false;
+    assert.equal(setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env }).ok, true);
+    cur2 = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 2, sid, generation: "gen-1", incarnation: "inc-1" });
+    stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 3, sid, generation: "gen-1", incarnation: "inc-1" });
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 100, rows: 30 });
+    await clock.advance(10);
+    assert.deepEqual(
+      collectChannelRecords(stack.conn, 2, cur2).records.map((r) => ({ t: r.t, code: r.code, retryable: r.retryable })),
+      [
+        { t: "err", code: "excluded", retryable: false },
+        { t: "err", code: "excluded", retryable: false }
+      ]
+    );
+    assert.deepEqual(
+      collectChannelRecords(stack.conn, 3, cur2).records.map((r) => ({ t: r.t, code: r.code, retryable: r.retryable })),
+      [{ t: "err", code: "excluded", retryable: false }]
+    );
+    assert.equal(host.calls.stopIfIncarnation.length, 0);
+    assert.equal(host.calls.resize.length, 0);
+    clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+
+    // 3. Queued term.resize behind in-flight term.in: killed/excluded flips before resize executes
+    for (const mode of ["killed", "excluded"]) {
+      let resolveWrite;
+      host.setNextWriteBehavior(() => new Promise((r) => { resolveWrite = r; }));
+      const inSeq = mode === "killed" ? 1 : 2;
+      stack.peer.sendRecord(stack.conn, {
+        t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+        epoch, inSeq, ackThrough: inSeq - 1, origin: "user", dataB64: b64("x")
+      });
+      await clock.flushMicrotasks();
+      const curQ = stack.conn.decodedClientRecords.length;
+      stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 111, rows: 33 });
+      if (mode === "killed") killed = true;
+      else assert.equal(setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env }).ok, true);
+      resolveWrite();
+      await clock.advance(10);
+      const qRecs = collectChannelRecords(stack.conn, 2, curQ).records;
+      assert.equal(
+        qRecs.some((r) => r.t === "err" && r.code === mode && r.retryable === false),
+        true,
+        `queued term.resize must fail with ${mode}, got ${JSON.stringify(qRecs)}`
+      );
+      assert.equal(host.calls.resize.length, 0);
+      if (mode === "killed") killed = false;
+      else clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+    }
+
+    // Release lease so subsequent tests exercise ephemeral connectControlPort on term.stop & fresh term.ctl acquire
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "release", epoch });
+    await clock.advance(10);
+    assert.equal(host.sessions.get("h2a-guard").holderKind, "none");
+
+    // 4. term.stop ephemeral connect: killed / excluded flips while awaiting connectControlPort
+    for (const mode of ["killed", "excluded"]) {
+      let releaseConnect;
+      holdConnectResolve = (r) => { releaseConnect = r; };
+      const closesBefore = host.calls.portCloseCount;
+      const curS = stack.conn.decodedClientRecords.length;
+      stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 3, sid, generation: "gen-1", incarnation: "inc-1" });
+      await clock.flushMicrotasks();
+      if (mode === "killed") killed = true;
+      else assert.equal(setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env }).ok, true);
+      releaseConnect();
+      await clock.advance(10);
+      const sRecs = collectChannelRecords(stack.conn, 3, curS).records;
+      assert.deepEqual(
+        sRecs.map((r) => ({ t: r.t, code: r.code, retryable: r.retryable })),
+        [{ t: "err", code: mode, retryable: false }]
+      );
+      assert.equal(host.calls.stopIfIncarnation.length, 0);
+      assert.equal(host.calls.portCloseCount, closesBefore + 1, `ephemeral stop port must close on ${mode}`);
+      if (mode === "killed") killed = false;
+      else clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+    }
+
+    // 5. handleCtlAcquire: killed / excluded flips while awaiting port.acquire -> lease released, port closed, err emitted, no granted
+    for (const mode of ["killed", "excluded"]) {
+      let releaseAcq;
+      host.setNextAcquireOverride(async ({ id, controllerId, sessions, ownedLeases }) => {
+        await new Promise((r) => { releaseAcq = r; });
+        const s = sessions.get(id);
+        s.controllerEpoch += 1;
+        s.controlled = true;
+        s.holderKind = "remote";
+        s.controllerId = controllerId;
+        const lease = {
+          role: "controller", id: s.id, generation: s.generation, incarnation: s.incarnation,
+          controllerId, epoch: s.controllerEpoch
+        };
+        ownedLeases.set(s.id, lease);
+        return { granted: true, lease };
+      });
+      const closesBefore = host.calls.portCloseCount;
+      const releasesBefore = host.calls.release.length;
+      const curA = stack.conn.decodedClientRecords.length;
+      stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+      await clock.flushMicrotasks();
+      if (mode === "killed") killed = true;
+      else assert.equal(setSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env }).ok, true);
+      releaseAcq();
+      await clock.advance(10);
+      const aRecs = collectChannelRecords(stack.conn, 2, curA).records;
+      assert.deepEqual(
+        aRecs.map((r) => ({ t: r.t, code: r.code, retryable: r.retryable })),
+        [{ t: "err", code: mode, retryable: false }]
+      );
+      assert.equal(host.sessions.get("h2a-guard").holderKind, "none", `host lease must be released when ${mode} flips mid-acquire`);
+      assert.equal(host.calls.release.length, releasesBefore + 1);
+      assert.equal(host.calls.portCloseCount, closesBefore + 1);
+      if (mode === "killed") killed = false;
+      else clearSessionExcluded(sid, { root: iso.root, configDir: iso.configDir, env: iso.env });
+    }
+
+    stack.bridge.dispose();
+    stack.projector.stopWatch();
+    stack.client.stop();
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b fix NB-2: logsByIncarnation purged on incarnation change without active lease and on dispose()", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-nb2");
+    const stack = setupStack(iso, host, clock);
+    const sid = await openAndAttachSession(stack, clock, "h2a-nb2", 2);
+    const epoch1 = await acquireLease(stack, clock, sid, 2);
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "release", epoch: epoch1 });
+    await clock.advance(10);
+    // Close ch=2 before incarnation changes so no channel observes term.exit for inc-1
+    stack.peer.sendTermClose(stack.conn, 2, sid);
+    await clock.advance(10);
+    assert.ok(stack.input.getLog(sid, "gen-1", "inc-1"), "inc-1 log present in memory after release and close");
+
+    // New incarnation attaches while no lease is held on inc-1 -> stale inc-1 entry removed from memory
+    host.setSession("h2a-nb2", { generation: "gen-1", incarnation: "inc-2" });
+    await clock.advance(2_100);
+    await openAndAttachSession(stack, clock, "h2a-nb2", 3);
+    assert.equal(stack.input.getLog(sid, "gen-1", "inc-1"), undefined, "stale incarnation log must be evicted from memory");
+
+    await acquireLease(stack, clock, sid, 3, "gen-1", "inc-2");
+    assert.ok(stack.input.getLog(sid, "gen-1", "inc-2"), "inc-2 log present in memory");
+    stack.bridge.dispose();
+    assert.equal(stack.input.getLog(sid, "gen-1", "inc-2"), undefined, "dispose() must clear logsByIncarnation");
+
     stack.projector.stopWatch();
     stack.client.stop();
   } finally {

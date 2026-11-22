@@ -32,6 +32,7 @@ import type {
 } from "./types.js";
 
 export const TERMINAL_BRIDGE_DEFAULT_READ_TIMEOUT_MS = 30_000 as const;
+export const TERMINAL_BRIDGE_SHARE_CHECK_INTERVAL_MS = 250 as const;
 
 export interface NativeObserverSessionState {
   readonly id: string;
@@ -214,6 +215,7 @@ interface ChannelState {
   assembler: TerminalOutputAssembler | null;
   pollTimer: unknown;
   coalesceTimer: unknown;
+  lastShareCheckAtMs: number;
 }
 
 export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBridge {
@@ -525,6 +527,15 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     if (chState.closed || chState.readInFlight || !chState.client || !chState.nativeId || !chState.assembler) {
       return;
     }
+    const nowMs = clock.now();
+    if (chState.openedSent && nowMs - chState.lastShareCheckAtMs >= TERMINAL_BRIDGE_SHARE_CHECK_INTERVAL_MS) {
+      chState.lastShareCheckAtMs = nowMs;
+      const shareRes = catalogue.withShareAllowed(chState.sid, () => {});
+      if (!shareRes.allowed) {
+        abortChannelWithErr(chState, shareRes.reason, false, chState.openedSent);
+        return;
+      }
+    }
     if (!hasUsableCredit(chState.ctx.availableOutput())) {
       pauseForCredit(chState);
       return;
@@ -614,6 +625,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return;
       }
       chState.openedSent = true;
+      chState.lastShareCheckAtMs = clock.now();
       chState.awaitingInitialReplay = false;
       attachChannelToInput(chState);
     } else if (replay.gap !== null) {
@@ -774,6 +786,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return;
       }
       chState.openedSent = true;
+      chState.lastShareCheckAtMs = clock.now();
       attachChannelToInput(chState);
       if (hasUsableCredit(chState.ctx.availableOutput())) {
         schedulePoll(chState);
@@ -831,7 +844,8 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         client: null,
         assembler: null,
         pollTimer: null,
-        coalesceTimer: null
+        coalesceTimer: null,
+        lastShareCheckAtMs: clock.now()
       };
       channels.set(open.ch, chState);
       void openAsync(chState);
