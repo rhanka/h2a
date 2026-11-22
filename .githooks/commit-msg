@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# h2a-attribution-trailer-guard: v1
-# Repo policy: commit messages must NOT carry co-authorship or AI-attribution trailers.
+# h2a-attribution-trailer-guard: v2
+# Repo policy: owner-only email (fabien.antoine@m4x.org; optional per-repo name
+# via H2A_GUARD_REQUIRE_NAME or git config h2a.guard.requireName) and ZERO
+# co-authorship or AI-attribution trailers.
 # Enable worktree-safely once per repo:  bash .githooks/install.sh --local
 # Or machine-wide across all repos:      bash .githooks/install.sh --global
 # Override mode per invocation:          H2A_TRAILER_GUARD_MODE=reject|strip
@@ -9,38 +11,80 @@ set -euo pipefail
 msg_file="${1:?commit-msg hook requires the commit message file path}"
 mode="${H2A_TRAILER_GUARD_MODE:-reject}"
 
+# Enforce owner-only author & committer email whenever invoked in a git commit
+# context (cannot be stripped; always rejects non-owner emails). Display name
+# is free by default unless H2A_GUARD_REQUIRE_NAME or h2a.guard.requireName is set.
+if [ -n "${GIT_INDEX_FILE:-}" ] || [ -n "${GIT_AUTHOR_NAME:-}" ] || [ -n "${GIT_AUTHOR_EMAIL:-}" ] || [ -n "${GIT_COMMITTER_NAME:-}" ] || [ -n "${GIT_COMMITTER_EMAIL:-}" ]; then
+  expected_email="fabien.antoine@m4x.org"
+  require_name="${H2A_GUARD_REQUIRE_NAME:-}"
+  if [ -z "$require_name" ]; then
+    require_name="$(git config --get h2a.guard.requireName 2>/dev/null || true)"
+  fi
+  author_ident="$(git var GIT_AUTHOR_IDENT 2>/dev/null || true)"
+  committer_ident="$(git var GIT_COMMITTER_IDENT 2>/dev/null || true)"
+  author_name="${author_ident% <*}"
+  author_email_rest="${author_ident#*<}"
+  author_email="$(printf '%s' "${author_email_rest%%>*}" | tr '[:upper:]' '[:lower:]')"
+  committer_name="${committer_ident% <*}"
+  committer_email_rest="${committer_ident#*<}"
+  committer_email="$(printf '%s' "${committer_email_rest%%>*}" | tr '[:upper:]' '[:lower:]')"
+
+  if [ -z "$author_ident" ] || [ "$author_email" != "$expected_email" ]; then
+    {
+      echo "✗ commit blocked — owner-only identity policy violation (author email)."
+      echo "  Author:   ${author_name:-<unset>} <${author_email:-unset}>"
+      echo "  Expected: <${expected_email}>"
+    } >&2
+    exit 1
+  fi
+  if [ -n "$require_name" ] && [ "$author_name" != "$require_name" ]; then
+    {
+      echo "✗ commit blocked — per-repo identity policy violation (author name)."
+      echo "  Author:   ${author_name:-<unset>} <${author_email:-unset}>"
+      echo "  Expected: ${require_name} <${expected_email}>"
+    } >&2
+    exit 1
+  fi
+  if [ -z "$committer_ident" ] || [ "$committer_email" != "$expected_email" ]; then
+    {
+      echo "✗ commit blocked — owner-only identity policy violation (committer email)."
+      echo "  Committer: ${committer_name:-<unset>} <${committer_email:-unset}>"
+      echo "  Expected:  <${expected_email}>"
+    } >&2
+    exit 1
+  fi
+  if [ -n "$require_name" ] && [ "$committer_name" != "$require_name" ]; then
+    {
+      echo "✗ commit blocked — per-repo identity policy violation (committer name)."
+      echo "  Committer: ${committer_name:-<unset>} <${committer_email:-unset}>"
+      echo "  Expected:  ${require_name} <${expected_email}>"
+    } >&2
+    exit 1
+  fi
+fi
+
 # Scan only the authored message: drop the `git commit -v` diff (from the scissors
 # line onward) and comment lines, so a diff hunk or a comment that merely quotes a
 # trailer is not a false positive.
 scan="$(sed '/^# -\{3,\} >8 -\{3,\}$/,$d' "$msg_file" | grep -v '^#' || true)"
 
-# `Co-Authored-By:`, `Claude-Session:`, and AI `Generated-By:` are anchored to
-# the start of a line — real trailers always are, so prose that mentions them is
-# allowed. The AI generation footers/URLs/markers are specific enough to match
-# anywhere in the authored message (case-insensitive).
-trailer_re='^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*generated-by[[:space:]]*:.*(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)|generated[[:space:]]+(with|by)[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)|claude\.com/claude-code|claude\.ai/code/session_[a-z0-9_-]+|🤖'
+# Line-anchored rules (`Co-Authored-By:` for ANY human or AI, `Claude-Session:`,
+# `(AI-)Assisted-By:`, `Generated-By/With: <AI>`) avoid false positives in prose.
+# Specific AI generation footers/URLs/emails match anywhere on a non-comment line.
+# Bare emoji (e.g. 🤖) is NOT attribution and is intentionally not blocked.
+ai_tok='(claude|anthropic|codex|openai|gpt[0-9]*|chatgpt|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|windsurf|codeium|aider|cline|devin|deepseek|qwen|grok|llm|ai)'
+trailer_re="^[[:space:]]*co-authored-by[[:space:]]*:|^[[:space:]]*claude-session[[:space:]]*:|^[[:space:]]*(ai-)?assisted-by[[:space:]]*:|^[[:space:]]*generated-(by|with)[[:space:]]*:(.*[^[:alnum:]])?${ai_tok}([^[:alnum:]]|\$)|(^|[^[:alnum:]])generated[[:space:]]+(with|by)[[:space:]]+((the|an?)[[:space:]]+)?[][*_\`~]*((github|google|meta|openai|anthropic|mistral)[[:space:]]+)?${ai_tok}([^[:alnum:]]|\$)|🤖[[:space:]]*generated[[:space:]]+(with|by)([^[:alnum:]]|\$)|claude\\.com/claude-code|claude\\.ai/code/session_[a-z0-9_-]+|<[^@[:space:]>]+@(anthropic\\.com|openai\\.com|mistral\\.ai|cursor\\.com|cursor\\.sh)>|(^|[[:space:]<(\"'\\\`])((noreply|claude|codex|vibe|mistral|cursor|assist|assistant|agent|ai|bot)[^@[:space:]>)\"'\\\`]*@(anthropic\\.com|openai\\.com|mistral\\.ai|cursor\\.com|cursor\\.sh)|(claude|codex|copilot|github-copilot|cursor|gemini-code-assist|antigravity|mistral-vibe)(\\[bot\\])?@(users\\.noreply\\.github\\.com|github\\.com))(\$|[]|[[:space:]>)\"'\\\`,.;])"
 
 if printf '%s\n' "$scan" | grep -iEq "$trailer_re"; then
   if [ "$mode" = "strip" ]; then
     tmp_file="${msg_file}.h2a-strip.$$"
     trap 'rm -f "$tmp_file"' EXIT
-    awk '
-      BEGIN { in_scissors = 0; n = 0; s = 0 }
+    TRAILER_RE="$trailer_re" awk '
+      BEGIN { in_scissors = 0; n = 0; s = 0; re = ENVIRON["TRAILER_RE"] }
       /^# ---+ >8 ---+$/ { in_scissors = 1 }
       in_scissors { suffix[++s] = $0; next }
       {
-        drop = 0
-        if (substr($0, 1, 1) != "#") {
-          low = tolower($0)
-          if (low ~ /^[[:space:]]*co-authored-by[[:space:]]*:/) drop = 1
-          else if (low ~ /^[[:space:]]*claude-session[[:space:]]*:/) drop = 1
-          else if (low ~ /^[[:space:]]*generated-by[[:space:]]*:/ && low ~ /(claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor)/) drop = 1
-          else if (low ~ /generated[[:space:]]+(with|by)[[:space:]]+\[?(claude([[:space:]]+code)?|codex|gemini|antigravity|mistral[[:space:]]+vibe|vibe|muse|copilot|cursor)/) drop = 1
-          else if (low ~ /claude\.com\/claude-code/) drop = 1
-          else if (low ~ /claude\.ai\/code\/session_[a-z0-9_-]+/) drop = 1
-          else if (index($0, "🤖") > 0) drop = 1
-        }
-        if (drop) next
+        if (substr($0, 1, 1) != "#" && tolower($0) ~ re) next
         body[++n] = $0
       }
       END {
@@ -65,11 +109,11 @@ if printf '%s\n' "$scan" | grep -iEq "$trailer_re"; then
       echo "✗ commit blocked — co-authorship / AI-attribution trailer detected."
       echo
       echo "  This repo forbids these lines in commit messages (case-insensitive):"
-      echo "    • Co-Authored-By: …"
-      echo "    • Claude-Session: …"
-      echo "    • Generated-By: <AI>"
-      echo "    • Generated with [<AI tool>] / claude.com/claude-code / claude.ai/code/session_…"
-      echo "    • 🤖"
+      echo "    • Co-Authored-By: … (all co-author lines, human or AI)"
+      echo "    • Claude-Session: … / (AI-)Assisted-By: …"
+      echo "    • Generated-By/With: <AI> / Generated with|by <AI> / 🤖 Generated with|by …"
+      echo "    • claude.com/claude-code / claude.ai/code/session_…"
+      echo "    • AI vendor emails (anthropic.com / openai.com / mistral.ai / cursor.sh)"
       echo
       echo "  Remove the offending line(s) from the commit message and try again."
     } >&2

@@ -13,6 +13,21 @@ on:
         type: string
         required: false
         default: "22"
+      allowed-author-email:
+        description: "Sole allowed Git author/committer email (identity criterion)"
+        type: string
+        required: false
+        default: "fabien.antoine@m4x.org"
+      require-name:
+        description: "Optional exact Git author/committer name to enforce per repo (empty = email only; e.g. 'Fabien Antoine')"
+        type: string
+        required: false
+        default: ""
+      allowed-github-actor:
+        description: "Sole allowed GitHub login for PRs and web-flow merges"
+        type: string
+        required: false
+        default: "rhanka"
   pull_request:
     types: [opened, edited, synchronize, reopened]
   push:
@@ -29,9 +44,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version || '22' }}
-      - name: Scan commit messages and PR metadata (Node only)
+      - name: Scan commit identity, messages, and PR metadata (Node only)
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -39,26 +56,147 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_AFTER: ${{ github.event.after }}
           CHECK_PR_BODY: ${{ inputs.check-pr-body != false }}
+          ALLOWED_AUTHOR_EMAIL: ${{ inputs.allowed-author-email || 'fabien.antoine@m4x.org' }}
+          REQUIRE_NAME: ${{ inputs.require-name || '' }}
+          ALLOWED_GITHUB_ACTOR: ${{ inputs.allowed-github-actor || 'rhanka' }}
         run: |
           node - <<'EOF'
           const { execFileSync } = require('node:child_process');
 
+          const OWNER_EMAIL = (process.env.ALLOWED_AUTHOR_EMAIL || 'fabien.antoine@m4x.org').toLowerCase();
+          const REQUIRE_NAME = (process.env.REQUIRE_NAME || '').trim();
+          const OWNER_LOGIN = (process.env.ALLOWED_GITHUB_ACTOR || 'rhanka').toLowerCase();
+          const GITHUB_WEBFLOW_KEYS = new Set(['B5690EEEBB952194', '4AEE18F83AFDEB23']);
+
           const SCISSORS_RE = /^# -{3,} >8 -{3,}$/;
+          const AI_TOKENS =
+            '(?:claude|anthropic|codex|openai|gpt\\d*|chatgpt|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|windsurf|codeium|aider|cline|devin|deepseek|qwen|grok|llm|ai)';
+
           const RULES = [
             { id: 'co-authored-by', pattern: /^\s*co-authored-by\s*:/i },
             { id: 'claude-session', pattern: /^\s*claude-session\s*:/i },
+            { id: 'assisted-by', pattern: /^\s*(?:ai-)?assisted-by\s*:/i },
             {
               id: 'generated-by-ai',
-              pattern: /^\s*generated-by\s*:.*\b(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\b/i,
+              pattern: new RegExp(`^\\s*generated-(?:by|with)\\s*:.*(?:^|[^a-z0-9])${AI_TOKENS}(?:[^a-z0-9]|$)`, 'i'),
             },
             {
               id: 'generated-with-ai',
-              pattern: /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+              pattern: new RegExp(
+                `\\bgenerated\\s+(?:with|by)\\s+(?:(?:the|an?)\\s+)?[\\[*_\`~]*(?:(?:github|google|meta|openai|anthropic|mistral)\\s+)?${AI_TOKENS}(?:[^a-z0-9]|$)`,
+                'i',
+              ),
             },
+            { id: 'robot-generated', pattern: /🤖\uFE0F?\s*generated\s+(?:with|by)\b/i },
             { id: 'claude-code-url', pattern: /claude\.com\/claude-code/i },
             { id: 'claude-session-url', pattern: /claude\.ai\/code\/session_[a-z0-9_-]+/i },
-            { id: 'robot-marker', pattern: /🤖/u },
+            {
+              id: 'ai-email',
+              pattern:
+                /(?:<[^@\s>]+@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)>|(?:^|[\s<("'`])(?:(?:noreply|claude|codex|vibe|mistral|cursor|assist|assistant|agent|ai|bot)[^@\s>)"'`]*@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)|(?:claude|codex|copilot|github-copilot|cursor|gemini-code-assist|antigravity|mistral-vibe)(?:\[bot\])?@(?:users\.noreply\.github\.com|github\.com))(?=$|[\s>)"'`,.;]))/i,
+            },
           ];
+
+          function isBotIdentity(name, email) {
+            const combined = `${name} <${email}>`;
+            return (
+              /\[bot\]/i.test(combined) ||
+              /\b(?:dependabot|renovate|github-actions|greenkeeper|snyk-bot|codecov|mergify)\b/i.test(combined) ||
+              /@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)$/i.test(String(email).trim()) ||
+              /\b(?:claude|codex|copilot|cursor|mistral\s+vibe|muse-spark|h2a-agent|h-cond)\b/i.test(combined)
+            );
+          }
+
+          function isBotLogin(login) {
+            return (
+              /\[bot\]$/i.test(login) ||
+              /^(?:dependabot|renovate|github-actions|greenkeeper|snyk-bot|codecov|mergify)(?:\[bot\])?$/i.test(login)
+            );
+          }
+
+          function checkIdentity(commit, githubActor) {
+            const violations = [];
+            const authorEmailOk = commit.authorEmail.toLowerCase() === OWNER_EMAIL;
+            const authorNameOk = !REQUIRE_NAME || commit.authorName === REQUIRE_NAME;
+            const authorIsOwner = authorEmailOk && authorNameOk;
+            const committerEmailOk = commit.committerEmail.toLowerCase() === OWNER_EMAIL;
+            const committerNameOk = !REQUIRE_NAME || commit.committerName === REQUIRE_NAME;
+            const committerIsOwner = committerEmailOk && committerNameOk;
+            const committerIsGithub =
+              commit.committerName === 'GitHub' && commit.committerEmail.toLowerCase() === 'noreply@github.com';
+            const expectedLabel = REQUIRE_NAME ? `"${REQUIRE_NAME} <${OWNER_EMAIL}>"` : `email "${OWNER_EMAIL}"`;
+
+            if (!authorEmailOk) {
+              const bot = isBotIdentity(commit.authorName, commit.authorEmail);
+              violations.push({
+                rule: bot ? 'bot-author' : 'invalid-author',
+                message: bot
+                  ? `author "${commit.authorName} <${commit.authorEmail}>" is a bot/automated account and violates the owner-only identity policy (expected ${expectedLabel})`
+                  : `author "${commit.authorName} <${commit.authorEmail}>" does not use the owner email (expected ${expectedLabel})`,
+              });
+            } else if (!authorNameOk) {
+              violations.push({
+                rule: 'invalid-author-name',
+                message: `author name "${commit.authorName}" does not match required per-repo name "${REQUIRE_NAME}" (email "${commit.authorEmail}" is valid)`,
+              });
+            }
+
+            if (!committerIsOwner) {
+              if (committerIsGithub) {
+                if (commit.parents.length < 2) {
+                  violations.push({
+                    rule: 'non-merge-github-committer',
+                    message: `committer "GitHub <noreply@github.com>" is only allowed for GitHub web-flow merge commits (>= 2 parents), got ${commit.parents.length} parent(s)`,
+                  });
+                } else if (!authorIsOwner) {
+                  violations.push({
+                    rule: 'unverified-github-merge-committer',
+                    message: `committer "GitHub <noreply@github.com>" merge is not authored by owner (${expectedLabel})`,
+                  });
+                } else if (commit.sigStatus === 'B') {
+                  violations.push({
+                    rule: 'bad-github-merge-signature',
+                    message: 'committer "GitHub <noreply@github.com>" merge carries an invalid PGP signature',
+                  });
+                } else {
+                  const hasSig = ['G', 'U', 'E', 'X', 'Y'].includes(commit.sigStatus);
+                  const key = commit.sigKey.toUpperCase();
+                  if (!hasSig) {
+                    violations.push({
+                      rule: 'unsigned-github-merge-committer',
+                      message: 'committer "GitHub <noreply@github.com>" merge lacks a GitHub web-flow PGP signature (locally forged or unsigned commit)',
+                    });
+                  } else if (commit.sigStatus !== 'G' && key && !GITHUB_WEBFLOW_KEYS.has(key)) {
+                    violations.push({
+                      rule: 'unknown-github-merge-key',
+                      message: `committer "GitHub <noreply@github.com>" merge was signed by unrecognized key ${key}`,
+                    });
+                  }
+                  if (githubActor && githubActor.toLowerCase() !== OWNER_LOGIN) {
+                    violations.push({
+                      rule: 'non-owner-github-actor',
+                      message: `GitHub web-flow merge triggered by actor "${githubActor}" violates owner-only identity policy (expected "${OWNER_LOGIN}")`,
+                    });
+                  }
+                }
+              } else if (committerEmailOk && !committerNameOk) {
+                violations.push({
+                  rule: 'invalid-committer-name',
+                  message: `committer name "${commit.committerName}" does not match required per-repo name "${REQUIRE_NAME}" (email "${commit.committerEmail}" is valid)`,
+                });
+              } else {
+                const bot = isBotIdentity(commit.committerName, commit.committerEmail);
+                violations.push({
+                  rule: bot ? 'bot-committer' : 'invalid-committer',
+                  message: bot
+                    ? `committer "${commit.committerName} <${commit.committerEmail}>" is a bot/automated account and violates the owner-only identity policy (expected ${expectedLabel})`
+                    : `committer "${commit.committerName} <${commit.committerEmail}>" does not use the owner email (expected ${expectedLabel} or verified GitHub web-flow merge)`,
+                });
+              }
+            }
+
+            return violations;
+          }
 
           function scan(text, { ignoreComments, respectScissors }) {
             const rawLines = String(text ?? '').replace(/\r\n/g, '\n').split('\n');
@@ -81,26 +219,37 @@ jobs:
           function readCommits(revArgs) {
             const REC = '\x1e';
             const FLD = '\x1f';
+            const format = `${REC}%H${FLD}%an${FLD}%ae${FLD}%cn${FLD}%ce${FLD}%P${FLD}%G?${FLD}%GK${FLD}%s${FLD}%B`;
             const out = execFileSync(
               'git',
-              ['log', ...revArgs, `--format=${REC}%H${FLD}%s${FLD}%B`],
+              ['-c', 'gpg.ssh.allowedSignersFile=/dev/null', 'log', ...revArgs, `--format=${format}`],
               { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
             );
             return out
               .split(REC)
               .filter(Boolean)
               .map((rec) => {
-                const i1 = rec.indexOf(FLD);
-                const i2 = rec.indexOf(FLD, i1 + 1);
+                const parts = rec.split(FLD);
+                const parentsRaw = (parts[5] || '').trim();
                 return {
-                  sha: rec.slice(0, i1).trim(),
-                  subject: rec.slice(i1 + 1, i2),
-                  body: rec.slice(i2 + 1),
+                  sha: (parts[0] || '').trim(),
+                  authorName: (parts[1] || '').trim(),
+                  authorEmail: (parts[2] || '').trim(),
+                  committerName: (parts[3] || '').trim(),
+                  committerEmail: (parts[4] || '').trim(),
+                  parents: parentsRaw ? parentsRaw.split(/\s+/) : [],
+                  sigStatus: (parts[6] || '').trim(),
+                  sigKey: (parts[7] || '').trim(),
+                  subject: parts[8] || '',
+                  body: parts.slice(9).join(FLD),
                 };
               });
           }
 
           const eventName = process.env.EVENT_NAME || '';
+          const prAuthorLogin = (process.env.PR_AUTHOR_LOGIN || '').trim();
+          const pushActor = eventName === 'push' ? (process.env.GITHUB_ACTOR || '').trim() : '';
+
           let revArgs = [];
           if (process.env.PR_BASE_SHA && process.env.PR_HEAD_SHA) {
             revArgs = [`${process.env.PR_BASE_SHA}..${process.env.PR_HEAD_SHA}`];
@@ -113,12 +262,26 @@ jobs:
           }
 
           let fail = 0;
+
+          if (prAuthorLogin && prAuthorLogin.toLowerCase() !== OWNER_LOGIN) {
+            const botNote = isBotLogin(prAuthorLogin) ? ' is a bot account and' : '';
+            console.error(
+              `::error::PR author "${prAuthorLogin}"${botNote} violates the owner-only identity policy (only ${OWNER_LOGIN} is allowed)`,
+            );
+            fail++;
+          }
+
           const commits = revArgs.length ? readCommits(revArgs) : [];
           for (const c of commits) {
+            const idViolations = checkIdentity(c, pushActor);
+            for (const v of idViolations) {
+              console.error(`::error::commit ${c.sha.slice(0, 10)} (${c.subject}) identity violation [${v.rule}]: ${v.message}`);
+              fail++;
+            }
             const hits = scan(c.body, { ignoreComments: true, respectScissors: true });
             if (hits.length > 0) {
               const rules = [...new Set(hits.map((h) => h.rule))].join(', ');
-              console.error(`::error::commit ${c.sha.slice(0, 10)} (${c.subject}) carries a forbidden AI attribution trailer [${rules}]`);
+              console.error(`::error::commit ${c.sha.slice(0, 10)} (${c.subject}) carries a forbidden attribution trailer [${rules}]`);
               fail++;
             }
           }
@@ -128,22 +291,22 @@ jobs:
             const titleHits = scan(process.env.PR_TITLE || '', { ignoreComments: false, respectScissors: false });
             if (titleHits.length > 0) {
               const rules = [...new Set(titleHits.map((h) => h.rule))].join(', ');
-              console.error(`::error::PR title carries a forbidden AI attribution trailer [${rules}]`);
+              console.error(`::error::PR title carries a forbidden attribution trailer [${rules}]`);
               fail++;
             }
             const bodyHits = scan(process.env.PR_BODY || '', { ignoreComments: false, respectScissors: false });
             if (bodyHits.length > 0) {
               const rules = [...new Set(bodyHits.map((h) => h.rule))].join(', ');
-              console.error(`::error::PR body / squash message carries a forbidden AI attribution trailer [${rules}]`);
+              console.error(`::error::PR body / squash message carries a forbidden attribution trailer [${rules}]`);
               fail++;
             }
           }
 
           if (fail > 0) {
-            console.error(`FAIL — ${fail} attribution-trailer violation(s) found. Make scan-commits a required status check to block merges.`);
+            console.error(`FAIL — ${fail} identity / attribution violation(s) found. Make scan-commits a required status check to block merges.`);
             process.exit(1);
           }
-          console.log(`OK — ${commits.length} commit(s) and PR metadata clean.`);
+          console.log(`OK — ${commits.length} commit(s) and PR metadata clean (owner-only identity verified).`);
           EOF
 
   hook-selftest:
@@ -157,9 +320,10 @@ jobs:
           node-version: "22"
       - name: Prepare D16 confinement barrier
         run: node scripts/test-sandbox.mjs --prepare-ci
-      - name: Verify the commit-msg hook and Node guard suite
+      - name: Verify the commit-msg hook, Node guard suite, and identity audit tool
         env:
           TMPDIR: ${{ runner.temp }}
         run: |
           node scripts/test-sandbox.mjs -- bash .githooks/test.sh
           node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/trailer-guard.test.js
+          node scripts/test-sandbox.mjs -- node --test scripts/audit-commit-identity.test.mjs
