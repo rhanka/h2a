@@ -15,9 +15,7 @@ import {
   signTrunkAuthPayload,
   verifyTrunkAuthPayload,
   projectCatalogueRow,
-  buildCatalogueSnapshot,
-  serializeCatalogueSnapshot,
-  parseCatalogueSnapshot,
+  isTrunkRecord,
   containsForbiddenLocalField,
   resolveFleetValve,
   classifyLaunchHost,
@@ -30,10 +28,14 @@ import {
   FakeEnrolmentVerifier,
   WET2_TEXT_HASH,
   FIXTURE_CONTRACT_METADATA,
-  assertFixtureContractVersion,
-  createFakeCatalogueTrunkProvider
+  assertFixtureContractVersion
 } from "./helpers/remote-trunk-fakes.js";
-import { createSimulatedTrunkContractProvider, PINNED_WET2_TEXT_HASH } from "./helpers/remote-trunk-peer.js";
+import {
+  CatalogueSliceStager,
+  PINNED_WET2_TEXT_HASH,
+  createSimulatedTrunkContractProvider,
+  provisionalWireRow
+} from "./helpers/remote-trunk-peer.js";
 
 // LH-00 contract fakes and flag. Every case runs under a temporary store root
 // and a temporary runtime directory derived from TMPDIR; no live state, no
@@ -370,21 +372,54 @@ test("catalogue snapshot round-trips through projector types", () => {
     const native = fixtureSession("sess-native", { cwd: "/hostile/home/secret", command: "hostile-command", nativePty: { session: "h2a-x" } });
     const tmuxed = fixtureSession("sess-tmux", { cwd: "/hostile/home", command: "hostile", tmux: { session: "h2a-y", pane: "%1" } });
     const unknown = fixtureSession("sess-unknown", { cwd: "/hostile", command: "hostile" });
-    const snapshot = buildCatalogueSnapshot([native, tmuxed, unknown], { at: 1700000000000 });
-    assert.equal(snapshot.t, "cat.snapshot");
-    assert.equal(snapshot.rows.length, 3);
-    const nativeRow = snapshot.rows.find((r) => r.sessionId === "sess-native");
+    const rows = [native, tmuxed, unknown].map((s) => projectCatalogueRow(s));
+    const nativeRow = rows.find((r) => r.sessionId === "sess-native");
     assert.equal(nativeRow.hostKind, "native");
     assert.equal(nativeRow.operable, true);
-    const tmuxRow = snapshot.rows.find((r) => r.sessionId === "sess-tmux");
+    const tmuxRow = rows.find((r) => r.sessionId === "sess-tmux");
     assert.equal(tmuxRow.hostKind, "tmux");
     assert.equal(tmuxRow.operable, false);
-    const serialized = serializeCatalogueSnapshot(snapshot);
-    const parsed = parseCatalogueSnapshot(serialized);
-    assert.deepEqual(parsed, snapshot);
-    assert.equal(containsForbiddenLocalField(snapshot), false);
-    assert.ok(!serialized.includes("/hostile"));
-    assert.ok(!serialized.includes("hostile-command"));
+
+    const provider = createSimulatedTrunkContractProvider();
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-lh00" });
+    let cursor = null;
+    let catSeq = 1;
+    let seq = 1;
+    const wireTexts = [];
+    for (;;) {
+      const prepared = provider.prepareNextCatalogueRecord({
+        mode: "snapshot",
+        nodeId: "node-lh00",
+        snapId: "snap-lh00",
+        rows,
+        truncatedRows: 0,
+        cursor,
+        nextCatSeq: catSeq,
+        nextSeq: seq
+      });
+      if (!prepared) break;
+      const frame = provider.encodeFrame(prepared.record);
+      const decoded = provider.decodeFrame(frame);
+      assert.equal(decoded.ok, true);
+      assert.equal(isTrunkRecord(decoded.record), true);
+      assert.equal(containsForbiddenLocalField(decoded.record), false);
+      wireTexts.push(canonicalTrunkJson(decoded.record));
+      const res = stager.ingest(decoded.record, decoded.encodedBodyBytes);
+      assert.equal(res.ok, true);
+      catSeq += 1;
+      seq += 1;
+      if (!prepared.nextCursor) break;
+      cursor = prepared.nextCursor;
+    }
+    const wireCombined = wireTexts.join("\n");
+    assert.ok(!wireCombined.includes("/hostile"));
+    assert.ok(!wireCombined.includes("hostile-command"));
+    const slice = stager.getSlice();
+    assert.equal(slice.rows.length, 3);
+    assert.equal(slice.rows.find((r) => r.sid === "sess-native").terminalHost, "native");
+    assert.equal(slice.rows.find((r) => r.sid === "sess-native").operable, true);
+    assert.equal(slice.rows.find((r) => r.sid === "sess-tmux").terminalHost, "tmux");
+    assert.equal(slice.rows.find((r) => r.sid === "sess-tmux").operable, false);
     const manual = projectCatalogueRow(native);
     assert.equal(manual.hostKind, "native");
     assert.ok(!JSON.stringify(manual).includes("hostile"));
@@ -397,16 +432,28 @@ test("catalogue parse rejects keys outside the whitelist", () => {
   const dirs = makeFixtureDirs();
   try {
     const native = fixtureSession("sess-wl", { cwd: "/x", command: "y", nativePty: { session: "h2a-w" } });
-    const snapshot = buildCatalogueSnapshot([native], { at: 1700000000000 });
-    for (const hostile of ["path", "env", "endpoints", "pid", "commandLine", "coordinates", "fileEndpoint", "extra"]) {
-      const tampered = JSON.parse(serializeCatalogueSnapshot(snapshot));
-      tampered.rows[0][hostile] = "hostile-value";
-      assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tampered)), TypeError, `row key ${hostile} must be rejected`);
+    const row = projectCatalogueRow(native);
+    const wire = provisionalWireRow(row);
+    const ALLOWED_WIRE_KEYS = new Set([
+      "sid", "instanceId", "instanceStatus", "cliHost", "name", "workspaceLabel",
+      "startedAt", "heartbeatAt", "workStatus", "terminalHost", "operable", "excluded"
+    ]);
+    for (const k of Object.keys(wire)) {
+      assert.ok(ALLOWED_WIRE_KEYS.has(k), `provisional wire row emitted unexpected key ${k}`);
     }
-    const tamperedEnvelope = JSON.parse(serializeCatalogueSnapshot(snapshot));
-    tamperedEnvelope.endpoints = ["https://evil.example"];
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tamperedEnvelope)), TypeError);
-    assert.deepEqual(parseCatalogueSnapshot(serializeCatalogueSnapshot(snapshot)), snapshot);
+    const serialized = canonicalTrunkJson(wire);
+    for (const hostile of ["path", "env", "endpoints", "pid", "commandLine", "coordinates", "fileEndpoint", "extra"]) {
+      assert.equal(serialized.includes(`"${hostile}":`), false);
+    }
+    assert.equal(isTrunkRecord({ v: 1, t: "cat.snapshot", ch: 1, s: 1, at: 1, rows: [wire] }), false);
+    assert.equal(
+      isTrunkRecord({ v: 1, t: "cat.snapshot.part", ch: 1, s: 1, catSeq: 1, nodeId: "node-1", snapId: "snap-1", part: 0, rows: [wire] }),
+      true
+    );
+    assert.equal(
+      isTrunkRecord({ v: 1, t: "cat.snapshot.part", ch: 1, s: 1, catSeq: 1, nodeId: "node-1", snapId: "snap-1", part: 0, rows: ["not-an-object"] }),
+      false
+    );
   } finally {
     cleanupDirs(dirs);
   }
@@ -594,12 +641,12 @@ test("WET-2.1 gate 6: single contractVersion WET-2.1 across all fakes providers"
   const keys = fixtureKeys("ver-check");
   const trunk = new FakeTrunkEndpoint({ tenantId: TENANT, endpoint: ENDPOINT, meshId: MESH, env: TEST_ENV });
   const verifier = new FakeEnrolmentVerifier({ tenantId: TENANT, endpoint: ENDPOINT, meshId: MESH, env: TEST_ENV });
-  const catProvider = createFakeCatalogueTrunkProvider({ env: TEST_ENV });
+  const peerContract = createSimulatedTrunkContractProvider();
   void keys;
   assert.equal(FIXTURE_CONTRACT_METADATA.contractVersion, "WET-2.1");
   assert.equal(trunk.metadata().contractVersion, "WET-2.1");
   assert.equal(verifier.metadata().contractVersion, "WET-2.1");
-  assert.equal(catProvider.metadata.contractVersion, "WET-2.1");
+  assert.equal(peerContract.wet2TextHash, WET2_TEXT_HASH);
   const fakesSrc = readFileSync(FAKES_PATH, "utf8");
   assert.equal(fakesSrc.includes('"WET-2"'), false, 'fakes.js must not contain standalone "WET-2"');
 });

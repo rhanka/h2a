@@ -15,11 +15,12 @@
  *   `<root>/remote-control/link-status.json` under `<root>/remote-control/.lock`.
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { LockTimeoutError, withLockSync } from "../local-files/locks.js";
+import { planCatalogueUpdate, type CatalogueProjection } from "./catalogue-plan.js";
 import { isRemoteControlEnabled, isRemoteControlKilledByEnv } from "./flag.js";
 import { loadNodeKey, type NodeKeyOptions } from "./node-key.js";
 import { readRemoteControlKillFlag, setRemoteControlKillFlag } from "./service.js";
@@ -35,13 +36,15 @@ import {
   type InstanceActResult
 } from "./trunk-instance.js";
 import {
+  CATALOGUE_SNAPSHOT_MAX_BYTES,
+  CATALOGUE_SNAPSHOT_MAX_PARTS,
   isTrunkRecord,
   signTrunkBytes,
   TRUNK_PROTOCOL_VERSION,
   type CatalogueDelta,
-  type CatalogueRowStatusUpdate,
   type CatalogueSessionRow,
-  type CatalogueSnapshot,
+  type CatalogueSnapshotEnd,
+  type CatalogueSnapshotPart,
   type CreditRecord,
   type InstanceBoundRecord,
   type InstanceRevokedRecord,
@@ -112,19 +115,7 @@ export interface TrunkConnector {
   open(endpoint: string, handlers: TrunkConnectionHandlers): TrunkConnection;
 }
 
-export type CatalogueStatusUpdate = CatalogueRowStatusUpdate;
-
-export type CatalogueEmitEvent =
-  | CatalogueSnapshot
-  | CatalogueDelta
-  | { readonly kind: "snapshot"; readonly at: number; readonly rows: readonly CatalogueSessionRow[]; readonly truncatedRows?: number }
-  | {
-      readonly kind: "delta";
-      readonly at: number;
-      readonly adds?: readonly CatalogueSessionRow[];
-      readonly updates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-      readonly removes?: readonly string[];
-    };
+export type CatalogueEmitEvent = CatalogueProjection;
 
 export interface TrunkCatalogueSource {
   startWatch(emit: (event: CatalogueEmitEvent) => void): void;
@@ -166,12 +157,9 @@ export interface TrunkInstanceBindPayload {
 }
 
 export interface PreparedCatalogueRecord {
-  readonly record: CatalogueSnapshot | CatalogueDelta;
+  readonly record: CatalogueSnapshotPart | CatalogueSnapshotEnd | CatalogueDelta;
   readonly encodedBytes: number;
   readonly nextCursor: unknown;
-  readonly deliveredAdds?: readonly CatalogueSessionRow[];
-  readonly deliveredUpdates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-  readonly deliveredRemoves?: readonly string[];
 }
 
 export interface TrunkContractProvider {
@@ -184,18 +172,35 @@ export interface TrunkContractProvider {
   decodeFrame(frame: Uint8Array | string): { readonly ok: true; readonly record: TrunkRecord; readonly encodedBodyBytes: number } | { readonly ok: false; readonly code: string };
   canonicalAuthBytes(payload: TrunkAuthPayload): Uint8Array;
   canonicalInstanceBindBytes(payload: TrunkInstanceBindPayload): Uint8Array;
-  prepareNextCatalogueRecord(request: {
-    readonly mode: "snapshot" | "delta";
-    readonly at: number;
-    readonly rows?: readonly CatalogueSessionRow[];
-    readonly truncatedRows?: number;
-    readonly removes?: readonly string[];
-    readonly updates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-    readonly adds?: readonly CatalogueSessionRow[];
-    readonly cursor: unknown;
-    readonly nextSeq: number;
-    readonly revokedInstanceIds?: ReadonlySet<string>;
-  }): PreparedCatalogueRecord | null;
+  measureJcsBytes(value: unknown): number;
+  planCatalogueSnapshot(request: {
+    readonly nodeId: string;
+    readonly snapId: string;
+    readonly rows: readonly CatalogueSessionRow[];
+    readonly truncatedRows: number;
+  }): { readonly partCount: number; readonly totalEncodedBytes: number };
+  prepareNextCatalogueRecord(
+    request:
+      | {
+          readonly mode: "snapshot";
+          readonly nodeId: string;
+          readonly snapId: string;
+          readonly rows: readonly CatalogueSessionRow[];
+          readonly truncatedRows: number;
+          readonly cursor: unknown;
+          readonly nextCatSeq: number;
+          readonly nextSeq: number;
+        }
+      | {
+          readonly mode: "delta";
+          readonly nodeId: string;
+          readonly removes: readonly string[];
+          readonly upserts: readonly CatalogueSessionRow[];
+          readonly cursor: unknown;
+          readonly nextCatSeq: number;
+          readonly nextSeq: number;
+        }
+  ): PreparedCatalogueRecord | null;
 }
 
 export interface TrunkAuditEvent {
@@ -363,13 +368,20 @@ export function writeLinkStatusFile(
   }
 }
 
-interface PendingDeltaState {
-  at: number;
-  removes: Set<string>;
-  priorityUpdates: Map<string, CatalogueStatusUpdate>;
-  updates: Map<string, CatalogueSessionRow>;
-  adds: Map<string, CatalogueSessionRow>;
-}
+type InFlightCatalogueSeries =
+  | {
+      readonly mode: "snapshot";
+      readonly snapId: string;
+      readonly projection: CatalogueProjection;
+      cursor: unknown;
+    }
+  | {
+      readonly mode: "delta";
+      readonly projection: CatalogueProjection;
+      readonly removes: readonly string[];
+      readonly upserts: readonly CatalogueSessionRow[];
+      cursor: unknown;
+    };
 
 interface ActiveConnectionState {
   readonly id: number;
@@ -390,27 +402,11 @@ interface ActiveConnectionState {
   livenessTimer: unknown;
   killWatchdogTimer: unknown;
   // Catalogue streaming state for this connection generation
-  deliveredRows: Map<string, CatalogueSessionRow>;
-  activeSnapshot: { at: number; rows: readonly CatalogueSessionRow[]; truncatedRows?: number } | null;
-  snapshotCursor: unknown;
-  queuedLatestSnapshot: { at: number; rows: readonly CatalogueSessionRow[]; truncatedRows?: number } | null;
-  pendingDelta: PendingDeltaState | null;
-  deltaCursor: unknown;
-  queuedDelta: PendingDeltaState | null;
-}
-
-function emptyDelta(at: number): PendingDeltaState {
-  return {
-    at,
-    removes: new Set(),
-    priorityUpdates: new Map(),
-    updates: new Map(),
-    adds: new Map()
-  };
-}
-
-function isStatusOnlyUpdate(u: CatalogueSessionRow | CatalogueStatusUpdate): u is CatalogueStatusUpdate {
-  return !("hostKind" in u) && "instanceStatus" in u && "instanceId" in u;
+  catSeq: number;
+  delivered: CatalogueProjection | null;
+  latest: CatalogueProjection | null;
+  refused: CatalogueProjection | null;
+  inFlight: InFlightCatalogueSeries | null;
 }
 
 export class TrunkClient {
@@ -641,13 +637,11 @@ export class TrunkClient {
       pongTimer: null,
       livenessTimer: null,
       killWatchdogTimer: null,
-      deliveredRows: new Map(),
-      activeSnapshot: null,
-      snapshotCursor: null,
-      queuedLatestSnapshot: null,
-      pendingDelta: null,
-      deltaCursor: null,
-      queuedDelta: null
+      catSeq: 0,
+      delivered: null,
+      latest: null,
+      refused: null,
+      inFlight: null
     };
     this.#activeConn = conn;
     this.#state = "connecting";
@@ -924,7 +918,8 @@ export class TrunkClient {
       rec.t === "auth" ||
       rec.t === "ready" ||
       rec.t === "instance.bind" ||
-      rec.t === "cat.snapshot" ||
+      rec.t === "cat.snapshot.part" ||
+      rec.t === "cat.snapshot.end" ||
       rec.t === "cat.delta" ||
       rec.t === "term.opened" ||
       rec.t === "term.out" ||
@@ -1088,104 +1083,30 @@ export class TrunkClient {
   #startWatch(conn: ActiveConnectionState): void {
     this.#stopIdleLiveness(conn);
     conn.watching = true;
-    conn.activeSnapshot = null;
-    conn.snapshotCursor = null;
-    conn.queuedLatestSnapshot = null;
-    conn.pendingDelta = null;
-    conn.deltaCursor = null;
-    conn.queuedDelta = null;
-    conn.deliveredRows.clear();
+    conn.delivered = null;
+    conn.latest = null;
+    conn.refused = null;
+    conn.inFlight = null;
 
-    this.#opts.catalogue.startWatch((ev) => {
+    this.#opts.catalogue.startWatch((projection) => {
       if (this.#activeConn !== conn || conn.closed || !conn.watching) return;
-      this.#onCatalogueEmit(conn, ev);
+      this.#onCatalogueEmit(conn, projection);
     });
   }
 
   #stopWatch(conn: ActiveConnectionState): void {
     if (!conn.watching) return;
     conn.watching = false;
-    conn.activeSnapshot = null;
-    conn.snapshotCursor = null;
-    conn.queuedLatestSnapshot = null;
-    conn.pendingDelta = null;
-    conn.deltaCursor = null;
-    conn.queuedDelta = null;
-    conn.deliveredRows.clear();
+    conn.delivered = null;
+    conn.latest = null;
+    conn.refused = null;
+    conn.inFlight = null;
     this.#opts.catalogue.stopWatch();
     this.#startIdleLiveness(conn);
   }
 
-  #onCatalogueEmit(conn: ActiveConnectionState, ev: CatalogueEmitEvent): void {
-    const isSnapshot = ("kind" in ev && ev.kind === "snapshot") || ("t" in ev && ev.t === "cat.snapshot");
-    if (isSnapshot) {
-      const snap = ev as CatalogueSnapshot | { readonly kind: "snapshot"; readonly at: number; readonly rows: readonly CatalogueSessionRow[]; readonly truncatedRows?: number };
-      if (conn.activeSnapshot !== null && conn.snapshotCursor !== null) {
-        // Under saturation keep at most current in-flight selection and latest bounded view.
-        conn.queuedLatestSnapshot = {
-          at: snap.at,
-          rows: snap.rows,
-          ...(snap.truncatedRows !== undefined ? { truncatedRows: snap.truncatedRows } : {})
-        };
-      } else {
-        conn.activeSnapshot = {
-          at: snap.at,
-          rows: snap.rows,
-          ...(snap.truncatedRows !== undefined ? { truncatedRows: snap.truncatedRows } : {})
-        };
-        conn.snapshotCursor = null;
-        conn.pendingDelta = null;
-        conn.deltaCursor = null;
-        conn.queuedDelta = null;
-      }
-      this.#pumpCatalogue(conn);
-      return;
-    }
-
-    // delta (`kind: "delta"` from test double or `t: "cat.delta"` from LH-06 projector)
-    const deltaEv = ev as CatalogueDelta | {
-      readonly kind: "delta";
-      readonly at: number;
-      readonly adds?: readonly CatalogueSessionRow[];
-      readonly updates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-      readonly removes?: readonly string[];
-    };
-    const target = conn.deltaCursor !== null
-      ? (conn.queuedDelta ??= emptyDelta(deltaEv.at))
-      : (conn.pendingDelta ??= emptyDelta(deltaEv.at));
-    target.at = deltaEv.at;
-
-    for (const sid of deltaEv.removes ?? []) {
-      target.adds.delete(sid);
-      target.updates.delete(sid);
-      target.priorityUpdates.delete(sid);
-      if (conn.deliveredRows.has(sid)) {
-        target.removes.add(sid);
-      }
-    }
-    for (const u of deltaEv.updates ?? []) {
-      if (isStatusOnlyUpdate(u)) {
-        if (conn.deliveredRows.has(u.sessionId)) {
-          target.priorityUpdates.set(u.sessionId, u);
-        }
-      } else {
-        target.removes.delete(u.sessionId);
-        if (conn.deliveredRows.has(u.sessionId)) {
-          target.updates.set(u.sessionId, u);
-        } else {
-          target.adds.set(u.sessionId, u);
-        }
-      }
-    }
-    for (const a of deltaEv.adds ?? []) {
-      target.removes.delete(a.sessionId);
-      if (conn.deliveredRows.has(a.sessionId)) {
-        target.updates.set(a.sessionId, a);
-      } else {
-        target.adds.set(a.sessionId, a);
-      }
-    }
-
+  #onCatalogueEmit(conn: ActiveConnectionState, projection: CatalogueProjection): void {
+    conn.latest = projection;
     this.#pumpCatalogue(conn);
   }
 
@@ -1200,102 +1121,109 @@ export class TrunkClient {
       if (conn.credit.availableOutput(1).records < 1) {
         return;
       }
-      const nextSeq = conn.outboundSeq + 1;
-      const revokedIds = this.#instanceManager?.revokedIds();
-
-      // Priority 1: snapshot (initial or remaining tail)
-      if (conn.activeSnapshot !== null) {
-        const prepared = contract.prepareNextCatalogueRecord({
-          mode: "snapshot",
-          at: conn.activeSnapshot.at,
-          rows: conn.activeSnapshot.rows,
-          ...(conn.activeSnapshot.truncatedRows !== undefined ? { truncatedRows: conn.activeSnapshot.truncatedRows } : {}),
-          cursor: conn.snapshotCursor,
-          nextSeq,
-          revokedInstanceIds: revokedIds
-        });
-        if (!prepared) {
-          conn.activeSnapshot = conn.queuedLatestSnapshot;
-          conn.queuedLatestSnapshot = null;
-          conn.snapshotCursor = null;
-          continue;
-        }
-        if (!conn.credit.canSendOutput(1, prepared.encodedBytes)) {
-          // Pause without consuming `s` or advancing cursor.
-          return;
-        }
-        const sent = this.#sendRecord(conn, prepared.record as unknown as Record<string, unknown>);
-        if (!sent) return;
-        conn.credit.recordSentOutput(1, prepared.encodedBytes);
-        for (const r of prepared.deliveredAdds ?? []) {
-          conn.deliveredRows.set(r.sessionId, r);
-        }
-        if (prepared.nextCursor === null || prepared.nextCursor === undefined) {
-          conn.activeSnapshot = conn.queuedLatestSnapshot;
-          conn.queuedLatestSnapshot = null;
-          conn.snapshotCursor = null;
-        } else {
-          conn.snapshotCursor = prepared.nextCursor;
-        }
-        continue;
+      if (conn.latest === null) {
+        return;
       }
 
-      // Priority 2: pending delta (priority status updates first, then removes/updates/adds via provider)
-      if (conn.pendingDelta !== null) {
-        const d = conn.pendingDelta;
-        const allUpdates: Array<CatalogueSessionRow | CatalogueStatusUpdate> = [
-          ...d.priorityUpdates.values(),
-          ...d.updates.values()
-        ];
-        const prepared = contract.prepareNextCatalogueRecord({
-          mode: "delta",
-          at: d.at,
-          removes: [...d.removes],
-          updates: allUpdates,
-          adds: [...d.adds.values()],
-          cursor: conn.deltaCursor,
-          nextSeq,
-          revokedInstanceIds: revokedIds
-        });
-        if (!prepared) {
-          conn.pendingDelta = conn.queuedDelta;
-          conn.queuedDelta = null;
-          conn.deltaCursor = null;
-          continue;
-        }
-        if (!conn.credit.canSendOutput(1, prepared.encodedBytes)) {
-          return;
-        }
-        const sent = this.#sendRecord(conn, prepared.record as unknown as Record<string, unknown>);
-        if (!sent) return;
-        conn.credit.recordSentOutput(1, prepared.encodedBytes);
-        for (const sid of prepared.deliveredRemoves ?? []) {
-          conn.deliveredRows.delete(sid);
-        }
-        for (const u of prepared.deliveredUpdates ?? []) {
-          if (isStatusOnlyUpdate(u)) {
-            const prev = conn.deliveredRows.get(u.sessionId);
-            if (prev) {
-              conn.deliveredRows.set(u.sessionId, { ...prev, instanceId: u.instanceId, instanceStatus: u.instanceStatus });
-            }
-          } else {
-            conn.deliveredRows.set(u.sessionId, u);
+      if (conn.inFlight === null) {
+        if (conn.refused !== null) {
+          if (planCatalogueUpdate(conn.refused, conn.latest).kind === "none") {
+            return;
           }
+          conn.refused = null;
         }
-        for (const a of prepared.deliveredAdds ?? []) {
-          conn.deliveredRows.set(a.sessionId, a);
+
+        const plan = planCatalogueUpdate(conn.delivered, conn.latest);
+        if (plan.kind === "none") {
+          return;
         }
-        if (prepared.nextCursor === null || prepared.nextCursor === undefined) {
-          conn.pendingDelta = conn.queuedDelta;
-          conn.queuedDelta = null;
-          conn.deltaCursor = null;
+
+        if (plan.kind === "snapshot") {
+          const snapId = randomUUID();
+          const metrics = contract.planCatalogueSnapshot({
+            nodeId: this.#opts.enrolment.nodeId,
+            snapId,
+            rows: conn.latest.rows,
+            truncatedRows: conn.latest.truncatedRows
+          });
+          if (
+            metrics.partCount > CATALOGUE_SNAPSHOT_MAX_PARTS ||
+            metrics.totalEncodedBytes > CATALOGUE_SNAPSHOT_MAX_BYTES
+          ) {
+            this.#sendRecord(conn, {
+              t: "err",
+              ch: 1,
+              code: "catalogue-too-large",
+              retryable: false
+            });
+            this.#emitAudit({
+              kind: "catalogue-too-large",
+              reason: `parts=${metrics.partCount},bytes=${metrics.totalEncodedBytes}`
+            });
+            conn.refused = conn.latest;
+            return;
+          }
+          conn.inFlight = {
+            mode: "snapshot",
+            snapId,
+            projection: conn.latest,
+            cursor: null
+          };
         } else {
-          conn.deltaCursor = prepared.nextCursor;
+          conn.inFlight = {
+            mode: "delta",
+            projection: conn.latest,
+            removes: plan.removes,
+            upserts: plan.upserts,
+            cursor: null
+          };
         }
-        continue;
       }
 
-      return;
+      const series = conn.inFlight;
+      const nextSeq = conn.outboundSeq + 1;
+      const nextCatSeq = conn.catSeq + 1;
+      const prepared =
+        series.mode === "snapshot"
+          ? contract.prepareNextCatalogueRecord({
+              mode: "snapshot",
+              nodeId: this.#opts.enrolment.nodeId,
+              snapId: series.snapId,
+              rows: series.projection.rows,
+              truncatedRows: series.projection.truncatedRows,
+              cursor: series.cursor,
+              nextCatSeq,
+              nextSeq
+            })
+          : contract.prepareNextCatalogueRecord({
+              mode: "delta",
+              nodeId: this.#opts.enrolment.nodeId,
+              removes: series.removes,
+              upserts: series.upserts,
+              cursor: series.cursor,
+              nextCatSeq,
+              nextSeq
+            });
+
+      if (!prepared) {
+        conn.delivered = series.projection;
+        conn.inFlight = null;
+        continue;
+      }
+      if (!conn.credit.canSendOutput(1, prepared.encodedBytes)) {
+        // Pause without consuming `s`, `catSeq`, or advancing cursor.
+        return;
+      }
+      const sent = this.#sendRecord(conn, prepared.record as unknown as Record<string, unknown>);
+      if (!sent) return;
+      conn.credit.recordSentOutput(1, prepared.encodedBytes);
+      conn.catSeq = nextCatSeq;
+      if (prepared.nextCursor === null || prepared.nextCursor === undefined) {
+        conn.delivered = series.projection;
+        conn.inFlight = null;
+      } else {
+        series.cursor = prepared.nextCursor;
+      }
     }
   }
 
@@ -1439,13 +1367,11 @@ export class TrunkClient {
       conn.watching = false;
       this.#opts.catalogue.stopWatch();
     }
-    conn.activeSnapshot = null;
-    conn.snapshotCursor = null;
-    conn.queuedLatestSnapshot = null;
-    conn.pendingDelta = null;
-    conn.deltaCursor = null;
-    conn.queuedDelta = null;
-    conn.deliveredRows.clear();
+    conn.catSeq = 0;
+    conn.delivered = null;
+    conn.latest = null;
+    conn.refused = null;
+    conn.inFlight = null;
 
     const closedChannels = [...conn.activeChannels];
     conn.activeChannels.clear();

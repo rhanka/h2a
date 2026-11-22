@@ -401,7 +401,7 @@ test("LH-08 host e2e: real PTY authority, coalescing cut, agent restart, zero in
 
   const stack = setupRealBridge(fx, () => [socketPath]);
   stack.peer.sendWatchStart(stack.conn);
-  await eventually(() => stack.projector.getSnapshot(), (s) => s !== null, "initial snapshot");
+  await eventually(() => stack.projector.getProjection(), (s) => s !== null, "initial snapshot");
 
   const sid = nativeCatalogueSid(id);
   const compSid = nativeCatalogueSid(compId);
@@ -466,7 +466,7 @@ test("LH-08 host e2e: real PTY authority, coalescing cut, agent restart, zero in
 
   const stack2 = setupRealBridge(fx, () => [socketPath]);
   stack2.peer.sendWatchStart(stack2.conn);
-  await eventually(() => stack2.projector.getSnapshot(), (s) => s !== null, "restarted snapshot");
+  await eventually(() => stack2.projector.getProjection(), (s) => s !== null, "restarted snapshot");
 
   const rxRestart = new HostReceiver();
   rxRestart.appliedSeq = savedApplied;
@@ -498,7 +498,7 @@ test("LH-08 host e2e: >=60s real monotonic pause on ch=2 while ch=3 continues, t
 
   const stack = setupRealBridge(fx, () => [socketPath]);
   stack.peer.sendWatchStart(stack.conn);
-  await eventually(() => stack.projector.getSnapshot(), (s) => s !== null, "snapshot");
+  await eventually(() => stack.projector.getProjection(), (s) => s !== null, "snapshot");
 
   const sid = nativeCatalogueSid(id);
   sendChildCommand(child.cmdFile, 1, "line", { text: "INIT-LINE\n" });
@@ -645,7 +645,7 @@ test("LH-08 host e2e: child exit, same-name respawn, host replacement, off, and 
   let activeSockets = [sock1];
   const stack = setupRealBridge(fx, () => activeSockets);
   stack.peer.sendWatchStart(stack.conn);
-  await eventually(() => stack.projector.getSnapshot(), (s) => s !== null, "snapshot");
+  await eventually(() => stack.projector.getProjection(), (s) => s !== null, "snapshot");
 
   const sid = nativeCatalogueSid(id);
   const rx = new HostReceiver();
