@@ -697,8 +697,12 @@ function isVitestFile(repoRoot, testPath) {
 
 function makeWritableWorkdir(repoRoot) {
   if (process.env[TEST_STATE_BARRIER_ENV] === "1" && process.env.TMPDIR) {
-    mkdirSync(process.env.TMPDIR, { recursive: true });
-    return mkdtempSync(join(process.env.TMPDIR, "change-risk-"));
+    try {
+      mkdirSync(process.env.TMPDIR, { recursive: true });
+      return mkdtempSync(join(process.env.TMPDIR, "change-risk-"));
+    } catch {
+      // TMPDIR may be read-only; fall through to repo-local tmp/
+    }
   }
   const repoTmp = join(resolve(repoRoot), "tmp");
   try {

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -45,6 +54,11 @@ function initTempGitRepo(prefix = "crap-repo-") {
   runGit(dir, ["init", "-b", "main"]);
   runGit(dir, ["config", "user.name", "Test User"]);
   runGit(dir, ["config", "user.email", "test@example.com"]);
+  // Provide repo-local typescript so createRequire(resolve(repo, "package.json"))
+  // resolves even when TMPDIR sits outside the workspace (e.g. /run/h2a-test/r/tmp in CI).
+  mkdirSync(join(dir, "node_modules"), { recursive: true });
+  symlinkSync(join(REPO_ROOT, "node_modules", "typescript"), join(dir, "node_modules", "typescript"), "dir");
+  writeFileSync(join(dir, ".gitignore"), "tmp/\nnode_modules/\n");
   return dir;
 }
 
@@ -703,7 +717,6 @@ test("turnkey --test runs Node test with coverage even when TMPDIR is read-only,
   try {
     mkdirSync(join(repo, "src"), { recursive: true });
     mkdirSync(join(repo, "test"), { recursive: true });
-    writeFileSync(join(repo, ".gitignore"), "tmp/\n");
     writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "l1-fixture", type: "module" }));
     writeFileSync(
       join(repo, "src/calc.mjs"),
@@ -791,7 +804,6 @@ test("turnkey --test re-executes inside scripts/test-sandbox.mjs and auto-import
     mkdirSync(join(repo, "scripts"), { recursive: true });
     mkdirSync(join(repo, "packages/h2a/src"), { recursive: true });
     mkdirSync(join(repo, "packages/h2a/test/helpers"), { recursive: true });
-    writeFileSync(join(repo, ".gitignore"), "tmp/\n");
     writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "sb-fixture", type: "module" }));
     writeFileSync(
       join(repo, "packages/h2a/src/widget.mjs"),
@@ -894,7 +906,6 @@ test("turnkey --test maps compiled JS back to TS via --enable-source-maps and in
     mkdirSync(join(repo, "src"), { recursive: true });
     mkdirSync(join(repo, "dist"), { recursive: true });
     mkdirSync(join(repo, "test"), { recursive: true });
-    writeFileSync(join(repo, ".gitignore"), "tmp/\n");
     writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "smap-fixture", type: "module" }));
 
     const compileWithMap = (source) => {
