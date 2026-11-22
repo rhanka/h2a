@@ -17,6 +17,7 @@ import {
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NATIVE_TERMINAL_SOFT_RESPAWN_REQUEST_TIMEOUT_MS,
   NativeTerminalRemoteError,
+  applicationForeground,
   parseNativeTerminalResponse,
   type NativeTerminalPing,
   type NativeTerminalRequest,
@@ -33,6 +34,10 @@ type PendingRequest = {
   reject(error: Error): void;
   timeout: NodeJS.Timeout;
 };
+
+function withApplicationForeground(state: NativeTerminalSessionState): NativeTerminalSessionState {
+  return { ...state, ...applicationForeground(state) };
+}
 
 export class NativeTerminalRequestTimeoutError extends Error {
   readonly operation: NativeTerminalRequest["operation"];
@@ -140,28 +145,30 @@ export class NativeTerminalClient {
     return this.#request("ping", undefined, timeoutMs) as Promise<NativeTerminalPing>;
   }
 
-  create(options: NativeTerminalCreateOptions): Promise<NativeTerminalSessionState> {
-    return this.#request("create", options) as Promise<NativeTerminalSessionState>;
+  async create(options: NativeTerminalCreateOptions): Promise<NativeTerminalSessionState> {
+    return withApplicationForeground(await this.#request("create", options) as NativeTerminalSessionState);
   }
 
-  list(): Promise<ReadonlyArray<NativeTerminalSessionState>> {
-    return this.#request("list") as Promise<ReadonlyArray<NativeTerminalSessionState>>;
+  async list(): Promise<ReadonlyArray<NativeTerminalSessionState>> {
+    const sessions = await this.#request("list") as ReadonlyArray<NativeTerminalSessionState>;
+    return sessions.map(withApplicationForeground);
   }
 
-  state(id: string): Promise<NativeTerminalSessionState> {
-    return this.#request("state", { id }) as Promise<NativeTerminalSessionState>;
+  async state(id: string): Promise<NativeTerminalSessionState> {
+    return withApplicationForeground(await this.#request("state", { id }) as NativeTerminalSessionState);
   }
 
-  readOutput(
+  async readOutput(
     id: string,
     afterSeq: number,
     timeoutMs = this.#requestTimeoutMs,
   ): Promise<NativeTerminalReplay> {
-    return this.#request(
+    const replay = await this.#request(
       "read-output",
       { id, afterSeq },
       timeoutMs,
-    ) as Promise<NativeTerminalReplay>;
+    ) as NativeTerminalReplay;
+    return replay.state === undefined ? replay : { ...replay, state: withApplicationForeground(replay.state) };
   }
 
   attachObserver(id: string): Promise<NativeTerminalObserverAttachment> {

@@ -257,7 +257,7 @@ export type NativeSessionState = {
    * and fail closed (report, don't relaunch), never as "uncontrolled".
    */
   readonly controlled?: boolean;
-};
+} & Partial<import("./native-terminal/protocol.js").ApplicationForeground>;
 
 export type NativeStartResult = {
   readonly name: string;

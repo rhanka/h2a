@@ -217,6 +217,7 @@ import {
   type RestoreOptions,
 } from "./restore.js";
 import { getLayoutConfig } from "./config.js";
+import { humanOutputText } from "./human-output.js";
 import { resolvePinnedLaunchEntries } from "./resume-launch-options.js";
 import {
   isManagedLocalKind,
@@ -10345,7 +10346,48 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
-        const { total } = restoreLayout(restoreOpts);
+        const restoreResult = restoreLayout(restoreOpts);
+        const { total } = restoreResult;
+        const ledger = Array.isArray(restoreResult.ledger) ? restoreResult.ledger : undefined;
+        const observedTotals =
+          restoreResult.observedTotals && typeof restoreResult.observedTotals === "object"
+            ? restoreResult.observedTotals
+            : undefined;
+        if (typeof restoreResult.exitCode === "number" && restoreResult.exitCode !== 0) {
+          process.exitCode = restoreResult.exitCode;
+        }
+        if (ledger !== undefined) {
+          if (ledger.length === 0) {
+            process.stderr.write(`[h2a] ${humanOutputText("restore.ledger.noCandidates")}\n`);
+          } else {
+            for (const entry of ledger) {
+              const labelKey =
+                entry.outcome === "already-active"
+                  ? "restore.ledger.alreadyActive"
+                  : entry.outcome === "attached"
+                    ? "restore.ledger.attached"
+                    : entry.outcome === "resumed-in-place"
+                      ? "restore.ledger.resumedInPlace"
+                      : entry.outcome === "recreated"
+                        ? "restore.ledger.recreated"
+                        : entry.outcome.startsWith("deferred:")
+                          ? "restore.ledger.deferred"
+                          : entry.outcome.startsWith("excluded:")
+                            ? "restore.ledger.excluded"
+                            : "restore.ledger.failed";
+              process.stderr.write(
+                `  [ledger] ${entry.label}: ${humanOutputText(labelKey)} (${entry.outcome})\n`,
+              );
+            }
+            if (observedTotals !== undefined) {
+              let totalsLine = humanOutputText("restore.ledger.totals");
+              for (const [k, v] of Object.entries(observedTotals)) {
+                totalsLine = totalsLine.split(`{${k}}`).join(String(v));
+              }
+              process.stderr.write(`[h2a] ${totalsLine}\n`);
+            }
+          }
+        }
         if (total === 0) {
           process.stderr.write(
             `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,
