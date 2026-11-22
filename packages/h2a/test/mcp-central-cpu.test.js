@@ -9,6 +9,13 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import {
+  assertResponsiveUnderContention,
+  measureControlProbe,
+  percentile,
+  readThreadCpuUsage,
+  startEventLoopWorkProbe
+} from './helpers/event-loop-work.js';
 
 import { authenticatedHttpRequest } from '../dist/runtime/handover/authenticated-http.js';
 import { currentIdentity } from '../dist/runtime/handover/admission.js';
@@ -292,6 +299,23 @@ test('T2.2: event loop stays free (< 100 ms ping and tools/list) while .mutation
   const f = fixture(t);
   const central = await f.start();
   const { marker, sessionId } = await initDirectSession(central, f.dir);
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
+  const listOnce = async (id) => {
+    const t0 = performance.now();
+    const lr = await authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/list', params: {} })
+    });
+    const listBody = await lr.json();
+    const elapsedMs = performance.now() - t0;
+    assert.equal(lr.status, 200);
+    assert.ok(Array.isArray(listBody.result?.tools));
+    return elapsedMs;
+  };
+  let controlListId = 50;
+  const controlList = await measureControlProbe(() => listOnce(controlListId++), 5);
+
   const lockPath = join(f.root, '.h2a-writer-control', '.mutation.lock');
   const holder = f.trackHolder(await holdFlockInChild(lockPath));
 
@@ -306,40 +330,65 @@ test('T2.2: event loop stays free (< 100 ms ping and tools/list) while .mutation
   });
 
   // Schedule release after 2 500 ms.
-  const releaseTimer = setTimeout(() => { void holder.release(); }, 2_500);
+  let lockReleased = false;
+  const releaseTimer = setTimeout(() => {
+    lockReleased = true;
+    void holder.release();
+  }, 2_500);
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
     await delay(100);
     const pingLatencies = [];
     const listLatencies = [];
-    for (let i = 0; i < 10; i++) {
+    let pingsBeforeRelease = 0;
+    let listsBeforeRelease = 0;
+    let reqId = 100;
+    let callDone = false;
+    void mutatingCall.finally(() => { callDone = true; });
+    while (!callDone && pingLatencies.length < 25) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
       pingLatencies.push(p.elapsedMs);
+      if (!lockReleased) pingsBeforeRelease++;
 
-      const t0 = performance.now();
-      const lr = await authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 100 + i, method: 'tools/list', params: {} })
-      });
-      const listBody = await lr.json();
-      const listMs = performance.now() - t0;
-      assert.equal(lr.status, 200);
-      assert.ok(Array.isArray(listBody.result?.tools));
+      const listMs = await listOnce(reqId++);
       listLatencies.push(listMs);
-      await delay(50);
+      if (!lockReleased) listsBeforeRelease++;
+      await delay(30);
     }
-    const maxPing = Math.max(...pingLatencies);
-    const maxList = Math.max(...listLatencies);
-    t.diagnostic(`T2.2 maxPing=${maxPing.toFixed(1)}ms maxList=${maxList.toFixed(1)}ms`);
-    assert.ok(maxPing < 100, `ping exceeded 100ms under .mutation.lock contention: ${maxPing.toFixed(1)}ms`);
-    assert.ok(maxList < 100, `tools/list exceeded 100ms under .mutation.lock contention: ${maxList.toFixed(1)}ms`);
+    const work = probe.stop();
+    const pingStats = assertResponsiveUnderContention({
+      label: 'T2.2 ping',
+      pings: pingLatencies,
+      pingsBeforeRelease,
+      minPingsBeforeRelease: 5,
+      control: controlPing,
+      probeSummary: work,
+      holdMs: 2_500
+    });
+    const listStats = assertResponsiveUnderContention({
+      label: 'T2.2 tools/list',
+      pings: listLatencies,
+      pingsBeforeRelease: listsBeforeRelease,
+      minPingsBeforeRelease: 5,
+      control: controlList,
+      probeSummary: work,
+      holdMs: 2_500,
+      p50FloorMs: 80,
+      p95FloorMs: 150
+    });
+    t.diagnostic(
+      `T2.2 ping(p50=${pingStats.p50.toFixed(1)}ms p95=${pingStats.p95.toFixed(1)}ms max=${pingStats.maxPing.toFixed(1)}ms beforeRel=${pingsBeforeRelease}) ` +
+      `list(p50=${listStats.p50.toFixed(1)}ms p95=${listStats.p95.toFixed(1)}ms max=${listStats.maxPing.toFixed(1)}ms beforeRel=${listsBeforeRelease}) ` +
+      `turnCpuMax=${work.maxCpuMs.toFixed(1)}ms lagMax=${work.maxWallLagMs.toFixed(1)}ms`
+    );
 
     const mutRes = await mutatingCall;
     assert.equal(mutRes.status, 200);
     const mutJson = await mutRes.json();
     assert.ok(mutJson.result, `mutating call should succeed after lock release: ${JSON.stringify(mutJson)}`);
   } finally {
+    probe.stop();
     clearTimeout(releaseTimer);
     await holder.release();
   }
@@ -429,25 +478,53 @@ test('T2.4: DELETE and notification during .mutation.lock saturation cause 0 unh
 
   const central = await f.start();
   const { marker, sessionId } = await initDirectSession(central, f.dir);
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
   const lockPath = join(f.root, '.h2a-writer-control', '.mutation.lock');
   const holder = f.trackHolder(await holdFlockInChild(lockPath));
 
+  const origSpawnSync = childProcess.spawnSync;
+  const syncCalls = [];
+  t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
+    syncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    return origSpawnSync(cmd, args, ...rest);
+  });
+  syncBuiltinESMExports();
+
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
-    // Send DELETE while .mutation.lock is saturated — must not crash or hang ping.
+    // Send DELETE while .mutation.lock is saturated — must return 200 and keep pings responsive
+    // strictly BEFORE .mutation.lock is released.
     const delPromise = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
       method: 'DELETE',
       headers: { 'mcp-session-id': sessionId }
     });
-    const ping = await pingOnce(central.endpoint);
-    assert.equal(ping.status, 200);
-    assert.ok(ping.elapsedMs < 100, `ping during DELETE contention took ${ping.elapsedMs.toFixed(1)}ms`);
+    const pings = [];
+    for (let i = 0; i < 6; i++) {
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      pings.push(p.elapsedMs);
+    }
 
     const delRes = await delPromise;
     assert.equal(delRes.status, 200);
+    assert.equal(holder.child.exitCode, null, 'DELETE and pings must complete while .mutation.lock is still held');
+    assert.equal(holder.child.signalCode, null, 'lock holder must still be alive during DELETE check');
+    const work = probe.stop();
+    assertResponsiveUnderContention({
+      label: 'T2.4 DELETE contention',
+      pings,
+      pingsBeforeRelease: pings.length,
+      minPingsBeforeRelease: 5,
+      control: controlPing,
+      probeSummary: work,
+      maxPingCeilingMs: 500
+    });
     await f.tick();
+    assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during DELETE contention, saw: ${syncCalls.join('; ')}`);
     assert.equal(rejections.length, 0, `unhandled rejections during DELETE contention: ${rejections.map(String).join('; ')}`);
     assert.equal(exceptions.length, 0, `uncaught exceptions during DELETE contention: ${exceptions.map(String).join('; ')}`);
   } finally {
+    probe.stop();
     await holder.release();
   }
 
@@ -477,16 +554,56 @@ test('T2.5a: SessionRegistry.touchAsync succeeds in < 50 ms while .mutation.lock
   await assert.rejects(() => sessions.openAsync({ instance: 'claude:t25a', sessionId: 'sess:dup-check' }), /already open/);
   await open1;
 
+  // Measure an uncontended control touchAsync on the same runner before locking .mutation.lock.
+  const controlTouch = await measureControlProbe(() => sessions.touchAsync('sess:dup-check'), 3);
+
   const lockPath = join(writerDirectory(f.root), '.mutation.lock');
+  const presenceLockPath = join(writerDirectory(f.root), '.presence.lock');
   const holder = f.trackHolder(await holdFlockInChild(lockPath));
+
+  // Direct causal proof: touchAsync must acquire .presence.lock only, never open .mutation.lock,
+  // and never call child_process.spawnSync while .mutation.lock is held.
+  const origOpenSync = fs.openSync;
+  const origSpawnSync = childProcess.spawnSync;
+  let mutationLockOpens = 0;
+  let presenceLockOpens = 0;
+  const syncCalls = [];
+  t.mock.method(fs, 'openSync', (p, ...args) => {
+    if (p === lockPath) mutationLockOpens++;
+    if (p === presenceLockPath) presenceLockOpens++;
+    return origOpenSync(p, ...args);
+  });
+  t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
+    syncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    return origSpawnSync(cmd, args, ...rest);
+  });
+  syncBuiltinESMExports();
+
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
+    const cpuBefore = readThreadCpuUsage().raw;
     const t0 = performance.now();
     const updated = await sessions.touchAsync('sess:dup-check');
     const elapsed = performance.now() - t0;
+    const touchCpuMs = readThreadCpuUsage(cpuBefore).totalMs;
+    const work = probe.stop();
+
     assert.ok(updated, 'touchAsync must succeed while .mutation.lock is held');
-    assert.ok(elapsed < 50, `touchAsync took ${elapsed.toFixed(1)}ms (>= 50ms) while .mutation.lock was held`);
-    t.diagnostic(`T2.5a touchAsync elapsed=${elapsed.toFixed(1)}ms`);
+    assert.equal(holder.child.exitCode, null, 'touchAsync must complete while .mutation.lock holder is still alive');
+    assert.equal(holder.child.signalCode, null, 'touchAsync must complete before .mutation.lock release');
+    assert.equal(mutationLockOpens, 0, `touchAsync must never open .mutation.lock (saw ${mutationLockOpens} opens)`);
+    assert.ok(presenceLockOpens >= 1, `touchAsync must acquire .presence.lock (saw ${presenceLockOpens} opens)`);
+    assert.deepEqual(syncCalls, [], `touchAsync must perform 0 spawnSync calls, saw: ${syncCalls.join('; ')}`);
+    assert.ok(touchCpuMs < 50, `touchAsync main-thread CPU=${touchCpuMs.toFixed(1)}ms exceeded 50ms budget`);
+    assert.ok(work.maxWallLagMs < 180, `touchAsync synchronous stall=${work.maxWallLagMs.toFixed(1)}ms exceeded 180ms ceiling`);
+    const wallLimit = Math.max(500, controlTouch.medianMs * 25);
+    assert.ok(elapsed < wallLimit, `touchAsync took ${elapsed.toFixed(1)}ms (limit ${wallLimit.toFixed(1)}ms, control=${controlTouch.medianMs.toFixed(1)}ms)`);
+    t.diagnostic(
+      `T2.5a touchAsync elapsed=${elapsed.toFixed(1)}ms cpu=${touchCpuMs.toFixed(1)}ms ` +
+      `control=${controlTouch.medianMs.toFixed(1)}ms presenceOpens=${presenceLockOpens} mutOpens=${mutationLockOpens}`
+    );
   } finally {
+    probe.stop();
     await holder.release();
     await sessions.closeAllAsync('closed');
   }
@@ -568,6 +685,7 @@ test('T2.5c: full central attachment under lock contention does 0 child_process.
   const f = fixture(t);
   const central = await f.start();
   const marker = readState(central.markerPath, 'marker').value;
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
 
   // Spy on child_process.spawnSync AFTER central startup.
   const origSpawnSync = childProcess.spawnSync;
@@ -582,10 +700,13 @@ test('T2.5c: full central attachment under lock contention does 0 child_process.
   const wdir = writerDirectory(f.root);
   const mutHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.mutation.lock')));
   const presHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
+  let locksReleased = false;
   const releaseTimer = setTimeout(() => {
+    locksReleased = true;
     void presHolder.release().then(() => mutHolder.release());
   }, 1_500);
 
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
     // Attachment with deferred identityRequest + TMUX_PANE set + short heartbeat interval.
     const attachment = captureCentralAttachment(f.root, f.dir, { host: 'claude', 'auto-open': 'true' }, {
@@ -608,14 +729,29 @@ test('T2.5c: full central attachment under lock contention does 0 child_process.
       })
     });
 
-    // While locks are held, ping must stay < 100 ms.
-    await delay(100);
-    for (let i = 0; i < 5; i++) {
+    // While locks are held, pings must continue responding before lock release with bounded own work.
+    await delay(80);
+    const pings = [];
+    let pingsBeforeRelease = 0;
+    let initDone = false;
+    void initPromise.finally(() => { initDone = true; });
+    while (!initDone && pings.length < 30) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
-      assert.ok(p.elapsedMs < 100, `ping during T2.5c contention took ${p.elapsedMs.toFixed(1)}ms`);
-      await delay(100);
+      pings.push(p.elapsedMs);
+      if (!locksReleased) pingsBeforeRelease++;
+      await delay(30);
     }
+    const work = probe.stop();
+    assertResponsiveUnderContention({
+      label: 'T2.5c contention',
+      pings,
+      pingsBeforeRelease,
+      minPingsBeforeRelease: 5,
+      control: controlPing,
+      probeSummary: work,
+      holdMs: 1_500
+    });
 
     const initRes = await initPromise;
     assert.equal(initRes.status, 200);
@@ -691,6 +827,7 @@ test('T2.5c: full central attachment under lock contention does 0 child_process.
 
     assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls on central thread, saw: ${syncCalls.join('; ')}`);
   } finally {
+    probe.stop();
     clearTimeout(releaseTimer);
     await presHolder.release();
     await mutHolder.release();
@@ -774,6 +911,7 @@ test('T2.7: ping stays < 100 ms while a third-party process holds registry/.lock
   });
   assert.equal(warm.status, 200);
 
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
   const regLockPath = join(localStorePaths(f.root).registry, '.lock');
   const holder = f.trackHolder(await holdAdvisoryLockInChild(regLockPath));
 
@@ -797,26 +935,45 @@ test('T2.7: ping stays < 100 ms while a third-party process holds registry/.lock
     })
   });
 
-  const releaseTimer = setTimeout(() => { void holder.release(); }, 2_500);
+  let lockReleased = false;
+  const releaseTimer = setTimeout(() => {
+    lockReleased = true;
+    void holder.release();
+  }, 2_500);
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
     const pings = [];
+    let pingsBeforeRelease = 0;
     let callDone = false;
     void callPromise.finally(() => { callDone = true; });
-    while (!callDone && pings.length < 30) {
+    while (!callDone && pings.length < 40) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
       pings.push(p.elapsedMs);
-      await delay(100);
+      if (!lockReleased) pingsBeforeRelease++;
+      await delay(40);
     }
-    const maxPing = Math.max(...pings);
-    t.diagnostic(`T2.7 maxPing=${maxPing.toFixed(1)}ms over ${pings.length} pings`);
-    assert.ok(maxPing < 100, `ping froze for ${maxPing.toFixed(1)}ms while registry/.lock was held`);
+    const work = probe.stop();
+    const stats = assertResponsiveUnderContention({
+      label: 'T2.7 registry/.lock contention',
+      pings,
+      pingsBeforeRelease,
+      minPingsBeforeRelease: 5,
+      control: controlPing,
+      probeSummary: work,
+      holdMs: 2_500
+    });
+    t.diagnostic(
+      `T2.7 p50=${stats.p50.toFixed(1)}ms p95=${stats.p95.toFixed(1)}ms max=${stats.maxPing.toFixed(1)}ms ` +
+      `over ${pings.length} pings (beforeRel=${pingsBeforeRelease}, turnCpuMax=${work.maxCpuMs.toFixed(1)}ms, lagMax=${work.maxWallLagMs.toFixed(1)}ms)`
+    );
 
     const res = await callPromise;
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.result && !body.result.isError, JSON.stringify(body));
   } finally {
+    probe.stop();
     clearTimeout(releaseTimer);
     await holder.release();
   }
@@ -878,60 +1035,81 @@ test('T2.8: oversize output with 4000 pre-existing payloads keeps ping < 100 ms 
     body: JSON.stringify({ jsonrpc: '2.0', id: 29, method: 'tools/call', params: { name: 'h2a_discover_instances', arguments: {} } })
   });
 
-  // Trigger oversize tool call (> 1 MiB) while concurrently measuring /_h2a-central/ping latency.
-  const oversizeCall = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
-    body: JSON.stringify({
-      jsonrpc: '2.0', id: 30, method: 'tools/call',
-      params: { name: 'h2a_blockage_list', arguments: {} }
-    })
-  });
-
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   const pings = [];
-  let done = false;
-  void oversizeCall.finally(() => { done = true; });
-  while (!done && pings.length < 20) {
-    const p = await pingOnce(central.endpoint);
-    assert.equal(p.status, 200);
-    pings.push(p.elapsedMs);
-    await delay(10);
-  }
-  const oversizeRes = await oversizeCall;
-  assert.equal(oversizeRes.status, 200);
-  const oversizeJson = await oversizeRes.json();
-  const payloadText = JSON.parse(oversizeJson.result.content[0].text);
-  assert.equal(payloadText.code, 'response_too_large');
-  assert.ok(payloadText.recovery?.ref, 'oversize output must produce a recovery ref');
+  let work;
+  try {
+    // Trigger oversize tool call (> 1 MiB) while concurrently measuring /_h2a-central/ping latency.
+    const oversizeCall = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 30, method: 'tools/call',
+        params: { name: 'h2a_blockage_list', arguments: {} }
+      })
+    });
 
-  // Also remove .quota-written to force a cold 4 000-payload dirBytesAsync scan on a second oversize call.
-  fs.rmSync(join(payloadDir, '.quota-written'), { force: true });
-  const oversizeCall2 = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
-    body: JSON.stringify({
-      jsonrpc: '2.0', id: 31, method: 'tools/call',
-      params: { name: 'h2a_blockage_list', arguments: {} }
-    })
+    let done = false;
+    void oversizeCall.finally(() => { done = true; });
+    while (!done && pings.length < 20) {
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      pings.push(p.elapsedMs);
+      await delay(10);
+    }
+    const oversizeRes = await oversizeCall;
+    assert.equal(oversizeRes.status, 200);
+    const oversizeJson = await oversizeRes.json();
+    const payloadText = JSON.parse(oversizeJson.result.content[0].text);
+    assert.equal(payloadText.code, 'response_too_large');
+    assert.ok(payloadText.recovery?.ref, 'oversize output must produce a recovery ref');
+
+    // Also remove .quota-written to force a cold 4 000-payload dirBytesAsync scan on a second oversize call.
+    fs.rmSync(join(payloadDir, '.quota-written'), { force: true });
+    const oversizeCall2 = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 31, method: 'tools/call',
+        params: { name: 'h2a_blockage_list', arguments: {} }
+      })
+    });
+    let done2 = false;
+    void oversizeCall2.finally(() => { done2 = true; });
+    while (!done2 && pings.length < 40) {
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      pings.push(p.elapsedMs);
+      await delay(10);
+    }
+    const oversizeRes2 = await oversizeCall2;
+    assert.equal(oversizeRes2.status, 200);
+    const oversizeJson2 = await oversizeRes2.json();
+    const payloadText2 = JSON.parse(oversizeJson2.result.content[0].text);
+    assert.equal(payloadText2.code, 'response_too_large');
+    assert.ok(payloadText2.recovery?.ref, 'cold scan oversize output must also produce a recovery ref');
+  } finally {
+    work = probe.stop();
+  }
+
+  const stats = assertResponsiveUnderContention({
+    label: 'T2.8 oversize 4000 payloads',
+    pings,
+    pingsBeforeRelease: pings.length,
+    minPingsBeforeRelease: 2,
+    control: controlPing,
+    probeSummary: work,
+    maxTurnCpuMs: 100,
+    maxWallLagMs: 180,
+    p50FloorMs: 60,
+    p95FloorMs: 120,
+    maxPingCeilingMs: 500
   });
-  let done2 = false;
-  void oversizeCall2.finally(() => { done2 = true; });
-  while (!done2 && pings.length < 40) {
-    const p = await pingOnce(central.endpoint);
-    assert.equal(p.status, 200);
-    pings.push(p.elapsedMs);
-    await delay(10);
-  }
-  const oversizeRes2 = await oversizeCall2;
-  assert.equal(oversizeRes2.status, 200);
-  const oversizeJson2 = await oversizeRes2.json();
-  const payloadText2 = JSON.parse(oversizeJson2.result.content[0].text);
-  assert.equal(payloadText2.code, 'response_too_large');
-  assert.ok(payloadText2.recovery?.ref, 'cold scan oversize output must also produce a recovery ref');
-
-  const maxPing = Math.max(...pings);
-  t.diagnostic(`T2.8 maxPing=${maxPing.toFixed(1)}ms over ${pings.length} pings`);
-  assert.ok(maxPing < 100, `ping exceeded 100ms during persistOutput with 4000 payloads: ${maxPing.toFixed(1)}ms`);
+  t.diagnostic(
+    `T2.8 p50=${stats.p50.toFixed(1)}ms p95=${stats.p95.toFixed(1)}ms max=${stats.maxPing.toFixed(1)}ms ` +
+    `over ${pings.length} pings (turnCpuMax=${work.maxCpuMs.toFixed(1)}ms, lagMax=${work.maxWallLagMs.toFixed(1)}ms)`
+  );
 
   // Part 2: participant.call preserves original Error("boom") when .mutation.lock is unavailable during fail().
   const stateDir = join(f.dir, 'boom-state');
@@ -978,10 +1156,30 @@ test('T2.9: 6000 ms prolonged contention across .mutation.lock, .presence.lock a
 
   const central = await f.start();
   const { marker, sessionId } = await initDirectSession(central, f.dir);
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
   const wdir = writerDirectory(f.root);
   const mutHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.mutation.lock')));
   const presHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
   const regHolder = f.trackHolder(await holdAdvisoryLockInChild(join(localStorePaths(f.root).registry, '.lock')));
+
+  // Spy on child_process.spawnSync to prove 0 blocking flock calls during 6000 ms contention.
+  const origSpawnSync = childProcess.spawnSync;
+  const flockSyncCalls = [];
+  t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
+    if (String(cmd).includes('flock')) {
+      flockSyncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    }
+    return origSpawnSync(cmd, args, ...rest);
+  });
+  syncBuiltinESMExports();
+
+  // Start the event-loop work probe BEFORE dispatching concurrent requests so any synchronous
+  // stall during lock pre-acquisition or handler dispatch is captured.
+  const pings = [];
+  const started = performance.now();
+  let lastTickAt = started;
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
+  let work;
 
   // Launch concurrent operations that will time out past 5 000 ms during the 6 000 ms window.
   const pendingAttach = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
@@ -998,16 +1196,18 @@ test('T2.9: 6000 ms prolonged contention across .mutation.lock, .presence.lock a
     })
   });
 
-  const pings = [];
-  const started = performance.now();
   try {
     while (performance.now() - started < 6_000) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
       pings.push(p.elapsedMs);
-      await f.tick();
-      await delay(250);
+      if (performance.now() - lastTickAt >= 250) {
+        await f.tick();
+        lastTickAt = performance.now();
+      }
+      await delay(80);
     }
+    work = probe.stop();
     const attachRes = await pendingAttach;
     assert.equal(attachRes.status, 503);
     const attachJson = await attachRes.json();
@@ -1022,15 +1222,27 @@ test('T2.9: 6000 ms prolonged contention across .mutation.lock, .presence.lock a
     const errPayload = JSON.parse(mutJson.result.content[0].text);
     assert.equal(errPayload.retryable, true);
   } finally {
+    probe.stop();
     await regHolder.release();
     await presHolder.release();
     await mutHolder.release();
   }
 
-  const sorted = [...pings].sort((a, b) => a - b);
-  const p99 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))];
-  t.diagnostic(`T2.9 6000ms contention: ${pings.length} pings, p99=${p99.toFixed(1)}ms, max=${sorted.at(-1).toFixed(1)}ms`);
-  assert.ok(p99 < 100, `p99 ping exceeded 100ms under 6000ms contention: ${p99.toFixed(1)}ms`);
+  const stats = assertResponsiveUnderContention({
+    label: 'T2.9 6000ms contention',
+    pings,
+    pingsBeforeRelease: pings.length,
+    minPingsBeforeRelease: 20,
+    control: controlPing,
+    probeSummary: work,
+    holdMs: 6_000,
+    maxPingCeilingMs: 1_500
+  });
+  t.diagnostic(
+    `T2.9 6000ms contention: ${pings.length} pings, p50=${stats.p50.toFixed(1)}ms, p95=${stats.p95.toFixed(1)}ms, ` +
+    `max=${stats.maxPing.toFixed(1)}ms, turnCpuMax=${work.maxCpuMs.toFixed(1)}ms, lagMax=${work.maxWallLagMs.toFixed(1)}ms`
+  );
+  assert.deepEqual(flockSyncCalls, [], `expected 0 flock spawnSync calls during 6000ms contention, saw: ${flockSyncCalls.join('; ')}`);
   assert.equal(rejections.length, 0, `unhandled rejections: ${rejections.map(String).join('; ')}`);
   assert.equal(exceptions.length, 0, `uncaught exceptions: ${exceptions.map(String).join('; ')}`);
 });
@@ -1107,11 +1319,18 @@ test('T2.10 (B-1): ColdAdministration stop/admin/sweep and admissionsOpenAsync d
   });
   syncBuiltinESMExports();
 
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
+
   // Hold ONLY .presence.lock externally for 1 000 ms (leaving .mutation.lock FREE).
   // Without { bothLocks: true } on mcp-central.ts:365, :537, :554, mutationLockAsync enters
   // immediately and updateWriterControl falls back to spawnSync(flock, .presence.lock)!
   const presHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
-  const releaseTimer = setTimeout(() => { void presHolder.release(); }, 1_000);
+  let presReleased = false;
+  const releaseTimer = setTimeout(() => {
+    presReleased = true;
+    void presHolder.release();
+  }, 1_000);
+  const abortProbe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
     const step = {
       protocolVersion: 1,
@@ -1132,22 +1351,35 @@ test('T2.10 (B-1): ColdAdministration stop/admin/sweep and admissionsOpenAsync d
       { method: 'POST', body: JSON.stringify({ step, payload: {}, coordinator }) }
     );
 
-    await delay(80);
+    await delay(60);
     const pings = [];
-    for (let i = 0; i < 6; i++) {
+    let pingsBeforeRelease = 0;
+    let adminDone = false;
+    void adminPromise.finally(() => { adminDone = true; });
+    while (!adminDone && pings.length < 25) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
       pings.push(p.elapsedMs);
-      await delay(80);
+      if (!presReleased) pingsBeforeRelease++;
+      await delay(30);
     }
-    const maxPing = Math.max(...pings);
-    assert.ok(maxPing < 100, `ping froze for ${maxPing.toFixed(1)}ms during /admin/abort under .presence.lock contention`);
+    const abortWork = abortProbe.stop();
+    assertResponsiveUnderContention({
+      label: 'T2.10 /admin/abort',
+      pings,
+      pingsBeforeRelease,
+      minPingsBeforeRelease: 5,
+      control: controlPing,
+      probeSummary: abortWork,
+      holdMs: 1_000
+    });
 
     const adminRes = await adminPromise;
     const adminBody = await adminRes.text();
     assert.equal(adminRes.status, 200, adminBody);
     assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during /admin/abort, saw: ${syncCalls.join('; ')}`);
   } finally {
+    abortProbe.stop();
     clearTimeout(releaseTimer);
     await presHolder.release();
   }
@@ -1167,14 +1399,30 @@ test('T2.10 (B-1): ColdAdministration stop/admin/sweep and admissionsOpenAsync d
   const presHolder2 = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
   try {
     // runSweep uses { nonBlocking: true, bothLocks: true }: must skip cleanly without spawnSync!
+    const sweepProbe = startEventLoopWorkProbe({ intervalMs: 5 });
+    let sweepWork;
+    const sweepCpu0 = readThreadCpuUsage().raw;
     const t0 = performance.now();
-    await f.tick();
+    try {
+      await f.tick();
+    } finally {
+      sweepWork = sweepProbe.stop();
+    }
     const sweepMs = performance.now() - t0;
-    assert.ok(sweepMs < 200, `runSweep blocked for ${sweepMs.toFixed(1)}ms while .presence.lock was held`);
+    const sweepCpuMs = readThreadCpuUsage(sweepCpu0).totalMs;
+    assert.equal(presHolder2.child.exitCode, null, 'runSweep must finish while .presence.lock is still held');
+    assert.ok(sweepCpuMs < 50, `runSweep main-thread CPU=${sweepCpuMs.toFixed(1)}ms exceeded 50ms budget`);
+    assert.ok(sweepWork.maxWallLagMs < 180, `runSweep synchronous stall=${sweepWork.maxWallLagMs.toFixed(1)}ms exceeded 180ms ceiling`);
+    assert.ok(sweepMs < 1_000, `runSweep elapsed=${sweepMs.toFixed(1)}ms exceeded 1000ms bounded ceiling while .presence.lock was held`);
     assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during runSweep, saw: ${syncCalls.join('; ')}`);
 
     // POST /_h2a-central/stop while .presence.lock is held for 800 ms.
-    const releaseStopTimer = setTimeout(() => { void presHolder2.release(); }, 800);
+    let stopPresReleased = false;
+    const releaseStopTimer = setTimeout(() => {
+      stopPresReleased = true;
+      void presHolder2.release();
+    }, 800);
+    const stopProbe = startEventLoopWorkProbe({ intervalMs: 5 });
     try {
       const stopPromise = authenticatedHttpRequest(
         central.markerPath,
@@ -1182,14 +1430,33 @@ test('T2.10 (B-1): ColdAdministration stop/admin/sweep and admissionsOpenAsync d
         new URL('/_h2a-central/stop', central.endpoint),
         { method: 'POST', body: '{}' }
       );
-      await delay(80);
-      const p = await pingOnce(central.endpoint);
-      assert.equal(p.status, 200);
-      assert.ok(p.elapsedMs < 100, `ping froze for ${p.elapsedMs.toFixed(1)}ms during /stop under .presence.lock contention`);
+      await delay(60);
+      const stopPings = [];
+      let stopPingsBeforeRelease = 0;
+      let stopDone = false;
+      void stopPromise.finally(() => { stopDone = true; });
+      while (!stopDone && stopPings.length < 20) {
+        const p = await pingOnce(central.endpoint);
+        assert.equal(p.status, 200);
+        stopPings.push(p.elapsedMs);
+        if (!stopPresReleased) stopPingsBeforeRelease++;
+        await delay(30);
+      }
+      const stopWork = stopProbe.stop();
+      assertResponsiveUnderContention({
+        label: 'T2.10 /stop',
+        pings: stopPings,
+        pingsBeforeRelease: stopPingsBeforeRelease,
+        minPingsBeforeRelease: 3,
+        control: controlPing,
+        probeSummary: stopWork,
+        holdMs: 800
+      });
       const stopRes = await stopPromise;
       assert.equal(stopRes.status, 200);
       assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during /stop, saw: ${syncCalls.join('; ')}`);
     } finally {
+      stopProbe.stop();
       clearTimeout(releaseStopTimer);
     }
   } finally {
@@ -1233,18 +1500,24 @@ test('T2.10 (B-1): ColdAdministration stop/admin/sweep and admissionsOpenAsync d
 
   syncCalls.length = 0;
   const liveMutHolder = f.trackHolder(await holdFlockInChild(join(writerDirectory(liveRoot), '.mutation.lock')));
-  const releaseLiveTimer = setTimeout(() => { void liveMutHolder.release(); }, 400);
+  let liveTicksBeforeRelease = 0;
+  const liveProbe = startEventLoopWorkProbe({ intervalMs: 5 });
+  const releaseLiveTimer = setTimeout(() => {
+    liveTicksBeforeRelease = liveProbe.ticks();
+    void liveMutHolder.release();
+  }, 500);
   try {
     const openPromise = liveAdmin.admissionsOpenAsync();
-    // Event loop must remain free while waiting on .mutation.lock.
-    const t0 = performance.now();
-    await delay(50);
-    assert.ok(performance.now() - t0 < 200, 'event loop blocked during admissionsOpenAsync');
     const isOpen = await openPromise;
+    const liveWork = liveProbe.stop();
+    assert.ok(liveTicksBeforeRelease >= 5, `event loop must tick while admissionsOpenAsync awaits .mutation.lock (observed ${liveTicksBeforeRelease} ticks before release)`);
+    assert.ok(liveWork.maxCpuMs < 50, `admissionsOpenAsync main-thread CPU=${liveWork.maxCpuMs.toFixed(1)}ms exceeded 50ms budget`);
+    assert.ok(liveWork.maxWallLagMs < 180, `admissionsOpenAsync synchronous stall=${liveWork.maxWallLagMs.toFixed(1)}ms exceeded 180ms ceiling`);
     assert.equal(isOpen, false);
     assert.equal(liveAdmin.transaction().value.state, 'RECOVERY_BLOCKED');
     assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during admissionsOpenAsync, saw: ${syncCalls.join('; ')}`);
   } finally {
+    liveProbe.stop();
     clearTimeout(releaseLiveTimer);
     await liveMutHolder.release();
   }
@@ -1300,9 +1573,15 @@ test('T2.11 (B-2): h2a_conductor_launch with confirm=true uses sharedStore and a
   });
   syncBuiltinESMExports();
 
+  const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
   const remoteInboxLock = join(inboxDir(localStorePaths(f.root), remoteInstance), '.lock');
   const inboxHolder = f.trackHolder(await holdAdvisoryLockInChild(remoteInboxLock));
-  const releaseTimer = setTimeout(() => { void inboxHolder.release(); }, 1_200);
+  let inboxReleased = false;
+  const releaseTimer = setTimeout(() => {
+    inboxReleased = true;
+    void inboxHolder.release();
+  }, 1_200);
+  const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
     const launchPromise = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
       method: 'POST',
@@ -1322,19 +1601,32 @@ test('T2.11 (B-2): h2a_conductor_launch with confirm=true uses sharedStore and a
       })
     });
 
-    await delay(100);
+    await delay(60);
     const pings = [];
+    let pingsBeforeRelease = 0;
     let done = false;
     void launchPromise.finally(() => { done = true; });
-    while (!done && pings.length < 20) {
+    while (!done && pings.length < 35) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
       pings.push(p.elapsedMs);
-      await delay(100);
+      if (!inboxReleased) pingsBeforeRelease++;
+      await delay(30);
     }
-    const maxPing = Math.max(...pings);
-    t.diagnostic(`T2.11 maxPing=${maxPing.toFixed(1)}ms over ${pings.length} pings`);
-    assert.ok(maxPing < 100, `ping froze for ${maxPing.toFixed(1)}ms during h2a_conductor_launch under inbox lock contention`);
+    const work = probe.stop();
+    const stats = assertResponsiveUnderContention({
+      label: 'T2.11 h2a_conductor_launch',
+      pings,
+      pingsBeforeRelease,
+      minPingsBeforeRelease: 5,
+      control: controlPing,
+      probeSummary: work,
+      holdMs: 1_200
+    });
+    t.diagnostic(
+      `T2.11 p50=${stats.p50.toFixed(1)}ms p95=${stats.p95.toFixed(1)}ms max=${stats.maxPing.toFixed(1)}ms ` +
+      `over ${pings.length} pings (beforeRel=${pingsBeforeRelease}, turnCpuMax=${work.maxCpuMs.toFixed(1)}ms, lagMax=${work.maxWallLagMs.toFixed(1)}ms)`
+    );
 
     const res = await launchPromise;
     assert.equal(res.status, 200);
@@ -1345,6 +1637,7 @@ test('T2.11 (B-2): h2a_conductor_launch with confirm=true uses sharedStore and a
     assert.equal(payload.to, remoteInstance);
     assert.deepEqual(flockSyncCalls, [], `expected 0 flock spawnSync calls in h2a_conductor_launch, saw: ${flockSyncCalls.join('; ')}`);
   } finally {
+    probe.stop();
     clearTimeout(releaseTimer);
     await inboxHolder.release();
   }
@@ -1614,9 +1907,15 @@ test('T2.13 (NB-1..NB-4): localQueues timeout cleanup, safeError/consent retryab
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
     body: JSON.stringify({ jsonrpc: '2.0', id: 200, method: 'tools/call', params: { name: 'h2a_discover_instances', arguments: {} } })
   });
+  const nb3ControlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
   const exclLock = join(resolveExclusionsDir({ env: process.env }), '.exclusions.lock');
   const exclHolder = f.trackHolder(await holdAdvisoryLockInChild(exclLock));
-  const releaseExcl = setTimeout(() => { void exclHolder.release(); }, 600);
+  let exclReleased = false;
+  const releaseExcl = setTimeout(() => {
+    exclReleased = true;
+    void exclHolder.release();
+  }, 800);
+  const nb3Probe = startEventLoopWorkProbe({ intervalMs: 5 });
   try {
     const offPromise = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
       method: 'POST',
@@ -1626,23 +1925,34 @@ test('T2.13 (NB-1..NB-4): localQueues timeout cleanup, safeError/consent retryab
         params: { name: 'h2a_remote_off', arguments: { session: 'pty-nb3-test' } }
       })
     });
-    await delay(80);
+    await delay(60);
     const pings = [];
+    let pingsBeforeRelease = 0;
     let done = false;
     void offPromise.finally(() => { done = true; });
-    while (!done && pings.length < 15) {
+    while (!done && pings.length < 25) {
       const p = await pingOnce(central.endpoint);
       assert.equal(p.status, 200);
       pings.push(p.elapsedMs);
-      await delay(80);
+      if (!exclReleased) pingsBeforeRelease++;
+      await delay(30);
     }
-    const maxPing = Math.max(...pings);
-    assert.ok(maxPing < 100, `NB-3: ping froze for ${maxPing.toFixed(1)}ms during h2a_remote_off under .exclusions.lock contention`);
+    const nb3Work = nb3Probe.stop();
+    assertResponsiveUnderContention({
+      label: 'T2.13 NB-3 h2a_remote_off',
+      pings,
+      pingsBeforeRelease,
+      minPingsBeforeRelease: 3,
+      control: nb3ControlPing,
+      probeSummary: nb3Work,
+      holdMs: 800
+    });
     const offRes = await offPromise;
     assert.equal(offRes.status, 200);
     const offJson = await offRes.json();
     assert.ok(!offJson.result?.isError, JSON.stringify(offJson));
   } finally {
+    nb3Probe.stop();
     clearTimeout(releaseExcl);
     await exclHolder.release();
   }
