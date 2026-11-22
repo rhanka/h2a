@@ -58,7 +58,7 @@ const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${
 // These fixtures qualify bounded cold startup and authenticated handover.
 // Give each its own phase before npm installs and the 32-process campaign;
 // their internal concurrent admissions and every deadline remain unchanged.
-const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js', 'mcp-identity-burst.test.js', 'mh-l5-compensation.test.js',
+const standalone = ['mcp-central-attachments.test.js', 'mcp-central-election-supervisor.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js', 'mcp-identity-burst.test.js', 'mh-l5-compensation.test.js',
   'mh-l2-image.test.js', 'mh-l2-live-central.test.js', 'mh-l5-cold-network.test.js']
   .flatMap(name => files.filter(file => basename(file) === name));
 // Bulk filesystem installs must not consume the bounded protocol fixtures'

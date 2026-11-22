@@ -2842,19 +2842,20 @@ export async function runCentralMcpServe(
         io.stderr.write(
           `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
         );
-        const watchdog = startSupervisorWatchdog({
-          endpoint: started.endpoint,
-          ...(io.watchdogIntervalMs !== undefined ? { intervalMs: io.watchdogIntervalMs } : {}),
-          ...(io.watchdogTimeoutMs !== undefined ? { timeoutMs: io.watchdogTimeoutMs } : {}),
-          ...(io.watchdogMaxFailures !== undefined ? { maxFailures: io.watchdogMaxFailures } : {})
-        });
+        let watchdog: ReturnType<typeof startSupervisorWatchdog> | undefined;
         try {
+          watchdog = startSupervisorWatchdog({
+            endpoint: started.endpoint,
+            ...(io.watchdogIntervalMs !== undefined ? { intervalMs: io.watchdogIntervalMs } : {}),
+            ...(io.watchdogTimeoutMs !== undefined ? { timeoutMs: io.watchdogTimeoutMs } : {}),
+            ...(io.watchdogMaxFailures !== undefined ? { maxFailures: io.watchdogMaxFailures } : {})
+          });
           if (!io.signal) await started.closed;
           else if (!io.signal.aborted) await Promise.race([once(io.signal, "abort"), started.closed]);
         } finally {
           state = "STOPPING";
           io.onStateChange?.("STOPPING");
-          await watchdog.stop();
+          await watchdog?.stop();
           await started.stop();
         }
         return 0;

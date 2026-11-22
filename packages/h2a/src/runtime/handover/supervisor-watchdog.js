@@ -87,18 +87,8 @@ export function startSupervisorWatchdog({
   maxFailures = DEFAULT_WATCHDOG_MAX_FAILURES,
   onUnresponsive = undefined
 }) {
-  const execArgv = [];
-  for (let i = 0; i < process.execArgv.length; i++) {
-    const arg = process.execArgv[i];
-    if (arg === '--input-type' || arg === '-e' || arg === '--eval' || arg === '-p' || arg === '--print') {
-      i++;
-      continue;
-    }
-    if (arg.startsWith('--input-type=') || arg.startsWith('--eval=') || arg.startsWith('--print=')) continue;
-    execArgv.push(arg);
-  }
   const worker = new Worker(new URL(import.meta.url), {
-    execArgv,
+    execArgv: [],
     workerData: {
       __h2aSupervisorWatchdog: true,
       endpoint,

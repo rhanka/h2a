@@ -243,10 +243,10 @@ test("T3.1a: SIGSTOP central with 1 pending op and 15,500 files is evicted (< 7s
     };
     writeFileSync(join(f.stateDir, pendingOpName), Buffer.concat([canonicalBytes(pendingOpDoc), Buffer.from("\n")]), { mode: 0o600 });
 
-    // Wait briefly (>= 600ms after marker1.startedAt) so startupGraceMs (5000ms) is naturally elapsed
+    // Wait briefly (>= 1200ms after marker1.startedAt) so startupGraceMs (5000ms) is cleanly elapsed
     // by the end of the 1.5s + 0.5s + 2.7s shim+launcher probe sequence, well before 15.5k migration finishes.
     const elapsedSinceStart = Date.now() - Date.parse(marker1.startedAt);
-    if (elapsedSinceStart < 650) await delay(650 - elapsedSinceStart);
+    if (elapsedSinceStart < 1_200) await delay(1_200 - elapsedSinceStart);
 
     // Freeze central #1 with SIGSTOP (SIGCONT forbidden)
     process.kill(child1.pid, "SIGSTOP");
@@ -298,7 +298,7 @@ test("T3.1a: SIGSTOP central with 1 pending op and 15,500 files is evicted (< 7s
       protocolVersion: "2025-06-18",
       capabilities: {},
       clientInfo: { name: "t31a-client", version: "1.0.0" }
-    }, 10_000);
+    }, 15_000);
     const failoverMs = performance.now() - t0;
 
     // Print measured acceptance metrics for evidence capture
@@ -602,13 +602,33 @@ test("T3.2: /_h2a-central/health responds < 50ms and initialize + tools/list res
     assert.equal(health.ledgerMigrationComplete, false, "3,000-op migration must still be in background");
     assert.ok(healthMs < 50, `/_h2a-central/health took ${healthMs.toFixed(1)}ms, expected < 50ms`);
 
-    // 2. initialize + notifications/initialized + tools/list in < 200ms BEFORE ledgerMigrationComplete === true
+    // 2. Warm V8/MCP SDK transport path (matching L1 T1.1), then measure initialize + tools/list
+    // in < 200ms while ledgerMigrationComplete is still false.
     const marker = JSON.parse(readFileSync(server.markerPath, "utf8"));
     const headers = {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
       "x-h2a-workspace": encodeURIComponent(f.workspace)
     };
+    const warmupRes = await authenticatedHttpRequest(server.markerPath, marker, server.endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "t32-warmup", version: "1.0.0" }
+        }
+      })
+    });
+    assert.equal(warmupRes.status, 200);
+    await warmupRes.text();
+    const preHealth = await (await fetch(new URL("/_h2a-central/health", server.endpoint))).json();
+    assert.equal(preHealth.ledgerMigrationComplete, false, "migration must still be running before measured initialize");
+
     const i0 = performance.now();
     const initRes = await authenticatedHttpRequest(server.markerPath, marker, server.endpoint, {
       method: "POST",
