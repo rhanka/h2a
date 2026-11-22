@@ -260,7 +260,7 @@ test('a failed overlapping backend remains failed and every remaining suite stil
   for(const file of files)assert.ok(evidence.testResults.some(row=>row.name===file));
 });
 
-for (const handover of ['mh-l2-image.test.js', 'mh-l2-live-central.test.js', 'mh-l5-cold-network.test.js']) {
+for (const handover of ['mh-l2-image.test.js', 'mh-l2-live-central.test.js', 'mh-l5-cold-network.test.js', 'incident-20-resume.test.js', 'closed-focus-preflight.test.js']) {
   test('bounded handover finishes before the backend campaign: ' + handover, t => {
     const { result, files, started, evidence } = scenario(t, { isolated: true, handover });
     assert.equal(result.status, 0, result.stdout + result.stderr);

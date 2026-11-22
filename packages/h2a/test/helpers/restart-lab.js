@@ -19,6 +19,7 @@ if(process.env.LAB_BASELINE_GUARD)registerHooks({load(url,context,next){
 }});
 const start=readFileSync('/proc/self/stat','utf8').split(') ')[1].split(' ')[19];
 appendFileSync(process.env.LAB_PIDS,JSON.stringify({pid:process.pid,start,args:process.argv,cgroup:readFileSync('/proc/self/cgroup','utf8')})+'\\n');
+if(process.env.LAB_CPU)process.on('exit',()=>{try{const u=process.cpuUsage();appendFileSync(process.env.LAB_CPU,JSON.stringify({pid:process.pid,cpuUs:u.user+u.system,args:process.argv})+'\\n');}catch{}});
 try{symlinkSync('/proc/'+process.pid,process.env.H2A_TEST_PROC_ROOT+'/'+process.pid)}catch(e){if(e.code!=='EEXIST')throw e}
 `;
 
@@ -31,12 +32,13 @@ export function fixture(t, opts = {}) {
   // tree it is still writing into. Both siblings are removed at the very end
   // of dispose, once the tree is gone and every registration is dead.
   const ledger = root + '.pids';
+  const cpuLedger = root + '.cpu';
   const hook = root + '.track.mjs';
   const env = { PATH: join(root, 'bin') + ':/usr/bin:/bin', HOME: join(root, 'home'), TMPDIR: root,
     XDG_RUNTIME_DIR: root, TMUX_TMPDIR: root, TMUX: '', XDG_CONFIG_HOME: join(root, 'config'), XDG_STATE_HOME: join(root, 'state'),
     XDG_CACHE_HOME: join(root, 'cache'), REMOTE_CLI_CONFIG_HOME: join(root, 'config'),
     H2A_ROOT: join(root, 'store'), H2A_MCP_CENTRAL: 'off', H2A_NATIVE_SOCKET: join(root, 'h'), H2A_TEST_PROC_ROOT: join(root, 'proc'),
-    DBUS_SESSION_BUS_ADDRESS: 'unix:path=' + join(root, 'no-bus'), LAB_PIDS: ledger, TERM: 'xterm-256color',
+    DBUS_SESSION_BUS_ADDRESS: 'unix:path=' + join(root, 'no-bus'), LAB_PIDS: ledger, LAB_CPU: cpuLedger, TERM: 'xterm-256color',
     LAB_BASELINE_GUARD: process.env.H2A_LAB_BASELINE_GUARD ?? '',
     NODE_OPTIONS: '--import=' + pathToFileURL(hook).href };
   for (const key of ['HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'H2A_TEST_PROC_ROOT'])
@@ -137,9 +139,13 @@ export function fixture(t, opts = {}) {
     assert.equal(existsSync(root), false, 'fixture removal did not converge');
     assert.ok([...observed.values()].every(dead), 'a recorded lab process outlived its fixture');
     rmSync(ledger, { force: true });
+    rmSync(cpuLedger, { force: true });
     rmSync(hook, { force: true });
   };
   t.after(dispose);
+  const cpuRecorded = () => existsSync(cpuLedger)
+    ? readFileSync(cpuLedger, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse)
+    : [];
   const entries = n => Array.from({ length: n }, (_, i) => ({ id: `old-${i}`, tool: 'codex', kind: 'local-native',
     cwd: env.HOME, tmuxSession: `h2a-old-${i}`, convId: `other-${i}`, source: 'run', sessionClass: 'human',
     enrolledAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() }));
@@ -154,7 +160,7 @@ export function fixture(t, opts = {}) {
     ...(i % 6 === 4 ? { parent: 'conductor' } : {}),
     ...(i % 6 === 5 ? { ownerHostPid: 2147483647 } : {}),
   }));
-  return { root, env, registry, start, recorded, entries, mixed, save, resume, dispose };
+  return { root, env, registry, start, recorded, cpuRecorded, entries, mixed, save, resume, dispose };
 }
 
 export async function usable(f, id, token = 'lab-exchange') {

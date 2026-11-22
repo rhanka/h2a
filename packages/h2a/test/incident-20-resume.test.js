@@ -90,11 +90,16 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
     } finally { check.close(); }
     // No publication-lock contention timeout may hide in a relaunch log.
     for (const r of results) assert.doesNotMatch(r.stderr + r.stdout, /timed out/i);
+    // Capture preemption-immune aggregate user+sys CPU across all 20 CLI
+    // relaunchers before disposing the fixture's cpu ledger.
+    const cliCpuRows = f.cpuRecorded().filter(row => row.args[1] === binJs && row.args[2] === 'run');
+    assert.equal(cliCpuRows.length, 20, `expected 20 CLI CPU records, got ${cliCpuRows.length}`);
+    const cliCpuMs = Math.round(cliCpuRows.reduce((sum, row) => sum + row.cpuUs, 0) / 1000);
     // Finish this fixture before the next measurement. t.after remains the
     // failure-path cleanup; retaining its agents would turn the fifth cell
     // into a different load from the reference (100 agents per instance).
     await f.dispose();
-    return usableMs;
+    return { usableMs, cliCpuMs };
   }
 
   // R6 +1 s catcher FIRST (fail-fast): bin.js startup probe against a
@@ -146,29 +151,53 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
   // hook compilation, tmpdir creation) that would otherwise inflate whichever
   // round runs first.
   await round(999, 0);
-  // Empty-registry reference (paired gross-blowup gate, budget +1500 ms —
-  // see the assertion below for why fine-grained scaling lives elsewhere).
-  const emptyMs = await round(0, 0);
-  // Three loaded rounds: wall against the catastrophic ceiling.
-  const loaded = [];
-  for (const serial of [1, 2, 3]) loaded.push(await round(serial, 194));
+  // Three interleaved, order-alternating (empty, loaded) pairs:
+  // (E1, L1), (L2, E2), (E3, L3).
+  // Pairing back-to-back and alternating order cancels both steady runner-speed
+  // differences and step-change/monotonic load drift that biased the old single
+  // empty-then-3x-loaded layout (E, L, L, L), while any real 214-row regression
+  // shifts every loaded round relative to its paired empty round.
+  const pairs = [];
+  for (const [pairIndex, loadedFirst] of [[0, false], [1, true], [2, false]]) {
+    const emptySerial = pairIndex * 2 + 1;
+    const loadedSerial = pairIndex * 2 + 2;
+    if (loadedFirst) {
+      const loadedRound = await round(loadedSerial, 194);
+      const emptyRound = await round(emptySerial, 0);
+      pairs.push({ empty: emptyRound, loaded: loadedRound });
+    } else {
+      const emptyRound = await round(emptySerial, 0);
+      const loadedRound = await round(loadedSerial, 194);
+      pairs.push({ empty: emptyRound, loaded: loadedRound });
+    }
+  }
+  const empties = pairs.map(p => p.empty.usableMs);
+  const loaded = pairs.map(p => p.loaded.usableMs);
+  const emptyMs = quantile(empties, 0.5);
   const medianMs = quantile(loaded, 0.5);
   const p95Ms = quantile(loaded, 0.95);
-  const deltaMs = medianMs - emptyMs;
+  const pairWallDeltas = pairs.map(p => p.loaded.usableMs - p.empty.usableMs);
+  const deltaMs = quantile(pairWallDeltas, 0.5);
+  const emptyCpuMs = pairs.map(p => p.empty.cliCpuMs);
+  const loadedCpuMs = pairs.map(p => p.loaded.cliCpuMs);
+  const pairCpuDeltas = pairs.map(p => p.loaded.cliCpuMs - p.empty.cliCpuMs);
+  const cpuDeltaMs = quantile(pairCpuDeltas, 0.5);
   t.diagnostic(JSON.stringify({ scenario: 'incident-20-resume', rows: 214, deadBackground: 100, concurrency: 20,
     loadProfile,
-    host: 'killed', emptyMs, loadedMs: loaded, medianMs, p95Ms, deltaMs, registryBudgetMs: 1500,
+    host: 'killed', emptyMs, emptyRoundsMs: empties, loadedMs: loaded, medianMs, p95Ms,
+    pairWallDeltas, deltaMs, registryBudgetMs: 1500,
+    emptyCpuMs, loadedCpuMs, pairCpuDeltas, cpuDeltaMs, cpuDeltaBudgetMs: 1500,
     usable: '20/20', hosts: 1, lockTimeouts: 0 }));
 
-  // Registry-delta bound (R6: widened 500 → 1500 ms on CI evidence). At
-  // 20-way with host-kill the wall is election-dominated (~5 s absolutes)
-  // and the same code measured -1182..+774 ms across local and shared-CI
-  // runs — the 500 ms budget was luck-of-scheduling, not a code property.
-  // Uniform slowdowns are owned by the startup probe above (2× margin) and
-  // fine-grained registry scaling by the matrix 10-way cells (stable,
-  // per-runner-proven 500/800); this bound only guards a gross registry
-  // blowup at 20-way, which still trips it by an order of magnitude.
+  // Registry-delta bound (product guarantee: +1500 ms over 214 rows, measured
+  // via median of 3 alternating paired wall deltas so non-stationary runner
+  // contention cancels out while real wall stalls — locks, probes, sleeps, or
+  // CPU work — still trip the gate).
   assert.ok(deltaMs <= 1500, `20 resumes added ${deltaMs} ms over 214 rows (budget +1500 ms)`);
+  // Preemption-immune CPU work delta across the 20 CLI resumes (user+sys CPU
+  // measured inside each child on exit): catches O(N) CPU regressions on 214
+  // rows even if the runner is saturated.
+  assert.ok(cpuDeltaMs <= 1500, `20 resumes added ${cpuDeltaMs} ms CLI CPU over 214 rows (budget +1500 ms)`);
   // The original CI/default ceiling remains unchanged. The 160-request stress
   // profile has its own frozen five-round measurement, with the SAME 500/800
   // margins. Registry delta, startup probe and every correctness assertion are
