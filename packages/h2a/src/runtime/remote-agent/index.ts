@@ -285,7 +285,14 @@ export {
   type TerminalReplyFilter
 } from "./terminal-reply-filter.js";
 export {
+  REMOTE_CONTROL_ACTIVITY_WINDOW_MS,
+  REMOTE_CONTROL_IDLE_TIMEOUT_MS,
+  REMOTE_CONTROL_GRACE_TIMEOUT_MS,
+  REMOTE_CONTROL_WATCH_INTERVAL_MS,
+  TERMINAL_CONTROL_PORT_TIMEOUT_MS,
+  defaultConnectNativeControlPort,
   createTerminalInput,
+  type TerminalChannelCloseReason,
   type TerminalControlLease,
   type TerminalControlAcquireResult,
   type TerminalControlPort,

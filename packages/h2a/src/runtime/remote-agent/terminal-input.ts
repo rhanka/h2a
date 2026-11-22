@@ -1,5 +1,5 @@
 /**
- * LH-09a remote terminal input, control lease, replay & filter module.
+ * LH-09 remote terminal input, control lease, replay, filter & surveillance module.
  */
 
 import { randomUUID } from "node:crypto";
@@ -26,10 +26,26 @@ import {
   type TermCtl,
   type TermIn,
   type TermInSync,
+  type TermResize,
+  type TermStop,
   type TrunkTerminalRecord
 } from "./types.js";
 
 export const REMOTE_CONTROL_ACTIVITY_WINDOW_MS = 30_000 as const;
+export const REMOTE_CONTROL_IDLE_TIMEOUT_MS = 900_000 as const;
+export const REMOTE_CONTROL_GRACE_TIMEOUT_MS = 30_000 as const;
+export const REMOTE_CONTROL_WATCH_INTERVAL_MS = 250 as const;
+export const TERMINAL_CONTROL_PORT_TIMEOUT_MS = 5_000 as const;
+export const TERMINAL_SIZE_MIN = 1 as const;
+export const TERMINAL_SIZE_MAX = 65_535 as const;
+
+export type TerminalChannelCloseReason =
+  | "peer-close"
+  | "excluded"
+  | "error"
+  | "exit"
+  | "dispose"
+  | "link";
 
 const STRICT_BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -86,7 +102,7 @@ export interface TerminalInputOptions {
   readonly root: string;
   readonly scope: string;
   readonly clock?: TerminalInputClock;
-  readonly connectControlPort?: TerminalControlPortFactory;
+  readonly connectControlPort?: TerminalControlPortFactory | null;
   readonly isKilled?: () => boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly withShareAllowed: (sid: string, enqueue: () => void) => ShareAllowedResult;
@@ -106,12 +122,13 @@ export interface TerminalInputChannelAttachment {
 export interface TerminalInputModule {
   attachChannel(attachment: TerminalInputChannelAttachment): void;
   onRecord(ch: number, record: TrunkTerminalRecord): void;
-  onChannelClose(ch: number, reason: string): void;
+  onChannelClose(ch: number, reason: TerminalChannelCloseReason): void;
   onLinkLost(info: { readonly linkGeneration: number; readonly reason: string; readonly at: number }): void;
   onLinkTerminated(info: {
     readonly cause: Parameters<NonNullable<TrunkTerminalConsumer["onLinkTerminated"]>>[0]["cause"];
     readonly at: number;
   }): void;
+  releaseAll(cause?: string): void;
   getLog(sid: string, generation: string, incarnation: string): TerminalInputLog | undefined;
   dispose(): void;
 }
@@ -139,6 +156,67 @@ interface ActiveLeaseState {
   ctx: TrunkChannelContext | null;
   queue: Promise<void>;
   closing: boolean;
+  incarnationEnded: boolean;
+  writeInFlight: boolean;
+  watchInFlight: boolean;
+  idleTimer: unknown;
+  graceTimer: unknown;
+  watchTimer: unknown;
+}
+
+/**
+ * Default control port over `@sentropic/h2a-runtime` `NativeTerminalClient`,
+ * loaded via a `string`-typed specifier to preserve `@sentropic/h2a`'s leaf contract.
+ */
+export async function defaultConnectNativeControlPort(
+  socketPath: string,
+  options?: { readonly connectTimeoutMs?: number; readonly requestTimeoutMs?: number }
+): Promise<TerminalControlPort> {
+  const packageName: string = "@sentropic/h2a-runtime";
+  const runtime = (await import(packageName)) as {
+    NativeTerminalClient?: {
+      connect(
+        socketPath: string,
+        opts?: { readonly connectTimeoutMs?: number; readonly requestTimeoutMs?: number }
+      ): Promise<{
+        acquireRemoteControllerIfNoRecentHuman(
+          id: string,
+          controllerId: string,
+          activityWindowMs: number
+        ): Promise<TerminalControlAcquireResult>;
+        write(lease: TerminalControlLease, data: string): Promise<void>;
+        resize(lease: TerminalControlLease, cols: number, rows: number): Promise<void>;
+        releaseController(lease: TerminalControlLease): Promise<unknown>;
+        state(id: string): Promise<NativeObserverSessionState>;
+        stopIfIncarnation(
+          id: string,
+          generation: string,
+          incarnation: string
+        ): Promise<NativeObserverSessionState>;
+        close(): void;
+      }>;
+    };
+  };
+  if (!runtime.NativeTerminalClient) {
+    throw new Error("runtime NativeTerminalClient is unavailable");
+  }
+  const connectTimeoutMs = options?.connectTimeoutMs ?? TERMINAL_CONTROL_PORT_TIMEOUT_MS;
+  const requestTimeoutMs = options?.requestTimeoutMs ?? TERMINAL_CONTROL_PORT_TIMEOUT_MS;
+  const client = await runtime.NativeTerminalClient.connect(socketPath, {
+    connectTimeoutMs,
+    requestTimeoutMs
+  });
+  return {
+    acquire: (id, controllerId, activityWindowMs) =>
+      client.acquireRemoteControllerIfNoRecentHuman(id, controllerId, activityWindowMs),
+    write: (lease, data) => client.write(lease, data),
+    resize: (lease, cols, rows) => client.resize(lease, cols, rows),
+    release: (lease) => client.releaseController(lease),
+    state: (id) => client.state(id),
+    stopIfIncarnation: (id, generation, incarnation) =>
+      client.stopIfIncarnation(id, generation, incarnation),
+    close: () => client.close()
+  };
 }
 
 const DEFAULT_CLOCK: TerminalInputClock = {
@@ -177,7 +255,10 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
   const root = options.root;
   const scope = options.scope;
   const clock = options.clock ?? DEFAULT_CLOCK;
-  const connectControlPort = options.connectControlPort;
+  const connectControlPort =
+    options.connectControlPort === null
+      ? undefined
+      : (options.connectControlPort ?? defaultConnectNativeControlPort);
   const env = options.env ?? process.env;
   const isKilled =
     options.isKilled ??
@@ -257,15 +338,159 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
     });
   }
 
+  function clearLeaseTimers(lease: ActiveLeaseState): void {
+    if (lease.idleTimer !== null) {
+      clock.clearTimeout(lease.idleTimer);
+      lease.idleTimer = null;
+    }
+    if (lease.graceTimer !== null) {
+      clock.clearTimeout(lease.graceTimer);
+      lease.graceTimer = null;
+    }
+    if (lease.watchTimer !== null) {
+      clock.clearTimeout(lease.watchTimer);
+      lease.watchTimer = null;
+    }
+  }
+
+  function clearGraceTimer(lease: ActiveLeaseState): void {
+    if (lease.graceTimer !== null) {
+      clock.clearTimeout(lease.graceTimer);
+      lease.graceTimer = null;
+    }
+  }
+
+  function resetIdleTimer(lease: ActiveLeaseState): void {
+    if (lease.idleTimer !== null) {
+      clock.clearTimeout(lease.idleTimer);
+      lease.idleTimer = null;
+    }
+    if (lease.closing || lease.incarnationEnded || disposed) return;
+    lease.idleTimer = clock.setTimeout(() => {
+      lease.idleTimer = null;
+      if (lease.closing || lease.incarnationEnded || disposed) return;
+      closeEpoch(lease, "idle-released");
+    }, REMOTE_CONTROL_IDLE_TIMEOUT_MS);
+  }
+
+  function armGraceTimer(lease: ActiveLeaseState): void {
+    if (lease.graceTimer !== null || lease.closing || lease.incarnationEnded || disposed) return;
+    lease.graceTimer = clock.setTimeout(() => {
+      lease.graceTimer = null;
+      if (lease.closing || lease.incarnationEnded || lease.boundCh !== null || disposed) return;
+      closeEpoch(lease, "lost-link");
+    }, REMOTE_CONTROL_GRACE_TIMEOUT_MS);
+  }
+
+  function deleteIncarnationLogFiles(sid: string, generation: string, incarnation: string): void {
+    const key = incKey(sid, generation, incarnation);
+    const existingLog = logsByIncarnation.get(key);
+    if (existingLog) {
+      existingLog.drop();
+      logsByIncarnation.delete(key);
+      return;
+    }
+    const path = inputLogFilePath(root, scope, sid, generation, incarnation);
+    if (existsSync(path)) {
+      openTerminalInputLog(root, scope, sid, generation, incarnation).drop();
+    }
+  }
+
+  function endIncarnation(sid: string, generation: string, incarnation: string): void {
+    const lease = leasesBySid.get(sid);
+    if (
+      lease &&
+      lease.generation === generation &&
+      lease.incarnation === incarnation &&
+      !lease.incarnationEnded
+    ) {
+      lease.incarnationEnded = true;
+      lease.closing = true;
+      clearLeaseTimers(lease);
+      try {
+        lease.port.close();
+      } catch {
+        // ignore
+      }
+      if (leasesBySid.get(sid) === lease) {
+        leasesBySid.delete(sid);
+      }
+      lease.boundCh = null;
+      lease.ctx = null;
+    }
+    deleteIncarnationLogFiles(sid, generation, incarnation);
+  }
+
+  function scheduleWatch(lease: ActiveLeaseState): void {
+    if (lease.watchTimer !== null || lease.closing || lease.incarnationEnded || disposed) return;
+    lease.watchTimer = clock.setTimeout(() => {
+      lease.watchTimer = null;
+      void runWatchTick(lease);
+    }, REMOTE_CONTROL_WATCH_INTERVAL_MS);
+  }
+
+  async function runWatchTick(lease: ActiveLeaseState): Promise<void> {
+    if (lease.closing || lease.incarnationEnded || disposed || lease.watchInFlight) return;
+    if (lease.boundCh === null && isKilled()) {
+      releaseAll("killed");
+      return;
+    }
+    lease.watchInFlight = true;
+    let st: NativeObserverSessionState;
+    try {
+      st = await lease.port.state(lease.lease.id);
+    } catch (err) {
+      lease.watchInFlight = false;
+      if (lease.closing || lease.incarnationEnded || disposed) return;
+      if (getHostErrorCode(err) === "operation-failed") {
+        // Cas 1: unknown session -> incarnation ended.
+        endIncarnation(lease.sid, lease.generation, lease.incarnation);
+        return;
+      }
+      // Cas 3: no response (timeout, broken socket, or non-v1 code).
+      if (lease.writeInFlight) {
+        scheduleWatch(lease);
+        return;
+      }
+      closeEpoch(lease, "released");
+      return;
+    }
+    lease.watchInFlight = false;
+    if (lease.closing || lease.incarnationEnded || disposed) return;
+
+    // Cas 1: Incarnation ended (checked BEFORE Cas 2 per host invalidation order).
+    if (
+      st.status === "exited" ||
+      st.generation !== lease.generation ||
+      st.incarnation !== lease.incarnation
+    ) {
+      endIncarnation(lease.sid, lease.generation, lease.incarnation);
+      return;
+    }
+
+    // Cas 2: Lease lost.
+    if (st.controllerEpoch !== lease.lease.epoch || st.holderKind !== "remote") {
+      const reason: EpochEndReason =
+        st.holderKind === "human" || st.holderKind === "automation" ? "taken-back" : "released";
+      closeEpoch(lease, reason);
+      return;
+    }
+
+    // Cas 4: Lease intact.
+    scheduleWatch(lease);
+  }
+
   function closeEpoch(lease: ActiveLeaseState, reason: EpochEndReason): void {
-    if (lease.closing) return;
+    if (lease.closing || lease.incarnationEnded) return;
     lease.closing = true;
     const boundCh = lease.boundCh;
 
     // 1. Synced end line with motif and maxInSeq.
     lease.log.endEpoch(lease.lease.epoch, reason);
 
-    // 2. Stop timers and surveillance (LH-09b).
+    // 2. Stop timers and surveillance.
+    clearLeaseTimers(lease);
+
     // 3. Emit term.ctl.state on bound channel if still accepting sends.
     if (boundCh !== null && lease.ctx) {
       const chState = channels.get(boundCh);
@@ -429,9 +654,17 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
           boundCh: chState.ch,
           ctx: chState.ctx,
           queue: Promise.resolve(),
-          closing: false
+          closing: false,
+          incarnationEnded: false,
+          writeInFlight: false,
+          watchInFlight: false,
+          idleTimer: null,
+          graceTimer: null,
+          watchTimer: null
         };
         leasesBySid.set(chState.sid, leaseState);
+        resetIdleTimer(leaseState);
+        scheduleWatch(leaseState);
         chState.ctx.sendControl({
           t: "term.ctl.state",
           sid: chState.sid,
@@ -596,30 +829,44 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
 
     // 7. Reserve uncertain on disk (fsynced), call host write, settle and ack.
     log.reserve(rec.epoch, rec.inSeq);
+    lease.writeInFlight = true;
     try {
       await lease.port.write(lease.lease, decodedText);
-      log.settle(rec.epoch, rec.inSeq, "applied");
+      lease.writeInFlight = false;
+      if (!lease.incarnationEnded) {
+        log.settle(rec.epoch, rec.inSeq, "applied");
+        if (rec.origin === "user" && !lease.closing) {
+          resetIdleTimer(lease);
+        }
+      }
       sendTermInAck(chState, rec.inSeq, "applied");
       audit("terminal-input", chState.ch, chState.sid, { result: "applied" });
     } catch (err) {
+      lease.writeInFlight = false;
       if (getHostErrorCode(err) !== null) {
-        log.settle(rec.epoch, rec.inSeq, "refused", "stale-epoch");
-        sendTermInAck(chState, rec.inSeq, "refused", "stale-epoch");
-        let closeReason: EpochEndReason = "released";
-        try {
-          const st = await lease.port.state(chState.nativeId);
-          if (st.holderKind === "human" || st.holderKind === "automation") {
-            closeReason = "taken-back";
-          }
-        } catch {
-          closeReason = "released";
+        if (!lease.incarnationEnded) {
+          log.settle(rec.epoch, rec.inSeq, "refused", "stale-epoch");
         }
-        closeEpoch(lease, closeReason);
+        sendTermInAck(chState, rec.inSeq, "refused", "stale-epoch");
+        if (!lease.incarnationEnded) {
+          let closeReason: EpochEndReason = "released";
+          try {
+            const st = await lease.port.state(chState.nativeId);
+            if (st.holderKind === "human" || st.holderKind === "automation") {
+              closeReason = "taken-back";
+            }
+          } catch {
+            closeReason = "released";
+          }
+          closeEpoch(lease, closeReason);
+        }
       } else {
         // No response (timeout / broken socket): stays uncertain in log, never retried.
         sendTermInAck(chState, rec.inSeq, "uncertain");
         audit("terminal-input", chState.ch, chState.sid, { result: "uncertain" });
-        closeEpoch(lease, "released");
+        if (!lease.incarnationEnded) {
+          closeEpoch(lease, "released");
+        }
       }
     }
   }
@@ -683,6 +930,7 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
         return;
       }
       if (liveLease.boundCh === null) {
+        clearGraceTimer(liveLease);
         liveLease.boundCh = chState.ch;
         liveLease.ctx = chState.ctx;
       }
@@ -763,9 +1011,113 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
     executeTermInSync(chState, rec);
   }
 
-  function releaseAll(): void {
+  function handleTermResize(chState: AttachedChannelState, rec: TermResize): void {
+    const existing = leasesBySid.get(chState.sid);
+    if (
+      !existing ||
+      existing.closing ||
+      existing.incarnationEnded ||
+      rec.sid !== chState.sid ||
+      existing.boundCh !== chState.ch ||
+      existing.generation !== chState.generation ||
+      existing.incarnation !== chState.incarnation
+    ) {
+      sendErr(chState, "not-controller", false);
+      return;
+    }
+    if (
+      !Number.isSafeInteger(rec.cols) ||
+      rec.cols < TERMINAL_SIZE_MIN ||
+      rec.cols > TERMINAL_SIZE_MAX ||
+      !Number.isSafeInteger(rec.rows) ||
+      rec.rows < TERMINAL_SIZE_MIN ||
+      rec.rows > TERMINAL_SIZE_MAX
+    ) {
+      sendErr(chState, "invalid-size", false);
+      return;
+    }
+    const cols = rec.cols;
+    const rows = rec.rows;
+    existing.queue = existing.queue.then(async () => {
+      if (
+        existing.closing ||
+        existing.incarnationEnded ||
+        leasesBySid.get(chState.sid) !== existing ||
+        existing.boundCh !== chState.ch ||
+        chState.closed ||
+        disposed
+      ) {
+        sendErr(chState, "not-controller", false);
+        return;
+      }
+      try {
+        await existing.port.resize(existing.lease, cols, rows);
+        audit("terminal-resize", chState.ch, chState.sid);
+      } catch (err) {
+        if (getHostErrorCode(err) !== null) {
+          sendErr(chState, "stale-epoch", false);
+        } else {
+          sendErr(chState, "host-unavailable", true);
+        }
+      }
+    });
+  }
+
+  async function handleTermStop(chState: AttachedChannelState, rec: TermStop): Promise<void> {
+    if (!matchesChannelIncarnation(chState, rec)) {
+      sendErr(chState, "stale-incarnation", false);
+      return;
+    }
+    if (!connectControlPort) {
+      sendErr(chState, "control-unavailable", false);
+      return;
+    }
+    const existing = leasesBySid.get(chState.sid);
+    if (
+      existing &&
+      !existing.closing &&
+      !existing.incarnationEnded &&
+      existing.generation === chState.generation &&
+      existing.incarnation === chState.incarnation
+    ) {
+      try {
+        await existing.port.stopIfIncarnation(chState.nativeId, chState.generation, chState.incarnation);
+        audit("terminal-stop", chState.ch, chState.sid, { result: "stopped" });
+      } catch (err) {
+        if (getHostErrorCode(err) !== null) {
+          sendErr(chState, "stale-incarnation", false);
+        } else {
+          sendErr(chState, "host-unavailable", true);
+        }
+      }
+      return;
+    }
+    let port: TerminalControlPort | null = null;
+    try {
+      port = await connectControlPort(chState.socketPath);
+      if (chState.closed || disposed) return;
+      await port.stopIfIncarnation(chState.nativeId, chState.generation, chState.incarnation);
+      audit("terminal-stop", chState.ch, chState.sid, { result: "stopped" });
+    } catch (err) {
+      if (getHostErrorCode(err) !== null) {
+        sendErr(chState, "stale-incarnation", false);
+      } else {
+        sendErr(chState, "host-unavailable", true);
+      }
+    } finally {
+      if (port) {
+        try {
+          port.close();
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
+  function releaseAll(_cause = "released"): void {
     for (const lease of [...leasesBySid.values()]) {
-      if (!lease.closing) {
+      if (!lease.closing && !lease.incarnationEnded) {
         try {
           void lease.port.release(lease.lease).catch(() => {});
         } catch {
@@ -779,6 +1131,14 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
   return {
     attachChannel(attachment: TerminalInputChannelAttachment): void {
       if (disposed) return;
+      const existingLease = leasesBySid.get(attachment.sid);
+      if (
+        existingLease &&
+        (existingLease.generation !== attachment.generation ||
+          existingLease.incarnation !== attachment.incarnation)
+      ) {
+        endIncarnation(existingLease.sid, existingLease.generation, existingLease.incarnation);
+      }
       purgeStaleIncarnationLogs(
         root,
         scope,
@@ -819,37 +1179,38 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
           handleTermInSync(chState, record);
           break;
         case "term.resize":
+          handleTermResize(chState, record);
+          break;
         case "term.stop":
-          sendErr(chState, "control-unavailable", false);
+          void handleTermStop(chState, record);
           break;
         default:
           break;
       }
     },
 
-    onChannelClose(ch: number, reason: string): void {
+    onChannelClose(ch: number, reason: TerminalChannelCloseReason): void {
       const chState = channels.get(ch);
-      if (chState) {
-        chState.closed = true;
-        channels.delete(ch);
-      }
-      for (const lease of [...leasesBySid.values()]) {
-        if (lease.boundCh !== ch) continue;
-        if (reason === "exit") {
-          try {
-            lease.port.close();
-          } catch {
-            // ignore
+      if (reason === "exit") {
+        if (chState) {
+          chState.closed = true;
+          channels.delete(ch);
+          endIncarnation(chState.sid, chState.generation, chState.incarnation);
+        }
+        for (const lease of [...leasesBySid.values()]) {
+          if (lease.boundCh === ch) {
+            endIncarnation(lease.sid, lease.generation, lease.incarnation);
           }
-          leasesBySid.delete(lease.sid);
-          lease.log.drop();
-          logsByIncarnation.delete(incKey(lease.sid, lease.generation, lease.incarnation));
-        } else if (
-          reason === "peer-close" ||
-          reason === "excluded" ||
-          reason === "error" ||
-          reason === "dispose"
-        ) {
+        }
+        return;
+      }
+
+      // For excluded, error, dispose: close epoch(s) BEFORE removing channel from channels so term.ctl.state can emit.
+      if (reason === "dispose") {
+        releaseAll("dispose");
+      } else if (reason === "peer-close" || reason === "excluded" || reason === "error") {
+        for (const lease of [...leasesBySid.values()]) {
+          if (lease.boundCh !== ch) continue;
           try {
             void lease.port.release(lease.lease).catch(() => {});
           } catch {
@@ -857,28 +1218,36 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
           }
           closeEpoch(lease, "released");
         }
-      }
-      if (reason === "exit" && chState) {
-        const key = incKey(chState.sid, chState.generation, chState.incarnation);
-        const existingLog = logsByIncarnation.get(key);
-        if (existingLog) {
-          existingLog.drop();
-          logsByIncarnation.delete(key);
-        } else {
-          const path = inputLogFilePath(root, scope, chState.sid, chState.generation, chState.incarnation);
-          if (existsSync(path)) {
-            openTerminalInputLog(root, scope, chState.sid, chState.generation, chState.incarnation).drop();
-          }
+      } else if (reason === "link") {
+        for (const lease of [...leasesBySid.values()]) {
+          if (lease.boundCh !== ch || lease.closing || lease.incarnationEnded) continue;
+          lease.boundCh = null;
+          lease.ctx = null;
+          armGraceTimer(lease);
         }
+      }
+
+      if (chState) {
+        chState.closed = true;
+        channels.delete(ch);
       }
     },
 
     onLinkLost(): void {
-      // Grace period belongs to LH-09b; in LH-09a we keep channel teardown clean.
+      for (const lease of [...leasesBySid.values()]) {
+        if (lease.boundCh === null || lease.closing || lease.incarnationEnded) continue;
+        lease.boundCh = null;
+        lease.ctx = null;
+        armGraceTimer(lease);
+      }
     },
 
-    onLinkTerminated(): void {
-      releaseAll();
+    onLinkTerminated(info): void {
+      releaseAll(info.cause);
+    },
+
+    releaseAll(cause = "released"): void {
+      releaseAll(cause);
     },
 
     getLog(sid: string, generation: string, incarnation: string): TerminalInputLog | undefined {
@@ -888,7 +1257,7 @@ export function createTerminalInput(options: TerminalInputOptions): TerminalInpu
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      releaseAll();
+      releaseAll("dispose");
       for (const chState of channels.values()) {
         chState.closed = true;
       }

@@ -159,7 +159,7 @@ export interface TrunkTerminalConsumer {
   ): { readonly ok: true; readonly opened?: Omit<TermOpened, "v" | "t" | "ch" | "s"> } | { readonly ok: false; readonly code: string; readonly retryable?: boolean } | void;
   onCredit?(ch: number, available: CreditAvailability): void;
   onRecord?(ch: number, record: TrunkTerminalRecord): void;
-  onClose?(ch: number, reason: string): void;
+  onClose?(ch: number, reason: "peer-close" | "link"): void;
   onLinkLost?(info: { readonly linkGeneration: number; readonly reason: string; readonly at: number }): void;
   onLinkTerminated?(info: { readonly cause: TrunkLinkTerminationCause; readonly at: number }): void;
   onLinkReady?(info: { readonly linkGeneration: number; readonly at: number }): void;
@@ -1704,7 +1704,7 @@ export class TrunkClient {
     }
 
     for (const ch of closedChannels) {
-      this.#opts.terminalConsumer?.onClose?.(ch, reason);
+      this.#opts.terminalConsumer?.onClose?.(ch, "link");
     }
 
     if (options.notifyLoss && conn.linkGeneration !== undefined) {

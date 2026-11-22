@@ -804,7 +804,7 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
             (rec["incarnation"] === undefined || isNonEmptyString(rec["incarnation"])))
       );
     case "term.resize":
-      return ch >= 2 && isNonEmptyString(rec["sid"]) && isSafePosInt(rec["cols"]) && isSafePosInt(rec["rows"]);
+      return ch >= 2 && isNonEmptyString(rec["sid"]) && isFiniteNumber(rec["cols"]) && isFiniteNumber(rec["rows"]);
     case "term.stop":
       return (
         ch >= 2 &&

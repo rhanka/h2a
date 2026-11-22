@@ -17,7 +17,7 @@ import {
   TERMINAL_OUTPUT_POLL_INTERVAL_MS,
   TerminalOutputAssembler
 } from "./terminal-output.js";
-import type { TerminalInputModule } from "./terminal-input.js";
+import type { TerminalChannelCloseReason, TerminalInputModule } from "./terminal-input.js";
 import type {
   TrunkChannelContext,
   TrunkLinkTerminationCause,
@@ -279,7 +279,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     }
   }
 
-  function teardownChannelLocal(chState: ChannelState, reason = "local"): void {
+  function teardownChannelLocal(chState: ChannelState, reason: TerminalChannelCloseReason): void {
     if (chState.closed) return;
     chState.closed = true;
     if (chState.attachedToInput) {
@@ -336,7 +336,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     exit: { readonly exitCode: number; readonly signal?: number } | null
   ): void {
     if (chState.closed || chState.exitSent) {
-      teardownChannelLocal(chState);
+      teardownChannelLocal(chState, "exit");
       chState.ctx.close();
       return;
     }
@@ -471,7 +471,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return false;
       }
       if (sendStatus === "closed") {
-        teardownChannelLocal(chState);
+        teardownChannelLocal(chState, "link");
         return false;
       }
       if (sendStatus === "no-credit") {
@@ -798,10 +798,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       if (disposed) {
         return { ok: false, code: "host-unavailable", retryable: false };
       }
-      if (open.mode === "control") {
-        return { ok: false, code: "control-unavailable", retryable: false };
-      }
-      if (open.mode !== "observe") {
+      if (open.mode !== "observe" && open.mode !== "control") {
         return { ok: false, code: "invalid-open", retryable: false };
       }
       if (open.afterSeq !== null && !isSafeNonNegInt(open.afterSeq)) {
@@ -933,7 +930,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       }
     },
 
-    onClose(ch: number, reason = "local"): void {
+    onClose(ch: number, reason: "peer-close" | "link"): void {
       const chState = channels.get(ch);
       if (chState) {
         teardownChannelLocal(chState, reason);

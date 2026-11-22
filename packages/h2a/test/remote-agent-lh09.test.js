@@ -339,6 +339,12 @@ function makeSimHost(options = {}) {
       async resize(lease, cols, rows) {
         if (closed) throw new Error("control port closed");
         calls.resize.push({ lease, cols, rows });
+        const s = sessions.get(lease.id);
+        if (!s || s.holderKind !== "remote" || s.controllerEpoch !== lease.epoch) {
+          throw new SimNativeTerminalRemoteError("operation-failed", "controller lease is stale");
+        }
+        s.cols = cols;
+        s.rows = rows;
       },
       async release(lease) {
         if (closed) throw new Error("control port closed");
@@ -437,7 +443,7 @@ function setupStack(iso, host, clock, opts = {}) {
         root: iso.root,
         scope,
         clock,
-        ...(opts.omitPortFactory ? {} : { connectControlPort: host.connectControlPort }),
+        ...(opts.omitPortFactory ? { connectControlPort: null } : { connectControlPort: host.connectControlPort }),
         ...(opts.isKilled ? { isKilled: opts.isKilled } : {}),
         env: iso.env,
         withShareAllowed: projector.withShareAllowed,
@@ -448,6 +454,7 @@ function setupStack(iso, host, clock, opts = {}) {
     clock,
     rangeIndex: new CoalescedRangeIndex(),
     connectNativeClient: host.connectObserverClient,
+    ...(opts.bridgePollIntervalMs ? { pollIntervalMs: opts.bridgePollIntervalMs } : {}),
     ...(input ? { input } : {})
   });
   const client = new TrunkClient({
@@ -2291,6 +2298,730 @@ test("LH-09a #25: onLinkTerminated fires on all 6 causes after onClose, and flag
       assert.deepEqual(terms, ["auth-refused"]);
       projector.stopWatch();
     }
+  } finally {
+    cleanup(iso);
+  }
+});
+
+// ============================================================================
+// LH-09b simulated-host acceptance suite
+// ============================================================================
+
+test("LH-09b sim #1/#2/#4/#5/#7/#8: Prise, les 4 cas, non-contrôleur, taille, libération, fermeture du canal", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-b1", { cols: 80, rows: 24 });
+    const stack = setupStack(iso, host, clock);
+    const sid = await openAndAttachSession(stack, clock, "h2a-b1", 2);
+
+    // #2 recent-human -> refused-recent-human
+    host.sessions.get("h2a-b1").holderKind = "human";
+    host.sessions.get("h2a-b1").lastHumanActivityAt = clock.now();
+    let cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(stack.conn, 2, cur).records[0]?.state, "refused-recent-human");
+
+    // #2 automation -> refused-held
+    host.sessions.get("h2a-b1").holderKind = "automation";
+    host.sessions.get("h2a-b1").lastHumanActivityAt = null;
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(stack.conn, 2, cur).records[0]?.state, "refused-held");
+
+    // #2 inactive human -> granted
+    host.sessions.get("h2a-b1").holderKind = "human";
+    host.sessions.get("h2a-b1").lastHumanActivityAt = null;
+    const epoch = await acquireLease(stack, clock, sid, 2);
+    assert.equal(epoch, 1);
+    assert.equal(host.sessions.get("h2a-b1").holderKind, "remote");
+
+    // #2 same channel acquire again -> granted without calling host
+    const acqBefore = host.calls.acquire.length;
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    const sameCh = collectChannelRecords(stack.conn, 2, cur).records[0];
+    assert.equal(sameCh?.state, "granted");
+    assert.equal(sameCh?.epoch, epoch);
+    assert.equal(host.calls.acquire.length, acqBefore);
+
+    // #2/#4 second channel on same link -> refused-held (no host call); term.in & term.resize -> not-controller
+    const sid3 = await openAndAttachSession(stack, clock, "h2a-b1", 3);
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 3, sid: sid3, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    stack.peer.sendRecord(stack.conn, {
+      t: "term.in", ch: 3, sid: sid3, generation: "gen-1", incarnation: "inc-1",
+      epoch, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("nope")
+    });
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 3, sid: sid3, cols: 100, rows: 30 });
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 3, sid: sid3, generation: "gen-1", incarnation: "inc-1", action: "release", epoch });
+    await clock.advance(10);
+    const ch3Recs = collectChannelRecords(stack.conn, 3, cur).records;
+    assert.equal(ch3Recs[0]?.state, "refused-held");
+    assert.equal(ch3Recs[1]?.t, "term.in.ack");
+    assert.equal(ch3Recs[1]?.reason, "not-controller");
+    assert.equal(ch3Recs[2]?.t, "err");
+    assert.equal(ch3Recs[2]?.code, "not-controller");
+    assert.equal(ch3Recs[3]?.t, "err");
+    assert.equal(ch3Recs[3]?.code, "not-controller");
+    assert.equal(host.calls.acquire.length, acqBefore);
+    assert.equal(host.calls.write.length, 0);
+    assert.equal(host.calls.resize.length, 0);
+
+    // #5 Taille: valid 132x45 and invalid 0, 65536, 12.5
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 132, rows: 45 });
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 0, rows: 24 });
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 65536, rows: 24 });
+    stack.peer.sendRecord(stack.conn, { t: "term.resize", ch: 2, sid, cols: 12.5, rows: 24 });
+    await clock.advance(10);
+    assert.equal(stack.conn.closed, false, "invalid size must emit channel err without closing link");
+    assert.equal(host.sessions.get("h2a-b1").cols, 132);
+    assert.equal(host.sessions.get("h2a-b1").rows, 45);
+    const resizeRecs = collectChannelRecords(stack.conn, 2, cur).records;
+    assert.deepEqual(resizeRecs.map((r) => r.code), ["invalid-size", "invalid-size", "invalid-size"]);
+
+    // #7 release wrong epoch -> err not-controller; right epoch -> released & holderKind: none
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "release", epoch: epoch + 1 });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(stack.conn, 2, cur).records[0]?.code, "not-controller");
+
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "release", epoch });
+    await clock.advance(10);
+    const relRec = collectChannelRecords(stack.conn, 2, cur).records[0];
+    assert.equal(relRec?.t, "term.ctl.state");
+    assert.equal(relRec?.state, "released");
+    assert.equal(host.sessions.get("h2a-b1").holderKind, "none");
+
+    // #8 term.close on controller channel -> lease released immediately, epoch ended released
+    const epoch2 = await acquireLease(stack, clock, sid, 2);
+    assert.equal(host.sessions.get("h2a-b1").holderKind, "remote");
+    stack.peer.sendTermClose(stack.conn, 2, sid);
+    await clock.advance(10);
+    assert.equal(host.sessions.get("h2a-b1").holderKind, "none");
+    const log = stack.input.getLog(sid, "gen-1", "inc-1");
+    assert.deepEqual(log?.epochStatus(epoch2), { status: "ended", reason: "released", maxInSeq: 0 });
+
+    stack.bridge.dispose();
+    stack.projector.stopWatch();
+    stack.client.stop();
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b sim #11: Fin d'incarnation, ordre des lectures (exited, couple mismatch, operation-failed, exit on observer)", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+
+    // Case A: surveillance reads status: exited + holderKind: none + bumped epoch BEFORE bridge poll -> no term.ctl.state, no end line, port closed, log absent
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-e1");
+      const stack = setupStack(iso, host, clock, { bridgePollIntervalMs: 1_000 });
+      const sid = await openAndAttachSession(stack, clock, "h2a-e1", 2);
+      await acquireLease(stack, clock, sid, 2);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+      assert.equal(existsSync(lf), true);
+      const closesBefore = host.calls.portCloseCount;
+      const cur = stack.conn.decodedClientRecords.length;
+
+      const s = host.sessions.get("h2a-e1");
+      s.status = "exited";
+      s.holderKind = "none";
+      s.controllerEpoch += 1;
+      await clock.advance(260);
+
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.some((r) => r.t === "term.ctl.state"), false, "no term.ctl.state on ended incarnation");
+      assert.equal(host.calls.portCloseCount, closesBefore + 1);
+      assert.equal(existsSync(lf), false, "log file must be deleted on exited status");
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case A2: bridge passes first via term.exit on status: exited -> same result
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-e1b");
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-e1b", 2);
+      await acquireLease(stack, clock, sid, 2);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+      const closesBefore = host.calls.portCloseCount;
+      const cur = stack.conn.decodedClientRecords.length;
+
+      const s = host.sessions.get("h2a-e1b");
+      s.status = "exited";
+      s.exit = { exitCode: 0 };
+      s.holderKind = "none";
+      s.controllerEpoch += 1;
+      await clock.advance(40);
+
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.some((r) => r.t === "term.ctl.state"), false);
+      assert.equal(recs.some((r) => r.t === "term.exit"), true);
+      assert.equal(host.calls.portCloseCount, closesBefore + 1);
+      assert.equal(existsSync(lf), false);
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case B: surveillance reads different (generation, incarnation) BEFORE bridge poll -> end incarnation
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-e2");
+      const stack = setupStack(iso, host, clock, { bridgePollIntervalMs: 1_000 });
+      const sid = await openAndAttachSession(stack, clock, "h2a-e2", 2);
+      await acquireLease(stack, clock, sid, 2);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+      const closesBefore = host.calls.portCloseCount;
+      const cur = stack.conn.decodedClientRecords.length;
+
+      const s = host.sessions.get("h2a-e2");
+      s.incarnation = "inc-2";
+      s.holderKind = "none";
+      s.controllerEpoch = 0;
+      await clock.advance(260);
+
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.some((r) => r.t === "term.ctl.state"), false);
+      assert.equal(host.calls.portCloseCount, closesBefore + 1);
+      assert.equal(existsSync(lf), false);
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case B2: bridge passes first via term.exit on couple mismatch -> same result
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-e2b");
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-e2b", 2);
+      await acquireLease(stack, clock, sid, 2);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+      const closesBefore = host.calls.portCloseCount;
+      const cur = stack.conn.decodedClientRecords.length;
+
+      const s = host.sessions.get("h2a-e2b");
+      s.incarnation = "inc-2";
+      s.holderKind = "none";
+      s.controllerEpoch = 0;
+      await clock.advance(40);
+
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.some((r) => r.t === "term.ctl.state"), false);
+      assert.equal(recs.some((r) => r.t === "term.exit"), true);
+      assert.equal(host.calls.portCloseCount, closesBefore + 1);
+      assert.equal(existsSync(lf), false);
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case C: surveillance state() rejects with operation-failed -> end incarnation
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-e3");
+      const stack = setupStack(iso, host, clock, { bridgePollIntervalMs: 1_000 });
+      const sid = await openAndAttachSession(stack, clock, "h2a-e3", 2);
+      await acquireLease(stack, clock, sid, 2);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+      const closesBefore = host.calls.portCloseCount;
+      const cur = stack.conn.decodedClientRecords.length;
+
+      host.setNextStateOverride(() => {
+        throw new SimNativeTerminalRemoteError("operation-failed", "unknown terminal session");
+      });
+      await clock.advance(260);
+
+      const recs = collectChannelRecords(stack.conn, 2, cur).records;
+      assert.equal(recs.some((r) => r.t === "term.ctl.state"), false);
+      assert.equal(host.calls.portCloseCount, closesBefore + 1);
+      assert.equal(existsSync(lf), false);
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // Case D: term.exit arrives on observer ch=3 while lease is bound to ch=2 AND write in flight -> no file recreated, no term.ctl.state
+    {
+      const host = makeSimHost();
+      host.setSession("h2a-e4");
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-e4", 2);
+      await openAndAttachSession(stack, clock, "h2a-e4", 3);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+
+      let resolveWrite;
+      host.setNextWriteBehavior(() => new Promise((r) => { resolveWrite = r; }));
+      const cur2 = stack.conn.decodedClientRecords.length;
+      stack.peer.sendRecord(stack.conn, {
+        t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+        epoch, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("hi")
+      });
+      await clock.flushMicrotasks();
+
+      // Exit happens on ch=3 observer first
+      const s = host.sessions.get("h2a-e4");
+      s.status = "exited";
+      s.exit = { exitCode: 0 };
+      s.holderKind = "none";
+      s.controllerEpoch += 1;
+      await clock.advance(40);
+      assert.equal(existsSync(lf), false, "log file deleted on exit via observer ch=3");
+
+      // Complete the suspended write -> ack arrives, but file MUST NOT be recreated and no term.ctl.state
+      resolveWrite();
+      await clock.flushMicrotasks();
+      assert.equal(existsSync(lf), false, "settling write after endIncarnation must not recreate log file");
+      const recs2 = collectChannelRecords(stack.conn, 2, cur2).records;
+      assert.equal(recs2.some((r) => r.t === "term.ctl.state"), false);
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b sim #12/#23: Session absente ou sortie & Hôte ancien", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-op");
+    const stack = setupStack(iso, host, clock);
+    const sid = await openAndAttachSession(stack, clock, "h2a-op", 2);
+
+    // 1. acquire operation-failed + state exited -> not-operable
+    host.setNextAcquireOverride(() => {
+      throw new SimNativeTerminalRemoteError("operation-failed", "exited");
+    });
+    host.setNextStateOverride(() => ({
+      id: "h2a-op", generation: "gen-1", incarnation: "inc-1", status: "exited",
+      latestSeq: 0, exit: { exitCode: 0 }, stopSignal: null, controlled: false, holderKind: "none", controllerEpoch: 1
+    }));
+    let cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(stack.conn, 2, cur).records[0]?.code, "not-operable");
+    assert.equal(collectChannelRecords(stack.conn, 2, cur).records[0]?.retryable, false);
+
+    // 2. acquire operation-failed + state operation-failed -> not-operable
+    host.setNextAcquireOverride(() => {
+      throw new SimNativeTerminalRemoteError("operation-failed", "unknown");
+    });
+    host.setNextStateOverride(() => {
+      throw new SimNativeTerminalRemoteError("operation-failed", "unknown");
+    });
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    let errRec = collectChannelRecords(stack.conn, 2, cur).records[0];
+    assert.equal(errRec?.code, "not-operable");
+    assert.equal(errRec?.retryable, false);
+
+    // 3. acquire operation-failed + state no response -> host-unavailable (retryable: true)
+    host.setNextAcquireOverride(() => {
+      throw new SimNativeTerminalRemoteError("operation-failed", "err");
+    });
+    host.setNextStateOverride(() => {
+      throw new Error("socket closed");
+    });
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    errRec = collectChannelRecords(stack.conn, 2, cur).records[0];
+    assert.equal(errRec?.code, "host-unavailable");
+    assert.equal(errRec?.retryable, true);
+
+    // 4. acquire no response -> host-unavailable (retryable: true)
+    host.setNextAcquireOverride(() => {
+      throw new Error("timeout");
+    });
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    errRec = collectChannelRecords(stack.conn, 2, cur).records[0];
+    assert.equal(errRec?.code, "host-unavailable");
+    assert.equal(errRec?.retryable, true);
+
+    // 5. #23 Hôte ancien (invalid-request) -> host-upgrade-required (retryable: false)
+    host.setNextAcquireOverride(() => {
+      throw new SimNativeTerminalRemoteError("invalid-request", "unknown terminal operation");
+    });
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    await clock.advance(10);
+    errRec = collectChannelRecords(stack.conn, 2, cur).records[0];
+    assert.equal(errRec?.code, "host-upgrade-required");
+    assert.equal(errRec?.retryable, false);
+
+    stack.bridge.dispose();
+    stack.projector.stopWatch();
+    stack.client.stop();
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b sim #13/#14/#15: Coupure de 20 s, Coupure de 40 s, Pendant la grâce", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-g");
+    const stack = setupStack(iso, host, clock);
+    const sid = await openAndAttachSession(stack, clock, "h2a-g", 2);
+    const epoch = await acquireLease(stack, clock, sid, 2);
+
+    stack.peer.sendRecord(stack.conn, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("one")
+    });
+    await clock.advance(10);
+
+    // Drop link, advance 20s (< 30s grace)
+    stack.peer.dropConnection(stack.conn, "net-cut");
+    await clock.advance(20_000);
+    assert.equal(host.sessions.get("h2a-g").holderKind, "remote", "lease preserved during 20s drop");
+    const conn2 = stack.peer.allConnections().find((c) => c !== stack.conn && !c.closed);
+    assert.ok(conn2);
+    assert.equal(conn2.closed, false);
+
+    stack.peer.sendWatchStart(conn2);
+    await clock.advance(10);
+    stack.peer.sendTermOpen(conn2, { ch: 2, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
+    stack.peer.sendCredit(conn2, 2, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
+    await clock.advance(20);
+    const opened2 = collectChannelRecords(conn2, 2, 0).records.find((r) => r.t === "term.opened");
+    assert.equal(opened2?.holderKind, "remote");
+    assert.equal(opened2?.controllerEpoch, epoch);
+
+    // #15 Pendant la grâce: acquire -> refused-held, term.in before term.in.sync -> not-controller
+    let cur = conn2.decodedClientRecords.length;
+    stack.peer.sendRecord(conn2, { t: "term.ctl", ch: 2, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
+    stack.peer.sendRecord(conn2, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, inSeq: 2, ackThrough: 1, origin: "user", dataB64: b64("early")
+    });
+    await clock.advance(10);
+    const preSyncRecs = collectChannelRecords(conn2, 2, cur).records;
+    assert.equal(preSyncRecs[0]?.state, "refused-held");
+    assert.equal(preSyncRecs[1]?.t, "term.in.ack");
+    assert.equal(preSyncRecs[1]?.reason, "not-controller");
+
+    // term.in.sync reattaches lease and disarms grace; next input applies
+    cur = conn2.decodedClientRecords.length;
+    stack.peer.sendRecord(conn2, {
+      t: "term.in.sync", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, lastAckedInSeq: 1
+    });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(conn2, 2, cur).records.some((r) => r.t === "term.in.synced" && r.evicted === false), true);
+
+    // Advance another 15s (would have passed 30s if grace hadn't been disarmed) -> lease still alive
+    await clock.advance(15_000);
+    assert.equal(host.sessions.get("h2a-g").holderKind, "remote");
+
+    cur = conn2.decodedClientRecords.length;
+    stack.peer.sendRecord(conn2, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, inSeq: 2, ackThrough: 1, origin: "user", dataB64: b64("two")
+    });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(conn2, 2, cur).records[0]?.result, "applied");
+
+    // #14 Coupure de 40 s -> lease released at 30 s
+    stack.peer.dropConnection(conn2, "long-cut");
+    await clock.advance(29_500);
+    assert.equal(host.sessions.get("h2a-g").holderKind, "remote");
+    await clock.advance(10_500);
+    assert.equal(host.sessions.get("h2a-g").holderKind, "none", "lease must be released at 30s");
+
+    const conn3 = stack.peer.allConnections().at(-1);
+    stack.peer.sendWatchStart(conn3);
+    await clock.advance(10);
+    stack.peer.sendTermOpen(conn3, { ch: 2, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
+    stack.peer.sendCredit(conn3, 2, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
+    await clock.advance(20);
+    const opened3 = collectChannelRecords(conn3, 2, 0).records.find((r) => r.t === "term.opened");
+    assert.equal(opened3?.holderKind, "none");
+
+    cur = conn3.decodedClientRecords.length;
+    stack.peer.sendRecord(conn3, {
+      t: "term.in.sync", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, lastAckedInSeq: 1
+    });
+    stack.peer.sendRecord(conn3, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, inSeq: 3, ackThrough: 2, origin: "user", dataB64: b64("stale")
+    });
+    await clock.advance(10);
+    const recs3 = collectChannelRecords(conn3, 2, cur).records;
+    assert.equal(recs3.some((r) => r.t === "term.ctl.state" && r.state === "lost-link"), true);
+    assert.equal(recs3.some((r) => r.t === "term.in.ack" && r.inSeq === 3 && r.reason === "stale-epoch"), true);
+
+    stack.bridge.dispose();
+    stack.projector.stopWatch();
+    stack.client.stop();
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b sim #16/#17: Fin de lien définitive (live & en grâce), et Raison de fermeture reçue du site", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-ltb");
+
+    // #16 Live link termination: superseded, revoked, kill, client.stop() release immediately
+    for (const action of ["superseded", "revoked", "kill", "stop"]) {
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-ltb", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "remote");
+
+      const t0 = clock.now();
+      if (action === "superseded") stack.peer.sendRecord(stack.conn, { t: "superseded", ch: 0, reason: "newer" });
+      else if (action === "revoked") stack.peer.sendRevoked(stack.conn, "rev");
+      else if (action === "kill") stack.peer.sendKill(stack.conn, "k");
+      else stack.client.stop();
+      await clock.advance(10);
+
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "none", `${action} must release lease immediately`);
+      assert.ok(clock.now() - t0 < 1_000);
+      const log = stack.input.getLog(sid, "gen-1", "inc-1");
+      assert.deepEqual(log?.epochStatus(epoch), { status: "ended", reason: "released", maxInSeq: 0 });
+
+      rmSync(join(iso.root, "remote-control", "kill"), { force: true });
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // #16 During grace: kill file placed -> released in < 1s; reconnect refused enrolment-revoked -> released immediately
+    {
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-ltb", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.dropConnection(stack.conn, "drop");
+      await clock.advance(500);
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "remote");
+
+      const killDir = join(iso.root, "remote-control");
+      mkdirSync(killDir, { recursive: true, mode: 0o700 });
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(join(killDir, "kill"), "1\n");
+      const tKill = clock.now();
+      await clock.advance(300);
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "none", "kill file during grace releases lease in < 1s");
+      assert.ok(clock.now() - tKill < 1_000);
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 0
+      });
+
+      rmSync(join(killDir, "kill"), { force: true });
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    {
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-ltb", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.dropConnection(stack.conn, "drop");
+      await clock.flushMicrotasks();
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "remote");
+
+      stack.peer.revokeEnrolment(stack.enrolmentRef);
+      await clock.advance(5_000);
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "none", "enrolment-revoked during grace releases immediately");
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 0
+      });
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // #17 Raison de fermeture reçue du site: err on ch 0 with code exit/excluded/error/dispose/peer-close -> grace, log kept, no end before 30s
+    for (const forgedCode of ["exit", "excluded", "error", "dispose", "peer-close"]) {
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-ltb", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.sendRecord(stack.conn, {
+        t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+        epoch, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("keep")
+      });
+      await clock.advance(10);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+      assert.equal(existsSync(lf), true);
+
+      stack.peer.sendRecord(stack.conn, { t: "err", ch: 0, code: forgedCode, retryable: true });
+      await clock.advance(5_000);
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "remote", `err code=${forgedCode} must enter grace`);
+      assert.equal(existsSync(lf), true);
+      assert.equal(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch).status, "active");
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+
+    // #17 superseded with reason: "exit" -> epoch closed released, end line written, log file present
+    {
+      const stack = setupStack(iso, host, clock);
+      const sid = await openAndAttachSession(stack, clock, "h2a-ltb", 2);
+      const epoch = await acquireLease(stack, clock, sid, 2);
+      stack.peer.sendRecord(stack.conn, {
+        t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+        epoch, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("keep")
+      });
+      await clock.advance(10);
+      const lf = logFileFor(iso.root, stack.scope, sid);
+
+      stack.peer.sendRecord(stack.conn, { t: "superseded", ch: 0, reason: "exit" });
+      await clock.advance(10);
+      assert.equal(host.sessions.get("h2a-ltb").holderKind, "none");
+      assert.equal(existsSync(lf), true, "superseded reason=exit must keep log file");
+      assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+        status: "ended", reason: "released", maxInSeq: 1
+      });
+
+      stack.bridge.dispose();
+      stack.projector.stopWatch();
+      stack.client.stop();
+    }
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-09b sim #18/#19/#21/#24: Inactivité 15 min, Arrêt observer, Surveillance sans réponse, Innocuité mode control", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeSimHost();
+    host.setSession("h2a-misc");
+    const stack = setupStack(iso, host, clock);
+    const sid = await openAndAttachSession(stack, clock, "h2a-misc", 2);
+    const epoch = await acquireLease(stack, clock, sid, 2);
+
+    // #18 Inactivity: terminal-reply does NOT reset 900s idle timer; user input resets it; 900s idle -> idle-released
+    await clock.advance(600_000);
+    stack.peer.sendRecord(stack.conn, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch, inSeq: 1, ackThrough: 0, origin: "terminal-reply", dataB64: b64("\x1b[1;1R")
+    });
+    await clock.advance(301_000);
+    assert.equal(host.sessions.get("h2a-misc").holderKind, "none", "terminal-reply must not extend idle deadline");
+    assert.deepEqual(stack.input.getLog(sid, "gen-1", "inc-1")?.epochStatus(epoch), {
+      status: "ended", reason: "idle-released", maxInSeq: 1
+    });
+
+    // Re-acquire succeeds immediately, user input extends deadline
+    const epoch2 = await acquireLease(stack, clock, sid, 2);
+    await clock.advance(600_000);
+    stack.peer.sendRecord(stack.conn, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch: epoch2, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("u")
+    });
+    await clock.advance(500_000);
+    assert.equal(host.sessions.get("h2a-misc").holderKind, "remote", "user input must reset idle deadline");
+    await clock.advance(401_000);
+    assert.equal(host.sessions.get("h2a-misc").holderKind, "none");
+
+    // #21 Surveillance sans réponse: idle state() throws -> released, single term.ctl.state, port closed
+    const epoch3 = await acquireLease(stack, clock, sid, 2);
+    let cur = stack.conn.decodedClientRecords.length;
+    host.setNextStateOverride(() => { throw new Error("socket broken"); });
+    await clock.advance(260);
+    let recs = collectChannelRecords(stack.conn, 2, cur).records.filter((r) => r.t === "term.ctl.state");
+    assert.equal(recs.length, 1);
+    assert.equal(recs[0]?.state, "released");
+    assert.equal(recs[0]?.epoch, epoch3);
+    assert.equal(host.sessions.get("h2a-misc").holderKind, "none");
+
+    // #21 Surveillance sans réponse pendant écriture suspendue: ne clôt rien, write -> uncertain + single released
+    const epoch4 = await acquireLease(stack, clock, sid, 2);
+    let rejectWrite;
+    host.setNextWriteBehavior(() => new Promise((_, rej) => { rejectWrite = rej; }));
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, {
+      t: "term.in", ch: 2, sid, generation: "gen-1", incarnation: "inc-1",
+      epoch: epoch4, inSeq: 1, ackThrough: 0, origin: "user", dataB64: b64("hung")
+    });
+    await clock.flushMicrotasks();
+    host.setNextStateOverride(() => { throw new Error("state timeout"); });
+    await clock.advance(260);
+    assert.equal(collectChannelRecords(stack.conn, 2, cur).records.length, 0, "surveillance must not close during in-flight write");
+    rejectWrite(new Error("write broken"));
+    await clock.flushMicrotasks();
+    recs = collectChannelRecords(stack.conn, 2, cur).records;
+    assert.equal(recs.filter((r) => r.t === "term.in.ack" && r.result === "uncertain").length, 1);
+    assert.equal(recs.filter((r) => r.t === "term.ctl.state" && r.state === "released").length, 1);
+
+    // #19 term.stop from observer channel & stale incarnation
+    const sidObs = await openAndAttachSession(stack, clock, "h2a-misc", 3);
+    cur = stack.conn.decodedClientRecords.length;
+    stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 3, sid: sidObs, generation: "gen-1", incarnation: "inc-old" });
+    await clock.advance(10);
+    assert.equal(collectChannelRecords(stack.conn, 3, cur).records[0]?.code, "stale-incarnation");
+    assert.equal(host.calls.stopIfIncarnation.length, 0);
+
+    stack.peer.sendRecord(stack.conn, { t: "term.stop", ch: 3, sid: sidObs, generation: "gen-1", incarnation: "inc-1" });
+    await clock.advance(10);
+    assert.equal(host.calls.stopIfIncarnation.length, 1);
+    assert.equal(stack.inputAudits.some((a) => a.kind === "terminal-stop" && a.ch === 3), true);
+
+    // #24 Innocuité: term.open mode=control produces zero acquire/resize/write
+    const acq0 = host.calls.acquire.length;
+    const res0 = host.calls.resize.length;
+    const wr0 = host.calls.write.length;
+    stack.peer.sendTermOpen(stack.conn, { ch: 4, sid, mode: "control", afterSeq: null, receivedSegBytes: 0, cols: 120, rows: 40 });
+    stack.peer.sendCredit(stack.conn, 4, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
+    await clock.advance(30);
+    const ch4Recs = collectChannelRecords(stack.conn, 4, 0).records;
+    assert.equal(ch4Recs.some((r) => r.t === "term.opened"), true);
+    assert.equal(ch4Recs.some((r) => r.t === "err"), false);
+    assert.equal(host.calls.acquire.length, acq0);
+    assert.equal(host.calls.resize.length, res0);
+    assert.equal(host.calls.write.length, wr0);
+
+    // #10 releaseAll(cause) public method
+    await acquireLease(stack, clock, sid, 2);
+    assert.equal(host.sessions.get("h2a-misc").holderKind, "remote");
+    stack.input.releaseAll("test-kill");
+    await clock.advance(10);
+    assert.equal(host.sessions.get("h2a-misc").holderKind, "none");
+
+    stack.bridge.dispose();
+    stack.projector.stopWatch();
+    stack.client.stop();
   } finally {
     cleanup(iso);
   }
