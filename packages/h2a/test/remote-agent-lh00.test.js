@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { createHash, generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   REMOTE_CONTROL_ENV,
@@ -24,7 +25,15 @@ import {
   buildFleetInventoryFromRoot
 } from "../dist/runtime/remote-agent/index.js";
 
-import { FakeTrunkEndpoint, FakeEnrolmentVerifier } from "./helpers/remote-trunk-fakes.js";
+import {
+  FakeTrunkEndpoint,
+  FakeEnrolmentVerifier,
+  WET2_TEXT_HASH,
+  FIXTURE_CONTRACT_METADATA,
+  assertFixtureContractVersion,
+  createFakeCatalogueTrunkProvider
+} from "./helpers/remote-trunk-fakes.js";
+import { createSimulatedTrunkContractProvider, PINNED_WET2_TEXT_HASH } from "./helpers/remote-trunk-peer.js";
 
 // LH-00 contract fakes and flag. Every case runs under a temporary store root
 // and a temporary runtime directory derived from TMPDIR; no live state, no
@@ -511,4 +520,86 @@ test("inventory from root excludes expired presences from shares and coverage", 
   } finally {
     cleanupDirs(dirs);
   }
+});
+
+const WET2_SECTION6_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures/wet2/section6.md");
+const FAKES_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "helpers/remote-trunk-fakes.js");
+const PEER_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "helpers/remote-trunk-peer.js");
+const LH06_TEST_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "remote-agent-lh06.test.js");
+
+test("WET-2.1 gate 1: WET2_TEXT_HASH matches normalized SHA-256 of pinned section6.md", () => {
+  const raw = readFileSync(WET2_SECTION6_PATH, "utf8").replace(/\r\n/g, "\n");
+  const digest = createHash("sha256").update(raw, "utf8").digest("hex");
+  assert.equal(digest, WET2_TEXT_HASH);
+  assert.equal(PINNED_WET2_TEXT_HASH, WET2_TEXT_HASH);
+});
+
+test("WET-2.1 gate 2: section6.md shape starts with ## 6., excludes ## 7., and is 25151 bytes", () => {
+  const bytes = readFileSync(WET2_SECTION6_PATH);
+  assert.equal(bytes.byteLength, 25151);
+  const text = bytes.toString("utf8");
+  assert.equal(text.startsWith("## 6. "), true);
+  assert.equal(text.split("\n").some((line) => line.startsWith("## 7. ")), false);
+});
+
+test("WET-2.1 gate 3: mutated section6 text fails contract assertions and fakes", () => {
+  const raw = readFileSync(WET2_SECTION6_PATH, "utf8").replace(/\r\n/g, "\n");
+  assert.equal(raw.includes("4 096"), true);
+  const mutated = raw.replace("4 096", "4 097");
+  const mutatedHash = createHash("sha256").update(mutated, "utf8").digest("hex");
+  assert.notEqual(mutatedHash, WET2_TEXT_HASH);
+  const versionCheck = assertFixtureContractVersion({ wet2TextHash: mutatedHash });
+  assert.equal(versionCheck.ok, false);
+  assert.equal(versionCheck.reason, "wet2-hash-mismatch");
+
+  const keys = fixtureKeys("mutated-wet2");
+  const trunk = new FakeTrunkEndpoint({ tenantId: TENANT, endpoint: ENDPOINT, meshId: MESH, env: TEST_ENV, wet2TextHash: mutatedHash });
+  trunk.registerFixtureKey({ nodeId: NODE, publicKeyPem: keys.publicKeyPem, enrolmentRef: REF });
+  const ch = challengeFor("nonce-mutated");
+  trunk.issueChallenge(ch);
+  const p = payloadFor("nonce-mutated");
+  const openRes = trunk.openLink({ challenge: ch, payload: p, signature: signTrunkAuthPayload(p, keys.privateKeyPem) });
+  assert.equal(openRes.ok, false);
+  assert.equal(openRes.reason, "wet2-hash-mismatch");
+
+  const verifier = new FakeEnrolmentVerifier({ tenantId: TENANT, endpoint: ENDPOINT, meshId: MESH, env: TEST_ENV, wet2TextHash: mutatedHash });
+  verifier.registerNode({ nodeId: NODE, publicKeyPem: keys.publicKeyPem, fingerprint: "fp" });
+  const ep = { nodeId: NODE, publicKeyPem: keys.publicKeyPem, deviceName: "dev", nonce: "n-mut", meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT };
+  const verRes = verifier.verifyRequest({ payload: ep, signature: signTrunkAuthPayload(ep, keys.privateKeyPem) });
+  assert.equal(verRes.ok, false);
+  assert.equal(verRes.reason, "wet2-hash-mismatch");
+
+  assert.throws(() => createSimulatedTrunkContractProvider({ wet2TextHash: mutatedHash }), /wet2TextHash-mismatch/);
+});
+
+test("WET-2.1 gate 4: CRLF-converted section6 yields identical hash after LF normalization", () => {
+  const lf = readFileSync(WET2_SECTION6_PATH, "utf8").replace(/\r\n/g, "\n");
+  const crlf = lf.replace(/\n/g, "\r\n");
+  const normalized = crlf.replace(/\r\n/g, "\n");
+  const digest = createHash("sha256").update(normalized, "utf8").digest("hex");
+  assert.equal(digest, WET2_TEXT_HASH);
+});
+
+test("WET-2.1 gate 5: single source of truth — old r7 hash removed from fakes, peer and lh06 test", () => {
+  const oldHash = ["0c0069544d0efbc115f142b9435d14a7", "80c401a43b1b77aa49066048516ac050"].join("");
+  for (const filePath of [FAKES_PATH, PEER_PATH, LH06_TEST_PATH]) {
+    const content = readFileSync(filePath, "utf8");
+    assert.equal(content.includes(oldHash), false, `old r7 hash must not remain in ${filePath}`);
+  }
+  const peerSrc = readFileSync(PEER_PATH, "utf8");
+  assert.match(peerSrc, /from\s+["']\.\/remote-trunk-fakes\.js["']/);
+});
+
+test("WET-2.1 gate 6: single contractVersion WET-2.1 across all fakes providers", () => {
+  const keys = fixtureKeys("ver-check");
+  const trunk = new FakeTrunkEndpoint({ tenantId: TENANT, endpoint: ENDPOINT, meshId: MESH, env: TEST_ENV });
+  const verifier = new FakeEnrolmentVerifier({ tenantId: TENANT, endpoint: ENDPOINT, meshId: MESH, env: TEST_ENV });
+  const catProvider = createFakeCatalogueTrunkProvider({ env: TEST_ENV });
+  void keys;
+  assert.equal(FIXTURE_CONTRACT_METADATA.contractVersion, "WET-2.1");
+  assert.equal(trunk.metadata().contractVersion, "WET-2.1");
+  assert.equal(verifier.metadata().contractVersion, "WET-2.1");
+  assert.equal(catProvider.metadata.contractVersion, "WET-2.1");
+  const fakesSrc = readFileSync(FAKES_PATH, "utf8");
+  assert.equal(fakesSrc.includes('"WET-2"'), false, 'fakes.js must not contain standalone "WET-2"');
 });

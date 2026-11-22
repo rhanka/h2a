@@ -61,7 +61,6 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const H2A_BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
-const PINNED_WET2_HASH = "0c0069544d0efbc115f142b9435d14a780c401a43b1b77aa49066048516ac050";
 
 function sha256Hex(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -330,9 +329,8 @@ async function startFakeNativeSocketServer(socketPath, handler) {
 // ---------------------------------------------------------------------------
 
 test("LH-06 step 1: common fake fixture pins wet2TextHash and rejects foreign version", () => {
-  assert.equal(WET2_TEXT_HASH, PINNED_WET2_HASH);
-  assert.equal(FIXTURE_CONTRACT_METADATA?.wet2TextHash, PINNED_WET2_HASH);
-  assert.equal(assertFixtureContractVersion({ wet2TextHash: PINNED_WET2_HASH }).ok, true);
+  assert.equal(FIXTURE_CONTRACT_METADATA?.wet2TextHash, WET2_TEXT_HASH);
+  assert.equal(assertFixtureContractVersion({ wet2TextHash: WET2_TEXT_HASH }).ok, true);
   const badMeta = assertFixtureContractVersion({ wet2TextHash: "0000000000000000000000000000000000000000000000000000000000000000" });
   assert.equal(badMeta.ok, false);
   assert.equal(badMeta.reason, "wet2-hash-mismatch");
@@ -347,9 +345,9 @@ test("LH-06 step 1: common fake fixture pins wet2TextHash and rejects foreign ve
     tenantId: "t1",
     endpoint: "https://remote.example/trunk/v1",
     env,
-    wet2TextHash: PINNED_WET2_HASH
+    wet2TextHash: WET2_TEXT_HASH
   });
-  assert.equal(trunk.metadata().wet2TextHash, PINNED_WET2_HASH);
+  assert.equal(trunk.metadata().wet2TextHash, WET2_TEXT_HASH);
 
   const foreignTrunk = new FakeTrunkEndpoint({
     meshId: "m1",
