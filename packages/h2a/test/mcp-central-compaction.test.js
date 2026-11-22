@@ -12,7 +12,7 @@ import { authenticatedHttpRequest } from '../dist/runtime/handover/authenticated
 import { currentIdentity } from '../dist/runtime/handover/admission.js';
 import { endedOwner } from '../dist/runtime/handover/generation-end.js';
 import { LaunchJournal } from '../dist/runtime/handover/launch-memo.js';
-import { establishWriterControl, writerDirectory } from '../dist/runtime/handover/mutation.js';
+import { establishWriterControl, updateWriterControl, writerDirectory } from '../dist/runtime/handover/mutation.js';
 import { OperationLedger, OwnershipRegistry } from '../dist/runtime/handover/ownership.js';
 import { Participants } from '../dist/runtime/handover/participants.js';
 import { publishState, readState } from '../dist/runtime/handover/state.js';
@@ -199,6 +199,9 @@ async function waitForStatus(markerPath, marker, endpoint, predicate, timeoutMs 
   throw new Error(`Timed out waiting for central status condition; last=${JSON.stringify(last)}`);
 }
 
+// Benchmark & durability split (NB-3): T1.1, T1.2 and T1.7 mock fs.fsyncSync to measure
+// event-loop scheduling lag and O(1) I/O counts without disk-flush jitter, while T1.3 and
+// T1.8 exercise full fsyncSync durability on compaction, crash recovery and --restore.
 test('T1.1: non-blocking migration on 2500 historical operations and >256 effects snapshot bound', { timeout: 60_000 }, async t => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'mcp-l1-t11-'));
   const root = join(dir, 'store');
@@ -991,5 +994,249 @@ test('T1.8: completed delegated launch with archived child/brief operations surv
   for (const lid of [launchId1, launchId2]) {
     const matches = allEffects.filter(e => e.result?.type === 'launch-delegation' && e.result?.launchId === lid);
     assert.equal(matches.length, 1, `expected exactly 1 launch-delegation effect for ${lid}, found ${matches.length}`);
+  }
+});
+
+test('B-1: background migration retries transient mutation_lock_unavailable and never marks complete on error', { timeout: 30_000 }, async t => {
+  t.mock.method(fs, 'fsyncSync', () => {});
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+
+  // Subcase (a): transient mutation_lock_unavailable in Phase 2 retries without skipping any sub-lot
+  {
+    const dir = makeDir(t, 'mcp-l1-b1-retry-');
+    const root = join(dir, 'store');
+    const stateDir = join(dir, 'state');
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    establishWriterControl(root, stateDir);
+
+    seedHistoricalState(stateDir, { root, operations: 160, pendingOperations: 1 });
+
+    const id = currentIdentity();
+    const gen = randomUUID();
+    const lockDir = writerDirectory(root);
+    const reg = new OwnershipRegistry({ directory: stateDir, generation: gen, processIdentity: id, lockDirectory: lockDir });
+    const origWithLock = reg.withLock.bind(reg);
+    let lockFailuresRemaining = 2;
+    let lockCallsDuringMigration = 0;
+    let completeObservedAfterFailure = null;
+    let ledger;
+    reg.withLock = (fn) => {
+      lockCallsDuringMigration++;
+      if (lockFailuresRemaining > 0) {
+        lockFailuresRemaining--;
+        try {
+          throw new Error('mutation_lock_unavailable');
+        } finally {
+          queueMicrotask(() => {
+            if (completeObservedAfterFailure === null && ledger) {
+              completeObservedAfterFailure = ledger.ledgerMigrationComplete;
+            }
+          });
+        }
+      }
+      return origWithLock(fn);
+    };
+
+    ledger = new OperationLedger(reg);
+    t.after(() => ledger.stopMigration());
+    assert.equal(ledger.ledgerMigrationComplete, false);
+
+    const deadline = Date.now() + 10_000;
+    while (!ledger.ledgerMigrationComplete && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 15));
+    }
+    assert.equal(completeObservedAfterFailure, false, 'ledgerMigrationComplete must stay false after transient mutation_lock_unavailable');
+    assert.equal(ledger.ledgerMigrationComplete, true, 'migration must eventually complete after transient lock clears');
+    assert.ok(lockCallsDuringMigration >= 7, `expected retries plus all sub-lots (>=7 lock calls), got ${lockCallsDuringMigration}`);
+    const remainingOps = fs.readdirSync(stateDir).filter(f => f.startsWith('operation-'));
+    assert.equal(remainingOps.length, 1, `no sub-lot may be skipped on retry: expected only 1 pending op at root, got ${remainingOps.length}`);
+    assert.equal(ledger.hasPendingForAttachment('pending-att'), true);
+  }
+
+  // Subcase (b): Phase 1 non-transient error must leave ledgerMigrationComplete === false (PR-02 + no root readdirSync storm)
+  {
+    const dir = makeDir(t, 'mcp-l1-b1-phase1-');
+    const root = join(dir, 'store');
+    const stateDir = join(dir, 'state');
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    establishWriterControl(root, stateDir);
+
+    seedHistoricalState(stateDir, { root, operations: 160, pendingOperations: 1 });
+
+    const id = currentIdentity();
+    const gen = randomUUID();
+    const lockDir = writerDirectory(root);
+    const reg = new OwnershipRegistry({ directory: stateDir, generation: gen, processIdentity: id, lockDirectory: lockDir });
+
+    const realLstatSync = fs.lstatSync;
+    let failOnce = true;
+    t.mock.method(fs, 'lstatSync', (p, ...args) => {
+      if (failOnce && typeof p === 'string' && p.startsWith(stateDir) && p.includes('operation-')) {
+        failOnce = false;
+        throw Object.assign(new Error('EIO: disk read error'), { code: 'EIO' });
+      }
+      return realLstatSync(p, ...args);
+    });
+    syncBuiltinESMExports();
+
+    const ledger = new OperationLedger(reg);
+    t.after(() => ledger.stopMigration());
+    await new Promise(r => setTimeout(r, 150));
+
+    assert.equal(ledger.ledgerMigrationComplete, false, 'Phase 1 EIO must NEVER flip ledgerMigrationComplete to true');
+    assert.equal(ledger.drain().complete, false, 'PR-02: drain().complete must stay false after failed migration');
+
+    // syncIfExternalChange() must NOT scan the unmigrated root directory when ledgerMigrationComplete === false
+    const realReaddirSync = fs.readdirSync;
+    let readdirs = 0;
+    t.mock.method(fs, 'readdirSync', (p, ...args) => {
+      if (typeof p === 'string' && p === stateDir) readdirs++;
+      return realReaddirSync(p, ...args);
+    });
+    syncBuiltinESMExports();
+    reg.lastRevisionStamp = null;
+    reg.syncIfExternalChange();
+    assert.equal(readdirs, 0, 'syncIfExternalChange must not trigger full root readdirSync while migration is incomplete');
+  }
+
+  // Subcase (c): exhausted transient retry budget in Phase 2 must leave ledgerMigrationComplete === false
+  {
+    const dir = makeDir(t, 'mcp-l1-b1-exhausted-');
+    const root = join(dir, 'store');
+    const stateDir = join(dir, 'state');
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    establishWriterControl(root, stateDir);
+
+    seedHistoricalState(stateDir, { root, operations: 160 });
+
+    const id = currentIdentity();
+    const gen = randomUUID();
+    const lockDir = writerDirectory(root);
+    const reg = new OwnershipRegistry({ directory: stateDir, generation: gen, processIdentity: id, lockDirectory: lockDir });
+    const origWithLock = reg.withLock.bind(reg);
+    let failLocks = true;
+    reg.withLock = (fn) => {
+      if (failLocks) throw new Error('mutation_lock_unavailable');
+      return origWithLock(fn);
+    };
+
+    const ledger = new OperationLedger(reg);
+    t.after(() => ledger.stopMigration());
+    const deadline = Date.now() + 5_000;
+    while (ledger._migrationTimer !== null && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 25));
+    }
+    await new Promise(r => setTimeout(r, 50));
+    failLocks = false;
+
+    assert.equal(ledger.ledgerMigrationComplete, false, 'exhausted retry budget must leave ledgerMigrationComplete === false');
+    assert.equal(ledger.drain().complete, false, 'PR-02: drain().complete must stay false after exhausted retries');
+  }
+});
+
+test('NB-1/NB-2/NB-3: lock revalidation of owner/barrier/tx state, bounded order maps, and centralCompact env propagation', { timeout: 30_000 }, async t => {
+  t.mock.method(fs, 'fsyncSync', () => {});
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+
+  // NB-1: _commitArchiveSubLot revalidates owner.state (FROZEN) and writerGate (BARRIER) under lock
+  {
+    const dir = makeDir(t, 'mcp-l1-nb1-');
+    const root = join(dir, 'store');
+    const stateDir = join(dir, 'state');
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    establishWriterControl(root, stateDir);
+
+    const id = currentIdentity();
+    const gen = randomUUID();
+    const lockDir = writerDirectory(root);
+    const reg = new OwnershipRegistry({ directory: stateDir, generation: gen, processIdentity: id, lockDirectory: lockDir });
+    const ledger = new OperationLedger(reg);
+    const token = reg.claim({ attachmentId: 'att-nb1', presenceSessionId: 'pending:att-nb1', expectedInstance: 'identity_disabled' });
+
+    // Create 70 completed ops so the oldest ones are selected for archival outside lock
+    const ops = [];
+    for (let i = 0; i < 70; i++) {
+      const op = ledger.begin(token, `nb1-op-${i}`, 'call');
+      ledger.finish(op, { completed: true, i });
+      ops.push(op);
+    }
+    const inspected = fs.readdirSync(stateDir)
+      .filter(n => n.endsWith('.json'))
+      .map(n => ledger._inspectCandidateFile(n))
+      .filter(Boolean);
+    const selected = ledger._selectArchiveCandidates(inspected);
+    assert.ok(selected.some(c => c.family === 'operations'), 'pre-freeze selection should include excess completed ops');
+
+    // Freeze the attachment AFTER selection and BEFORE _commitArchiveSubLot acquires the lock
+    reg.freeze(token, 'handover-nb1');
+    const moved = ledger._commitArchiveSubLot(selected, 'test-nb1', 'batch-20261122');
+    assert.equal(moved.operations.length, 0, 'FROZEN attachment completed ops must not be archived after lock revalidation');
+    assert.equal(moved.effects.length, 0, 'FROZEN attachment effects must not be archived after lock revalidation');
+
+    // Also verify writerGate === 'BARRIER' blocks active-attachment effect archival under lock
+    reg.abort(token, 'handover-nb1');
+    for (let i = 70; i < 270; i++) {
+      const op = ledger.begin(token, `nb1-op-${i}`, 'call');
+      ledger.finish(op, { completed: true, i });
+    }
+    const inspected2 = fs.readdirSync(stateDir)
+      .filter(n => n.endsWith('.json'))
+      .map(n => ledger._inspectCandidateFile(n))
+      .filter(Boolean);
+    const selected2 = ledger._selectArchiveCandidates(inspected2);
+    assert.ok(selected2.some(c => c.family === 'effects'), 'pre-barrier selection should include excess active effects');
+    updateWriterControl(root, { gate: 'BARRIER', handoverId: 'handover-nb1-barrier' });
+    const movedBarrier = ledger._commitArchiveSubLot(selected2.filter(c => c.family === 'effects'), 'test-nb1-barrier', 'batch-20261122');
+    assert.equal(movedBarrier.effects.length, 0, 'writerGate === BARRIER must block active attachment effect archival under lock');
+  }
+
+  // NB-2: _opOrder and _effectOrder evict archived filenames in _evictLedgerRootFile
+  {
+    const dir = makeDir(t, 'mcp-l1-nb2-');
+    const root = join(dir, 'store');
+    const stateDir = join(dir, 'state');
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    establishWriterControl(root, stateDir);
+
+    const id = currentIdentity();
+    const gen = randomUUID();
+    const lockDir = writerDirectory(root);
+    const reg = new OwnershipRegistry({ directory: stateDir, generation: gen, processIdentity: id, lockDirectory: lockDir });
+    const ledger = new OperationLedger(reg);
+    const token = reg.claim({ attachmentId: 'att-nb2', presenceSessionId: 'pending:att-nb2', expectedInstance: 'identity_disabled' });
+    for (let i = 0; i < 80; i++) {
+      const op = ledger.begin(token, `nb2-op-${i}`, 'call');
+      ledger.finish(op, { completed: true, i });
+    }
+    assert.equal(ledger._opOrder.size, 80);
+    const res = ledger.compactBatch();
+    assert.ok(res.archived.operations >= 16);
+    assert.ok(ledger._opOrder.size <= 64, `_opOrder must evict archived files; got size=${ledger._opOrder.size}`);
+  }
+
+  // NB-3: centralCompact honors options.env (XDG_RUNTIME_DIR / H2A_ROOT) without options.runtimeBase
+  {
+    const dir = makeDir(t, 'mcp-l1-nb3-');
+    const customRoot = join(dir, 'store');
+    const customRun = join(dir, 'run');
+    const stateDir = join(customRun, 'h2a-mcp-central');
+    fs.mkdirSync(customRoot, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(customRun, { recursive: true, mode: 0o700 });
+    seedHistoricalState(stateDir, { root: customRoot, operations: 80 });
+
+    const { centralCompact } = await import('../dist/runtime/mcp-central-operator.js');
+    const res = centralCompact({
+      dryRun: true,
+      env: { ...process.env, HOME: dir, XDG_RUNTIME_DIR: customRun, H2A_ROOT: customRoot, H2A_MCP_AUTHORITY: '' }
+    });
+    assert.equal(res.stateDirectory, stateDir, 'centralCompact must resolve stateDirectory from options.env.XDG_RUNTIME_DIR');
+    assert.ok(res.archived.operations >= 80);
   }
 });

@@ -1396,19 +1396,26 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
         dirs = await fsPromises.readdir(paths.negotiations);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-        throw error;
+        console.error(JSON.stringify({
+          event: "drive-consent.verification-error",
+          stage: "readdir",
+          code: (error as NodeJS.ErrnoException).code ?? null,
+          message: error instanceof Error ? error.message : String(error)
+        }));
+        return;
       }
       let sliceStart = performance.now();
       for (const dir of dirs) {
         if (!dir.startsWith('drive-consent__')) continue;
         const id = dir.replaceAll('__',':');
-        const currentStamp = await consentStampAsync(id);
-        if (consentIndexes.get(id)?.stamp === currentStamp && !consentFailures.has(id)) continue;
+        let currentStamp: string | undefined;
         try {
+          currentStamp = await consentStampAsync(id);
+          if (consentIndexes.get(id)?.stamp === currentStamp && !consentFailures.has(id)) continue;
           await rebuildConsentIndexAsync(id, maxSliceMs);
         } catch (error) {
           consentFailures.set(id, error);
-          consentFailureStamps.set(id, currentStamp);
+          consentFailureStamps.set(id, currentStamp ?? "__stat_error__");
         }
         if (performance.now() - sliceStart >= maxSliceMs) {
           await new Promise<void>(r => setImmediate(r));
@@ -1425,7 +1432,18 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const historyRef = new WeakRef(consentMaintenance);
   const historyTimer = setInterval(() => {
     const maintenance = historyRef.deref();
-    if (maintenance) void maintenance.verifyAsync(8); else clearInterval(historyTimer);
+    if (maintenance) {
+      void maintenance.verifyAsync(8).catch((error) => {
+        console.error(JSON.stringify({
+          event: "drive-consent.verification-error",
+          stage: "timer",
+          code: (error as NodeJS.ErrnoException)?.code ?? null,
+          message: error instanceof Error ? error.message : String(error)
+        }));
+      });
+    } else {
+      clearInterval(historyTimer);
+    }
   }, 60_000);
   historyTimer.unref();
 

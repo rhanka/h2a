@@ -111,7 +111,10 @@ export function parseCentralCompactArgs(args: readonly string[]): CentralCompact
 export function centralCompact(options: CentralCompactOptions = {}): unknown {
   const env = options.env ?? process.env;
   const canonicalRoot = options.root ? canonicalRootPath(options.root) : canonicalRootPath(canonicalCentralRoot(env));
-  const paths: CentralMcpPathsOptions = options.runtimeBase ? { runtimeBase: options.runtimeBase } : {};
+  const paths: CentralMcpPathsOptions = {
+    ...(options.runtimeBase ? { runtimeBase: options.runtimeBase } : {}),
+    env
+  };
   const stateDirectory = centralStateDirectory(paths);
 
   if (!existsSync(stateDirectory)) {

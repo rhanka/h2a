@@ -13,9 +13,19 @@ export const MIGRATION_COMMIT_BATCH_SIZE = 32;
 export const MIGRATION_MAX_SLICE_MS = 8;
 
 const ARCHIVED_OPERATION_CACHE_MAX = 256;
+const MIGRATION_MAX_TRANSIENT_RETRIES = 6;
+const MIGRATION_RETRY_BASE_DELAY_MS = 10;
+const MIGRATION_RETRY_MAX_DELAY_MS = 500;
+const TRANSIENT_MIGRATION_ERRNO = new Set(['EBUSY', 'EAGAIN', 'EMFILE', 'ENFILE', 'EINTR']);
 const LAUNCH_MEMO_RE = /^launch-[a-f0-9]+\.json$/;
 const LAUNCH_LOC_RE = /^launch-location-(.+)\.json$/;
 const GEN_END_RE = /^generation-end-(.+)\.json$/;
+
+function isTransientMigrationError(error) {
+  if (!error) return false;
+  if (error.message === 'mutation_lock_unavailable') return true;
+  return typeof error.code === 'string' && TRANSIENT_MIGRATION_ERRNO.has(error.code);
+}
 
 const leaf = (kind, id) => `${kind}-${digest(id).slice(7)}.json`;
 
@@ -502,6 +512,7 @@ export class OperationLedger {
     this.manifestDev = null;
 
     this.ledgerMigrationComplete = false;
+    this.migrationError = null;
     this._migrationStopped = false;
     this._migrationTimer = null;
 
@@ -749,6 +760,8 @@ export class OperationLedger {
   }
 
   _evictLedgerRootFile(name) {
+    this._opOrder.delete(name);
+    this._effectOrder.delete(name);
     const opId = this._opFileToId.get(name);
     if (opId !== undefined) {
       this._opFileToId.delete(name);
@@ -1284,7 +1297,24 @@ export class OperationLedger {
 
     let movedCount = 0;
     this.registry.withLock(() => {
-      // 1. Revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
+      // 1. Sync external state once, revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
+      this.registry.syncIfExternalChange();
+      const { activeTx, writerGate } = this._readActiveTransactionContext();
+      const activeTxCheckpoints = new Set(activeTx?.checkpointReferences ?? []);
+      const activeTxSourceGen = activeTx?.source?.generation ?? null;
+      const referencedGenerations = new Set();
+      const referencedCheckpoints = new Set(activeTxCheckpoints);
+      for (const owner of this.registry.ownersById.values()) {
+        if (owner.state !== 'CLOSED') {
+          referencedGenerations.add(owner.ownerGeneration);
+          if (owner.checkpointHash) referencedCheckpoints.add(`checkpoint-${owner.checkpointHash.slice(7)}.json`);
+        }
+      }
+      const pendingAttachments = new Set();
+      for (const op of this.activeById.values()) {
+        if (op.state !== 'completed') pendingAttachments.add(op.attachmentId);
+      }
+
       for (const cand of subLot) {
         const srcPath = join(this.directory, cand.name);
         let stat;
@@ -1298,9 +1328,36 @@ export class OperationLedger {
           // Concurrent replaceState or deletion — skip immediately (B-02).
           continue;
         }
-        if (cand.family === 'operations' && this.activeById.has(cand.value.operationId)) continue;
-        if (cand.family === 'effects' && this.activeById.has(cand.value.operationId)) continue;
-        if (cand.family === 'ownerships' && this.hasPendingForAttachment(cand.value.attachmentId)) continue;
+        if (cand.family === 'operations') {
+          if (cand.value.state === 'pending' || cand.value.state === 'unknown') continue;
+          if (this.activeById.has(cand.value.operationId)) continue;
+          if (cand.value.ownerGeneration !== this.registry.generation) {
+            if (activeTxSourceGen && cand.value.ownerGeneration === activeTxSourceGen) continue;
+          } else {
+            const owner = this.registry.ownersById.get(cand.value.attachmentId);
+            if (owner && (owner.state === 'FROZEN' || owner.state === 'TRANSFERRING')) continue;
+          }
+        } else if (cand.family === 'effects') {
+          if (this.activeById.has(cand.value.operationId)) continue;
+          const owner = this.registry.ownersById.get(cand.value.attachmentId);
+          if (owner && owner.state !== 'CLOSED') {
+            if (owner.state === 'FROZEN' || owner.state === 'TRANSFERRING') continue;
+            if (owner.ownerGeneration === this.registry.generation && owner.state === 'ACTIVE') {
+              if (writerGate === 'BARRIER') continue;
+              if (cand.value.result?.type === 'launch-delegation') continue;
+            }
+          }
+        } else if (cand.family === 'generationEnds') {
+          if (referencedGenerations.has(cand.value.generation)) continue;
+        } else if (cand.family === 'ownerships') {
+          if (cand.value.state !== 'CLOSED' || pendingAttachments.has(cand.value.attachmentId)) continue;
+        } else if (cand.family === 'checkpoints') {
+          if (referencedCheckpoints.has(cand.name)) continue;
+        } else if (cand.family === 'launches' && cand.schema === 'launchMemo') {
+          if (cand.value.state !== 'completed') continue;
+        } else if (cand.family === 'wakes') {
+          if (cand.value.state === 'intent' || cand.value.state === 'unknown') continue;
+        }
 
         const dstPath = join(batchPath, cand.name);
         fs.renameSync(srcPath, dstPath);
@@ -1397,13 +1454,14 @@ export class OperationLedger {
     const inspected = [];
     let archiveQueue = null;
     let commitIndex = 0;
+    let transientRetries = 0;
     const batchName = utcBatchDirName();
 
-    const scheduleNext = (preferIo = false) => {
+    const scheduleNext = (delayMs = null) => {
       if (this._migrationStopped) return;
-      if (preferIo) {
+      if (delayMs !== null) {
         this._migrationTimerKind = 'timeout';
-        this._migrationTimer = setTimeout(step, 1);
+        this._migrationTimer = setTimeout(step, delayMs);
         this._migrationTimer.unref?.();
       } else {
         this._migrationTimerKind = 'immediate';
@@ -1422,8 +1480,9 @@ export class OperationLedger {
           const sliceStart = performance.now();
           let processed = 0;
           while (scanIndex < pendingNames.length && processed < MIGRATION_SCAN_BATCH_SIZE) {
-            const name = pendingNames[scanIndex++];
+            const name = pendingNames[scanIndex];
             const c = this._inspectCandidateFile(name);
+            scanIndex++;
             if (c) {
               inspected.push(c);
               if (c.family === 'operations' && c.value.state !== 'completed') {
@@ -1437,7 +1496,8 @@ export class OperationLedger {
             processed++;
             if (performance.now() - sliceStart >= MIGRATION_MAX_SLICE_MS) break;
           }
-          scheduleNext(true);
+          transientRetries = 0;
+          scheduleNext(1);
           return;
         }
 
@@ -1459,7 +1519,8 @@ export class OperationLedger {
               }
             }
           }
-          scheduleNext(true);
+          transientRetries = 0;
+          scheduleNext(1);
           return;
         }
 
@@ -1467,24 +1528,41 @@ export class OperationLedger {
         // foreground HTTP I/O (ping/initialize) and writer lock acquisitions never starve behind migration.
         if (commitIndex < archiveQueue.length) {
           const subLot = archiveQueue.slice(commitIndex, commitIndex + MIGRATION_COMMIT_BATCH_SIZE);
-          commitIndex += subLot.length;
           this._commitArchiveSubLot(subLot, 'startup-migration', batchName);
-          scheduleNext(true);
+          commitIndex += subLot.length;
+          transientRetries = 0;
+          scheduleNext(1);
           return;
         }
 
-        // Finalize: sync root stamps and flip ledgerMigrationComplete = true
+        // Finalize: sync root stamps and flip ledgerMigrationComplete = true only if final sync succeeds.
         this.registry.lastRevisionStamp = null;
         this.ledgerMigrationComplete = true;
-        this.registry.syncIfExternalChange();
+        try {
+          this.registry.syncIfExternalChange();
+        } catch (syncError) {
+          this.ledgerMigrationComplete = false;
+          throw syncError;
+        }
+        this.migrationError = null;
       } catch (error) {
-        if (this._migrationStopped || error.code === 'ENOENT') return;
-        // Re-try or surface safely without crashing an active daemon if transient.
-        this.ledgerMigrationComplete = true;
+        if (this._migrationStopped || error?.code === 'ENOENT') return;
+        if (isTransientMigrationError(error) && transientRetries < MIGRATION_MAX_TRANSIENT_RETRIES) {
+          transientRetries++;
+          const delayMs = Math.min(
+            MIGRATION_RETRY_MAX_DELAY_MS,
+            MIGRATION_RETRY_BASE_DELAY_MS * (2 ** (transientRetries - 1))
+          );
+          scheduleNext(delayMs);
+          return;
+        }
+        // Never flip ledgerMigrationComplete to true on error (PR-02); leave incomplete and log.
+        this.migrationError = error;
+        process.stderr.write(`h2a handover: background_migration_failed: ${error instanceof Error ? error.message : String(error)}\n`);
       }
     };
 
-    scheduleNext(false);
+    scheduleNext(null);
   }
 
   restoreArchive() {

@@ -115,13 +115,16 @@ export function centralMcpClientEndpoint(
 export interface CentralMcpPathsOptions {
   /** Explicit isolation seam; otherwise use the private XDG runtime or UID fallback. */
   runtimeBase?: string;
+  /** Optional environment override for H2A_MCP_AUTHORITY and XDG_RUNTIME_DIR resolution. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /**
  * One marker per UID runtime namespace, independent of endpoint and workspace.
  */
 export function centralMcpMarkerPath(options: CentralMcpPathsOptions = {}): string {
-  const reference = process.env.H2A_MCP_AUTHORITY;
+  const env = options.env ?? process.env;
+  const reference = env.H2A_MCP_AUTHORITY;
   if (!options.runtimeBase && reference) {
     if (!isAbsolute(reference) || resolve(reference) !== reference || basename(reference) !== CENTRAL_MARKER_FILE) throw new Error("authority_reference_invalid");
     return reference;
@@ -132,7 +135,7 @@ export function centralMcpMarkerPath(options: CentralMcpPathsOptions = {}): stri
     if (expected !== namespace.canonicalMarkerLocation) throw new Error("authority_reference_required");
     return namespace.canonicalMarkerLocation;
   }
-  const base = runtimeBase(options);
+  const base = runtimeBase(options, env);
   return join(base, CENTRAL_RUNTIME_DIRECTORY, CENTRAL_MARKER_FILE);
 }
 

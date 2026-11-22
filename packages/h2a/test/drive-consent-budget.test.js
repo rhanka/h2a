@@ -419,3 +419,128 @@ test('T1.5: streaming verifyAsync handles 80 pairs (6000 entries, 300 expired, 2
     assert.match(verdict.anomalies.join(' '), /corrupt journal chain at index 19999/);
   }
 });
+
+test('B-2: historyTimer contains non-ENOENT readdir and per-pair stat errors without unhandledRejection', { timeout: 30_000 }, async t => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'consent-b2-'));
+  const unhandled = [];
+  const onUnhandled = (reason) => { unhandled.push(reason); };
+  process.on('unhandledRejection', onUnhandled);
+  t.after(() => {
+    process.off('unhandledRejection', onUnhandled);
+    t.mock.timers.reset();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // Subcase (a): fs.promises.readdir rejects with EACCES on negotiations/
+  {
+    const rootA = join(dir, 'readdir-eacces');
+    fs.mkdirSync(join(rootA, 'negotiations'), { recursive: true, mode: 0o700 });
+    const origReaddir = fs.promises.readdir;
+    t.mock.method(fs.promises, 'readdir', async (p, ...args) => {
+      if (p === join(rootA, 'negotiations')) {
+        throw Object.assign(new Error('EACCES: permission denied, scandir'), { code: 'EACCES' });
+      }
+      return origReaddir(p, ...args);
+    });
+    syncBuiltinESMExports();
+
+    let onVerifyDone;
+    const nextVerify = () => new Promise(resolve => { onVerifyDone = resolve; });
+    const errors = [];
+    t.mock.method(console, 'error', line => {
+      try {
+        const parsed = JSON.parse(line);
+        errors.push(parsed);
+        if (parsed.event === 'drive-consent.full-verification' && !parsed.replayed) onVerifyDone?.(parsed);
+      } catch { /* ignore */ }
+    });
+    t.mock.timers.enable({ apis: ['setInterval'] });
+
+    const storeA = createLocalStore({
+      root: rootA,
+      initialize: false,
+      alwaysEmitConsentBudget: true,
+      deferConsentHistoryVerification: true
+    });
+    const doneA = nextVerify();
+    t.mock.timers.tick(60_000);
+    await doneA;
+    await new Promise(r => setTimeout(r, 25));
+
+    assert.deepEqual(unhandled, [], `expected 0 unhandledRejections on readdir EACCES, got: ${unhandled.map(String).join('; ')}`);
+    assert.ok(errors.some(e => e.event === 'drive-consent.verification-error' && e.code === 'EACCES'),
+      'expected structured verification-error log for readdir EACCES');
+    t.mock.timers.reset();
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    void storeA;
+  }
+
+  // Subcase (b): fs.promises.stat rejects with EACCES on one drive-consent__* pair; other valid pair still completes
+  {
+    const rootB = join(dir, 'stat-eacces');
+    fs.mkdirSync(join(rootB, 'registry'), { recursive: true, mode: 0o700 });
+    fs.mkdirSync(join(rootB, 'negotiations'), { recursive: true, mode: 0o700 });
+    const seedStore = createLocalStore({ root: rootB, deferConsentHistoryVerification: true });
+
+    const badPairId = consentPairId('inst:bad-a', 'inst:bad-b');
+    const badFile = negotiationJournalFile(seedStore.paths, badPairId);
+    fs.mkdirSync(join(badFile, '..'), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(badFile, '', 'utf8');
+
+    const goodPairId = consentPairId('inst:good-a', 'inst:good-b');
+    const goodFile = negotiationJournalFile(seedStore.paths, goodPairId);
+    fs.mkdirSync(join(goodFile, '..'), { recursive: true, mode: 0o700 });
+    const entry = createJournalEntry({
+      id: 'good-0',
+      type: 'event',
+      actor: { instance: 'inst:good-b', role: 'AGENTS', scope: 'drive-consent' },
+      negotiationId: goodPairId,
+      createdAt: new Date(Date.UTC(2026, 0, 1)).toISOString(),
+      body: { kind: 'drive-consent.audit', observedAt: Date.UTC(2026, 0, 1), admissionId: 'adm-good' }
+    });
+    fs.writeFileSync(goodFile, JSON.stringify(entry) + '\n', 'utf8');
+
+    const origStat = fs.promises.stat;
+    let goodStreamOpens = 0;
+    const origCreateReadStream = fs.createReadStream;
+    t.mock.method(fs.promises, 'stat', async (p, ...args) => {
+      if (p === badFile) {
+        throw Object.assign(new Error('EACCES: permission denied, stat'), { code: 'EACCES' });
+      }
+      return origStat(p, ...args);
+    });
+    t.mock.method(fs, 'createReadStream', (p, ...args) => {
+      if (p === goodFile) goodStreamOpens++;
+      return origCreateReadStream(p, ...args);
+    });
+    syncBuiltinESMExports();
+
+    let onVerifyDone;
+    const nextVerify = () => new Promise(resolve => { onVerifyDone = resolve; });
+    t.mock.method(console, 'error', line => {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.event === 'drive-consent.full-verification' && !parsed.replayed) onVerifyDone?.(parsed);
+      } catch { /* ignore */ }
+    });
+    t.mock.timers.enable({ apis: ['setInterval'] });
+
+    const storeB = createLocalStore({
+      root: rootB,
+      initialize: false,
+      alwaysEmitConsentBudget: true,
+      deferConsentHistoryVerification: true
+    });
+    const doneB = nextVerify();
+    t.mock.timers.tick(60_000);
+    await doneB;
+    await new Promise(r => setTimeout(r, 25));
+
+    assert.deepEqual(unhandled, [], `expected 0 unhandledRejections on per-pair stat EACCES, got: ${unhandled.map(String).join('; ')}`);
+    assert.equal(goodStreamOpens, 1, 'healthy sibling pair must still be verified after one pair fails stat');
+    void storeB;
+  }
+});
