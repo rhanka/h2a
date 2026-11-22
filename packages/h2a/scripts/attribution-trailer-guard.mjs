@@ -28,7 +28,15 @@
  *                                               [--pr-title-env <VAR>] [--pr-body-env <VAR>]
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -45,6 +53,166 @@ export const GITHUB_WEBFLOW_KEY_IDS = Object.freeze([
   "B5690EEEBB952194",
   "4AEE18F83AFDEB23",
 ]);
+export const GITHUB_WEBFLOW_LEGACY_EXPIRED_KEY_IDS = Object.freeze([
+  "4AEE18F83AFDEB23",
+]);
+export const GITHUB_WEBFLOW_KEY_FINGERPRINTS = Object.freeze([
+  "968479A1AFF927E37D1A566BB5690EEEBB952194",
+  "5DE3E0509C47EA3CF04A42D34AEE18F83AFDEB23",
+]);
+
+/**
+ * Vendored GitHub web-flow commit-signing public keys (https://github.com/web-flow.gpg):
+ *  - 4AEE18F83AFDEB23 (legacy, expired 2024-01-16)
+ *  - B5690EEEBB952194 (active)
+ */
+export const GITHUB_WEBFLOW_GPG_PUBLIC_KEY = [
+  "-----BEGIN PGP PUBLIC KEY BLOCK-----",
+  "",
+  "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",
+  "=uMz0",
+  "-----END PGP PUBLIC KEY BLOCK-----",
+  "",
+].join("\n");
+
+/**
+ * Strict catalog of GitHub automation bots that a caller repo may explicitly opt
+ * into via `allowed-bot-identities` / `--allowed-bots`. Empty by default (owner
+ * policy refuses all bots unless opted in per repo). AI bots are NEVER allowlistable.
+ */
+export const KNOWN_ALLOWED_BOTS = Object.freeze({
+  "dependabot[bot]": Object.freeze({
+    login: "dependabot[bot]",
+    authorNames: Object.freeze(["dependabot[bot]"]),
+    authorEmails: Object.freeze(["49699333+dependabot[bot]@users.noreply.github.com"]),
+    allowSelfCommitter: false,
+    allowGithubWebFlowCommitter: true,
+  }),
+  "github-actions[bot]": Object.freeze({
+    login: "github-actions[bot]",
+    authorNames: Object.freeze(["github-actions[bot]", "github-actions"]),
+    authorEmails: Object.freeze(["41898282+github-actions[bot]@users.noreply.github.com"]),
+    allowSelfCommitter: true,
+    allowGithubWebFlowCommitter: true,
+  }),
+});
+
+export function parseAllowedBots(raw) {
+  const items = Array.isArray(raw)
+    ? raw
+    : String(raw ?? "")
+        .split(",")
+        .map((s) => s.trim());
+  const out = [];
+  for (const item of items) {
+    const normalized = String(item ?? "").trim().toLowerCase();
+    if (!normalized) continue;
+    if (!Object.prototype.hasOwnProperty.call(KNOWN_ALLOWED_BOTS, normalized)) {
+      throw new Error(
+        `Unsupported entry "${item}" in allowed-bot-identities (only known GitHub automation bots are supported: ${Object.keys(KNOWN_ALLOWED_BOTS).join(", ")})`,
+      );
+    }
+    if (!out.includes(normalized)) out.push(normalized);
+  }
+  return out;
+}
+
+export function escapeGithubCommand(value) {
+  return String(value ?? "")
+    .replace(/%/g, "%25")
+    .replace(/\r/g, "%0D")
+    .replace(/\n/g, "%0A");
+}
+
+export function isVerifiedGithubWebFlowSignature(sigStatus = "", sigKey = "") {
+  const status = String(sigStatus ?? "").trim();
+  const key = String(sigKey ?? "").trim().toUpperCase();
+  if (!key) return false;
+  if (status === "G" && GITHUB_WEBFLOW_KEY_IDS.includes(key)) return true;
+  if (status === "Y" && GITHUB_WEBFLOW_LEGACY_EXPIRED_KEY_IDS.includes(key)) return true;
+  return false;
+}
+
+export function withGithubWebFlowKeyring(fn) {
+  const gnupgHome = mkdtempSync(join(tmpdir(), "gpg-"));
+  try {
+    chmodSync(gnupgHome, 0o700);
+    const gpgEnv = { ...process.env, GNUPGHOME: gnupgHome };
+    execFileSync("gpg", ["--homedir", gnupgHome, "--batch", "--quiet", "--import"], {
+      input: GITHUB_WEBFLOW_GPG_PUBLIC_KEY,
+      env: gpgEnv,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const ownertrust = GITHUB_WEBFLOW_KEY_FINGERPRINTS.map((fp) => `${fp}:6:`).join("\n") + "\n";
+    execFileSync("gpg", ["--homedir", gnupgHome, "--batch", "--quiet", "--import-ownertrust"], {
+      input: ownertrust,
+      env: gpgEnv,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return fn(gnupgHome);
+  } finally {
+    rmSync(gnupgHome, { recursive: true, force: true });
+  }
+}
+
+export function buildPrRevArgs(repo, baseSha, headSha, { excludeRefs = [] } = {}) {
+  const excludes = [];
+  for (const ref of excludeRefs) {
+    const cleanRef = String(ref ?? "").trim();
+    if (!cleanRef) continue;
+    try {
+      const sha = execFileSync("git", ["-C", repo, "rev-parse", "--verify", "--quiet", cleanRef], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (sha && sha !== baseSha && !excludes.includes(sha)) {
+        excludes.push(sha);
+      }
+    } catch {
+      // ref does not exist in this repository; ignore safely
+    }
+  }
+  if (excludes.length > 0) {
+    return [headSha, "--not", baseSha, ...excludes];
+  }
+  return [`${baseSha}..${headSha}`];
+}
 
 const SCISSORS_RE = /^# -{3,} >8 -{3,}$/;
 
@@ -194,6 +362,60 @@ export function isGithubSquashCoAuthorLine(line = "") {
  * `committerNameMismatch`, `nonCanonicalNames`) is always computed against
  * `requireName || canonicalName` (default `"Fabien Antoine"`) when the email is valid.
  */
+function findMatchingAllowedBot(name, email, allowedBots) {
+  const lowerEmail = String(email ?? "").trim().toLowerCase();
+  const cleanName = String(name ?? "").trim();
+  for (const botId of allowedBots) {
+    const spec = KNOWN_ALLOWED_BOTS[botId];
+    if (
+      spec &&
+      spec.authorEmails.includes(lowerEmail) &&
+      spec.authorNames.includes(cleanName)
+    ) {
+      return spec;
+    }
+  }
+  return null;
+}
+
+function checkWebFlowCommitterSignature(
+  sigStatus,
+  sigKey,
+  { requireWebFlowSignature, contextLabel, violations },
+) {
+  let isUnsignedGithubMerge = false;
+  if (sigStatus === "B") {
+    violations.push({
+      rule: "bad-github-merge-signature",
+      message: `committer "GitHub <noreply@github.com>" ${contextLabel} carries an invalid PGP signature`,
+    });
+  } else if (!sigStatus || sigStatus === "N") {
+    isUnsignedGithubMerge = true;
+    if (requireWebFlowSignature) {
+      violations.push({
+        rule: "unsigned-github-merge-committer",
+        message: `committer "GitHub <noreply@github.com>" ${contextLabel} lacks a GitHub web-flow PGP signature (locally forged or unsigned commit)`,
+      });
+    }
+  } else if (
+    requireWebFlowSignature &&
+    !isVerifiedGithubWebFlowSignature(sigStatus, sigKey)
+  ) {
+    if (sigKey && !GITHUB_WEBFLOW_KEY_IDS.includes(sigKey)) {
+      violations.push({
+        rule: "unknown-github-merge-key",
+        message: `committer "GitHub <noreply@github.com>" ${contextLabel} was signed by unrecognized key ${sigKey} (expected GitHub web-flow key)`,
+      });
+    } else {
+      violations.push({
+        rule: "unverified-github-merge-signature",
+        message: `committer "GitHub <noreply@github.com>" ${contextLabel} PGP signature could not be cryptographically verified against GitHub web-flow keys (status=${sigStatus})`,
+      });
+    }
+  }
+  return { isUnsignedGithubMerge };
+}
+
 export function checkCommitIdentity(
   commit,
   {
@@ -203,8 +425,10 @@ export function checkCommitIdentity(
     ownerLogin = OWNER_GITHUB_LOGIN,
     requireWebFlowSignature = false,
     githubActor = "",
+    allowedBots = [],
   } = {},
 ) {
+  const normalizedAllowedBots = parseAllowedBots(allowedBots);
   const authorName = String(commit?.authorName ?? "").trim();
   const authorEmail = String(commit?.authorEmail ?? "").trim();
   const committerName = String(commit?.committerName ?? "").trim();
@@ -220,6 +444,9 @@ export function checkCommitIdentity(
   const authorEmailOk = authorEmail.toLowerCase() === expectedEmail;
   const authorNameOk = !requiredName || authorName === requiredName;
   const authorIsOwner = authorEmailOk && authorNameOk;
+  const allowedBotAuthor = !authorEmailOk
+    ? findMatchingAllowedBot(authorName, authorEmail, normalizedAllowedBots)
+    : null;
 
   const committerEmailOk = committerEmail.toLowerCase() === expectedEmail;
   const committerNameOk = !requiredName || committerName === requiredName;
@@ -243,8 +470,9 @@ export function checkCommitIdentity(
   const violations = [];
   let isGithubWebFlowMerge = false;
   let isUnsignedGithubMerge = false;
+  const isAllowedBotCommit = Boolean(allowedBotAuthor);
 
-  if (!authorEmailOk) {
+  if (!authorEmailOk && !allowedBotAuthor) {
     const bot = isBotIdentity(authorName, authorEmail);
     violations.push({
       rule: bot ? "bot-author" : "invalid-author",
@@ -252,11 +480,46 @@ export function checkCommitIdentity(
         ? `author "${authorName} <${authorEmail}>" is a bot/automated account and violates the owner-only identity policy (expected ${expectedLabel})`
         : `author "${authorName} <${authorEmail}>" does not use the owner email (expected ${expectedLabel})`,
     });
-  } else if (!authorNameOk) {
+  } else if (authorEmailOk && !authorNameOk) {
     violations.push({
       rule: "invalid-author-name",
       message: `author name "${authorName}" does not match required per-repo name "${requiredName}" (email "${authorEmail}" is valid)`,
     });
+  }
+
+  if (allowedBotAuthor) {
+    if (!committerIsOwner) {
+      const committerIsSameBot =
+        allowedBotAuthor.allowSelfCommitter &&
+        allowedBotAuthor.authorEmails.includes(committerEmail.toLowerCase()) &&
+        allowedBotAuthor.authorNames.includes(committerName);
+      if (committerIsGithub && allowedBotAuthor.allowGithubWebFlowCommitter) {
+        const sigCheck = checkWebFlowCommitterSignature(sigStatus, sigKey, {
+          requireWebFlowSignature,
+          contextLabel: `bot commit (${allowedBotAuthor.login})`,
+          violations,
+        });
+        isUnsignedGithubMerge = sigCheck.isUnsignedGithubMerge;
+      } else if (!committerIsSameBot) {
+        const bot = isBotIdentity(committerName, committerEmail);
+        violations.push({
+          rule: bot ? "bot-committer" : "invalid-committer",
+          message: `committer "${committerName} <${committerEmail}>" is not allowed for allowlisted bot commit "${allowedBotAuthor.login}" (expected ${expectedLabel} or cryptographically verified GitHub web-flow committer)`,
+        });
+      }
+    }
+
+    return {
+      ok: violations.length === 0,
+      violations,
+      isGithubWebFlowMerge,
+      isUnsignedGithubMerge,
+      isAllowedBotCommit,
+      nameMismatch,
+      authorNameMismatch,
+      committerNameMismatch,
+      nonCanonicalNames,
+    };
   }
 
   if (!committerIsOwner) {
@@ -271,33 +534,14 @@ export function checkCommitIdentity(
           rule: "unverified-github-merge-committer",
           message: `committer "GitHub <noreply@github.com>" merge is not authored by owner (${expectedLabel})`,
         });
-      } else if (sigStatus === "B") {
-        violations.push({
-          rule: "bad-github-merge-signature",
-          message: `committer "GitHub <noreply@github.com>" merge carries an invalid PGP signature`,
-        });
       } else {
         isGithubWebFlowMerge = true;
-        const hasSignature = ["G", "U", "E", "X", "Y"].includes(sigStatus);
-        if (!hasSignature) {
-          isUnsignedGithubMerge = true;
-          if (requireWebFlowSignature) {
-            violations.push({
-              rule: "unsigned-github-merge-committer",
-              message: `committer "GitHub <noreply@github.com>" merge lacks a GitHub web-flow PGP signature (locally forged or unsigned commit)`,
-            });
-          }
-        } else if (
-          requireWebFlowSignature &&
-          sigStatus !== "G" &&
-          sigKey &&
-          !GITHUB_WEBFLOW_KEY_IDS.includes(sigKey)
-        ) {
-          violations.push({
-            rule: "unknown-github-merge-key",
-            message: `committer "GitHub <noreply@github.com>" merge was signed by unrecognized key ${sigKey} (expected GitHub web-flow key)`,
-          });
-        }
+        const sigCheck = checkWebFlowCommitterSignature(sigStatus, sigKey, {
+          requireWebFlowSignature,
+          contextLabel: "merge",
+          violations,
+        });
+        isUnsignedGithubMerge = sigCheck.isUnsignedGithubMerge;
 
         if (
           githubActor &&
@@ -330,6 +574,7 @@ export function checkCommitIdentity(
     violations,
     isGithubWebFlowMerge,
     isUnsignedGithubMerge,
+    isAllowedBotCommit,
     nameMismatch,
     authorNameMismatch,
     committerNameMismatch,
@@ -510,19 +755,24 @@ export function formatRejection(matches, context = "commit message") {
   return lines.join("\n") + "\n";
 }
 
-export function readGitCommits(repo, revArgs) {
+export function readGitCommits(repo, revArgs, { verifyWebFlowSignatures = false } = {}) {
   const REC = "\x1e";
   const FLD = "\x1f";
   const format = `${REC}%H${FLD}%an${FLD}%ae${FLD}%cn${FLD}%ce${FLD}%P${FLD}%G?${FLD}%GK${FLD}%s${FLD}%B`;
-  const raw = execFileSync(
-    "git",
-    ["-C", repo, "-c", "gpg.ssh.allowedSignersFile=/dev/null", "log", ...revArgs, `--format=${format}`],
-    {
-      encoding: "utf8",
-      maxBuffer: 128 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const runGitLog = (extraEnv = {}) =>
+    execFileSync(
+      "git",
+      ["-C", repo, "-c", "gpg.ssh.allowedSignersFile=/dev/null", "log", ...revArgs, `--format=${format}`],
+      {
+        encoding: "utf8",
+        maxBuffer: 128 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, ...extraEnv },
+      },
+    );
+  const raw = verifyWebFlowSignatures
+    ? withGithubWebFlowKeyring((gnupgHome) => runGitLog({ GNUPGHOME: gnupgHome }))
+    : runGitLog();
   return raw
     .split(REC)
     .filter(Boolean)
@@ -610,6 +860,22 @@ export function runCli(argv) {
   const githubActor = typeof flags["github-actor"] === "string" ? flags["github-actor"] : "";
   const requireName = typeof flags["require-name"] === "string" ? flags["require-name"] : "";
   const ownerEmail = typeof flags["owner-email"] === "string" ? flags["owner-email"] : OWNER_EMAIL;
+  const allowedBotsRaw = typeof flags["allowed-bots"] === "string" ? flags["allowed-bots"] : "";
+  const excludeRefsRaw = typeof flags["exclude-ref"] === "string" ? flags["exclude-ref"] : "";
+  const excludeRefs = excludeRefsRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let allowedBots = [];
+  if (allowedBotsRaw) {
+    try {
+      allowedBots = parseAllowedBots(allowedBotsRaw);
+    } catch (err) {
+      process.stderr.write(`::error::${escapeGithubCommand(err.message)}\n`);
+      return 2;
+    }
+  }
 
   if (cmd === "check-file") {
     const target = positionals[1];
@@ -637,11 +903,13 @@ export function runCli(argv) {
     const range = positionals[1];
     if (!range) {
       process.stderr.write(
-        "usage: attribution-trailer-guard.mjs check-range <rev-range> [--repo <path>] [--require-name <name>]\n",
+        "usage: attribution-trailer-guard.mjs check-range <rev-range> [--repo <path>] [--require-name <name>] [--allowed-bots <list>]\n",
       );
       return 2;
     }
-    const commits = readGitCommits(repo, [range]);
+    const commits = readGitCommits(repo, [range], {
+      verifyWebFlowSignatures: requireWebFlowSignature,
+    });
     let failed = 0;
     for (const c of commits) {
       const idRes = checkCommitIdentity(c, {
@@ -649,18 +917,19 @@ export function runCli(argv) {
         requireName,
         requireWebFlowSignature,
         githubActor,
+        allowedBots,
       });
       for (const v of idRes.violations) {
         failed++;
         process.stderr.write(
-          `::error::commit ${c.sha.slice(0, 10)} (${c.subject}) identity violation [${v.rule}]: ${v.message}\n`,
+          `::error::${escapeGithubCommand(`commit ${c.sha.slice(0, 10)} (${c.subject}) identity violation [${v.rule}]: ${v.message}`)}\n`,
         );
       }
       const res = scanCommitMessage(c.body);
       if (!res.ok) {
         failed++;
         process.stderr.write(
-          `::error::commit ${c.sha.slice(0, 10)} (${c.subject}) carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})\n`,
+          `::error::${escapeGithubCommand(`commit ${c.sha.slice(0, 10)} (${c.subject}) carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})`)}\n`,
         );
       }
     }
@@ -702,17 +971,24 @@ export function runCli(argv) {
           : "";
 
     let failed = 0;
-    if (prAuthor && prAuthor.toLowerCase() !== OWNER_GITHUB_LOGIN.toLowerCase()) {
+    if (
+      prAuthor &&
+      prAuthor.toLowerCase() !== OWNER_GITHUB_LOGIN.toLowerCase() &&
+      !allowedBots.includes(prAuthor.toLowerCase())
+    ) {
       failed++;
       const botNote = isBotLogin(prAuthor) ? " is a bot account and" : "";
       process.stderr.write(
-        `::error::PR author "${prAuthor}"${botNote} violates the owner-only identity policy (only ${OWNER_GITHUB_LOGIN} is allowed)\n`,
+        `::error::${escapeGithubCommand(`PR author "${prAuthor}"${botNote} violates the owner-only identity policy (only ${OWNER_GITHUB_LOGIN} is allowed)`)}\n`,
       );
     }
 
     let scannedCommits = 0;
     if (base && head) {
-      const commits = readGitCommits(repo, [`${base}..${head}`]);
+      const revArgs = buildPrRevArgs(repo, base, head, { excludeRefs });
+      const commits = readGitCommits(repo, revArgs, {
+        verifyWebFlowSignatures: requireWebFlowSignature,
+      });
       scannedCommits = commits.length;
       for (const c of commits) {
         const idRes = checkCommitIdentity(c, {
@@ -720,18 +996,19 @@ export function runCli(argv) {
           requireName,
           requireWebFlowSignature,
           githubActor,
+          allowedBots,
         });
         for (const v of idRes.violations) {
           failed++;
           process.stderr.write(
-            `::error::commit ${c.sha.slice(0, 10)} (${c.subject}) identity violation [${v.rule}]: ${v.message}\n`,
+            `::error::${escapeGithubCommand(`commit ${c.sha.slice(0, 10)} (${c.subject}) identity violation [${v.rule}]: ${v.message}`)}\n`,
           );
         }
         const res = scanCommitMessage(c.body);
         if (!res.ok) {
           failed++;
           process.stderr.write(
-            `::error::commit ${c.sha.slice(0, 10)} (${c.subject}) carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})\n`,
+            `::error::${escapeGithubCommand(`commit ${c.sha.slice(0, 10)} (${c.subject}) carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})`)}\n`,
           );
         }
       }
@@ -741,7 +1018,7 @@ export function runCli(argv) {
       if (!res.ok) {
         failed++;
         process.stderr.write(
-          `::error::PR title carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})\n`,
+          `::error::${escapeGithubCommand(`PR title carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})`)}\n`,
         );
       }
     }
@@ -750,7 +1027,7 @@ export function runCli(argv) {
       if (!res.ok) {
         failed++;
         process.stderr.write(
-          `::error::PR body / squash message carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})\n`,
+          `::error::${escapeGithubCommand(`PR body / squash message carries a forbidden attribution trailer (${res.matches.map((m) => m.rule).join(", ")})`)}\n`,
         );
       }
     }

@@ -15,13 +15,20 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  GITHUB_WEBFLOW_GPG_PUBLIC_KEY,
   OWNER_EMAIL,
   OWNER_NAME,
+  buildPrRevArgs,
   checkCommitIdentity,
+  escapeGithubCommand,
+  isVerifiedGithubWebFlowSignature,
+  parseAllowedBots,
+  readGitCommits,
   scanBashCommand,
   scanCommitMessage,
   scanPrText,
   stripCommitTrailers,
+  withGithubWebFlowKeyring,
 } from "../scripts/attribution-trailer-guard.mjs";
 import {
   AGENT_RULE_BLOCK,
@@ -157,7 +164,7 @@ test("checkCommitIdentity enforces owner-only author/committer and verified GitH
     true,
   );
 
-  // Verified GitHub web-flow merge by rhanka -> OK
+  // Cryptographically verified GitHub web-flow merge (G) by rhanka -> OK
   assert.equal(
     checkCommitIdentity(
       {
@@ -166,13 +173,62 @@ test("checkCommitIdentity enforces owner-only author/committer and verified GitH
         committerName: "GitHub",
         committerEmail: "noreply@github.com",
         parents: ["aaa", "bbb"],
-        sigStatus: "E",
+        sigStatus: "G",
         sigKey: "B5690EEEBB952194",
       },
       { requireWebFlowSignature: true, githubActor: "rhanka" },
     ).ok,
     true,
   );
+
+  // Legacy expired GitHub web-flow key (Y + 4AEE18F83AFDEB23) -> OK
+  assert.equal(
+    checkCommitIdentity(
+      {
+        authorName: "Fabien Antoine",
+        authorEmail: "fabien.antoine@m4x.org",
+        committerName: "GitHub",
+        committerEmail: "noreply@github.com",
+        parents: ["aaa", "bbb"],
+        sigStatus: "Y",
+        sigKey: "4AEE18F83AFDEB23",
+      },
+      { requireWebFlowSignature: true, githubActor: "rhanka" },
+    ).ok,
+    true,
+  );
+
+  // Unverified sigStatus="E" (missing pubkey / forged issuer subpacket) -> FAIL (Finding 6)
+  const unverifiedMerge = checkCommitIdentity(
+    {
+      authorName: "Fabien Antoine",
+      authorEmail: "fabien.antoine@m4x.org",
+      committerName: "GitHub",
+      committerEmail: "noreply@github.com",
+      parents: ["aaa", "bbb"],
+      sigStatus: "E",
+      sigKey: "B5690EEEBB952194",
+    },
+    { requireWebFlowSignature: true, githubActor: "rhanka" },
+  );
+  assert.equal(unverifiedMerge.ok, false);
+  assert.ok(unverifiedMerge.violations.some((v) => v.rule === "unverified-github-merge-signature"));
+
+  // Good signature from non-GitHub key -> FAIL even when sigStatus="G" (Finding 6)
+  const wrongKeyGoodSig = checkCommitIdentity(
+    {
+      authorName: "Fabien Antoine",
+      authorEmail: "fabien.antoine@m4x.org",
+      committerName: "GitHub",
+      committerEmail: "noreply@github.com",
+      parents: ["aaa", "bbb"],
+      sigStatus: "G",
+      sigKey: "DEADBEEFDEADBEEF",
+    },
+    { requireWebFlowSignature: true, githubActor: "rhanka" },
+  );
+  assert.equal(wrongKeyGoodSig.ok, false);
+  assert.ok(wrongKeyGoodSig.violations.some((v) => v.rule === "unknown-github-merge-key"));
 
   // Single-parent GitHub committer (web edit / squash) -> FAIL
   const nonMerge = checkCommitIdentity({
@@ -181,7 +237,7 @@ test("checkCommitIdentity enforces owner-only author/committer and verified GitH
     committerName: "GitHub",
     committerEmail: "noreply@github.com",
     parents: ["aaa"],
-    sigStatus: "E",
+    sigStatus: "G",
     sigKey: "B5690EEEBB952194",
   });
   assert.equal(nonMerge.ok, false);
@@ -211,7 +267,7 @@ test("checkCommitIdentity enforces owner-only author/committer and verified GitH
       committerName: "GitHub",
       committerEmail: "noreply@github.com",
       parents: ["aaa", "bbb"],
-      sigStatus: "E",
+      sigStatus: "G",
       sigKey: "B5690EEEBB952194",
     },
     { requireWebFlowSignature: true, githubActor: "dependabot[bot]" },
@@ -1132,4 +1188,502 @@ test("installCliGuards hardens Codex, Muse, and Mistral Vibe with backups, never
     { encoding: "utf8", env: { ...process.env, GIT_CONFIG_GLOBAL: globalCfg } },
   );
   assert.equal(cliCheck.status, 0, cliCheck.stderr || cliCheck.stdout);
+});
+
+/**
+ * Build a minimal OpenPGP v4 binary signature packet advertising issuer key ID
+ * 0xB5690EEEBB952194 (GitHub web-flow) with dummy RSA signature bytes.
+ * Without importing GitHub's real web-flow public key, `git log --format=%G?%x1f%GK`
+ * reports `E` + `B5690EEEBB952194` (ERRSIG/NO_PUBKEY). With the vendored keyring
+ * imported, GPG verifies against the real public key and reports `B` (BADSIG).
+ */
+function buildForgedWebFlowPgpSignature() {
+  const creationTimeSubpacket = Buffer.from([
+    0x05, // subpacket length: 1 byte type + 4 bytes timestamp
+    0x02, // subpacket type 2 = Signature Creation Time
+    0x67, 0x00, 0x00, 0x00,
+  ]);
+  const issuerSubpacket = Buffer.from([
+    0x09, // subpacket length: 1 byte type + 8 bytes key ID
+    0x10, // subpacket type 16 = Issuer Key ID
+    0xb5, 0x69, 0x0e, 0xee, 0xbb, 0x95, 0x21, 0x94,
+  ]);
+  // 4096-bit RSA MPI (512 bytes, MSB set so bit length is exactly 4096) matching B5690EEEBB952194.
+  const dummyRsaSig = Buffer.alloc(512, 0x42);
+  dummyRsaSig[0] = 0x80;
+  const body = Buffer.concat([
+    Buffer.from([0x04, 0x00, 0x01, 0x08]), // v4, binary sig, RSA, SHA-256
+    Buffer.from([0x00, creationTimeSubpacket.length]), // hashed subpackets len
+    creationTimeSubpacket,
+    Buffer.from([0x00, issuerSubpacket.length]), // unhashed subpackets len
+    issuerSubpacket,
+    Buffer.from([0x12, 0x34]), // left 16 bits of signed hash
+    Buffer.from([0x10, 0x00]), // MPI bit length = 4096 bits
+    dummyRsaSig,
+  ]);
+  // Old-format packet header: tag 2 (Signature), 2-byte length
+  const pkt = Buffer.concat([
+    Buffer.from([0x89, (body.length >> 8) & 0xff, body.length & 0xff]),
+    body,
+  ]);
+  // OpenPGP CRC-24
+  let crc = 0xb704ce;
+  for (const b of pkt) {
+    crc ^= b << 16;
+    for (let i = 0; i < 8; i++) {
+      crc <<= 1;
+      if (crc & 0x1000000) crc ^= 0x1864cfb;
+    }
+  }
+  crc &= 0xffffff;
+  const crcBuf = Buffer.from([(crc >> 16) & 0xff, (crc >> 8) & 0xff, crc & 0xff]);
+  const b64 = pkt.toString("base64").replace(/(.{64})/g, "$1\n").trim();
+  return [
+    "-----BEGIN PGP SIGNATURE-----",
+    "",
+    b64,
+    `=${crcBuf.toString("base64")}`,
+    "-----END PGP SIGNATURE-----",
+  ].join("\n");
+}
+
+function createForgedSignedMergeCommit(repo, parent1, parent2, message = "Merge forged PR") {
+  const tree = git(repo, ["rev-parse", `${parent1}^{tree}`]);
+  const sigLines = buildForgedWebFlowPgpSignature().split("\n");
+  const gpgsigHeader = [`gpgsig ${sigLines[0]}`, ...sigLines.slice(1).map((l) => ` ${l}`)].join("\n");
+  const rawCommit = [
+    `tree ${tree}`,
+    `parent ${parent1}`,
+    `parent ${parent2}`,
+    `author Fabien Antoine <fabien.antoine@m4x.org> 1763800000 +0000`,
+    `committer GitHub <noreply@github.com> 1763800000 +0000`,
+    gpgsigHeader,
+    "",
+    message,
+    "",
+  ].join("\n");
+  return execFileSync("git", ["-C", repo, "hash-object", "-t", "commit", "-w", "--stdin"], {
+    input: rawCommit,
+    encoding: "utf8",
+  }).trim();
+}
+
+test("Finding 3: opt-in allowedBots permits verified dependabot/github-actions commits while scanning bot PRs for human/AI bypasses and refusing AI/unknown bots", () => {
+  // Default empty allowlist refuses bots explicitly.
+  assert.deepEqual(parseAllowedBots(""), []);
+  assert.deepEqual(parseAllowedBots("dependabot[bot], github-actions[bot]"), [
+    "dependabot[bot]",
+    "github-actions[bot]",
+  ]);
+
+  // Fail closed on AI or unknown bot identities.
+  for (const bad of ["claude[bot]", "copilot", "alice", "dependabot[bot],cursor[bot]"]) {
+    assert.throws(() => parseAllowedBots(bad), /allowed-bot|unknown|unsupported/i);
+  }
+
+  // Dependabot commit with verified GitHub web-flow signature passes ONLY when dependabot[bot] is allowlisted.
+  const depVerified = {
+    authorName: "dependabot[bot]",
+    authorEmail: "49699333+dependabot[bot]@users.noreply.github.com",
+    committerName: "GitHub",
+    committerEmail: "noreply@github.com",
+    parents: ["aaa"],
+    sigStatus: "G",
+    sigKey: "B5690EEEBB952194",
+  };
+  assert.equal(checkCommitIdentity(depVerified, { requireWebFlowSignature: true }).ok, false);
+  assert.equal(
+    checkCommitIdentity(depVerified, {
+      requireWebFlowSignature: true,
+      allowedBots: ["dependabot[bot]"],
+    }).ok,
+    true,
+  );
+
+  // Dependabot commit with locally forged unsigned GitHub committer FAILS even when allowlisted.
+  const depUnsigned = { ...depVerified, sigStatus: "N", sigKey: "" };
+  assert.equal(
+    checkCommitIdentity(depUnsigned, {
+      requireWebFlowSignature: true,
+      allowedBots: ["dependabot[bot]"],
+    }).ok,
+    false,
+  );
+
+  // Dependabot commit with forged self-committer (dependabot[bot]) FAILS even when allowlisted.
+  const depSelfCommitter = {
+    ...depVerified,
+    committerName: "dependabot[bot]",
+    committerEmail: "49699333+dependabot[bot]@users.noreply.github.com",
+  };
+  assert.equal(
+    checkCommitIdentity(depSelfCommitter, {
+      requireWebFlowSignature: true,
+      allowedBots: ["dependabot[bot]"],
+    }).ok,
+    false,
+  );
+
+  // Dependabot commit cherry-picked by owner (committer = owner) PASSES when allowlisted.
+  const depOwnerCherryPick = {
+    ...depVerified,
+    committerName: "Fabien Antoine",
+    committerEmail: "fabien.antoine@m4x.org",
+    sigStatus: "N",
+    sigKey: "",
+  };
+  assert.equal(
+    checkCommitIdentity(depOwnerCherryPick, {
+      requireWebFlowSignature: true,
+      allowedBots: ["dependabot[bot]"],
+    }).ok,
+    true,
+  );
+
+  // github-actions[bot] commit with self-committer passes ONLY when github-actions[bot] is allowlisted.
+  const ghActionsCommit = {
+    authorName: "github-actions[bot]",
+    authorEmail: "41898282+github-actions[bot]@users.noreply.github.com",
+    committerName: "github-actions[bot]",
+    committerEmail: "41898282+github-actions[bot]@users.noreply.github.com",
+    parents: ["aaa"],
+    sigStatus: "N",
+    sigKey: "",
+  };
+  assert.equal(checkCommitIdentity(ghActionsCommit, { requireWebFlowSignature: true }).ok, false);
+  assert.equal(
+    checkCommitIdentity(ghActionsCommit, {
+      requireWebFlowSignature: true,
+      allowedBots: ["github-actions[bot]"],
+    }).ok,
+    true,
+  );
+
+  // Non-owner human commit STILL fails even when bots are allowlisted.
+  assert.equal(
+    checkCommitIdentity(
+      {
+        authorName: "Alice Martin",
+        authorEmail: "alice@example.com",
+        committerName: "Alice Martin",
+        committerEmail: "alice@example.com",
+        parents: ["aaa"],
+      },
+      { allowedBots: ["dependabot[bot]", "github-actions[bot]"] },
+    ).ok,
+    false,
+  );
+});
+
+test("Findings 3–7 end-to-end in reusable workflow script and shared guard CLI: bot-PR bypasses, merge_group + fail-closed, stacked PR origin/main exclusion, forged PGP rejection, and ::error:: escaping", (t) => {
+  const yml = readFileSync(WORKFLOW_FILE, "utf8");
+  const match = yml.match(/node - <<'EOF'\n([\s\S]*?)\n\s+EOF/);
+  assert.ok(match, "reusable workflow embeds a Node script");
+  const script = match[1].replace(/^ {10}/gm, "");
+
+  assert.match(GITHUB_WEBFLOW_GPG_PUBLIC_KEY, /-----BEGIN PGP PUBLIC KEY BLOCK-----/);
+  assert.equal(isVerifiedGithubWebFlowSignature("G", "B5690EEEBB952194"), true);
+  assert.equal(isVerifiedGithubWebFlowSignature("Y", "4AEE18F83AFDEB23"), true);
+  assert.equal(isVerifiedGithubWebFlowSignature("E", "B5690EEEBB952194"), false);
+  assert.equal(isVerifiedGithubWebFlowSignature("G", "DEADBEEFDEADBEEF"), false);
+  assert.equal(
+    escapeGithubCommand("fix: bad %0A\r\n::warning::spoofed"),
+    "fix: bad %250A%0D%0A::warning::spoofed",
+  );
+
+  const dir = makeSandbox(t);
+  const repo = join(dir, "hardened-repo");
+  initRepo(repo);
+  const c0 = git(repo, ["rev-parse", "HEAD"]);
+
+  const runWf = (extraEnv = {}) =>
+    spawnSync(process.execPath, ["-e", script], {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EVENT_NAME: "pull_request",
+        GITHUB_ACTOR: "rhanka",
+        DEFAULT_BRANCH: "main",
+        PR_AUTHOR_LOGIN: "rhanka",
+        PR_BASE_SHA: "",
+        PR_HEAD_SHA: "",
+        PR_TITLE: "chore: clean",
+        PR_BODY: "Clean PR body",
+        MG_BASE_SHA: "",
+        MG_HEAD_SHA: "",
+        PUSH_BEFORE: "",
+        PUSH_AFTER: "",
+        CHECK_PR_BODY: "true",
+        ALLOWED_BOT_IDENTITIES: "",
+        ...extraEnv,
+      },
+    });
+
+  // --- Finding 4: merge_group scans MG_BASE_SHA..MG_HEAD_SHA and empty revArgs fails closed ---
+  writeFileSync(join(repo, "mg-clean.txt"), "ok\n");
+  git(repo, ["add", "mg-clean.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "feat: clean merge queue commit"]);
+  const mgCleanHead = git(repo, ["rev-parse", "HEAD"]);
+
+  const mgCleanRes = runWf({
+    EVENT_NAME: "merge_group",
+    PR_AUTHOR_LOGIN: "",
+    MG_BASE_SHA: c0,
+    MG_HEAD_SHA: mgCleanHead,
+  });
+  assert.equal(mgCleanRes.status, 0, mgCleanRes.stderr);
+
+  writeFileSync(join(repo, "mg-dirty.txt"), "bad\n");
+  git(repo, ["add", "mg-dirty.txt"]);
+  git(repo, [
+    "commit",
+    "-q",
+    "--no-verify",
+    "-m",
+    "feat: dirty mq\n\nCo-Authored-By: Alice Martin <alice@example.com>",
+  ]);
+  const mgDirtyHead = git(repo, ["rev-parse", "HEAD"]);
+  const mgDirtyRes = runWf({
+    EVENT_NAME: "workflow_call",
+    PR_AUTHOR_LOGIN: "",
+    MG_BASE_SHA: c0,
+    MG_HEAD_SHA: mgDirtyHead,
+  });
+  assert.equal(mgDirtyRes.status, 1, "merge_group must reject dirty commits");
+  assert.match(mgDirtyRes.stderr, /co-authored-by/i);
+
+  // Unhandled event with zero range MUST fail closed (never silently pass with 0 commits).
+  const emptyRangeRes = runWf({
+    EVENT_NAME: "workflow_call",
+    PR_AUTHOR_LOGIN: "",
+  });
+  assert.equal(emptyRangeRes.status, 1, "empty commit range must fail closed");
+  assert.match(emptyRangeRes.stderr, /fail.*closed|commit range|unable to determine/i);
+  git(repo, ["reset", "-q", "--hard", c0]);
+
+  // --- Finding 3: bot-opened PR still scans commits & PR metadata; allowlisted cherry-pick works ---
+  writeFileSync(join(repo, "bot-owner-fix.txt"), "fix\n");
+  git(repo, ["add", "bot-owner-fix.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "fix: resolve dependabot conflict"]);
+  const botOwnerFixHead = git(repo, ["rev-parse", "HEAD"]);
+
+  // Clean owner commit on dependabot[bot] PR passes when dependabot[bot] is allowlisted.
+  const depPrClean = runWf({
+    PR_AUTHOR_LOGIN: "dependabot[bot]",
+    PR_BASE_SHA: c0,
+    PR_HEAD_SHA: botOwnerFixHead,
+    ALLOWED_BOT_IDENTITIES: "dependabot[bot]",
+  });
+  assert.equal(depPrClean.status, 0, depPrClean.stderr);
+
+  // Edited PR body with Co-Authored-By on dependabot[bot] PR MUST STILL FAIL!
+  const depPrBadBody = runWf({
+    PR_AUTHOR_LOGIN: "dependabot[bot]",
+    PR_BASE_SHA: c0,
+    PR_HEAD_SHA: botOwnerFixHead,
+    PR_BODY: "Updated\n\nCo-Authored-By: Claude Opus <noreply@anthropic.com>",
+    ALLOWED_BOT_IDENTITIES: "dependabot[bot]",
+  });
+  assert.equal(depPrBadBody.status, 1, "bot PR body with trailer must fail");
+
+  // Human/AI commit pushed onto dependabot[bot] PR branch with Co-Authored-By MUST FAIL!
+  writeFileSync(join(repo, "bot-sneak.txt"), "sneak\n");
+  git(repo, ["add", "bot-sneak.txt"]);
+  git(repo, [
+    "commit",
+    "-q",
+    "--no-verify",
+    "-m",
+    "fix: sneak\n\nCo-Authored-By: Alice Martin <alice@example.com>",
+  ]);
+  const botSneakTrailerHead = git(repo, ["rev-parse", "HEAD"]);
+  const depPrSneakTrailer = runWf({
+    PR_AUTHOR_LOGIN: "dependabot[bot]",
+    PR_BASE_SHA: c0,
+    PR_HEAD_SHA: botSneakTrailerHead,
+    ALLOWED_BOT_IDENTITIES: "dependabot[bot]",
+  });
+  assert.equal(depPrSneakTrailer.status, 1, "human trailer commit on bot PR must fail");
+
+  // Non-owner commit pushed onto dependabot[bot] PR branch MUST FAIL!
+  git(repo, ["reset", "-q", "--hard", c0]);
+  writeFileSync(join(repo, "bot-stranger.txt"), "stranger\n");
+  git(repo, ["add", "bot-stranger.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "fix: stranger commit"], {
+    GIT_AUTHOR_NAME: "Stranger",
+    GIT_AUTHOR_EMAIL: "stranger@example.com",
+    GIT_COMMITTER_NAME: "Stranger",
+    GIT_COMMITTER_EMAIL: "stranger@example.com",
+  });
+  const botStrangerHead = git(repo, ["rev-parse", "HEAD"]);
+  const depPrStranger = runWf({
+    PR_AUTHOR_LOGIN: "dependabot[bot]",
+    PR_BASE_SHA: c0,
+    PR_HEAD_SHA: botStrangerHead,
+    ALLOWED_BOT_IDENTITIES: "dependabot[bot]",
+  });
+  assert.equal(depPrStranger.status, 1, "non-owner commit pushed onto bot PR must fail");
+  assert.match(depPrStranger.stderr, /invalid-author/i);
+
+  // Unknown/AI bot in ALLOWED_BOT_IDENTITIES fails closed in workflow too.
+  const badBotConfig = runWf({
+    PR_BASE_SHA: c0,
+    PR_HEAD_SHA: botOwnerFixHead,
+    ALLOWED_BOT_IDENTITIES: "claude[bot]",
+  });
+  assert.equal(badBotConfig.status, 1, "AI bot in ALLOWED_BOT_IDENTITIES must fail closed");
+
+  // Dependabot commit cherry-picked by owner inside a rhanka PR passes when allowlisted, fails by default.
+  git(repo, ["reset", "-q", "--hard", c0]);
+  writeFileSync(join(repo, "dep-bump.txt"), "bump\n");
+  git(repo, ["add", "dep-bump.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "chore(deps): bump pkg"], {
+    GIT_AUTHOR_NAME: "dependabot[bot]",
+    GIT_AUTHOR_EMAIL: "49699333+dependabot[bot]@users.noreply.github.com",
+    GIT_COMMITTER_NAME: "Fabien Antoine",
+    GIT_COMMITTER_EMAIL: "fabien.antoine@m4x.org",
+  });
+  const depCherryHead = git(repo, ["rev-parse", "HEAD"]);
+  assert.equal(
+    runWf({ PR_BASE_SHA: c0, PR_HEAD_SHA: depCherryHead, ALLOWED_BOT_IDENTITIES: "" }).status,
+    1,
+    "default empty allowlist must still reject dependabot commit",
+  );
+  assert.equal(
+    runWf({
+      PR_BASE_SHA: c0,
+      PR_HEAD_SHA: depCherryHead,
+      ALLOWED_BOT_IDENTITIES: "dependabot[bot]",
+    }).status,
+    0,
+    "allowlisted dependabot commit cherry-picked by owner must pass",
+  );
+
+  // --- Finding 5: stacked PR merging origin/main containing post-rewrite unsigned GitHub merge ---
+  git(repo, ["reset", "-q", "--hard", c0]);
+  git(repo, ["checkout", "-q", "-b", "integration", c0]);
+  writeFileSync(join(repo, "int.txt"), "int\n");
+  git(repo, ["add", "int.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "feat: integration base"]);
+  const intBase = git(repo, ["rev-parse", "HEAD"]);
+
+  // Advance main with an unsigned GitHub web-flow merge commit (simulating post-filter-repo origin/main).
+  git(repo, ["checkout", "-q", "-b", "main-side", c0]);
+  writeFileSync(join(repo, "ms.txt"), "ms\n");
+  git(repo, ["add", "ms.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "feat: landed on main"]);
+  git(repo, ["checkout", "-q", "main"]);
+  git(repo, ["merge", "-q", "--no-ff", "--no-verify", "-m", "Merge pull request #1068", "main-side"], {
+    GIT_COMMITTER_NAME: "GitHub",
+    GIT_COMMITTER_EMAIL: "noreply@github.com",
+  });
+  const rewrittenMainHead = git(repo, ["rev-parse", "HEAD"]);
+  git(repo, ["update-ref", "refs/remotes/origin/main", rewrittenMainHead]);
+
+  // Stacked PR branches from integration, merges origin/main (as owner), and adds a clean commit.
+  git(repo, ["checkout", "-q", "-b", "feat/stacked", intBase]);
+  git(repo, ["merge", "-q", "--no-ff", "--no-verify", "-m", "Merge origin/main into stacked", rewrittenMainHead]);
+  writeFileSync(join(repo, "stacked.txt"), "s\n");
+  git(repo, ["add", "stacked.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "feat: stacked change"]);
+  const stackedHead = git(repo, ["rev-parse", "HEAD"]);
+
+  // Workflow and shared CLI exclude commits already on refs/remotes/origin/main -> PASS!
+  const stackedWfRes = runWf({
+    PR_BASE_SHA: intBase,
+    PR_HEAD_SHA: stackedHead,
+    DEFAULT_BRANCH: "main",
+  });
+  assert.equal(stackedWfRes.status, 0, stackedWfRes.stderr);
+
+  const revArgsWithExclude = buildPrRevArgs(repo, intBase, stackedHead, {
+    excludeRefs: ["refs/remotes/origin/main"],
+  });
+  assert.ok(revArgsWithExclude.includes("--not"), "buildPrRevArgs must exclude origin/main");
+  const stackedCliRes = spawnSync(
+    process.execPath,
+    [
+      GUARD_CLI,
+      "check-pr",
+      "--repo",
+      repo,
+      "--base",
+      intBase,
+      "--head",
+      stackedHead,
+      "--exclude-ref",
+      "refs/remotes/origin/main",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(stackedCliRes.status, 0, stackedCliRes.stderr);
+
+  // --- Finding 6: forged dummy OpenPGP signature packet advertising B5690EEEBB952194 MUST FAIL ---
+  git(repo, ["checkout", "-q", "-b", "forge-side", stackedHead]);
+  writeFileSync(join(repo, "fs.txt"), "fs\n");
+  git(repo, ["add", "fs.txt"]);
+  git(repo, ["commit", "-q", "--no-verify", "-m", "feat: forge side"]);
+  const forgeSideSha = git(repo, ["rev-parse", "HEAD"]);
+  const forgedCommitSha = createForgedSignedMergeCommit(
+    repo,
+    stackedHead,
+    forgeSideSha,
+    "Merge pull request #999 (forged PGP packet)",
+  );
+
+  // Verify with real vendored keyring that GPG classifies the forged packet as 'B' (not 'E').
+  const forgedCommits = readGitCommits(repo, [`${stackedHead}..${forgedCommitSha}`], {
+    verifyWebFlowSignatures: true,
+  });
+  const forgedEntry = forgedCommits.find((c) => c.sha === forgedCommitSha);
+  assert.ok(forgedEntry, "forged commit read");
+  assert.equal(forgedEntry.sigStatus, "B", `expected GPG BADSIG ('B') for forged packet, got '${forgedEntry.sigStatus}'`);
+
+  // Workflow script MUST reject the forged PGP commit!
+  const forgedWfRes = runWf({
+    PR_BASE_SHA: stackedHead,
+    PR_HEAD_SHA: forgedCommitSha,
+  });
+  assert.equal(forgedWfRes.status, 1, "forged OpenPGP signature packet must be rejected by workflow");
+  assert.match(forgedWfRes.stderr, /bad-github-merge-signature|unverified-github-merge-signature/i);
+
+  // Shared CLI check-range MUST also reject the forged PGP commit!
+  const forgedCliRes = spawnSync(
+    process.execPath,
+    [GUARD_CLI, "check-range", `${stackedHead}..${forgedCommitSha}`, "--repo", repo],
+    { encoding: "utf8" },
+  );
+  assert.equal(forgedCliRes.status, 1, "forged OpenPGP signature packet must be rejected by CLI");
+
+  // Also verify withGithubWebFlowKeyring imports both GitHub web-flow keys and cleans up its dir.
+  let seenKeyringDir = "";
+  const listedKeys = withGithubWebFlowKeyring((gnupgHome) => {
+    seenKeyringDir = gnupgHome;
+    return execFileSync("gpg", ["--homedir", gnupgHome, "--list-keys", "--with-colons"], {
+      encoding: "utf8",
+    });
+  });
+  assert.match(listedKeys, /968479A1AFF927E37D1A566BB5690EEEBB952194/);
+  assert.match(listedKeys, /5DE3E0509C47EA3CF04A42D34AEE18F83AFDEB23/);
+  assert.equal(existsSync(seenKeyringDir), false, "ephemeral GNUPGHOME must be cleaned up");
+
+  // --- Finding 7: ::error:: escapes %, \r, \n so commit subject cannot spoof workflow commands ---
+  git(repo, ["checkout", "-q", "main"]);
+  writeFileSync(join(repo, "cmd-inj.txt"), "inj\n");
+  git(repo, ["add", "cmd-inj.txt"]);
+  git(repo, [
+    "commit",
+    "-q",
+    "--no-verify",
+    "-m",
+    "fix: spoof %0A::warning::injected\n\nCo-Authored-By: Alice <alice@example.com>",
+  ]);
+  const injHead = git(repo, ["rev-parse", "HEAD"]);
+  const injRes = runWf({
+    PR_BASE_SHA: rewrittenMainHead,
+    PR_HEAD_SHA: injHead,
+  });
+  assert.equal(injRes.status, 1);
+  assert.match(injRes.stderr, /%250A::warning::injected/, "workflow must percent-escape % in ::error:: lines");
 });
