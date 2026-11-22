@@ -33,10 +33,16 @@ import {
 } from "./replay-buffer.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import {
+  ApplicationFacetState,
+  readApplicationForeground,
+  type ApplicationForegroundReader,
+} from "./application-facet.js";
+import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
   isNativeTerminalStopSignal,
+  type ApplicationForeground,
   type NativeTerminalRespawnOptions,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
@@ -612,7 +618,7 @@ export type NativeTerminalSessionState = Readonly<{
    * has been observed since this host created the session.
    */
   lastHumanActivityAt?: number | null;
-}>;
+}> & Partial<ApplicationForeground>;
 
 export type NativeTerminalReplay = Readonly<{
   generation: string;
@@ -750,6 +756,8 @@ type SessionRecord = {
   readonly id: string;
   readonly incarnation: string;
   pty: PtyHandle;
+  ptyBirth: number | undefined;
+  readonly application: ApplicationFacetState;
   /**
    * The group-membership token persisted on this session's durable row (see
    * `RegistryEntry.pgidGroupToken`). Kept in memory so a prune can COMPARE-AND-
@@ -777,6 +785,14 @@ type SessionRecord = {
   exitSubscription?: { dispose(): void };
 };
 
+type ApplicationForegroundEvent = ApplicationForeground & Readonly<{
+  id: string;
+  generation: string;
+  incarnation: string;
+}>;
+
+const FOREGROUND_POLL_INTERVAL_MS = 100;
+
 export class NativeTerminalHost {
   readonly #generation: string;
   readonly #replayBytesPerSession: number;
@@ -795,6 +811,9 @@ export class NativeTerminalHost {
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
   readonly #groupIsOnlyZombies: (pgid: number) => boolean;
   readonly #readFrame: () => NativeTerminalProcFrame;
+  readonly #readApplicationForeground: ApplicationForegroundReader;
+  readonly #applicationObservers = new Set<(state: ApplicationForegroundEvent) => void>();
+  #applicationPoll: NodeJS.Timeout | undefined;
   readonly #pgidGuardCounters = {
     recycled: 0,
     staleBoot: 0,
@@ -846,6 +865,7 @@ export class NativeTerminalHost {
      * any pid-based proof is derived from that row — see
      * `#verifyGroupLeaderIdentity`. */
     readFrame?: () => NativeTerminalProcFrame;
+    readApplicationForeground?: ApplicationForegroundReader;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -902,10 +922,65 @@ export class NativeTerminalHost {
       options.findGroupMemberToken ?? groupCarriesSessionToken;
     this.#groupIsOnlyZombies = options.groupIsOnlyZombies ?? groupIsOnlyZombies;
     this.#readFrame = options.readFrame ?? readCurrentProcFrame;
+    this.#readApplicationForeground = options.readApplicationForeground ?? readApplicationForeground;
   }
 
   get generation(): string {
     return this.#generation;
+  }
+
+  onApplicationForegroundChange(observer: (state: ApplicationForegroundEvent) => void): () => void {
+    this.#applicationObservers.add(observer);
+    this.#ensureApplicationPoll();
+    return () => {
+      this.#applicationObservers.delete(observer);
+      if (this.#applicationObservers.size === 0) {
+        clearInterval(this.#applicationPoll);
+        this.#applicationPoll = undefined;
+      }
+    };
+  }
+
+  #ensureApplicationPoll(): void {
+    if (this.#applicationObservers.size === 0 || this.#applicationPoll) return;
+    this.#applicationPoll = setInterval(() => {
+      for (const record of this.#sessions.values()) this.#refreshApplication(record);
+    }, FOREGROUND_POLL_INTERVAL_MS);
+    this.#applicationPoll.unref();
+  }
+
+  #publishApplication(record: SessionRecord, previous: ApplicationForeground): ApplicationForeground {
+    const current = record.application.current;
+    if (previous === current) return current;
+    const event = Object.freeze({
+      id: record.id,
+      generation: this.#generation,
+      incarnation: record.incarnation,
+      ...current,
+    });
+    for (const observer of this.#applicationObservers) {
+      try {
+        observer(event);
+      } catch {
+        // A faulty observer does not own the PTY or other observations.
+      }
+    }
+    return current;
+  }
+
+  #invalidateApplication(record: SessionRecord, replacePty = false): void {
+    const previous = record.application.current;
+    record.application.invalidate(replacePty);
+    this.#publishApplication(record, previous);
+  }
+
+  #refreshApplication(record: SessionRecord): ApplicationForeground {
+    const previous = record.application.current;
+    const observation = record.status === "running" && !record.respawning && record.ptyBirth !== undefined
+      ? this.#readApplicationForeground(record.pty.pid, record.ptyBirth, `${H2A_SESSION_TOKEN_ENV_VAR}=${record.groupToken}`)
+      : undefined;
+    record.application.observe(observation);
+    return this.#publishApplication(record, previous);
   }
 
   /**
@@ -998,6 +1073,7 @@ export class NativeTerminalHost {
     // spawn and before the following synchronous persist leaves no durable
     // row for the survivor. Persisting first is impossible: spawn allocates
     // the pgid.
+    let leaderStartTime: number | undefined;
     try {
       // Persist BEFORE this session is usable: "known at creation" must
       // survive to "known at kill time" (a fresh host after this one is
@@ -1016,7 +1092,7 @@ export class NativeTerminalHost {
       // still the one this row was written for, not a recycled pgid — see
       // `#verifyGroupLeaderIdentity`.
       const ownStartTime = readProcessStartTime(process.pid);
-      const leaderStartTime = this.#readLeaderStartTime(pty.pgid);
+      leaderStartTime = this.#readLeaderStartTime(pty.pgid);
       persistNativeTerminalPgid(
         options.id,
         pty.pgid,
@@ -1044,6 +1120,8 @@ export class NativeTerminalHost {
       id: options.id,
       incarnation: options.launchFence?.incarnation ?? randomUUID(),
       pty,
+      ptyBirth: leaderStartTime,
+      application: new ApplicationFacetState(),
       groupToken,
       replay: new TerminalReplayBuffer(this.#replayBytesPerSession),
       cols: options.cols,
@@ -1071,7 +1149,10 @@ export class NativeTerminalHost {
     let dsrTail = "";
     const resetRelay = new TerminalResetRelay(
       (data) => { record.replay.append(data); },
-      () => record.replay.resetSequence(),
+      () => {
+        this.#invalidateApplication(record);
+        return record.replay.resetSequence();
+      },
     );
     record.dataSubscription = pty.onData((data) => {
       try {
@@ -1129,6 +1210,7 @@ export class NativeTerminalHost {
         if (event.signal !== undefined) exit.signal = event.signal;
         record.exit = Object.freeze(exit);
         record.status = "exited";
+        this.#invalidateApplication(record, true);
         this.#invalidateController(record);
         record.dataSubscription?.dispose();
         record.exitSubscription?.dispose();
@@ -1447,6 +1529,7 @@ export class NativeTerminalHost {
     }
 
     record.respawning = true;
+    this.#invalidateApplication(record);
     const oldPty = record.pty;
     let oldExited = false;
     let resolveOldExit: (() => void) | undefined;
@@ -1565,9 +1648,10 @@ export class NativeTerminalHost {
       );
     }
 
+    let leaderStartTime: number | undefined;
     try {
       const ownStartTime = readProcessStartTime(process.pid);
-      const leaderStartTime = this.#readLeaderStartTime(newPty.pgid);
+      leaderStartTime = this.#readLeaderStartTime(newPty.pgid);
       persistNativeTerminalPgid(
         record.id,
         newPty.pgid,
@@ -1607,6 +1691,8 @@ export class NativeTerminalHost {
     delete record.pendingRespawnSize;
     delete record.pendingRespawnLocalSize;
     record.pty = newPty;
+    record.ptyBirth = leaderStartTime;
+    this.#invalidateApplication(record, true);
     record.groupToken = newGroupToken;
     record.status = "running";
     record.exit = null;
@@ -2399,6 +2485,7 @@ export class NativeTerminalHost {
       controllerEpoch: record.controllerEpoch,
       controller: record.controllerIdentity,
       lastHumanActivityAt: record.lastHumanActivityAt,
+      ...this.#refreshApplication(record),
     });
   }
 }

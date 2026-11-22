@@ -454,6 +454,45 @@ describe("main", () => {
     );
   });
 
+  it("propagates non-zero restore exitCode and prints localized ledger totals when present", async () => {
+    const prevLang = process.env.H2A_LANG;
+    process.env.H2A_LANG = "en";
+    try {
+      restoreLayout.mockReturnValue({
+        windows: [],
+        total: 1,
+        dropped: 0,
+        ledger: [
+          { key: "registry:shell-1", label: "shell-1", managedName: "h2a-shell-1", outcome: "deferred:needs-inject" },
+        ],
+        observedTotals: {
+          total: 1,
+          alreadyActive: 0,
+          attached: 0,
+          resumedInPlace: 0,
+          recreated: 0,
+          resumed: 0,
+          excluded: 0,
+          deferred: 1,
+          failed: 0,
+        },
+        exitCode: 1,
+        registryConflicts: [],
+      });
+
+      const exitCode = await main(["node", "remote", "restore"]);
+
+      expect(exitCode).toBe(1);
+      const out = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
+      expect(out).toContain("shell-1");
+      expect(out).toContain("deferred:needs-inject");
+      expect(out).toContain("1 deferred");
+    } finally {
+      if (prevLang === undefined) delete process.env.H2A_LANG;
+      else process.env.H2A_LANG = prevLang;
+    }
+  });
+
   describe("WP6 — remote fan-out (--count N)", () => {
     it("--count N creates N sessions, each on its OWN workspace (distinct subPath), and never auto-attaches", async () => {
       getDefaultRemote.mockReturnValue("http://localhost:8080");

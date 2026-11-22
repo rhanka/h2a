@@ -15,6 +15,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 
 import { getTmuxProfileConfig } from "./config.js";
+import { APPLICATION_ROLE_ENV } from "./native-terminal/application-facet.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
 import {
   mkdtempSync,
@@ -139,9 +140,15 @@ export const DIRECT_ROUTING_SCRUB_PRELUDE =
  */
 export const LOCAL_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
 relaunch="$0"; cli="$1"; shift
-"$cli" "$@"; code=$?
+if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
+  (export ${APPLICATION_ROLE_ENV}=cli:$BASHPID; exec "$cli" "$@")
+else
+  "$cli" "$@"
+fi
+code=$?
 if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
   printf '\\033]777;h2a-reset\\007'
+  export ${APPLICATION_ROLE_ENV}=shell:$BASHPID
   # Also clean commands launched manually from the persistent shell. Preserve
   # the status seen by an existing prompt hook; the host consumes the marker.
   export PROMPT_COMMAND='h2a_prompt_status=$?; printf "\\033]777;h2a-reset\\007"; (exit "$h2a_prompt_status"); '"\${PROMPT_COMMAND:-:}"
@@ -158,6 +165,7 @@ if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
  */
 export const STRUCTURED_LOCAL_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
 cli="$0"
+if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then export ${APPLICATION_ROLE_ENV}=cli:$BASHPID; fi
 exec "$cli" "$@"`;
 
 /**

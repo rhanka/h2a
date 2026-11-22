@@ -311,6 +311,26 @@ describe("exact managed identity, never slug-union host choice", () => {
 });
 
 describe("native generations in restore", () => {
+  it("should expose a shell facet only from host-side foreground evidence and unknown on an old host", () => {
+    listNativeSessions.mockReturnValue([
+      runningNative("old", false),
+      {
+        ...runningNative("shell", false),
+        applicationFacet: "shell",
+        applicationIncarnation: null,
+        foregroundProcessGroup: 123,
+        foregroundRevision: 9,
+      },
+    ]);
+    expect(captureHostViewSnapshot().native).toMatchObject({
+      known: true,
+      sessions: [
+        { name: "old", applicationFacet: "unknown" },
+        { name: "shell", applicationFacet: "shell", foregroundProcessGroup: 123 },
+      ],
+    });
+    expect(spawn).not.toHaveBeenCalled();
+  });
   const windows = [{ title: "generation", tabs: [{ cwd: "/repo", label: "old", tool: "codex", sid: CONV_UUID,
     hostKind: "local-native" as const, managedName: "h2a-old" }] }];
   it("should reattach a live pre-fence session from an incomplete inventory without recreating it", () => {
