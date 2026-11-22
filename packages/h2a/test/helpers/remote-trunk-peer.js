@@ -17,9 +17,9 @@ import {
   canonicalTrunkJson,
   verifyTrunkAuthPayload
 } from "../../dist/runtime/remote-agent/types.js";
-import { FakeTrunkEndpoint } from "./remote-trunk-fakes.js";
+import { FakeTrunkEndpoint, WET2_TEXT_HASH } from "./remote-trunk-fakes.js";
 
-export const PINNED_WET2_TEXT_HASH = "0c0069544d0efbc115f142b9435d14a780c401a43b1b77aa49066048516ac050";
+export const PINNED_WET2_TEXT_HASH = WET2_TEXT_HASH;
 const TEST_FAKES_ENV = "H2A_TEST_FAKES";
 const FAKES_SEALED_REASON = "fakes-sealed";
 const CHALLENGE_TTL_MS = 60_000;
