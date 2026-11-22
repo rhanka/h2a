@@ -173,9 +173,23 @@ export {
 export {
   DEFAULT_EXTERNAL_UI_SCHEMAS,
   findNonLocalSchemaRefs,
+  findSchemaRefCycles,
   inlineExternalSchemaRefs,
-  type NonLocalSchemaRef
+  type NonLocalSchemaRef,
+  type SchemaRefCycle
 } from "./ui-render/schema-inline.js";
+
+export {
+  DEFAULT_MAX_TOOL_SCHEMA_BYTES,
+  MCP_HOST_SCHEMA_PROFILES,
+  lintMcpToolSchemas,
+  type McpHostSchemaProfile,
+  type McpSchemaLintOptions,
+  type McpSchemaLintResult,
+  type McpSchemaLintRule,
+  type McpSchemaLintToolInput,
+  type McpSchemaLintViolation
+} from "./schema-lint.js";
 
 export {
   UI_RENDER_TOOL_NAMES,

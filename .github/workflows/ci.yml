@@ -477,6 +477,7 @@ jobs:
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
+      - run: node scripts/check-mcp-schemas.mjs
       - name: Clean the disposable TMPDIR
         if: always()
         shell: bash
