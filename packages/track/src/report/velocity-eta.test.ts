@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it } from 'vitest'
+import { describe, it, vi } from 'vitest'
 
 import { runCli } from '../cli/index.js'
 import { EventStore } from '../events/store.js'
@@ -2328,18 +2328,28 @@ describe('PR-B — ETA journal with slips, velocity estimator qualification (#37
         DomainError,
       )
 
-      // P3-1: CLI symmetry — `track item eta <itemId> --target-stage pr --delivered` acknowledges on-time delivery
+      // P3-1: CLI symmetry — `track item eta <itemId> --target-stage pr --delivered` acknowledges on-time delivery.
+      // The CLI builds its own Track on the wall clock, so pin it to the
+      // test's logical time: without this, the 2026-11-21 ETA reads as
+      // past-due as soon as the real date passes it (calendar time bomb).
       let cliOut = ''
       let cliErr = ''
-      const rc = runCli(['item', 'eta', lot1!, '--target-stage', 'pr', '--delivered'], {
-        cwd: dir,
-        out: (s) => {
-          cliOut += s
-        },
-        err: (s) => {
-          cliErr += s
-        },
-      })
+      let rc: number | Promise<number>
+      vi.useFakeTimers()
+      try {
+        vi.setSystemTime(new Date('2026-11-15T10:00:00.000Z'))
+        rc = runCli(['item', 'eta', lot1!, '--target-stage', 'pr', '--delivered'], {
+          cwd: dir,
+          out: (s) => {
+            cliOut += s
+          },
+          err: (s) => {
+            cliErr += s
+          },
+        })
+      } finally {
+        vi.useRealTimers()
+      }
       assert.equal(rc, 0, cliErr)
       assert.equal(cliOut, 'ok\n')
 
