@@ -46,6 +46,22 @@ it.each([false, true, "unknown"] as const)("should preserve a supplied native li
 
 const NOW = "2026-06-07T10:00:00.000Z";
 
+it("should refuse a live native conversation owner even when its registry pid is absent", async () => {
+  writeRegistry([entry({
+    kind: "local-native",
+    convId: "native-conversation",
+    tmuxSession: "h2a-native",
+  })]);
+  const nativeSessionLiveness = vi.fn(() => true as const);
+  expect(await guardConvWriters({
+    convId: "native-conversation",
+    cwd: "/project",
+    registryPath: regPath,
+    nativeSessionLiveness,
+  })).toBe(false);
+  expect(nativeSessionLiveness).toHaveBeenCalledExactlyOnceWith("h2a-native");
+});
+
 function entry(over: Partial<RegistryEntry>): RegistryEntry {
   return {
     id: "e-1",

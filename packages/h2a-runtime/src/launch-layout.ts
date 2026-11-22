@@ -27,6 +27,7 @@ import {
   type LayoutLaunchPlan,
   type LayoutTab,
   type LayoutWindow,
+  type RestoreLedgerOutcome,
   type TabLaunchDecision,
 } from "./restore-plan.js";
 
@@ -38,6 +39,7 @@ export {
   type HostViewSnapshot,
   type LayoutLaunchOptions,
   type LayoutLaunchPlan,
+  type RestoreLedgerOutcome,
   type TabLaunchDecision,
 };
 
@@ -81,18 +83,36 @@ function runDir(): string {
  * Every decision reads the `hostView` PARAMETER — the plan's one snapshot —
  * never a live host (F3: this module has no reader to call).
  */
-export function launchLayout(
+export type TabLaunchOutcome = {
+  readonly tab: LayoutTab;
+  readonly decision: TabLaunchDecision;
+  readonly outcome: RestoreLedgerOutcome;
+};
+
+export type LaunchLayoutDetailedResult = {
+  readonly opened: number;
+  readonly skippedLive: string[];
+  readonly warnings: string[];
+  readonly tabOutcomes: TabLaunchOutcome[];
+};
+
+/**
+ * Apply `planLayoutLaunch` decisions without reading any live host, and return
+ * per-tab observed outcomes so `restore()` can assemble its D2 ledger.
+ */
+export function launchLayoutWithOutcomes(
   windows: LayoutWindow[],
   hostView: HostViewSnapshot,
   stderr: NodeJS.WriteStream = process.stderr,
   opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
-): { opened: number; skippedLive: string[] } {
+): LaunchLayoutDetailedResult {
   const plan = planLayoutLaunch(windows, hostView, opts);
   for (const warning of plan.warnings) {
     stderr.write(warning);
   }
 
   let opened = 0;
+  const tabOutcomes: TabLaunchOutcome[] = [];
 
   for (const win of plan.windows) {
     for (const decision of win.decisions) {
@@ -103,50 +123,73 @@ export function launchLayout(
 
     const activeTabs = win.activeTabs;
     if (activeTabs.length === 0) {
-      // All sessions in this window are already active — no tab needed.
+      for (const decision of win.decisions) {
+        tabOutcomes.push({
+          tab: decision.tab,
+          decision,
+          outcome: decision.ledgerOutcome,
+        });
+      }
       continue;
     }
 
-    // Map keyed by per-tab working directory -> the tab's command. Tabs sharing
-    // a cwd (several sessions of one project) each claim a distinct line FIFO.
-    const slug = win.title.replace(/[^a-zA-Z0-9]+/g, "-");
-    const mapPath = join(
-      runDir(),
-      `restore-${process.pid}-${slug}-${mapCounter++}.map`,
-    );
-    const body =
-      activeTabs
-        .map(({ tab, command }) => `${tab.cwd}\t${command}`)
-        .join("\n") + "\n";
-    writeFileSync(mapPath, body, "utf8");
-
-    const args: string[] = [];
-    activeTabs.forEach(({ tab }, i) => {
-      args.push(
-        i === 0 ? "--window" : "--tab",
-        `--working-directory=${tab.cwd}`,
-        `--title=${tab.label}`,
+    let windowSpawned = false;
+    try {
+      // Map keyed by per-tab working directory -> the tab's command. Tabs sharing
+      // a cwd (several sessions of one project) each claim a distinct line FIFO.
+      const slug = win.title.replace(/[^a-zA-Z0-9]+/g, "-");
+      const mapPath = join(
+        runDir(),
+        `restore-${process.pid}-${slug}-${mapCounter++}.map`,
       );
-    });
-    // ONE shared dispatcher command for all tabs of this window.
-    args.push("--", "bash", "-lc", DISPATCHER, "remote-restore", mapPath);
+      const body =
+        activeTabs
+          .map(({ tab, command }) => `${tab.cwd}\t${command}`)
+          .join("\n") + "\n";
+      writeFileSync(mapPath, body, "utf8");
 
-    stderr.write(
-      `[h2a] fenêtre "${win.title}" (${activeTabs.length} onglet(s))\n`,
-    );
-    // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
-    // silently claiming the window opened.
-    const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
-    const child = spawn("gnome-terminal", args, {
-      stdio: ["ignore", "ignore", "pipe"],
-      detached: true,
-      env: childEnv,
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr.write(`[h2a] gnome-terminal: ${chunk.toString().trim()}\n`);
-    });
-    child.unref();
-    opened += activeTabs.length;
+      const args: string[] = [];
+      activeTabs.forEach(({ tab }, i) => {
+        args.push(
+          i === 0 ? "--window" : "--tab",
+          `--working-directory=${tab.cwd}`,
+          `--title=${tab.label}`,
+        );
+      });
+      // ONE shared dispatcher command for all tabs of this window.
+      args.push("--", "bash", "-lc", DISPATCHER, "remote-restore", mapPath);
+
+      stderr.write(
+        `[h2a] fenêtre "${win.title}" (${activeTabs.length} onglet(s))\n`,
+      );
+      // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
+      // silently claiming the window opened.
+      const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
+      const child = spawn("gnome-terminal", args, {
+        stdio: ["ignore", "ignore", "pipe"],
+        detached: true,
+        env: childEnv,
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        stderr.write(`[h2a] gnome-terminal: ${chunk.toString().trim()}\n`);
+      });
+      child.unref();
+      opened += activeTabs.length;
+      windowSpawned = true;
+    } catch (error) {
+      stderr.write(
+        `[h2a] gnome-terminal: ${(error as Error).message}\n`,
+      );
+    }
+
+    for (const decision of win.decisions) {
+      const isAction = decision.kind === "attach" || decision.kind === "launch";
+      tabOutcomes.push({
+        tab: decision.tab,
+        decision,
+        outcome: isAction && !windowSpawned ? "failed:launch-error" : decision.ledgerOutcome,
+      });
+    }
   }
 
   if (plan.skippedLive.length > 0) {
@@ -156,5 +199,25 @@ export function launchLayout(
     );
   }
 
-  return { opened, skippedLive: plan.skippedLive };
+  return {
+    opened,
+    skippedLive: plan.skippedLive,
+    warnings: plan.warnings,
+    tabOutcomes,
+  };
+}
+
+export function launchLayout(
+  windows: LayoutWindow[],
+  hostView: HostViewSnapshot,
+  stderr: NodeJS.WriteStream = process.stderr,
+  opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
+): { opened: number; skippedLive: string[] } {
+  const { opened, skippedLive } = launchLayoutWithOutcomes(
+    windows,
+    hostView,
+    stderr,
+    opts,
+  );
+  return { opened, skippedLive };
 }

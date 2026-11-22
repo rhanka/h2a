@@ -20,6 +20,7 @@
 import {
   isLive,
   loadRegistry,
+  probeManagedRowLiveness,
   type LivenessOpts,
   type RegistryEntry,
 } from "./registry.js";
@@ -56,7 +57,7 @@ export type ConvOwnersOpts = LivenessOpts & {
   cwd?: string;
 };
 
-function ownerFromEntry(e: RegistryEntry): ConvOwner {
+function ownerFromEntry(e: RegistryEntry, verifiedNative = false): ConvOwner {
   if (e.kind === "local-tmux") {
     const slug = e.label ?? e.id;
     const candidates = managedSessionCandidates(e.id);
@@ -78,7 +79,7 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
     // it "live" forever. Demote it to a SUSPECT (warn) so it never hard-blocks
     // a relaunch; only verifiable writers (live tmux / pid+cmdline / remote)
     // refuse. A pid'd entry that reached here passed the liveness check → hard.
-    ...(e.pid === undefined ? { suspect: true } : {}),
+    ...(e.pid === undefined && !verifiedNative ? { suspect: true } : {}),
   };
 }
 
@@ -118,8 +119,18 @@ export function convOwners(
     if (e.kind === "remote") continue;
     // Liveness can launch a synchronous native probe. Unrelated conversations
     // and the caller's own row cannot conflict, regardless of their liveness.
-    if (!isLive(e, opts)) continue;
-    owners.push(ownerFromEntry(e));
+    if (e.kind === "local-native") {
+      const probe = opts.nativeSessionLiveness;
+      const verdict = probeManagedRowLiveness(e, probe ? {
+        native: (name) => {
+          const alive = probe(name);
+          return alive === true ? "live" : alive === false ? "dead" : "unknown";
+        },
+      } : undefined);
+      if (verdict !== "dead") owners.push(ownerFromEntry(e, verdict === "live"));
+    } else if (isLive(e, opts)) {
+      owners.push(ownerFromEntry(e));
+    }
   }
   for (const s of opts.remoteSessions ?? []) {
     if (s.cliSessionId === convId) {

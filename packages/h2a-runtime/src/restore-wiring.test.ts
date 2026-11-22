@@ -230,3 +230,259 @@ describe("PART A (sol-2, per-row) — a valid row + an UNREADABLE TWIN of the SA
     expect(spawn).not.toHaveBeenCalled();
   });
 });
+
+describe("INJ L1a r5 (D2 & D4) — dedup, ledger, observed totals, and exit code through restore()", () => {
+  it("should emit one attach action and zero h2a run for [run, hook] and [hook, run] sharing an exact managed name", () => {
+    const DUP_NAME = "h2a-dup-sess";
+    const runRow = row({
+      id: "dup-sess",
+      label: "dup-sess",
+      kind: "local-native",
+      convId: "dup-sess",
+      tmuxSession: DUP_NAME,
+    });
+    const hookRow = row({
+      id: CONV_C,
+      kind: "local",
+      source: "hook",
+      convId: CONV_C,
+      tmuxSession: DUP_NAME,
+    });
+
+    for (const entries of [
+      [runRow, hookRow],
+      [hookRow, runRow],
+    ]) {
+      spawn.mockClear();
+      stderrLines = [];
+      writeRegistry(entries);
+      listNativeSessions.mockReturnValue([
+        {
+          id: DUP_NAME,
+          pid: 4242,
+          status: "running",
+          exit: null,
+          controlled: false,
+          applicationFacet: "cli",
+          applicationIncarnation: "inc-dup",
+          foregroundProcessGroup: 100,
+          foregroundRevision: 1,
+        } as never,
+      ]);
+
+      const result = restore({ stderr: stderrStream });
+      const tabs = result.windows.flatMap((w) => w.tabs);
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0]!.managedName).toBe(DUP_NAME);
+      const lines = launchedMapLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(`h2a attach '${DUP_NAME}'`);
+      expect(lines.join("\n")).not.toMatch(/h2a run|--resume/);
+
+      const ledger = Reflect.get(result, "ledger") as Array<{ outcome: string }> | undefined;
+      expect(ledger).toHaveLength(1);
+      expect(ledger![0]!.outcome).toBe("attached");
+      expect(Reflect.get(result, "observedTotals")).toMatchObject({
+        attached: 1,
+        resumed: 0,
+        resumedInPlace: 0,
+        recreated: 0,
+      });
+      expect(Reflect.get(result, "exitCode")).toBe(0);
+      expect(stderrLines.join("")).toContain("dup-sess");
+    }
+  });
+
+  it("should report one observed already-active ledger outcome per active primary and recompute its totals", () => {
+    writeRegistry([
+      row({ id: "cli-prim", label: "cli-prim", kind: "local-native", convId: CONV_A, tmuxSession: "h2a-cli-prim" }),
+      row({ id: "shell-prim", label: "shell-prim", kind: "local-native", convId: CONV_B, tmuxSession: "h2a-shell-prim" }),
+    ]);
+    listNativeSessions.mockReturnValue([
+      {
+        id: "h2a-cli-prim",
+        pid: 4201,
+        status: "running",
+        exit: null,
+        controlled: true,
+        applicationFacet: "cli",
+        applicationIncarnation: "inc-cli-1",
+        foregroundProcessGroup: 201,
+        foregroundRevision: 1,
+      } as never,
+      {
+        id: "h2a-shell-prim",
+        pid: 4202,
+        status: "running",
+        exit: null,
+        controlled: true,
+        applicationFacet: "shell",
+        applicationIncarnation: null,
+        foregroundProcessGroup: 202,
+        foregroundRevision: 2,
+      } as never,
+    ]);
+
+    const result = restore({ stderr: stderrStream });
+    expect(spawn).not.toHaveBeenCalled();
+
+    const ledger = Reflect.get(result, "ledger") as Array<{ label: string; outcome: string }> | undefined;
+    expect(ledger).toHaveLength(2);
+    expect(ledger!.map((entry) => entry.outcome).sort()).toEqual([
+      "already-active",
+      "deferred:needs-inject",
+    ]);
+    expect(Reflect.get(result, "observedTotals")).toMatchObject({
+      alreadyActive: 1,
+      deferred: 1,
+      resumed: 0,
+      resumedInPlace: 0,
+      recreated: 0,
+      attached: 0,
+    });
+    expect(Reflect.get(result, "exitCode")).toBe(1);
+  });
+
+  it("should not count an attached persistent shell as a resumed CLI", () => {
+    writeRegistry([
+      row({ id: "shell-attach", label: "shell-attach", kind: "local-native", convId: CONV_A, tmuxSession: "h2a-shell-attach" }),
+    ]);
+    listNativeSessions.mockReturnValue([
+      {
+        id: "h2a-shell-attach",
+        pid: 4203,
+        status: "running",
+        exit: null,
+        controlled: false,
+        applicationFacet: "shell",
+        applicationIncarnation: null,
+        foregroundProcessGroup: 203,
+        foregroundRevision: 1,
+      } as never,
+    ]);
+
+    const result = restore({ stderr: stderrStream });
+    const lines = launchedMapLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("h2a attach 'h2a-shell-attach'");
+    expect(lines[0]).not.toContain("h2a run");
+
+    const ledger = Reflect.get(result, "ledger") as Array<{ outcome: string }> | undefined;
+    expect(ledger).toHaveLength(1);
+    expect(ledger![0]!.outcome).toBe("attached");
+    expect(Reflect.get(result, "observedTotals")).toMatchObject({
+      attached: 1,
+      resumed: 0,
+      resumedInPlace: 0,
+      recreated: 0,
+    });
+    expect(Reflect.get(result, "exitCode")).toBe(0);
+  });
+
+  it("should report one ledger line per session and exit non-zero when sessions needing resume are all blocked", () => {
+    writeRegistry([
+      row({ id: "old-a", label: "old-a", kind: "local-native", convId: CONV_A, tmuxSession: "h2a-old-a" }),
+      row({ id: "old-b", label: "old-b", kind: "local-native", convId: CONV_B, tmuxSession: "h2a-old-b" }),
+    ]);
+    // Stub old host: omits both controlled and applicationFacet.
+    listNativeSessions.mockReturnValue([
+      { id: "h2a-old-a", pid: 4301, status: "running", exit: null } as never,
+      { id: "h2a-old-b", pid: 4302, status: "running", exit: null } as never,
+    ]);
+
+    const result = restore({ stderr: stderrStream });
+    expect(spawn).not.toHaveBeenCalled();
+
+    const ledger = Reflect.get(result, "ledger") as Array<{ outcome: string }> | undefined;
+    expect(ledger).toHaveLength(2);
+    expect(ledger!.every((entry) => entry.outcome === "deferred:stale-host")).toBe(true);
+    expect(Reflect.get(result, "exitCode")).toBe(1);
+    const out = stderrLines.join("");
+    expect(out).not.toContain("controller visibility UNKNOWN");
+    expect(out.split("\n").filter((line) => /stale|ancien/i.test(line))).toHaveLength(1);
+    expect(out).toContain("h2a doctor");
+  });
+
+  it("should exit zero with an empty ledger when there are no candidates", () => {
+    writeRegistry([]);
+    const result = restore({ stderr: stderrStream });
+    expect(spawn).not.toHaveBeenCalled();
+    expect(Reflect.get(result, "ledger")).toEqual([]);
+    expect(Reflect.get(result, "exitCode")).toBe(0);
+  });
+
+  it("should exit zero for a valid dry-run while reporting its blockers as plan data", () => {
+    writeRegistry([
+      row({ id: "shell-dry", label: "shell-dry", kind: "local-native", convId: CONV_A, tmuxSession: "h2a-shell-dry" }),
+    ]);
+    listNativeSessions.mockReturnValue([
+      {
+        id: "h2a-shell-dry",
+        pid: 4401,
+        status: "running",
+        exit: null,
+        controlled: true,
+        applicationFacet: "shell",
+        applicationIncarnation: null,
+        foregroundProcessGroup: 301,
+        foregroundRevision: 1,
+      } as never,
+    ]);
+
+    const result = restore({ dryRun: true, stderr: stderrStream });
+    expect(spawn).not.toHaveBeenCalled();
+    const ledger = Reflect.get(result, "ledger") as Array<{ outcome: string }> | undefined;
+    expect(ledger).toHaveLength(1);
+    expect(ledger![0]!.outcome).toBe("deferred:needs-inject");
+    expect(Reflect.get(result, "observedTotals")).toMatchObject({
+      deferred: 1,
+      resumed: 0,
+      resumedInPlace: 0,
+      recreated: 0,
+      attached: 0,
+    });
+    expect(Reflect.get(result, "exitCode")).toBe(0);
+  });
+
+  it("should exit zero when all primaries are already-active", () => {
+    writeRegistry([
+      row({ id: "cli-1", label: "cli-1", kind: "local-native", convId: CONV_A, tmuxSession: "h2a-cli-1" }),
+      row({ id: "cli-2", label: "cli-2", kind: "local-native", convId: CONV_B, tmuxSession: "h2a-cli-2" }),
+    ]);
+    listNativeSessions.mockReturnValue([
+      {
+        id: "h2a-cli-1",
+        pid: 4501,
+        status: "running",
+        exit: null,
+        controlled: true,
+        applicationFacet: "cli",
+        applicationIncarnation: "inc-1",
+        foregroundProcessGroup: 401,
+        foregroundRevision: 1,
+      } as never,
+      {
+        id: "h2a-cli-2",
+        pid: 4502,
+        status: "running",
+        exit: null,
+        controlled: true,
+        applicationFacet: "cli",
+        applicationIncarnation: "inc-2",
+        foregroundProcessGroup: 402,
+        foregroundRevision: 1,
+      } as never,
+    ]);
+
+    const result = restore({ stderr: stderrStream });
+    expect(spawn).not.toHaveBeenCalled();
+    const ledger = Reflect.get(result, "ledger") as Array<{ outcome: string }> | undefined;
+    expect(ledger).toHaveLength(2);
+    expect(ledger!.every((entry) => entry.outcome === "already-active")).toBe(true);
+    expect(Reflect.get(result, "observedTotals")).toMatchObject({
+      alreadyActive: 2,
+      resumed: 0,
+    });
+    expect(Reflect.get(result, "exitCode")).toBe(0);
+  });
+});
