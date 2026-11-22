@@ -11,6 +11,7 @@ import {
   createUiRenderModule,
   DEFAULT_EXTERNAL_UI_SCHEMAS,
   findNonLocalSchemaRefs,
+  findSchemaRefCycles,
   inlineExternalSchemaRefs,
   runMcpStdio
 } from "../dist/index.js";
@@ -141,6 +142,12 @@ test("invariant: no exported MCP tool schema (in-process or stdio tools/list) co
         [],
         `tool ${tool.name} inputSchema must have only local #/$defs refs, found: ${JSON.stringify(nonLocal)}`
       );
+      const cycles = findSchemaRefCycles(tool.inputSchema);
+      assert.deepEqual(
+        cycles,
+        [],
+        `tool ${tool.name} inputSchema must have zero $ref cycles, found: ${JSON.stringify(cycles)}`
+      );
       // Every exported inputSchema must compile standalone without external schemas.
       assert.doesNotThrow(
         () => compileStandalone(tool.inputSchema),
@@ -175,18 +182,26 @@ test("invariant: no exported MCP tool schema (in-process or stdio tools/list) co
         [],
         `stdio tools/list tool ${tool.name} has non-local $ref: ${JSON.stringify(nonLocal)}`
       );
+      const cycles = findSchemaRefCycles(tool.inputSchema);
+      assert.deepEqual(
+        cycles,
+        [],
+        `stdio tools/list tool ${tool.name} has $ref cycle: ${JSON.stringify(cycles)}`
+      );
       assert.doesNotThrow(
         () => compileStandalone(tool.inputSchema),
         `stdio tools/list tool ${tool.name} failed standalone Ajv 2020-12 compilation`
       );
     }
 
-    // get_schema must also return self-contained standalone schemas.
+    // get_schema must also return self-contained cycle-free standalone schemas.
     for (const component of Object.keys(uiRender.assets.schemas)) {
       const res = uiRender.tools.callTool("get_schema", { component });
       assert.ok(res && !res.isError);
       const nonLocal = findNonLocalSchemaRefs(res.structuredContent.schema);
       assert.deepEqual(nonLocal, [], `get_schema(${component}) has non-local $ref`);
+      const cycles = findSchemaRefCycles(res.structuredContent.schema);
+      assert.deepEqual(cycles, [], `get_schema(${component}) has $ref cycle`);
       assert.doesNotThrow(() => compileStandalone(res.structuredContent.schema));
     }
   } finally {
@@ -211,12 +226,20 @@ test("semantic equivalence: raw vendored schemas vs inlined exported schemas pro
     );
     assert.throws(() => compileStandalone(rawSchema));
 
-    // The exported schema has zero non-local $refs and compiles standalone.
+    // The exported schema has zero non-local $refs, zero cycles, no dead DynamicValue, and compiles standalone.
     assert.deepEqual(findNonLocalSchemaRefs(exportedTool.inputSchema), []);
+    assert.deepEqual(findSchemaRefCycles(exportedTool.inputSchema), []);
+    assert.equal(
+      exportedTool.inputSchema.$defs?.DynamicValue,
+      undefined,
+      `render_${component} must purge unreachable DynamicValue from $defs`
+    );
 
     const validateBefore = compileWithExternal(rawSchema);
     const validateAfter = compileStandalone(exportedTool.inputSchema);
 
+    // Closed Ajv equivalence contract (L4 §3.1): on all component fixtures without
+    // FunctionCall.args, strict (instancePath, keyword) error shape equality holds.
     for (const fixture of buildComponentFixtures(uiRender.assets, component)) {
       const validBefore = Boolean(validateBefore(fixture.value));
       const validAfter = Boolean(validateAfter(fixture.value));
@@ -243,10 +266,16 @@ test("semantic equivalence: ComponentCommon transitive closure (DataBinding, Fun
 
   const inlined = inlineExternalSchemaRefs(rawSchema);
   assert.deepEqual(findNonLocalSchemaRefs(inlined), []);
+  assert.deepEqual(findSchemaRefCycles(inlined), []);
+  assert.equal(inlined.$defs?.DynamicValue, undefined, "unreachable DynamicValue purged");
+  assert.deepEqual(inlined.$defs?.FunctionCall?.properties?.args, { type: "object" });
 
   const validateBefore = compileWithExternal(rawSchema);
   const validateAfter = compileStandalone(inlined);
 
+  // Closed Ajv equivalence contract (L4 §3.1): nested cases under FunctionCall.args
+  // guarantee strict boolean equivalence (both false) because FunctionCall is always
+  // unsatisfiable via anyFunction: { not: {} }.
   const cases = [
     { label: "id only", value: { id: "c1" }, expected: true },
     { label: "literal accessibility strings", value: { id: "c1", accessibility: { label: "L", description: "D" } }, expected: true },
@@ -259,6 +288,16 @@ test("semantic equivalence: ComponentCommon transitive closure (DataBinding, Fun
         id: "c1",
         accessibility: {
           label: { call: "outer", returnType: "string", args: { x: { call: "inner" } } }
+        }
+      },
+      expected: false
+    },
+    {
+      label: "nested invalid DataBinding inside FunctionCall.args rejected (boolean equivalence)",
+      value: {
+        id: "c1",
+        accessibility: {
+          label: { call: "outer", returnType: "string", args: { x: { path: "/bad", extra: 1 } } }
         }
       },
       expected: false
