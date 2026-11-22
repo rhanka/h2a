@@ -55,11 +55,15 @@ ChildProcess.prototype.spawn = function (options) {
 const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${JSON.stringify({ concurrency, bulkConcurrency, completed,
   active: [...pending].map(([child, row]) => ({ file: row.file, pid: child.pid, elapsedMs: Math.round(performance.now() - row.started),
     exitCode: child.exitCode, signalCode: child.signalCode })) })}\n`), interval);
-// These fixtures qualify bounded cold startup and authenticated handover.
-// Give each its own phase before npm installs and the 32-process campaign;
-// their internal concurrent admissions and every deadline remain unchanged.
+// These fixtures qualify bounded cold startup, authenticated handover, 20-way
+// concurrent resume scaling, or full-tree release preflight copies (which
+// otherwise flood ext4 fsync writeback for sibling protocol tests like
+// host-connect). Give each its own phase before parallel protocols and bulk
+// installs; their internal concurrent admissions and every deadline remain
+// unchanged.
 const standalone = ['mcp-central-attachments.test.js', 'mcp-central-election-supervisor.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js', 'mcp-identity-burst.test.js', 'mh-l5-compensation.test.js',
-  'mh-l2-image.test.js', 'mh-l2-live-central.test.js', 'mh-l5-cold-network.test.js']
+  'mh-l2-image.test.js', 'mh-l2-live-central.test.js', 'mh-l5-cold-network.test.js',
+  'incident-20-resume.test.js', 'closed-focus-preflight.test.js']
   .flatMap(name => files.filter(file => basename(file) === name));
 // Bulk filesystem installs must not consume the bounded protocol fixtures'
 // startup budgets. The long backend has a separate reserved worker after the
