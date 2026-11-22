@@ -38,36 +38,34 @@ const mermaidDoc = (names) => {
   doc.sections.find(s => s.kind === 'diagram').source = `flowchart LR\n${names.map((n, i) => `n${i}["${n}"]`).join('\n')}`
   return doc
 }
-const builtViews = (root, doc) => {
+const builtDiagrams = (root, doc) => {
   const { result, output } = buildDoc(root, doc)
   assert.equal(result.status, 0, result.stderr)
   const payload = payloadOf(output)
   const diagram = payload.document.sections.find(s => s.kind === 'diagram')
-  return { payload, diagram, views: payload.views[diagram.id], html: readFileSync(output, 'utf8') }
+  return { payload, diagram, r7: payload.diagrams[diagram.id], html: readFileSync(output, 'utf8') }
 }
 
-test('renders every diagram node as an embedded DC-1 DiagramCard view, keeping the scene untouched', () => isolated(root => {
-  const { diagram, views } = builtViews(root, mermaidDoc(['Coordinateur', 'Relais de modèles']))
-  assert.ok(views, 'payload carries views keyed by the diagram section id')
-  assert.deepEqual(Object.keys(views).sort(), Object.keys(diagram.scene.entities).sort())
+test('renders every diagram node inside an embedded static r7 SVG with DS cards, keeping the scene untouched', async () => isolated(root => {
+  const { diagram, r7 } = builtDiagrams(root, mermaidDoc(['Coordinateur', 'Relais de modèles']))
+  assert.ok(r7 && r7.renderer === 'r7', 'payload carries static r7 diagram keyed by the diagram section id')
+  assert.deepEqual([...r7.wide.cards].sort(), Object.keys(diagram.scene.entities).sort())
+  assert.deepEqual([...r7.narrow.cards].sort(), Object.keys(diagram.scene.entities).sort())
+  assert.deepEqual(r7.wide.problems, [])
+  assert.deepEqual(r7.narrow.problems, [])
   assert.doesNotMatch(JSON.stringify(diagram.scene), /"(?:views?|geometry|layout)"/, 'the scene stays a pure diagram-core document')
-  for (const [entityId, view] of Object.entries(views)) {
-    assert.equal(view.kind, 'card', `${entityId} is a card view`)
-    assert.match(view.svg, new RegExp(`<svg xmlns="http://www\\.w3\\.org/2000/svg" class="st-diagramCard" data-entity="${entityId}" width="460" height="200" viewBox="0 0 460 200"`), 'exact DC-1 card face 460x200')
-    assert.match(view.svg, /<rect x="1" y="1" width="458" height="198"[^>]*stroke-width="2"/, '2px square border')
-    assert.match(view.svg, /<rect x="0" y="0" width="8" height="200"/, '8px accent bar')
-    assert.match(view.svg, /class="st-diagramCard-kicker" x="16" y="32" text-anchor="start" font-size="22" font-weight="400"[^>]*letter-spacing="0\.04em" style="text-transform:uppercase">node<\/text>/, 'kicker is the element kind, uppercase at draw')
-    assert.match(view.svg, /class="st-diagramCard-title" x="16" y="70\.59375" text-anchor="start" font-size="32" font-weight="700"/, 'title 32/700')
-    const name = diagram.scene.entities[entityId].attributes.name.value
-    assert.match(view.svg, new RegExp(`aria-label="${name}"[^>]*><title>${name}</title>`), 'title is the entity name')
-    assert.ok(!view.svg.includes('rule') && !view.svg.includes('data-diagram-icon'), 'no rule or icon with generic@1 data')
+  for (const [entityId, entity] of Object.entries(diagram.scene.entities)) {
+    const name = entity.attributes.name.value
+    assert.match(r7.wide.svg, new RegExp(`<svg xmlns="http://www\\.w3\\.org/2000/svg" class="st-diagramCard" data-entity="${entityId}" width="460" height="200" viewBox="0 0 460 200"`), 'exact DS card face 460x200')
+    assert.match(r7.wide.svg, new RegExp(`aria-label="${name}"[^>]*><title>${name}</title>`), 'title is the entity name')
   }
-  assert.equal(JSON.stringify(views['entity:n0']).length > 300, true, 'inlined svg, not a reference')
+  assert.doesNotMatch(r7.wide.svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i, 'r7 default renderer never leaks literal "node" kicker')
+  assert.equal(r7.wide.svg.length > 500, true, 'inlined svg, not a reference')
 }))
 
-test('renders containers with children as folded and expanded DC-1 DiagramZone views; childless containers are plain cards', () => isolated(root => {
-  const doc = fixture()
-  doc.sections.find(s => s.kind === 'diagram').scene = sceneWith({
+test('renders containers with children as DS DiagramZone frames in r7 and preserves legacy DC-1 renderDiagramViews', async () => {
+  const { renderDiagramViews } = await import(viewsModule)
+  const semantic = sceneWith({
     'entity:root': container('root', 'Services'),
     'entity:models': container('models', 'Modèles'),
     'entity:gateway': node('gateway', 'Relais de modèles'),
@@ -77,7 +75,21 @@ test('renders containers with children as folded and expanded DC-1 DiagramZone v
     'relation:root-models': contains('root', 'models'), 'relation:root-coordinator': contains('root', 'coordinator'),
     'relation:models-gateway': contains('models', 'gateway'),
   })
-  const { views } = builtViews(root, doc)
+  // Default r7 build renders nested zones and treats childless containers as cards.
+  isolated(root => {
+    const doc = fixture()
+    doc.sections.find(s => s.kind === 'diagram').scene = semantic
+    const { r7 } = builtDiagrams(root, doc)
+    assert.deepEqual([...r7.wide.zones].sort(), ['entity:models', 'entity:root'])
+    assert.deepEqual([...r7.wide.cards].sort(), ['entity:coordinator', 'entity:flat', 'entity:gateway'])
+    assert.deepEqual(r7.wide.problems, [])
+    assert.deepEqual(r7.narrow.problems, [])
+    assert.doesNotMatch(r7.wide.svg, /class="st-diagramZone-kicker"[^>]*>container<\/text>/i)
+  })
+  // Legacy DC-1 renderDiagramViews export remains intact for existing unit-level callers.
+  const legacy = renderDiagramViews(semantic)
+  assert.equal(legacy.kind, 'rendered')
+  const { views } = legacy
   assert.equal(views['entity:coordinator'].kind, 'card')
   assert.equal(views['entity:gateway'].kind, 'card')
   assert.equal(views['entity:flat'].kind, 'card', 'a container without children is never a foldable zone')
@@ -94,11 +106,11 @@ test('renders containers with children as folded and expanded DC-1 DiagramZone v
     assert.match(view.foldedSvg, /class="st-diagramCard-toggle" data-toggle="true" data-collapsed="true"/, 'the folded form carries the « + » toggle glyph')
     const title = view === views['entity:root'] ? 'Services' : 'Modèles'
     assert.match(view.foldedSvg, new RegExp(`<title>Déplier : ${title}</title>`), 'toggle title names the unfolding action')
-    assert.match(view.foldedSvg, /style="text-transform:uppercase">container<\/text>/, 'kicker is the element kind (container)')
+    assert.match(view.foldedSvg, /style="text-transform:uppercase">container<\/text>/, 'legacy DC-1 kicker is the element kind (container)')
   }
   const pageSize = /width="(\d+(?:\.\d+)?)" height="(\d+(?:\.\d+)?)"/.exec(views['entity:root'].svg)
   assert.ok(Number(pageSize[1]) > 492 && Number(pageSize[2]) > 200, 'the expanded frame grows to host the child grid')
-}))
+})
 
 test('pins the DC-1 reference geometry: 492/1044 wide zones, header content start from the DS 0.37.0 zone header, centred variant', async () => {
   const { renderDiagramViews, interimLayout } = await import(viewsModule)
@@ -166,16 +178,15 @@ test('refuses a diagram whose card cannot carry its title with typed diagnostics
 }))
 
 test('keeps the built dossier offline, CSP-safe and free of the local interim card markup', () => isolated(root => {
-  const { views, html } = builtViews(root, mermaidDoc(['Coordinateur', 'Relais de modèles']))
+  const { r7, html } = builtDiagrams(root, mermaidDoc(['Coordinateur', 'Relais de modèles']))
   assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">/)
-  for (const view of Object.values(views)) {
-    const svg = view.svg + (view.foldedSvg ?? '')
+  for (const svg of [r7.wide.svg, r7.narrow.svg]) {
     assert.doesNotMatch(svg.replace(/xmlns="http:\/\/www\.w3\.org\/2000\/svg"/g, ''), /https?:\/\//, 'the xmlns namespace is the only URL-shaped text')
     assert.ok(!/src=|xlink:href/i.test(svg), 'no external or data asset fetch at view time')
     assert.doesNotMatch(svg, /fetch\(|XMLHttpRequest/)
   }
   assert.ok(!html.includes('ecosystem-node') && !html.includes('ecosystem-container'), 'the local interim card CSS/markup is removed')
-  assert.ok(html.includes('st-diagramCard'), 'the DC-1 markup is inlined in the built page')
+  assert.ok(html.includes('st-diagramCard') && html.includes('ds-diagram-svg'), 'the static r7 inline SVG with DS cards is inlined in the built page')
 }))
 
 test('refuses a diagram-less dossier with the ecosystem-diagram refusal', () => isolated(root => {

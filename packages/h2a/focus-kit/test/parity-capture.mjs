@@ -43,7 +43,8 @@ export async function captureBaseline() {
         page.on('pageerror', e => errors.push(e.message));
         page.on('request', r => { if (/^https?:/.test(r.url())) network.push(r.url()); });
         await page.goto(pathToFileURL(fileURLToPath(file)).href);
-        await page.locator('.svelte-flow__node').first().waitFor();
+        const variant = width < 1200 ? 'narrow' : 'wide';
+        await page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`).first().waitFor({ state: 'visible' });
         await page.evaluate(() => document.fonts.ready);
         const observation = await observe(page);
         assert.equal(observation.glossaryFolded, true); assert.equal(observation.overflow, false);
