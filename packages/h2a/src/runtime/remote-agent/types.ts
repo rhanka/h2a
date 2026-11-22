@@ -57,12 +57,6 @@ export interface TrunkAuthPayload {
   readonly clientTime: number;
 }
 
-export interface TrunkNegotiatedLimits {
-  readonly maxCreditRecords?: number;
-  readonly maxCreditBytes?: number;
-  readonly maxCatalogueRecordBytes?: number;
-}
-
 export interface TrunkHelloRecord extends TrunkEnvelope {
   readonly t: "hello";
   readonly protocolVersions: readonly number[];
@@ -85,10 +79,54 @@ export interface TrunkAuthRecord extends TrunkEnvelope {
 export interface TrunkReadyRecord extends TrunkEnvelope {
   readonly t: "ready";
   readonly linkGeneration: number;
-  readonly serverTime: number;
+  readonly serverTime: string;
   readonly bindNonce: string;
-  readonly revokedInstances: readonly string[];
-  readonly limits?: TrunkNegotiatedLimits;
+  readonly syncGeneration: number;
+  readonly stateSync: "full";
+}
+
+export interface StateBeginRecord extends TrunkEnvelope {
+  readonly t: "state.begin";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly revocationCount: number;
+  readonly grantCount: number;
+  readonly partCount: number;
+}
+
+export interface StatePartRecord extends TrunkEnvelope {
+  readonly t: "state.part";
+  readonly syncGeneration: number;
+  readonly part: number;
+  readonly kind: "revocations" | "grants";
+  readonly entries: readonly unknown[];
+}
+
+export interface StateEndRecord extends TrunkEnvelope {
+  readonly t: "state.end";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly partCount: number;
+  readonly imageSha256: string;
+}
+
+export interface StateAppliedRecord extends TrunkEnvelope {
+  readonly t: "state.applied";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly imageSha256: string;
+}
+
+export interface StateActiveRecord extends TrunkEnvelope {
+  readonly t: "state.active";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly imageSha256: string;
+}
+
+export interface PropGrantRecord extends TrunkEnvelope {
+  readonly t: "prop.grant";
+  readonly stateRevision: number;
 }
 
 export interface InstanceBindRecord extends TrunkEnvelope {
@@ -111,14 +149,24 @@ export interface InstanceBoundRecord extends TrunkEnvelope {
 export interface InstanceRevokedRecord extends TrunkEnvelope {
   readonly t: "instance.revoked";
   readonly instanceId: string;
-  readonly revokedAt: number;
+  readonly revokedAt: string;
   readonly revokedBy: string;
+  readonly stateRevision: number;
 }
+
+export type TrunkStateRecord =
+  | StateBeginRecord
+  | StatePartRecord
+  | StateEndRecord
+  | StateAppliedRecord
+  | StateActiveRecord
+  | PropGrantRecord;
 
 export type TrunkInstanceRecord =
   | InstanceBindRecord
   | InstanceBoundRecord
-  | InstanceRevokedRecord;
+  | InstanceRevokedRecord
+  | TrunkStateRecord;
 
 export type TrunkLinkRecord =
   | TrunkHelloRecord
@@ -442,6 +490,23 @@ function isPlainRowArray(v: unknown): v is readonly CatalogueWireRow[] {
   );
 }
 
+function isBase64Url22(v: unknown): v is string {
+  return typeof v === "string" && /^[A-Za-z0-9_-]{22}$/.test(v);
+}
+
+function isIsoUtc24(v: unknown): v is string {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v)) {
+    return false;
+  }
+  return Number.isFinite(Date.parse(v));
+}
+
+function isSha256Hex(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+}
+
+const REVOKED_BY_ACTORS = new Set(["user", "workspace-admin", "org-admin", "tenant-admin", "node"]);
+
 function isPosIntArray(v: unknown): v is readonly number[] {
   return Array.isArray(v) && v.length > 0 && v.every((x) => isSafePosInt(x));
 }
@@ -485,11 +550,46 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
       return (
         ch === 0 &&
         isSafePosInt(rec["linkGeneration"]) &&
-        isFiniteNumber(rec["serverTime"]) &&
-        isNonEmptyString(rec["bindNonce"]) &&
-        isStringArray(rec["revokedInstances"]) &&
-        (rec["limits"] === undefined || (typeof rec["limits"] === "object" && rec["limits"] !== null && !Array.isArray(rec["limits"])))
+        isIsoUtc24(rec["serverTime"]) &&
+        isBase64Url22(rec["bindNonce"]) &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        rec["stateSync"] === "full"
       );
+    case "state.begin":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["stateRevision"]) &&
+        isSafeNonNegInt(rec["revocationCount"]) &&
+        isSafeNonNegInt(rec["grantCount"]) &&
+        isSafeNonNegInt(rec["partCount"])
+      );
+    case "state.part":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["part"]) &&
+        (rec["kind"] === "revocations" || rec["kind"] === "grants") &&
+        Array.isArray(rec["entries"])
+      );
+    case "state.end":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["stateRevision"]) &&
+        isSafeNonNegInt(rec["partCount"]) &&
+        isSha256Hex(rec["imageSha256"])
+      );
+    case "state.applied":
+    case "state.active":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["stateRevision"]) &&
+        isSha256Hex(rec["imageSha256"])
+      );
+    case "prop.grant":
+      return ch === 0 && isSafeNonNegInt(rec["stateRevision"]);
     case "ping":
     case "pong":
       return ch === 0 && isFiniteNumber(rec["at"]);
@@ -520,14 +620,16 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
         isNonEmptyString(rec["instanceId"]) &&
         (rec["status"] === "live" || rec["status"] === "refused") &&
         (rec["reason"] === undefined || typeof rec["reason"] === "string") &&
-        isNonEmptyString(rec["bindNonce"])
+        isBase64Url22(rec["bindNonce"])
       );
     case "instance.revoked":
       return (
         ch === 0 &&
         isNonEmptyString(rec["instanceId"]) &&
-        isFiniteNumber(rec["revokedAt"]) &&
-        isNonEmptyString(rec["revokedBy"])
+        isIsoUtc24(rec["revokedAt"]) &&
+        typeof rec["revokedBy"] === "string" &&
+        REVOKED_BY_ACTORS.has(rec["revokedBy"]) &&
+        isSafeNonNegInt(rec["stateRevision"])
       );
     case "watch.start":
     case "watch.stop":

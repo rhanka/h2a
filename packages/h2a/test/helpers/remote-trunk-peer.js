@@ -23,7 +23,12 @@ import {
   isTrunkRecord,
   verifyTrunkAuthPayload
 } from "../../dist/runtime/remote-agent/types.js";
+import { isWireInstanceId, wireInstanceId } from "../../dist/runtime/remote-agent/wire-ids.js";
 import { FakeTrunkEndpoint, WET2_TEXT_HASH } from "./remote-trunk-fakes.js";
+
+function toWireInstanceId(value) {
+  return isWireInstanceId(value) ? value : wireInstanceId(value);
+}
 
 export const PINNED_WET2_TEXT_HASH = WET2_TEXT_HASH;
 const TEST_FAKES_ENV = "H2A_TEST_FAKES";
@@ -274,6 +279,10 @@ export function createSimulatedTrunkContractProvider(options = {}) {
     return Buffer.from(canonicalTrunkJson(obj), "utf8");
   }
 
+  function canonicalStateRecordBytes(record) {
+    return Buffer.from(canonicalTrunkJson(record), "utf8");
+  }
+
   function buildSnapshotPages(wireRows) {
     const pages = [];
     let offset = 0;
@@ -468,6 +477,7 @@ export function createSimulatedTrunkContractProvider(options = {}) {
     decodeFrame,
     canonicalAuthBytes,
     canonicalInstanceBindBytes,
+    canonicalStateRecordBytes,
     measureJcsBytes,
     planCatalogueSnapshot,
     prepareNextCatalogueRecord
@@ -747,7 +757,7 @@ export class FakeBinaryTrunkPeer {
   #usedNonces = new Set();
   #nextConnId = 1;
   #autoPong = true;
-  #nextBindNonceCounter = 1;
+  #manualAuthoritySync = false;
 
   constructor(options = {}) {
     this.#meshId = options.meshId ?? "mesh-test";
@@ -756,6 +766,7 @@ export class FakeBinaryTrunkPeer {
     this.#clock = options.clock ?? new FakeClock();
     this.#env = options.env ?? { H2A_REMOTE_CONTROL: "1", H2A_TEST_FAKES: "1" };
     this.#contract = options.contract ?? createSimulatedTrunkContractProvider();
+    this.#manualAuthoritySync = Boolean(options.manualAuthoritySync);
     this.#trunk = new FakeTrunkEndpoint({
       meshId: this.#meshId,
       tenantId: this.#tenantId,
@@ -776,8 +787,37 @@ export class FakeBinaryTrunkPeer {
     this.#autoPong = enabled;
   }
 
+  setManualAuthoritySync(enabled) {
+    this.#manualAuthoritySync = Boolean(enabled);
+  }
+
   registerEnrolment(input) {
     const scopeKey = `${this.#meshId}|${this.#tenantId}|${input.userId ?? "owner"}|${input.nodeId}|${input.enrolmentRef}`;
+    const revocationTable = new Map();
+    const defaultAt = new Date(this.#clock.now()).toISOString();
+    for (const item of input.revokedInstances ?? []) {
+      if (typeof item === "string") {
+        const wireId = toWireInstanceId(item);
+        revocationTable.set(wireId, { instanceId: wireId, revokedAt: defaultAt, revokedBy: "user" });
+      } else if (item && typeof item === "object") {
+        const wireId = toWireInstanceId(item.instanceId);
+        revocationTable.set(wireId, {
+          instanceId: wireId,
+          revokedAt: item.revokedAt ?? defaultAt,
+          revokedBy: item.revokedBy ?? "user"
+        });
+      }
+    }
+    const grants = (input.grants ?? [])
+      .map((g) => ({
+        fromMeshId: g.fromMeshId,
+        fromTenantId: g.fromTenantId,
+        resourceKinds: [...g.resourceKinds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      }))
+      .sort((a, b) => {
+        if (a.fromMeshId !== b.fromMeshId) return a.fromMeshId < b.fromMeshId ? -1 : 1;
+        return a.fromTenantId < b.fromTenantId ? -1 : a.fromTenantId > b.fromTenantId ? 1 : 0;
+      });
     const record = {
       scopeKey,
       userId: input.userId ?? "owner",
@@ -789,7 +829,9 @@ export class FakeBinaryTrunkPeer {
       renewBy: input.renewBy ?? (this.#clock.now() + 180 * 24 * 60 * 60_000),
       revoked: Boolean(input.revoked),
       notProvisioned: Boolean(input.notProvisioned),
-      revokedInstances: new Set(input.revokedInstances ?? []),
+      stateRevision: input.stateRevision ?? 0,
+      revocationTable,
+      grants,
       boundInstances: new Map()
     };
     this.#enrolments.set(input.enrolmentRef, record);
@@ -961,19 +1003,137 @@ export class FakeBinaryTrunkPeer {
     return this.sendRecord(conn, { t: "term.close", ch, sid });
   }
 
-  sendInstanceRevoked(conn, instanceId, revokedBy = "user") {
+  sendInstanceRevoked(conn, instanceId, revokedBy = "user", stateRevision) {
+    const wireId = toWireInstanceId(instanceId);
+    const revokedAt = new Date(this.#clock.now()).toISOString();
     const rec = this.#enrolments.get(conn.enrolmentRef);
+    const rev = stateRevision ?? ((rec?.stateRevision ?? 0) + 1);
     if (rec) {
-      rec.revokedInstances.add(instanceId);
-      const existing = rec.boundInstances.get(instanceId);
+      rec.stateRevision = Math.max(rec.stateRevision, rev);
+      rec.revocationTable.set(wireId, { instanceId: wireId, revokedAt, revokedBy });
+      const existing = rec.boundInstances.get(wireId);
       if (existing) existing.status = "revoked";
     }
     return this.sendRecord(conn, {
       t: "instance.revoked",
       ch: 0,
-      instanceId,
-      revokedAt: this.#clock.now(),
-      revokedBy
+      instanceId: wireId,
+      revokedAt,
+      revokedBy,
+      stateRevision: rev
+    });
+  }
+
+  sendStateBegin(conn, opts) {
+    return this.sendRecord(conn, {
+      t: "state.begin",
+      ch: 0,
+      syncGeneration: opts.syncGeneration,
+      stateRevision: opts.stateRevision,
+      revocationCount: opts.revocationCount ?? 0,
+      grantCount: opts.grantCount ?? 0,
+      partCount: opts.partCount ?? 0
+    });
+  }
+
+  sendStatePart(conn, opts) {
+    return this.sendRecord(conn, {
+      t: "state.part",
+      ch: 0,
+      syncGeneration: opts.syncGeneration,
+      part: opts.part,
+      kind: opts.kind,
+      entries: opts.entries
+    });
+  }
+
+  sendStateEnd(conn, opts) {
+    let imageSha256 = opts.imageSha256;
+    if (!imageSha256) {
+      const h = createHash("sha256");
+      for (const r of opts.records ?? []) {
+        h.update(this.#contract.canonicalStateRecordBytes(r));
+      }
+      imageSha256 = h.digest("hex");
+    }
+    return this.sendRecord(conn, {
+      t: "state.end",
+      ch: 0,
+      syncGeneration: opts.syncGeneration,
+      stateRevision: opts.stateRevision,
+      partCount: opts.partCount,
+      imageSha256
+    });
+  }
+
+  sendStateActive(conn, opts) {
+    return this.sendRecord(conn, {
+      t: "state.active",
+      ch: 0,
+      syncGeneration: opts.syncGeneration,
+      stateRevision: opts.stateRevision,
+      imageSha256: opts.imageSha256
+    });
+  }
+
+  sendPropGrant(conn, stateRevision) {
+    return this.sendRecord(conn, {
+      t: "prop.grant",
+      ch: 0,
+      stateRevision
+    });
+  }
+
+  #sendFullAuthorityImage(conn, syncGeneration, enrolment) {
+    const revocations = [...enrolment.revocationTable.values()].sort((a, b) =>
+      a.instanceId < b.instanceId ? -1 : a.instanceId > b.instanceId ? 1 : 0
+    );
+    const grants = [...enrolment.grants];
+    const revParts = Math.ceil(revocations.length / 16);
+    const grantParts = Math.ceil(grants.length / 16);
+    const partCount = revParts + grantParts;
+
+    const hash = createHash("sha256");
+    const begin = this.sendStateBegin(conn, {
+      syncGeneration,
+      stateRevision: enrolment.stateRevision,
+      revocationCount: revocations.length,
+      grantCount: grants.length,
+      partCount
+    });
+    hash.update(this.#contract.canonicalStateRecordBytes(begin));
+
+    let partIdx = 0;
+    for (let i = 0; i < revocations.length; i += 16) {
+      const part = this.sendStatePart(conn, {
+        syncGeneration,
+        part: partIdx++,
+        kind: "revocations",
+        entries: revocations.slice(i, i + 16)
+      });
+      hash.update(this.#contract.canonicalStateRecordBytes(part));
+    }
+    for (let i = 0; i < grants.length; i += 16) {
+      const part = this.sendStatePart(conn, {
+        syncGeneration,
+        part: partIdx++,
+        kind: "grants",
+        entries: grants.slice(i, i + 16)
+      });
+      hash.update(this.#contract.canonicalStateRecordBytes(part));
+    }
+
+    const imageSha256 = hash.digest("hex");
+    conn.expectedSyncApplied = {
+      syncGeneration,
+      stateRevision: enrolment.stateRevision,
+      imageSha256
+    };
+    this.sendStateEnd(conn, {
+      syncGeneration,
+      stateRevision: enrolment.stateRevision,
+      partCount,
+      imageSha256
     });
   }
 
@@ -1120,6 +1280,26 @@ export class FakeBinaryTrunkPeer {
       this.#handleInstanceBind(conn, rec);
       return;
     }
+    if (rec.t === "state.applied" && rec.ch === 0) {
+      conn.receivedStateApplied.push(rec);
+      const exp = conn.expectedSyncApplied;
+      if (
+        !this.#manualAuthoritySync &&
+        exp &&
+        exp.syncGeneration === rec.syncGeneration &&
+        exp.stateRevision === rec.stateRevision &&
+        exp.imageSha256 === rec.imageSha256
+      ) {
+        conn.expectedSyncApplied = null;
+        conn.phase = "ready";
+        this.sendStateActive(conn, {
+          syncGeneration: rec.syncGeneration,
+          stateRevision: rec.stateRevision,
+          imageSha256: rec.imageSha256
+        });
+      }
+      return;
+    }
   }
 
   #handleAuth(conn, rec) {
@@ -1218,7 +1398,7 @@ export class FakeBinaryTrunkPeer {
       this.dropConnection(previous, "superseded");
     }
 
-    conn.phase = "ready";
+    conn.phase = "syncing";
     conn.linkGeneration = opened.linkGeneration;
     conn.scopeKey = enrolment.scopeKey;
     conn.enrolmentRef = enrolment.enrolmentRef;
@@ -1226,27 +1406,28 @@ export class FakeBinaryTrunkPeer {
     conn.catalogueStager = new CatalogueSliceStager({ expectedNodeId: conn.nodeId });
     conn.catalogueView = null;
     conn.catalogueFault = null;
-    conn.currentBindNonce = `bn-${conn.id}-${this.#nextBindNonceCounter++}-${randomBytes(12).toString("base64url")}`;
+    conn.receivedStateApplied = [];
+    conn.expectedSyncApplied = null;
+    conn.currentBindNonce = randomBytes(16).toString("base64url");
     this.#liveConnections.set(enrolment.scopeKey, conn);
 
     this.sendRecord(conn, {
       t: "ready",
       ch: 0,
       linkGeneration: conn.linkGeneration,
-      serverTime: this.#clock.now(),
+      serverTime: new Date(this.#clock.now()).toISOString(),
       bindNonce: conn.currentBindNonce,
-      revokedInstances: [...enrolment.revokedInstances],
-      limits: {
-        maxCreditRecords: 8,
-        maxCreditBytes: 131072,
-        maxCatalogueRecordBytes: this.#contract.maxCatalogueRecordBytes
-      }
+      syncGeneration: 1,
+      stateSync: "full"
     });
+    if (!this.#manualAuthoritySync) {
+      this.#sendFullAuthorityImage(conn, 1, enrolment);
+    }
   }
 
   #handleInstanceBind(conn, rec) {
     const enrolment = this.#enrolments.get(conn.enrolmentRef);
-    const nextBindNonce = `bn-${conn.id}-${this.#nextBindNonceCounter++}-${randomBytes(12).toString("base64url")}`;
+    const nextBindNonce = randomBytes(16).toString("base64url");
     const expectedNonce = conn.currentBindNonce;
     conn.currentBindNonce = nextBindNonce;
 
@@ -1261,7 +1442,7 @@ export class FakeBinaryTrunkPeer {
       });
       return;
     }
-    if (enrolment.revokedInstances.has(rec.instanceId)) {
+    if (enrolment.revocationTable.has(rec.instanceId)) {
       this.sendRecord(conn, {
         t: "instance.bound",
         ch: 0,
