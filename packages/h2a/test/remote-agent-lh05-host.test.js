@@ -764,7 +764,19 @@ test("LH-05 real-host arbitration bench (RM-0 spike b, manipulations 1..5)", { t
     (v) => v.a.includes("\x1b#8") && v.b.includes("\x1b#8"),
     "3c: ESC # 8 arrives in A and B",
   );
-  await delay(150);
+  await eventually(
+    async () => {
+      const sA = await renderTerminalScreen(A.displayText(), 120, 40);
+      const sB = await renderTerminalScreen(B.displayText(), 120, 40);
+      return { sA, sB };
+    },
+    ({ sA, sB }) =>
+      sA.includes("EEEE") &&
+      sB.includes("EEEE") &&
+      sA.split("\n")[39]?.trim() === BANNER_TEXT &&
+      sB.split("\n")[39]?.trim() === BANNER_TEXT,
+    "3c: DECALN E fill and banner settle on A and B",
+  );
   const screenAEsc8 = await saveScreen(A, "after-esc8");
   const screenBEsc8 = await saveScreen(B, "after-esc8");
   assert.ok(screenAEsc8.includes("EEEE"), "3c: A screen shows DECALN E fill");
@@ -1017,6 +1029,16 @@ test("LH-05 real-host arbitration bench (RM-0 spike b, manipulations 1..5)", { t
   const A2 = launchView("A2");
   A2.armBannerWatch(0);
   await eventually(() => A2.bannerArrival(), Boolean, "M5d: banner appears on A2", 5_000);
+  await eventually(
+    async () => {
+      const txt = A2.displayText();
+      if (!txt.includes("\x1b#8")) return "";
+      return (await renderTerminalScreen(txt, 120, 40)).split("\n")[39]?.trim() ?? "";
+    },
+    (line) => line === BANNER_TEXT,
+    "M5d: A2 replay and banner settle",
+    5_000,
+  );
   const screenA2Grant = await saveScreen(A2, "after-grant");
   assert.equal(screenA2Grant.split("\n")[39].trim(), BANNER_TEXT, "M5d: A2 last line shows banner");
 
