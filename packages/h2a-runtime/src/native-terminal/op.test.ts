@@ -3019,7 +3019,10 @@ describe("native attach right panel (L0)", () => {
         acquireCallsA.push(opts as Record<string, unknown>);
         if ((opts as { passive?: boolean }).passive && holderKindA !== "none") {
           const { NativeTerminalRemoteError } = await import("./protocol.js");
-          throw new NativeTerminalRemoteError("operation-failed", "terminal session already has a controller");
+          throw new NativeTerminalRemoteError({
+            code: "operation-failed",
+            message: "terminal session already has a controller",
+          });
         }
         holderKindA = "human";
         epochA += 1;

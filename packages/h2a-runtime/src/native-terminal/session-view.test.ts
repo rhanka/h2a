@@ -540,8 +540,8 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
 
     await view.connectAndAcquire(async () => client);
     expect(view.observing).toBe(false);
-    // Queue 3 blocks: first in flight, two queued; split UTF-8 prefix before switch
-    view.enqueueInput(Buffer.from([0xe2, 0x82]));
+    // First block is in-flight with trailing incomplete UTF-8 prefix; two more queued
+    view.enqueueInput(Buffer.concat([Buffer.from("inflight"), Buffer.from([0xe2, 0x82])]));
     view.enqueueInput(Buffer.from("queued-1"));
     view.enqueueInput(Buffer.from("queued-2"));
     switchedToRemote = true;
@@ -639,7 +639,10 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
       },
       async resize() {
         if (rejectNextResize1) {
-          throw new NativeTerminalRemoteError("operation-failed", "stale terminal controller lease");
+          throw new NativeTerminalRemoteError({
+            code: "operation-failed",
+            message: "stale terminal controller lease",
+          });
         }
       },
       close() {},
@@ -658,7 +661,10 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     // Report rejected on stale lease while remote holds -> observer without takeback
     holderKind1 = "remote";
     view1.enqueueInput(Buffer.from("\x1b[I"));
-    rejectWrite1(new NativeTerminalRemoteError("operation-failed", "stale terminal controller lease"));
+    rejectWrite1(new NativeTerminalRemoteError({
+      code: "operation-failed",
+      message: "stale terminal controller lease",
+    }));
     await view1.drainInputPump();
     await vi.waitFor(() => expect(view1.observing).toBe(true));
     expect(acquireCalls1.length).toBe(1);
@@ -730,7 +736,10 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
         calls3.push(opts as Record<string, unknown>);
         if (launchPhase === "race-none-then-remote" && !(opts as { takeover?: boolean }).takeover) {
           launchPhase = "remote";
-          throw new NativeTerminalRemoteError("operation-failed", "terminal session already has a controller");
+          throw new NativeTerminalRemoteError({
+            code: "operation-failed",
+            message: "terminal session already has a controller",
+          });
         }
         return { ...lease1, epoch: 5 };
       },
