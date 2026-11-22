@@ -157,3 +157,131 @@ test("R11 inc-3 provisional wire row fits within 480 JCS bytes with max fields",
   assert.equal("operabilityReason" in wireRow, false);
   assert.equal("instance" in wireRow, false);
 });
+
+function makeProjRow(index, overrides = {}) {
+  const sid = `n-${String(index).padStart(32, "0")}`;
+  return {
+    sessionId: sid,
+    instanceId: `i-${String(index).padStart(32, "0")}`,
+    instanceStatus: "live",
+    host: "claude",
+    name: `sess-${index}`,
+    state: "live",
+    workStatus: "working",
+    hostKind: "native",
+    operable: true,
+    ...overrides
+  };
+}
+
+test("R11 inc-4 projection: 0, 1, 16, 17, 512, 513 rows + dedupe + ASCII sid sort", () => {
+  assert.equal(typeof remote.projectBoundedCatalogue, "function");
+  for (const [count, expectedRows, expectedTrunc] of [
+    [0, 0, 0],
+    [1, 1, 0],
+    [16, 16, 0],
+    [17, 17, 0],
+    [512, 512, 0],
+    [513, 512, 1]
+  ]) {
+    const input = Array.from({ length: count }, (_, i) => makeProjRow(count - i));
+    const proj = remote.projectBoundedCatalogue(input);
+    assert.equal(proj.rows.length, expectedRows);
+    assert.equal(proj.truncatedRows, expectedTrunc);
+    for (let i = 1; i < proj.rows.length; i++) {
+      assert.ok(proj.rows[i - 1].sessionId < proj.rows[i].sessionId);
+    }
+  }
+  const dup = remote.projectBoundedCatalogue([
+    makeProjRow(1, { name: "first" }),
+    makeProjRow(1, { name: "second" }),
+    makeProjRow(2, { name: "two" })
+  ]);
+  assert.equal(dup.rows.length, 2);
+  assert.equal(dup.truncatedRows, 0);
+});
+
+test("R11 inc-4 planCatalogueUpdate: all 10 transition cases", () => {
+  assert.equal(typeof remote.planCatalogueUpdate, "function");
+
+  // 1. Nothing delivered -> snapshot
+  const p5 = remote.projectBoundedCatalogue(Array.from({ length: 5 }, (_, i) => makeProjRow(i)));
+  assert.deepEqual(remote.planCatalogueUpdate(null, p5), { kind: "snapshot" });
+
+  // 2. 100 rows: 1 added, 1 removed, 1 modified -> delta with sorted removes & upserts
+  const rows100 = Array.from({ length: 100 }, (_, i) => makeProjRow((i + 1) * 2));
+  const del100 = remote.projectBoundedCatalogue(rows100);
+  const next100 = [
+    ...rows100.slice(1).map((r) => (r.sessionId === makeProjRow(4).sessionId ? makeProjRow(4, { name: "modified-4" }) : r)),
+    makeProjRow(201) // added index 201
+  ];
+  const lat100 = remote.projectBoundedCatalogue(next100);
+  const plan100 = remote.planCatalogueUpdate(del100, lat100);
+  assert.equal(plan100.kind, "delta");
+  assert.deepEqual(plan100.removes, [makeProjRow(2).sessionId]);
+  assert.deepEqual(
+    plan100.upserts.map((r) => r.sessionId),
+    [makeProjRow(4).sessionId, makeProjRow(201).sessionId]
+  );
+
+  // 3. Instance status only modified on 2 rows -> delta of 2 full rows
+  const nextStatus = rows100.map((r, idx) =>
+    idx < 2 ? { ...r, instanceStatus: "revoked" } : r
+  );
+  const planStatus = remote.planCatalogueUpdate(del100, remote.projectBoundedCatalogue(nextStatus));
+  assert.equal(planStatus.kind, "delta");
+  assert.deepEqual(planStatus.removes, []);
+  assert.equal(planStatus.upserts.length, 2);
+  assert.equal(planStatus.upserts[0].instanceStatus, "revoked");
+  assert.equal(planStatus.upserts[0].host, "claude");
+
+  // 4. No change -> none
+  assert.deepEqual(
+    remote.planCatalogueUpdate(del100, remote.projectBoundedCatalogue([...rows100])),
+    { kind: "none" }
+  );
+
+  // 5..9: 513/514 boundary cases
+  const base513 = Array.from({ length: 513 }, (_, i) => makeProjRow((i + 1) * 10));
+  const del513 = remote.projectBoundedCatalogue(base513); // truncatedRows = 1
+  assert.equal(del513.truncatedRows, 1);
+
+  // 5. Insert before frontier -> truncatedRows 1 -> 2 -> snapshot
+  const insBefore = remote.projectBoundedCatalogue([makeProjRow(5), ...base513]);
+  assert.equal(insBefore.truncatedRows, 2);
+  assert.deepEqual(remote.planCatalogueUpdate(del513, insBefore), { kind: "snapshot" });
+
+  // 6. Remove a visible row from 513 -> truncatedRows 1 -> 0 -> snapshot
+  const remVis513 = remote.projectBoundedCatalogue(base513.slice(1));
+  assert.equal(remVis513.truncatedRows, 0);
+  assert.deepEqual(remote.planCatalogueUpdate(del513, remVis513), { kind: "snapshot" });
+
+  // 7. Add after the 513th -> truncatedRows 1 -> 2, visible rows identical -> snapshot
+  const addOmitted = remote.projectBoundedCatalogue([...base513, makeProjRow(99999)]);
+  assert.equal(addOmitted.truncatedRows, 2);
+  assert.deepEqual(remote.planCatalogueUpdate(del513, addOmitted), { kind: "snapshot" });
+
+  // 8. 514 rows: remove 1 visible + add 1 omitted -> truncatedRows stays 2, visible sid set changes -> snapshot
+  const base514 = [...base513, makeProjRow(90000)];
+  const del514 = remote.projectBoundedCatalogue(base514);
+  assert.equal(del514.truncatedRows, 2);
+  const shifted514 = [...base514.slice(1), makeProjRow(99999)];
+  const lat514 = remote.projectBoundedCatalogue(shifted514);
+  assert.equal(lat514.truncatedRows, 2);
+  assert.deepEqual(remote.planCatalogueUpdate(del514, lat514), { kind: "snapshot" });
+
+  // 9. 513 rows: modify 1 visible row without changing sid set -> delta
+  const modVis513 = base513.map((r, i) => (i === 0 ? { ...r, name: "updated-0" } : r));
+  const planMod513 = remote.planCatalogueUpdate(del513, remote.projectBoundedCatalogue(modVis513));
+  assert.equal(planMod513.kind, "delta");
+  assert.equal(planMod513.upserts.length, 1);
+  assert.equal(planMod513.removes.length, 0);
+
+  // 10. 17 changes below cap -> delta of 17 entries (no splitting at 16)
+  const base50 = Array.from({ length: 50 }, (_, i) => makeProjRow(i));
+  const del50 = remote.projectBoundedCatalogue(base50);
+  const mod50 = base50.map((r, i) => (i < 17 ? { ...r, name: `chg-${i}` } : r));
+  const plan17 = remote.planCatalogueUpdate(del50, remote.projectBoundedCatalogue(mod50));
+  assert.equal(plan17.kind, "delta");
+  assert.equal(plan17.upserts.length, 17);
+});

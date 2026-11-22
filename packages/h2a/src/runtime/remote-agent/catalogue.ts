@@ -11,6 +11,7 @@
 import { H2A_WORK_STATUSES, type H2ALaunchContext, type H2ASession } from "../../session.js";
 import { sanitizePresenceForMirror } from "../mirror/sanitize.js";
 import { classifyLaunchHost } from "./fleet-inventory.js";
+import type { CatalogueProjection } from "./catalogue-plan.js";
 import {
   isCanonicalCatalogueSid,
   nativeCatalogueSid,
@@ -389,6 +390,26 @@ function canonicalUtf8Bytes(value: unknown): number {
 
 function compareBinaryString(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Sort rows in ascending ASCII order of `sessionId`, deduplicate by `sessionId`,
+ * retain at most `CATALOGUE_MAX_ROWS` (512) rows, and count omitted rows in `truncatedRows`.
+ */
+export function projectBoundedCatalogue(rows: readonly CatalogueSessionRow[]): CatalogueProjection {
+  const sorted = [...rows].sort((a, b) => compareBinaryString(a.sessionId, b.sessionId));
+  const deduped: CatalogueSessionRow[] = [];
+  const seen = new Set<string>();
+  for (const row of sorted) {
+    if (seen.has(row.sessionId)) continue;
+    seen.add(row.sessionId);
+    deduped.push(row);
+  }
+  const bounded = deduped.slice(0, CATALOGUE_MAX_ROWS);
+  return {
+    rows: bounded,
+    truncatedRows: deduped.length - bounded.length
+  };
 }
 
 /**

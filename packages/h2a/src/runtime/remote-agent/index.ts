@@ -66,6 +66,7 @@ export {
 export {
   projectCatalogueRow,
   projectJoinedCatalogueRow,
+  projectBoundedCatalogue,
   buildCatalogueSnapshot,
   buildBoundedCatalogueSnapshot,
   stripCatalogueLabel,
@@ -85,6 +86,12 @@ export {
   presenceCatalogueSid,
   type ProjectJoinedRowInput
 } from "./catalogue.js";
+export {
+  catalogueRowsEqual,
+  planCatalogueUpdate,
+  type CatalogueProjection,
+  type CataloguePlan
+} from "./catalogue-plan.js";
 export {
   resolveExclusionsDir,
   resolveExclusionsFilePath,
