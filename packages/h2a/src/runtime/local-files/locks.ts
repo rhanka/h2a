@@ -50,9 +50,46 @@ export interface LockObservation {
 }
 
 const lockObserver = new AsyncLocalStorage<(event: LockObservation) => void>();
+const preacquiredAdvisoryLocks = new AsyncLocalStorage<ReadonlySet<string>>();
 /** Scope worker progress to this resolution, including possession's registry wait. */
 export function observeLocks<T>(observe: (event: LockObservation) => void, fn: () => T): T {
   return lockObserver.run(observe, fn);
+}
+
+/**
+ * Pre-acquire one or more advisory locks asynchronously (using `setTimeout`,
+ * zero `Atomics.wait`) in the exact canonical order given, so nested sync
+ * `withLockSync` calls in `fn` bypass blocking waits.
+ */
+export async function withLocksAsync<T>(
+  lockPaths: readonly string[],
+  fn: () => T | Promise<T>,
+  options: WithLockOptions = {}
+): Promise<T> {
+  const existing = preacquiredAdvisoryLocks.getStore();
+  const toAcquire: string[] = [];
+  const seen = new Set<string>(existing ?? []);
+  for (const p of lockPaths) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      toAcquire.push(p);
+    }
+  }
+  if (toAcquire.length === 0) {
+    return await fn();
+  }
+  const acquireNext = (idx: number, held: Set<string>): Promise<T> => {
+    if (idx >= toAcquire.length) {
+      return Promise.resolve(preacquiredAdvisoryLocks.run(held, fn));
+    }
+    const nextPath = toAcquire[idx]!;
+    return withLock(nextPath, () => {
+      const nextHeld = new Set(held);
+      nextHeld.add(nextPath);
+      return acquireNext(idx + 1, nextHeld);
+    }, options);
+  };
+  return acquireNext(0, new Set(existing ?? []));
 }
 
 export function logicalLockId(lockPath: string): string {
@@ -389,6 +426,9 @@ export async function withLock<T>(
   fn: () => T | Promise<T>,
   options: WithLockOptions = {}
 ): Promise<T> {
+  if (preacquiredAdvisoryLocks.getStore()?.has(lockPath)) {
+    return await fn();
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const selfHostname = hostname();
@@ -440,6 +480,9 @@ export function withLockSync<T>(
   fn: () => T,
   options: WithLockOptions = {}
 ): T {
+  if (preacquiredAdvisoryLocks.getStore()?.has(lockPath)) {
+    return fn();
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const selfHostname = hostname();

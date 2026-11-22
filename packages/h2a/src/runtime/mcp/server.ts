@@ -40,7 +40,9 @@ import {
   handleOpenNegotiation,
   handleRegisterInstance,
   handleSessionClose,
+  handleSessionCloseAsync,
   handleSessionOpen,
+  handleSessionOpenAsync,
   handleSign,
   handleStabilize,
   type McpErrorResult,
@@ -70,9 +72,11 @@ import {
   createH2aRunLauncher,
   handleH2aRun,
   recordMcpRunDelegation,
+  recordMcpRunDelegationAsync,
   type H2aRunDelegation,
   type H2aRunExecutor
 } from "./agent-launch.js";
+import { withoutLockOwnership } from "../handover/mutation.js";
 import { handleH2aFocusBuild, handleH2aFocusCheck, handleH2aFocusTemplate } from "./focus.js";
 import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
 import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
@@ -384,10 +388,30 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
 
   const executor = options.runExecutor ?? executeH2aRun;
   const launch = createH2aRunLauncher(options.participant
-    ? request => options.participant!.executeLaunch(request, executor) : executor, 49_000, (request, result) =>
+    ? request => options.participant!.executeLaunchAsync(request, executor) : executor, 49_000, (request, result) =>
     options.participant
-      ? options.participant.completeLaunch(request, result, (eventId: string) => recordMcpRunDelegation(store.paths.root, result, request.delegation, eventId))
+      ? options.participant.completeLaunchAsync(request, result, (eventId: string) => recordMcpRunDelegationAsync(store.paths.root, result, request.delegation, eventId))
       : recordMcpRunDelegation(store.paths.root, result, request.delegation));
+
+  const CENTRAL_SYNC_MUTATING_TOOLS = new Set<string>([
+    "h2a_register_instance",
+    "h2a_nhi_offboard",
+    "h2a_open_negotiation",
+    "h2a_append_journal",
+    "h2a_offer",
+    "h2a_counteroffer",
+    "h2a_sign",
+    "h2a_stabilize",
+    "h2a_attest_comprehension",
+    "h2a_declare_conflit_interet",
+    "h2a_escalate",
+    "h2a_drive_consent_request",
+    "h2a_drive_consent_respond",
+    "h2a_drive_consent_cosign",
+    "h2a_drive_consent_revoke",
+    "h2a_blockage_raise",
+    "h2a_blockage_resolve"
+  ]);
 
   function callToolUnfenced(
     name: string,
@@ -551,9 +575,46 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     }
   }
 
+  function isCentralSyncMutator(name: string, args: Record<string, unknown> | undefined): boolean {
+    if (CENTRAL_SYNC_MUTATING_TOOLS.has(name)) return true;
+    if (name === "h2a_inbox") {
+      return args?.action === "put" || args?.action === "pop";
+    }
+    if (name === "h2a_send") {
+      const effectiveBackend = args?.backend ?? options.messageBackend;
+      return effectiveBackend !== "cluster-mesh";
+    }
+    return false;
+  }
+
   function callTool(name: string, args: Record<string, unknown> | undefined, context?: McpCallContext): ReturnType<McpServer['callTool']> {
     if (!options.participant || name === 'h2a_identity_status') return callToolUnfenced(name, args, context);
-    return options.participant.call(() => callToolUnfenced(name, args, context));
+    return options.participant.callAsync(async () => {
+      if (IDENTITY_INDEPENDENT_TOOLS.has(name) || TRACK_READ_TOOL_NAMES.has(name) ||
+          (name === "h2a_inbox" && args?.action === "read")) options.identity?.retry();
+      const guard = guardIdentity(name, args);
+      if (guard) return guard;
+      if (name === "h2a_session_open") {
+        return withoutLockOwnership(async () => {
+          const opened = await handleSessionOpenAsync(sessions, args as never);
+          return {
+            ...opened,
+            ...((options.operatorNotices?.().length ?? 0) ? { operator_notices: options.operatorNotices!() } : {})
+          };
+        });
+      }
+      if (name === "h2a_session_close") {
+        return withoutLockOwnership(() => handleSessionCloseAsync(sessions, args as never));
+      }
+      if (store.acquireMutationLocksForToolAsync && isCentralSyncMutator(name, args)) {
+        return store.acquireMutationLocksForToolAsync(
+          name,
+          args,
+          () => callToolUnfenced(name, args, context) as McpToolResult | McpErrorResult | McpTransportResult
+        );
+      }
+      return callToolUnfenced(name, args, context);
+    });
   }
 
   return {

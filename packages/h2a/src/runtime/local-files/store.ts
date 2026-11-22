@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { withWriterMutation } from "../handover/mutation.js";
+import {
+  MutationLockUnavailableError,
+  mutationLockAsync,
+  withWriterMutation,
+  withWriterMutationAsync,
+  writerDirectory
+} from "../handover/mutation.js";
 import {
   appendFileSync,
   createReadStream,
@@ -51,7 +57,7 @@ import { MCP_IDENTITY_TIMEOUT_MS } from '../mcp/identity-state.js';
 
 import { consentPairId, isConsentId, projectConsent, verified, evidence, instant, DRIVE_CONSENT_LIMIT, type ConsentProjection, type ConsentDecision } from '../drive/consent.js';
 import { authorizeDrive, type H2ADriveAuthorizeResult, type H2ADriveInstructionPayload } from '../drive/index.js';
-import { withLockSync, type LockObservation } from "./locks.js";
+import { withLocksAsync, withLockSync, type LockObservation } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
 import { getActiveMcpTrace } from "../mcp/phase-trace.js";
 import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "./launch-index.js";
@@ -123,6 +129,11 @@ export interface CreateLocalStoreOptions {
    * Read paths are unaffected. Default `false`.
    */
   readOnly?: boolean;
+  /**
+   * L2: cap for synchronous advisory-lock waits on the central event loop
+   * (default undefined for CLI; 25 ms on the central sharedStore).
+   */
+  centralEventLoopMaxSyncWaitMs?: number;
 }
 
 /** L2: a mutator refused because the store was opened read-only. */
@@ -255,6 +266,16 @@ export interface LocalStore {
   readSubagentAuditOf(parentInstance: string): H2ASubagentAuditEvent[];
   subagentStatus(subagentId: string): H2ASubagentStatus;
   revokeSubagent(subagentId: string, reason?: string): void;
+  /**
+   * L2: pre-acquire `.mutation.lock` and target `locks.ts` advisory locks
+   * asynchronously in canonical order around a synchronous local tool handler.
+   */
+  acquireMutationLocksForToolAsync?<T>(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+    fn: () => T,
+    options?: { timeoutMs?: number }
+  ): Promise<T>;
 }
 
 function ensureDir(path: string): void {
@@ -432,6 +453,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
+  const centralEventLoopMaxSyncWaitMs = options.centralEventLoopMaxSyncWaitMs;
   const lockMode = resolveLockMode(options.lockMode);
   const leaseMs = options.leaseMs ?? envLeaseMs() ?? 30000;
   const lockOpts =
@@ -464,17 +486,129 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     fn: () => T,
     opts: typeof lockOpts
   ): T {
+    const effectiveOpts =
+      centralEventLoopMaxSyncWaitMs !== undefined
+        ? {
+            ...opts,
+            timeoutMs: Math.min(opts.timeoutMs, centralEventLoopMaxSyncWaitMs),
+            pollMs: Math.min(10, centralEventLoopMaxSyncWaitMs)
+          }
+        : opts;
     if (lockMode === "lease") {
-      return withLeaseSync(lockPath, fn, opts);
+      return withLeaseSync(lockPath, fn, effectiveOpts);
     }
     const observe = lockObserver();
-    return withLockSync(lockPath, fn, observe ? { ...opts, observe } : opts);
+    return withLockSync(lockPath, fn, observe ? { ...effectiveOpts, observe } : effectiveOpts);
   }
 
   const registryLock = join(paths.registry, ".lock");
   const negotiationLock = (id: string): string => join(negotiationDir(paths, id), ".lock");
   const inboxLock = (actor: string): string => join(inboxDir(paths, actor), ".lock");
   const outboxLock = (actor: string): string => join(outboxDir(paths, actor), ".lock");
+
+  function resolveToolMutationLocks(
+    toolName: string,
+    args: Record<string, unknown> | undefined
+  ): { domain: string; lockPaths: string[] } {
+    const str = (v: unknown): string | undefined =>
+      typeof v === "string" && v.length > 0 ? v : undefined;
+    switch (toolName) {
+      case "h2a_register_instance":
+      case "h2a_nhi_offboard":
+        return { domain: "registry", lockPaths: [registryLock] };
+      case "h2a_open_negotiation": {
+        const rec = args?.record as { id?: unknown } | undefined;
+        const id = str(rec?.id);
+        return { domain: "negotiations", lockPaths: id ? [negotiationLock(id)] : [] };
+      }
+      case "h2a_append_journal":
+      case "h2a_offer":
+      case "h2a_counteroffer":
+      case "h2a_sign":
+      case "h2a_stabilize":
+      case "h2a_attest_comprehension":
+      case "h2a_declare_conflit_interet":
+      case "h2a_escalate": {
+        const id = str(args?.negotiationId);
+        return { domain: "negotiations", lockPaths: id ? [negotiationLock(id)] : [] };
+      }
+      case "h2a_drive_consent_request":
+      case "h2a_drive_consent_respond":
+      case "h2a_drive_consent_cosign":
+      case "h2a_drive_consent_revoke": {
+        const lockPaths = [registryLock];
+        const from = str(args?.from);
+        const to = str(args?.to);
+        if (from && to) lockPaths.push(negotiationLock(consentPairId(from, to)));
+        return { domain: "consent", lockPaths };
+      }
+      case "h2a_inbox": {
+        const action = str(args?.action);
+        if (action === "put" || action === "pop") {
+          const inst = str(args?.instance);
+          return { domain: "inbox", lockPaths: inst ? [inboxLock(inst)] : [] };
+        }
+        return { domain: "inbox", lockPaths: [] };
+      }
+      case "h2a_send": {
+        const to = str(args?.to);
+        return { domain: "inbox", lockPaths: to ? [inboxLock(to)] : [] };
+      }
+      case "h2a_blockage_raise":
+      case "h2a_blockage_resolve":
+        return { domain: "blockage", lockPaths: [] };
+      default:
+        return { domain: "store", lockPaths: [] };
+    }
+  }
+
+  async function acquireMutationLocksForToolAsync<T>(
+    toolName: string,
+    args: Record<string, unknown> | undefined,
+    fn: () => T,
+    opts?: { timeoutMs?: number }
+  ): Promise<T> {
+    const timeoutMs = opts?.timeoutMs ?? lockTimeoutMs;
+    const { domain, lockPaths } = resolveToolMutationLocks(toolName, args);
+    if (lockPaths.length === 0 || lockMode === "lease") {
+      return withWriterMutationAsync(paths.root, domain, fn, { timeoutMs });
+    }
+    if (!readOnly) {
+      for (const lp of lockPaths) {
+        ensureDir(dirname(lp));
+      }
+    }
+    const deadline = performance.now() + timeoutMs;
+    const observe = lockObserver();
+    while (true) {
+      const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
+      const attempt = await withLocksAsync(
+        lockPaths,
+        async () => {
+          try {
+            const value = await withWriterMutationAsync(paths.root, domain, fn, { nonBlocking: true });
+            return { ok: true as const, value };
+          } catch (error) {
+            if (error instanceof MutationLockUnavailableError || (error as { code?: string })?.code === "mutation_lock_unavailable") {
+              return { ok: false as const };
+            }
+            throw error;
+          }
+        },
+        observe ? { timeoutMs: remaining, observe } : { timeoutMs: remaining }
+      );
+      if (attempt.ok) return attempt.value;
+      const waitRemaining = deadline - performance.now();
+      if (waitRemaining <= 0) {
+        throw new MutationLockUnavailableError({ status: 1, signal: null });
+      }
+      const wdir = writerDirectory(paths.root);
+      if (existsSync(wdir)) {
+        // Sleep in the kernel on .mutation.lock without holding any locks.ts lock (zero AB-BA deadlock).
+        await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+      }
+    }
+  }
 
   // FIX-rroles: legacy registry rows exist on disk with `roles`/`scopes`
   // ABSENT (and, future-proof, possibly scalar). Normalize to arrays at the
@@ -2292,7 +2426,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     readSubagentAudit,
     readSubagentAuditOf,
     subagentStatus,
-    revokeSubagent
+    revokeSubagent,
+    acquireMutationLocksForToolAsync
   };
   store.registerInstance = (...args: Parameters<LocalStore['registerInstance']>) => {
     assertWritable('registerInstance');

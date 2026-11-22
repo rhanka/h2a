@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { digest, canonicalBytes } from './wire.js';
 import { validate, safeRelative } from './formats.js';
 import { privateDirectory, readState, publishState, replaceState } from './state.js';
-import { mutationLock, readWriterGate, currentExecution } from './mutation.js';
+import { mutationLock, mutationLockAsync, readWriterGate, currentExecution } from './mutation.js';
 
 export const MAX_RETAINED_TERMINAL_PER_FAMILY = 64;
 export const MAX_EFFECTS_PER_ACTIVE_ATTACHMENT = 256;
@@ -91,14 +91,29 @@ export class OwnershipRegistry {
 
     privateDirectory(this.directory);
     this.revisionPath = join(this.directory, 'participant-revision.json');
-    if (!this.readOnly) {
-      this.withLock(() => {
-        if (!readState(this.revisionPath, 'participantRevision')) {
-          publishState(this.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
+    if (!options.skipSyncInit) {
+      if (!this.readOnly) {
+        this.withLock(() => {
+          if (!readState(this.revisionPath, 'participantRevision')) {
+            publishState(this.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
+          }
+        });
+      }
+      this._hydrateControlFiles();
+    }
+  }
+
+  static async createAsync(options) {
+    const registry = new OwnershipRegistry({ ...options, skipSyncInit: true });
+    if (!registry.readOnly) {
+      await registry.withLockAsync(() => {
+        if (!readState(registry.revisionPath, 'participantRevision')) {
+          publishState(registry.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
         }
       });
     }
-    this._hydrateControlFiles();
+    registry._hydrateControlFiles();
+    return registry;
   }
 
   _hydrateControlFiles() {
@@ -281,7 +296,8 @@ export class OwnershipRegistry {
     return true;
   }
 
-  withLock(fn) {
+  /** @param {{ timeoutMs?: number, nonBlocking?: boolean, lockFile?: string, bothLocks?: boolean }} [options] */
+  withLock(fn, options) {
     return mutationLock(this.lockDirectory, () => {
       if (this.indeterminate) throw new Error('reconciliation_required');
       try { return fn(); }
@@ -291,7 +307,21 @@ export class OwnershipRegistry {
         }
         throw error;
       }
-    });
+    }, options);
+  }
+
+  /** @param {{ timeoutMs?: number, nonBlocking?: boolean, lockFile?: string, bothLocks?: boolean }} [options] */
+  async withLockAsync(fn, options) {
+    return mutationLockAsync(this.lockDirectory, () => {
+      if (this.indeterminate) throw new Error('reconciliation_required');
+      try { return fn(); }
+      catch (error) {
+        if (error?.message?.startsWith('persistence_indeterminate')) {
+          this.indeterminate = true; this.onIndeterminate?.();
+        }
+        throw error;
+      }
+    }, options);
   }
 
   reconcile() {
@@ -345,16 +375,22 @@ export class OwnershipRegistry {
     return [...this.ownersById.values()];
   }
 
+  _claimLocked(input) {
+    if (readState(this.ownerPath(input.attachmentId), 'ownership')) throw new Error('ownership_exists');
+    const value = { schemaVersion: 1, ...input, ownerGeneration: this.generation, ownershipEpoch: 1,
+      ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
+    publishState(this.ownerPath(input.attachmentId), value, 'ownership');
+    this.recordOwner(value);
+    this.bump();
+    return this.token(value);
+  }
+
   claim(input) {
-    return this.withLock(() => {
-      if (readState(this.ownerPath(input.attachmentId), 'ownership')) throw new Error('ownership_exists');
-      const value = { schemaVersion: 1, ...input, ownerGeneration: this.generation, ownershipEpoch: 1,
-        ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
-      publishState(this.ownerPath(input.attachmentId), value, 'ownership');
-      this.recordOwner(value);
-      this.bump();
-      return this.token(value);
-    });
+    return this.withLock(() => this._claimLocked(input));
+  }
+
+  claimAsync(input, options) {
+    return this.withLockAsync(() => this._claimLocked(input), options);
   }
 
   token(value) {
@@ -362,17 +398,23 @@ export class OwnershipRegistry {
       ownershipEpoch: value.ownershipEpoch, ownerProcessIdentity: value.ownerProcessIdentity });
   }
 
+  _rebaselineLocked(input, proveEnded) {
+    const path = this.ownerPath(input.attachmentId), old = readState(path, 'ownership');
+    if (!old || old.value.ownerGeneration === this.generation || !proveEnded(old.value)) throw new Error('ownership_exists');
+    const value = { ...old.value, ...input, ownerGeneration: this.generation, ownershipEpoch: old.value.ownershipEpoch + 1,
+      ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
+    replaceState(path, value, 'ownership', old);
+    this.recordOwner(value);
+    this.bump();
+    return this.token(value);
+  }
+
   rebaseline(input, proveEnded) {
-    return this.withLock(() => {
-      const path = this.ownerPath(input.attachmentId), old = readState(path, 'ownership');
-      if (!old || old.value.ownerGeneration === this.generation || !proveEnded(old.value)) throw new Error('ownership_exists');
-      const value = { ...old.value, ...input, ownerGeneration: this.generation, ownershipEpoch: old.value.ownershipEpoch + 1,
-        ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
-      replaceState(path, value, 'ownership', old);
-      this.recordOwner(value);
-      this.bump();
-      return this.token(value);
-    });
+    return this.withLock(() => this._rebaselineLocked(input, proveEnded));
+  }
+
+  rebaselineAsync(input, proveEnded, options) {
+    return this.withLockAsync(() => this._rebaselineLocked(input, proveEnded), options);
   }
 
   assertOwner(token, states = ['ACTIVE']) {
@@ -403,7 +445,7 @@ export class OwnershipRegistry {
       replaceState(this.ownerPath(token.attachmentId), next, 'ownership', old);
       this.recordOwner(next);
       this.bump();
-    });
+    }, { bothLocks: true });
   }
 
   freeze(token, handoverId) {
@@ -418,7 +460,7 @@ export class OwnershipRegistry {
       this.recordOwner(next);
       this.bump();
       return next;
-    });
+    }, { bothLocks: true });
   }
 
   checkpoint(token, snapshot) {
@@ -456,17 +498,23 @@ export class OwnershipRegistry {
       replaceState(this.ownerPath(token.attachmentId), next, 'ownership', old);
       this.recordOwner(next);
       this.bump();
-    });
+    }, { bothLocks: true });
+  }
+
+  _closeLocked(token) {
+    const old = this.assertOwner(token, ['ACTIVE', 'FROZEN', 'TRANSFERRING']);
+    const next = { ...old.value, state: 'CLOSED' };
+    replaceState(this.ownerPath(token.attachmentId), next, 'ownership', old);
+    this.recordOwner(next);
+    this.bump();
   }
 
   close(token) {
-    return this.withLock(() => {
-      const old = this.assertOwner(token, ['ACTIVE', 'FROZEN', 'TRANSFERRING']);
-      const next = { ...old.value, state: 'CLOSED' };
-      replaceState(this.ownerPath(token.attachmentId), next, 'ownership', old);
-      this.recordOwner(next);
-      this.bump();
-    });
+    return this.withLock(() => this._closeLocked(token), { bothLocks: true });
+  }
+
+  closeAsync(token, options) {
+    return this.withLockAsync(() => this._closeLocked(token), { ...options, bothLocks: true });
   }
 
   fence(token, handoverId, checkpointHash) {
@@ -480,7 +528,7 @@ export class OwnershipRegistry {
       this.recordOwner(next);
       this.bump();
       return next;
-    });
+    }, { bothLocks: true });
   }
 }
 
@@ -865,25 +913,31 @@ export class OperationLedger {
     return [...this.activeById.values(), ...this.retainedCompleted.values()];
   }
 
-  begin(token, operationId, kind) {
-    return this.registry.withLock(() => {
-      this.registry.assertOwner(token);
-      const gate = readWriterGate(this.registry.lockDirectory);
-      const parent = currentExecution()?.operation;
-      if (gate && gate !== 'OPEN') {
-        if (!parent) throw new Error('store_admission_closed');
-        this.assertOperation(parent);
-      }
-      const filename = leaf('operation', operationId);
-      const path = join(this.directory, filename);
-      if (readState(path, 'admittedOperation')) throw new Error('operation_exists');
-      const value = { schemaVersion: 1, revision: 1, operationId, attachmentId: token.attachmentId,
-        ownerGeneration: token.ownerGeneration, executionOwner: token.ownerProcessIdentity, kind, state: 'pending', result: null };
-      publishState(path, value, 'admittedOperation');
-      this._recordOperationInMemory(filename, value, tryFileStamp(path));
-      this.registry.bump();
-      return value;
-    });
+  _beginLocked(token, operationId, kind) {
+    this.registry.assertOwner(token);
+    const gate = readWriterGate(this.registry.lockDirectory);
+    const parent = currentExecution()?.operation;
+    if (gate && gate !== 'OPEN') {
+      if (!parent) throw new Error('store_admission_closed');
+      this.assertOperation(parent);
+    }
+    const filename = leaf('operation', operationId);
+    const path = join(this.directory, filename);
+    if (readState(path, 'admittedOperation')) throw new Error('operation_exists');
+    const value = { schemaVersion: 1, revision: 1, operationId, attachmentId: token.attachmentId,
+      ownerGeneration: token.ownerGeneration, executionOwner: token.ownerProcessIdentity, kind, state: 'pending', result: null };
+    publishState(path, value, 'admittedOperation');
+    this._recordOperationInMemory(filename, value, tryFileStamp(path));
+    this.registry.bump();
+    return value;
+  }
+
+  begin(token, operationId, kind, options) {
+    return this.registry.withLock(() => this._beginLocked(token, operationId, kind), options);
+  }
+
+  beginAsync(token, operationId, kind, options) {
+    return this.registry.withLockAsync(() => this._beginLocked(token, operationId, kind), options);
   }
 
   assertOperation(operation) {
@@ -895,45 +949,51 @@ export class OperationLedger {
     return old;
   }
 
-  finish(operation, result, unknown = false) {
-    return this.registry.withLock(() => {
-      const opFilename = leaf('operation', operation.operationId);
-      const opPath = join(this.directory, opFilename);
-      const old = readState(opPath, 'admittedOperation');
-      if (!old) {
-        const archived = this.getOperation(operation.operationId);
-        if (archived && archived.state === 'completed' &&
-            archived.attachmentId === operation.attachmentId &&
-            digest(archived.executionOwner) === digest(operation.executionOwner)) {
-          if (digest(archived.result) !== digest(result)) throw new Error('operation_result_conflict');
-          return archived;
-        }
-        throw new Error('operation_fenced');
+  _finishLocked(operation, result, unknown = false) {
+    const opFilename = leaf('operation', operation.operationId);
+    const opPath = join(this.directory, opFilename);
+    const old = readState(opPath, 'admittedOperation');
+    if (!old) {
+      const archived = this.getOperation(operation.operationId);
+      if (archived && archived.state === 'completed' &&
+          archived.attachmentId === operation.attachmentId &&
+          digest(archived.executionOwner) === digest(operation.executionOwner)) {
+        if (digest(archived.result) !== digest(result)) throw new Error('operation_result_conflict');
+        return archived;
       }
-      if (digest(old.value.executionOwner) !== digest(operation.executionOwner) || old.value.attachmentId !== operation.attachmentId) {
-        throw new Error('operation_fenced');
-      }
-      if (old.value.state === 'completed') {
-        if (digest(old.value.result) !== digest(result)) throw new Error('operation_result_conflict');
-        return old.value;
-      }
-      // The event is durable before completion so a crash cannot lose an owner
-      // effect after its drain entry has disappeared. Delivery is reconciled.
-      const event = { schemaVersion: 1, operationId: operation.operationId, attachmentId: operation.attachmentId, destination: 'current-owner', result };
-      const effectName = leaf('effect', { operationId: operation.operationId, result });
-      const eventPath = join(this.directory, effectName);
-      const prior = readState(eventPath, 'ownerEffect');
-      if (prior && digest(prior.value) !== digest(event)) throw new Error('operation_result_conflict');
-      if (!prior && !this.archivedEffects.has(effectName)) {
-        publishState(eventPath, event, 'ownerEffect');
-        this._recordRootEffect(effectName, event, tryFileStamp(eventPath));
-      }
-      const next = { ...old.value, revision: old.value.revision + 1, state: unknown ? 'unknown' : 'completed', result };
-      replaceState(opPath, next, 'admittedOperation', old);
-      this._recordOperationInMemory(opFilename, next, tryFileStamp(opPath));
-      this.registry.bump();
-      return next;
-    });
+      throw new Error('operation_fenced');
+    }
+    if (digest(old.value.executionOwner) !== digest(operation.executionOwner) || old.value.attachmentId !== operation.attachmentId) {
+      throw new Error('operation_fenced');
+    }
+    if (old.value.state === 'completed') {
+      if (digest(old.value.result) !== digest(result)) throw new Error('operation_result_conflict');
+      return old.value;
+    }
+    // The event is durable before completion so a crash cannot lose an owner
+    // effect after its drain entry has disappeared. Delivery is reconciled.
+    const event = { schemaVersion: 1, operationId: operation.operationId, attachmentId: operation.attachmentId, destination: 'current-owner', result };
+    const effectName = leaf('effect', { operationId: operation.operationId, result });
+    const eventPath = join(this.directory, effectName);
+    const prior = readState(eventPath, 'ownerEffect');
+    if (prior && digest(prior.value) !== digest(event)) throw new Error('operation_result_conflict');
+    if (!prior && !this.archivedEffects.has(effectName)) {
+      publishState(eventPath, event, 'ownerEffect');
+      this._recordRootEffect(effectName, event, tryFileStamp(eventPath));
+    }
+    const next = { ...old.value, revision: old.value.revision + 1, state: unknown ? 'unknown' : 'completed', result };
+    replaceState(opPath, next, 'admittedOperation', old);
+    this._recordOperationInMemory(opFilename, next, tryFileStamp(opPath));
+    this.registry.bump();
+    return next;
+  }
+
+  finish(operation, result, unknown = false, options) {
+    return this.registry.withLock(() => this._finishLocked(operation, result, unknown), options);
+  }
+
+  finishAsync(operation, result, unknown = false, options) {
+    return this.registry.withLockAsync(() => this._finishLocked(operation, result, unknown), options);
   }
 
   operations() {
@@ -973,23 +1033,30 @@ export class OperationLedger {
     });
   }
 
+  _drainLocked(scope = undefined) {
+    this.registry.syncIfExternalChange();
+    const value = { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
+    if (!this.ledgerMigrationComplete) {
+      return { ...value, complete: false };
+    }
+    const keys = { call: 'calls', child: 'children', brief: 'briefs', callback: 'callbacks', wake: 'effects' };
+    for (const op of this.activeById.values()) {
+      if (scope && (op.ownerGeneration !== scope.generation || digest(op.executionOwner) !== digest(scope.processIdentity))) continue;
+      if (op.state === 'completed') continue;
+      value[keys[op.kind]]++;
+      if (op.state === 'unknown' && op.kind !== 'wake') value.effects++;
+    }
+    return { ...value, complete: Object.entries(value).every(([k, v]) => k === 'revision' || v === 0) };
+  }
+
   /** @param {{generation: string, processIdentity: object} | undefined} [scope] */
-  drain(scope = undefined) {
-    return this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
-      const value = { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
-      if (!this.ledgerMigrationComplete) {
-        return { ...value, complete: false };
-      }
-      const keys = { call: 'calls', child: 'children', brief: 'briefs', callback: 'callbacks', wake: 'effects' };
-      for (const op of this.activeById.values()) {
-        if (scope && (op.ownerGeneration !== scope.generation || digest(op.executionOwner) !== digest(scope.processIdentity))) continue;
-        if (op.state === 'completed') continue;
-        value[keys[op.kind]]++;
-        if (op.state === 'unknown' && op.kind !== 'wake') value.effects++;
-      }
-      return { ...value, complete: Object.entries(value).every(([k, v]) => k === 'revision' || v === 0) };
-    });
+  drain(scope = undefined, options) {
+    return this.registry.withLock(() => this._drainLocked(scope), options);
+  }
+
+  /** @param {{generation: string, processIdentity: object} | undefined} [scope] */
+  drainAsync(scope = undefined, options) {
+    return this.registry.withLockAsync(() => this._drainLocked(scope), options);
   }
 
   _readActiveTransactionContext() {
@@ -1279,6 +1346,116 @@ export class OperationLedger {
     return selected;
   }
 
+  _commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved) {
+    let movedCount = 0;
+    // 1. Sync external state once, revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
+    this.registry.syncIfExternalChange();
+    const { activeTx, writerGate } = this._readActiveTransactionContext();
+    const activeTxCheckpoints = new Set(activeTx?.checkpointReferences ?? []);
+    const activeTxSourceGen = activeTx?.source?.generation ?? null;
+    const referencedGenerations = new Set();
+    const referencedCheckpoints = new Set(activeTxCheckpoints);
+    for (const owner of this.registry.ownersById.values()) {
+      if (owner.state !== 'CLOSED') {
+        referencedGenerations.add(owner.ownerGeneration);
+        if (owner.checkpointHash) referencedCheckpoints.add(`checkpoint-${owner.checkpointHash.slice(7)}.json`);
+      }
+    }
+    const pendingAttachments = new Set();
+    for (const op of this.activeById.values()) {
+      if (op.state !== 'completed') pendingAttachments.add(op.attachmentId);
+    }
+
+    for (const cand of subLot) {
+      const srcPath = join(this.directory, cand.name);
+      let stat;
+      try {
+        stat = fs.lstatSync(srcPath, { bigint: true });
+      } catch (error) {
+        if (error.code === 'ENOENT') continue;
+        throw error;
+      }
+      if (stat.dev !== cand.dev || stat.ino !== cand.ino) {
+        // Concurrent replaceState or deletion — skip immediately (B-02).
+        continue;
+      }
+      if (cand.family === 'operations') {
+        if (cand.value.state === 'pending' || cand.value.state === 'unknown') continue;
+        if (this.activeById.has(cand.value.operationId)) continue;
+        if (cand.value.ownerGeneration !== this.registry.generation) {
+          if (activeTxSourceGen && cand.value.ownerGeneration === activeTxSourceGen) continue;
+        } else {
+          const owner = this.registry.ownersById.get(cand.value.attachmentId);
+          if (owner && (owner.state === 'FROZEN' || owner.state === 'TRANSFERRING')) continue;
+        }
+      } else if (cand.family === 'effects') {
+        if (this.activeById.has(cand.value.operationId)) continue;
+        const owner = this.registry.ownersById.get(cand.value.attachmentId);
+        if (owner && owner.state !== 'CLOSED') {
+          if (owner.state === 'FROZEN' || owner.state === 'TRANSFERRING') continue;
+          if (owner.ownerGeneration === this.registry.generation && owner.state === 'ACTIVE') {
+            if (writerGate === 'BARRIER') continue;
+            if (cand.value.result?.type === 'launch-delegation') continue;
+          }
+        }
+      } else if (cand.family === 'generationEnds') {
+        if (referencedGenerations.has(cand.value.generation)) continue;
+      } else if (cand.family === 'ownerships') {
+        if (cand.value.state !== 'CLOSED' || pendingAttachments.has(cand.value.attachmentId)) continue;
+      } else if (cand.family === 'checkpoints') {
+        if (referencedCheckpoints.has(cand.name)) continue;
+      } else if (cand.family === 'launches' && cand.schema === 'launchMemo') {
+        if (cand.value.state !== 'completed') continue;
+      } else if (cand.family === 'wakes') {
+        if (cand.value.state === 'intent' || cand.value.state === 'unknown') continue;
+      }
+
+      const dstPath = join(batchPath, cand.name);
+      fs.renameSync(srcPath, dstPath);
+      movedCount++;
+      if (cand.family === 'generationEnds') {
+        moved.generationEnds.push(cand.value.generation);
+        this.archivedGenerationEnds.set(cand.value.generation, batchName);
+      } else {
+        moved[cand.family].push(cand.name);
+        if (cand.family === 'operations') this.archivedOperations.set(cand.name, batchName);
+        else if (cand.family === 'effects') this.archivedEffects.set(cand.name, batchName);
+      }
+      this.registry._evictRootFile(cand.name);
+    }
+
+    if (movedCount === 0) return;
+
+    // 2. fsyncSync(batchDirFd) then fsyncSync(stateDirFd)
+    fsyncDirectory(batchPath);
+    fsyncDirectory(this.directory);
+
+    // 3. Append canonical manifest line + fsyncSync(manifestFd)
+    const record = {
+      archivedAt: new Date().toISOString(),
+      reason,
+      generation: this.registry.generation,
+      batchDir: batchName,
+      ...moved
+    };
+    const line = Buffer.concat([canonicalBytes(record), Buffer.from('\n')]);
+    const mfd = fs.openSync(this.manifestPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
+    try {
+      fs.writeFileSync(mfd, line);
+      fs.fsyncSync(mfd);
+    } finally {
+      fs.closeSync(mfd);
+    }
+    const mStat = fs.lstatSync(this.manifestPath, { bigint: true });
+    this.manifestReadOffset = Number(mStat.size);
+    this.manifestDev = mStat.dev;
+    this.manifestIno = mStat.ino;
+    this.lastManifestStamp = statStamp(mStat);
+
+    // 4. Bump participant-revision.json
+    this.registry.bump();
+  }
+
   _commitArchiveSubLot(subLot, reason, batchName) {
     const moved = {
       operations: [],
@@ -1295,116 +1472,32 @@ export class OperationLedger {
     const batchPath = join(this.archiveDirectory, batchName);
     fs.mkdirSync(batchPath, { recursive: true, mode: 0o700 });
 
-    let movedCount = 0;
-    this.registry.withLock(() => {
-      // 1. Sync external state once, revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
-      this.registry.syncIfExternalChange();
-      const { activeTx, writerGate } = this._readActiveTransactionContext();
-      const activeTxCheckpoints = new Set(activeTx?.checkpointReferences ?? []);
-      const activeTxSourceGen = activeTx?.source?.generation ?? null;
-      const referencedGenerations = new Set();
-      const referencedCheckpoints = new Set(activeTxCheckpoints);
-      for (const owner of this.registry.ownersById.values()) {
-        if (owner.state !== 'CLOSED') {
-          referencedGenerations.add(owner.ownerGeneration);
-          if (owner.checkpointHash) referencedCheckpoints.add(`checkpoint-${owner.checkpointHash.slice(7)}.json`);
-        }
-      }
-      const pendingAttachments = new Set();
-      for (const op of this.activeById.values()) {
-        if (op.state !== 'completed') pendingAttachments.add(op.attachmentId);
-      }
+    this.registry.withLock(() => this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved));
+    return moved;
+  }
 
-      for (const cand of subLot) {
-        const srcPath = join(this.directory, cand.name);
-        let stat;
-        try {
-          stat = fs.lstatSync(srcPath, { bigint: true });
-        } catch (error) {
-          if (error.code === 'ENOENT') continue;
-          throw error;
-        }
-        if (stat.dev !== cand.dev || stat.ino !== cand.ino) {
-          // Concurrent replaceState or deletion — skip immediately (B-02).
-          continue;
-        }
-        if (cand.family === 'operations') {
-          if (cand.value.state === 'pending' || cand.value.state === 'unknown') continue;
-          if (this.activeById.has(cand.value.operationId)) continue;
-          if (cand.value.ownerGeneration !== this.registry.generation) {
-            if (activeTxSourceGen && cand.value.ownerGeneration === activeTxSourceGen) continue;
-          } else {
-            const owner = this.registry.ownersById.get(cand.value.attachmentId);
-            if (owner && (owner.state === 'FROZEN' || owner.state === 'TRANSFERRING')) continue;
-          }
-        } else if (cand.family === 'effects') {
-          if (this.activeById.has(cand.value.operationId)) continue;
-          const owner = this.registry.ownersById.get(cand.value.attachmentId);
-          if (owner && owner.state !== 'CLOSED') {
-            if (owner.state === 'FROZEN' || owner.state === 'TRANSFERRING') continue;
-            if (owner.ownerGeneration === this.registry.generation && owner.state === 'ACTIVE') {
-              if (writerGate === 'BARRIER') continue;
-              if (cand.value.result?.type === 'launch-delegation') continue;
-            }
-          }
-        } else if (cand.family === 'generationEnds') {
-          if (referencedGenerations.has(cand.value.generation)) continue;
-        } else if (cand.family === 'ownerships') {
-          if (cand.value.state !== 'CLOSED' || pendingAttachments.has(cand.value.attachmentId)) continue;
-        } else if (cand.family === 'checkpoints') {
-          if (referencedCheckpoints.has(cand.name)) continue;
-        } else if (cand.family === 'launches' && cand.schema === 'launchMemo') {
-          if (cand.value.state !== 'completed') continue;
-        } else if (cand.family === 'wakes') {
-          if (cand.value.state === 'intent' || cand.value.state === 'unknown') continue;
-        }
+  async _commitArchiveSubLotAsync(subLot, reason, batchName, options) {
+    const moved = {
+      operations: [],
+      effects: [],
+      generationEnds: [],
+      ownerships: [],
+      launches: [],
+      wakes: [],
+      checkpoints: []
+    };
+    if (subLot.length === 0) return moved;
 
-        const dstPath = join(batchPath, cand.name);
-        fs.renameSync(srcPath, dstPath);
-        movedCount++;
-        if (cand.family === 'generationEnds') {
-          moved.generationEnds.push(cand.value.generation);
-          this.archivedGenerationEnds.set(cand.value.generation, batchName);
-        } else {
-          moved[cand.family].push(cand.name);
-          if (cand.family === 'operations') this.archivedOperations.set(cand.name, batchName);
-          else if (cand.family === 'effects') this.archivedEffects.set(cand.name, batchName);
-        }
-        this.registry._evictRootFile(cand.name);
-      }
+    fs.mkdirSync(this.archiveDirectory, { recursive: true, mode: 0o700 });
+    const batchPath = join(this.archiveDirectory, batchName);
+    fs.mkdirSync(batchPath, { recursive: true, mode: 0o700 });
 
-      if (movedCount === 0) return;
-
-      // 2. fsyncSync(batchDirFd) then fsyncSync(stateDirFd)
-      fsyncDirectory(batchPath);
-      fsyncDirectory(this.directory);
-
-      // 3. Append canonical manifest line + fsyncSync(manifestFd)
-      const record = {
-        archivedAt: new Date().toISOString(),
-        reason,
-        generation: this.registry.generation,
-        batchDir: batchName,
-        ...moved
-      };
-      const line = Buffer.concat([canonicalBytes(record), Buffer.from('\n')]);
-      const mfd = fs.openSync(this.manifestPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
-      try {
-        fs.writeFileSync(mfd, line);
-        fs.fsyncSync(mfd);
-      } finally {
-        fs.closeSync(mfd);
-      }
-      const mStat = fs.lstatSync(this.manifestPath, { bigint: true });
-      this.manifestReadOffset = Number(mStat.size);
-      this.manifestDev = mStat.dev;
-      this.manifestIno = mStat.ino;
-      this.lastManifestStamp = statStamp(mStat);
-
-      // 4. Bump participant-revision.json
-      this.registry.bump();
-    });
-
+    const run = () => this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved);
+    if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
+      await this.registry.withLock(run, options);
+    } else {
+      await this.registry.withLockAsync(run, options);
+    }
     return moved;
   }
 
@@ -1469,7 +1562,7 @@ export class OperationLedger {
       }
     };
 
-    const step = () => {
+    const step = async () => {
       this._migrationTimer = null;
       this._migrationTimerKind = null;
       if (this._migrationStopped) return;
@@ -1524,11 +1617,12 @@ export class OperationLedger {
           return;
         }
 
-        // Phase 2: commit archive sub-lots of <= 32 files under lock, yielding with a 1 ms timer so
+        // Phase 2: commit archive sub-lots of <= 32 files under async lock, yielding with a 1 ms timer so
         // foreground HTTP I/O (ping/initialize) and writer lock acquisitions never starve behind migration.
         if (commitIndex < archiveQueue.length) {
           const subLot = archiveQueue.slice(commitIndex, commitIndex + MIGRATION_COMMIT_BATCH_SIZE);
-          this._commitArchiveSubLot(subLot, 'startup-migration', batchName);
+          await this._commitArchiveSubLotAsync(subLot, 'startup-migration', batchName);
+          if (this._migrationStopped) return;
           commitIndex += subLot.length;
           transientRetries = 0;
           scheduleNext(1);

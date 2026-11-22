@@ -1,4 +1,4 @@
-import { withWriterMutation } from "../handover/mutation.js";
+import { withWriterMutation, withWriterMutationAsync } from "../handover/mutation.js";
 /**
  * Durable recovery store for oversize MCP outputs (lot L1).
  *
@@ -28,6 +28,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  promises as fsPromises,
   readFileSync,
   readSync,
   readdirSync,
@@ -100,6 +101,8 @@ export interface PayloadStore {
   readonly scope: string;
   /** Persist output bytes and return the recovery ref, or throw PayloadStoreError. */
   persistOutput(bytes: Buffer): PayloadRecoveryRef;
+  /** L2: non-blocking async persistence with incremental quota counter and sliced sweep. */
+  persistOutputAsync(bytes: Buffer): Promise<PayloadRecoveryRef>;
   /** Read a budget-sized chunk of a ref, or a typed read error. */
   readPayload(
     ref: string,
@@ -108,6 +111,8 @@ export interface PayloadStore {
   ): PayloadReadChunk | { error: PayloadReadError };
   /** Remove ONLY expired refs (dedicated maintenance; never touches live data). */
   sweepExpired(now?: number): number;
+  /** L2: sliced non-blocking async sweep (<= 8 ms per event-loop slice). */
+  sweepExpiredAsync(now?: number, maxSliceMs?: number): Promise<number>;
 }
 
 function binPath(dir: string, ref: string): string {
@@ -197,6 +202,117 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
   // authority is cached, and a restart simply performs a cold scan.
   const liveExpiries = new Map<string, CachedExpiry>();
   let sweepGen = 0;
+  let cachedUsedBytes: number | undefined;
+  let cachedWatermark: bigint | undefined;
+  let sweepInFlight: Promise<number> | undefined;
+
+  function yieldSlice(): Promise<void> {
+    return new Promise((resolveYield) => {
+      const timer = setTimeout(resolveYield, 1);
+      timer.unref?.();
+    });
+  }
+
+  async function dirBytesAsync(maxSliceMs = 4): Promise<number> {
+    let entries: string[];
+    try {
+      entries = await fsPromises.readdir(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0;
+      throw err;
+    }
+    let total = 0;
+    let sliceStart = performance.now();
+    for (let i = 0; i < entries.length; i++) {
+      const info = statSync(prefix + entries[i]!, { throwIfNoEntry: false });
+      if (info) total += info.size;
+      if ((i & 31) === 31 && performance.now() - sliceStart >= maxSliceMs) {
+        await yieldSlice();
+        sliceStart = performance.now();
+      }
+    }
+    return total;
+  }
+
+  async function scanExpiredAsync(now: number, maxSliceMs = 4): Promise<{ exists: boolean; candidates: ExpiredCandidate[] }> {
+    let entries: string[];
+    try {
+      entries = await fsPromises.readdir(dir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false, candidates: [] };
+      throw err;
+    }
+    const candidates: ExpiredCandidate[] = [];
+    const gen = ++sweepGen;
+    let sliceStart = performance.now();
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      if (entry.length === 69 && entry.charCodeAt(64) === 46 && entry.endsWith(".json")) {
+        const ref = entry.slice(0, 64);
+        const cached = liveExpiries.get(ref);
+        if (cached || REF_RE.test(ref)) {
+          try {
+            const path = prefix + entry;
+            const stamp = statFileStamp(path);
+            if (stamp) {
+              if (cached && sameStamp(cached, stamp) && cached.expiresAt > now) {
+                cached.gen = gen;
+              } else {
+                const meta = JSON.parse(readFileSync(path, "utf8")) as PayloadMeta;
+                const after = statFileStamp(path);
+                if (after && sameStamp(stamp, after)) {
+                  const expiresAt = Date.parse(meta.expiresAt);
+                  if (expiresAt <= now) {
+                    candidates.push({ ref, path, stamp });
+                  } else if (Number.isFinite(expiresAt)) {
+                    liveExpiries.set(ref, { ...stamp, expiresAt, gen });
+                  }
+                }
+              }
+            }
+          } catch {
+            /* a corrupt meta is left for a human sweep, never live source data */
+          }
+        }
+      }
+      if ((i & 15) === 15 && performance.now() - sliceStart >= maxSliceMs) {
+        await yieldSlice();
+        sliceStart = performance.now();
+      }
+    }
+    for (const [key, entry] of liveExpiries) {
+      if (entry.gen !== gen) liveExpiries.delete(key);
+    }
+    return { exists: true, candidates };
+  }
+
+  async function sweepExpiredAsync(now: number = Date.now(), maxSliceMs = 8): Promise<number> {
+    if (sweepInFlight) return sweepInFlight;
+    sweepInFlight = (async () => {
+      try {
+        const scanned = await scanExpiredAsync(now, maxSliceMs);
+        if (!scanned.exists) {
+          lastSweepAt = performance.now();
+          return 0;
+        }
+        if (scanned.candidates.length === 0) {
+          lastSweepAt = performance.now();
+          return 0;
+        }
+        const removed = await withWriterMutationAsync(root, "payloads", () =>
+          reapCandidates(scanned.candidates, now)
+        );
+        if (removed > 0) {
+          cachedUsedBytes = undefined;
+          cachedWatermark = undefined;
+        }
+        return removed;
+      } finally {
+        sweepInFlight = undefined;
+      }
+    })();
+    return sweepInFlight;
+  }
 
   function statFileStamp(path: string): FileStamp | undefined {
     const info = lstatSync(path, { bigint: true, throwIfNoEntry: false });
@@ -422,8 +538,141 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
       }
       const nextWatermark = (w1 ?? 0n) + BigInt(bytes.length + Buffer.byteLength(metaText));
       writeQuotaWatermark(dir, watermarkPath, nextWatermark);
+      if (cachedUsedBytes !== undefined && cachedWatermark !== undefined && w1 === cachedWatermark) {
+        cachedUsedBytes += bytes.length + Buffer.byteLength(metaText);
+        cachedWatermark = nextWatermark;
+      } else {
+        cachedUsedBytes = undefined;
+        cachedWatermark = undefined;
+      }
       return { ref, sha256, totalBytes: bytes.length, expiresAt: meta.expiresAt };
     });
+  }
+
+  async function persistOutputAsync(bytes: Buffer): Promise<PayloadRecoveryRef> {
+    try {
+      ensureDir();
+    } catch (err) {
+      throw new PayloadStoreError(
+        "recovery_unavailable",
+        (err as NodeJS.ErrnoException).code ?? "mkdir_failed",
+        `cannot create payload store directory: ${(err as Error).message}`
+      );
+    }
+
+    // Read watermark & update cachedUsedBytes asynchronously in <= 4 ms slices if cold or stale.
+    let preW0 = readQuotaWatermark(watermarkPath);
+    let preUsed: number;
+    if (cachedUsedBytes !== undefined && cachedWatermark !== undefined && preW0 !== undefined && preW0 >= cachedWatermark) {
+      const delta = preW0 - cachedWatermark;
+      preUsed = delta <= BigInt(PAYLOAD_ROOT_QUOTA_BYTES)
+        ? cachedUsedBytes + Number(delta)
+        : await dirBytesAsync(4);
+    } else if (cachedUsedBytes === undefined && preW0 !== undefined && preW0 <= BigInt(PAYLOAD_ROOT_QUOTA_BYTES) && Number(preW0) + bytes.length <= PAYLOAD_ROOT_QUOTA_BYTES) {
+      // Monotonic written-bytes watermark is a proven upper bound on current directory size.
+      preUsed = Number(preW0);
+    } else {
+      preUsed = await dirBytesAsync(4);
+    }
+    if (preW0 !== undefined) {
+      cachedUsedBytes = preUsed;
+      cachedWatermark = preW0;
+    }
+
+    // Reclaim expired payloads asynchronously only when approaching quota.
+    if (preUsed + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
+      await sweepExpiredAsync(Date.now(), 4);
+      preW0 = readQuotaWatermark(watermarkPath);
+      preUsed = await dirBytesAsync(4);
+      if (preW0 !== undefined) {
+        cachedUsedBytes = preUsed;
+        cachedWatermark = preW0;
+      }
+    }
+
+    const ref = randomBytes(32).toString("hex");
+    const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const now = Date.now();
+    const meta: PayloadMeta = {
+      sha256,
+      totalBytes: bytes.length,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + PAYLOAD_TTL_MS).toISOString(),
+      scope
+    };
+    const metaText = `${JSON.stringify(meta)}\n`;
+    const writtenBytes = bytes.length + Buffer.byteLength(metaText);
+    const tmpBin = binPath(dir, `.${ref}.tmp`);
+    const tmpMeta = metaPath(dir, `.${ref}.tmp`);
+
+    // Stage bytes asynchronously outside .mutation.lock.
+    try {
+      await fsPromises.writeFile(tmpBin, bytes, { mode: 0o600, flag: "wx" });
+      await fsPromises.writeFile(tmpMeta, metaText, { mode: 0o600, flag: "wx" });
+    } catch (err) {
+      for (const p of [tmpBin, tmpMeta]) {
+        try { unlinkSync(p); } catch { /* best effort */ }
+      }
+      throw new PayloadStoreError(
+        "recovery_unavailable",
+        (err as NodeJS.ErrnoException).code ?? "write_failed",
+        `cannot persist payload: ${(err as Error).message}`
+      );
+    }
+
+    try {
+      const persisted = await withWriterMutationAsync(root, "payloads", () => {
+        const w1 = readQuotaWatermark(watermarkPath);
+        let used = preUsed;
+        if (preW0 !== undefined && w1 !== undefined && w1 >= preW0) {
+          const delta = w1 - preW0;
+          used = delta <= BigInt(PAYLOAD_ROOT_QUOTA_BYTES)
+            ? preUsed + Number(delta)
+            : PAYLOAD_ROOT_QUOTA_BYTES + 1;
+        } else if (preW0 === undefined && w1 !== undefined) {
+          // Concurrent writer created watermark; fall back to conservative add.
+          used = preUsed + (w1 <= BigInt(PAYLOAD_ROOT_QUOTA_BYTES) ? Number(w1) : PAYLOAD_ROOT_QUOTA_BYTES + 1);
+        }
+        if (used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
+          throw new PayloadStoreError(
+            "recovery_unavailable",
+            "quota_exceeded",
+            `payload store quota exceeded for ${dir}`
+          );
+        }
+        try {
+          renameSync(tmpBin, binPath(dir, ref));
+          renameSync(tmpMeta, metaPath(dir, ref));
+        } catch (err) {
+          for (const p of [binPath(dir, ref), metaPath(dir, ref)]) {
+            try { unlinkSync(p); } catch { /* best effort */ }
+          }
+          throw new PayloadStoreError(
+            "recovery_unavailable",
+            (err as NodeJS.ErrnoException).code ?? "write_failed",
+            `cannot persist payload: ${(err as Error).message}`
+          );
+        }
+        const nextWatermark = (w1 ?? 0n) + BigInt(writtenBytes);
+        writeQuotaWatermark(dir, watermarkPath, nextWatermark);
+        cachedUsedBytes = used + writtenBytes;
+        cachedWatermark = nextWatermark;
+        return { ref, sha256, totalBytes: bytes.length, expiresAt: meta.expiresAt };
+      });
+      // Schedule periodic expiry sweep in the background after the foreground write settles.
+      if (performance.now() - lastSweepAt >= AUTO_SWEEP_INTERVAL_MS && !sweepInFlight) {
+        const t = setTimeout(() => {
+          void sweepExpiredAsync(Date.now(), 4).catch(() => { /* best effort background sweep */ });
+        }, 25);
+        t.unref?.();
+      }
+      return persisted;
+    } catch (err) {
+      for (const p of [tmpBin, tmpMeta]) {
+        try { unlinkSync(p); } catch { /* best effort cleanup */ }
+      }
+      throw err;
+    }
   }
 
   function readMeta(ref: string): PayloadMeta | undefined {
@@ -509,5 +758,5 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     };
   }
 
-  return { scope, readPayload, persistOutput, sweepExpired };
+  return { scope, readPayload, persistOutput, persistOutputAsync, sweepExpired, sweepExpiredAsync };
 }

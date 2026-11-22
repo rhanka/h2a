@@ -1,4 +1,6 @@
 import { Participants } from "./handover/participants.js";
+import { MutationLockUnavailableError, mutationLockAsync, updateWriterControlAsync, writerDirectory } from "./handover/mutation.js";
+import { LockTimeoutError } from "./local-files/locks.js";
 /**
  * Machine-local central MCP server. Election is independent of endpoint and
  * workspace within the current private UID runtime namespace.
@@ -67,7 +69,7 @@ import {
   serverUiExtensionCapability
 } from "./mcp/ui-render/negotiation.js";
 import { UnknownResourceError, type UiExtensionCapability } from "./mcp/ui-render/types.js";
-import { boundCallToolResult } from "./mcp/frame-budget.js";
+import { boundCallToolResultAsync } from "./mcp/frame-budget.js";
 import { createLocalStore } from "./local-files/index.js";
 import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
@@ -110,6 +112,13 @@ export async function centralMcpPing(
   }
 }
 
+function isLockUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof MutationLockUnavailableError ||
+    (error as { code?: string } | undefined)?.code === "mutation_lock_unavailable"
+  );
+}
+
 async function centralToolResult(
   server: McpServer,
   name: string,
@@ -123,15 +132,15 @@ async function centralToolResult(
         content: [{ type: "text", text: JSON.stringify(result) }],
         isError: Boolean(result && typeof result === "object" && "error" in result)
       };
-  // L1: bound the final SDK frame — an oversize tool result becomes a bounded
-  // -32010-style error result with a recovery ref, never a raw >B frame.
-  return boundCallToolResult(shaped as never, server.frameBudget, (j) => {
+  // L1 + L2: bound the final SDK frame using non-blocking persistOutputAsync
+  // only when the result actually exceeds frameBudget (never wrapping callTool).
+  return (await boundCallToolResultAsync(shaped as never, server.frameBudget, async (j) => {
     try {
-      return server.payloadStore.persistOutput(Buffer.from(j, "utf8"));
+      return await server.payloadStore.persistOutputAsync(Buffer.from(j, "utf8"));
     } catch {
       return undefined;
     }
-  }) as CallToolResult;
+  })) as CallToolResult;
 }
 
 export function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
@@ -170,10 +179,30 @@ export function createCentralProtocolServer(mcp: McpServer, participant: import(
   });
   server.setRequestHandler(
     CallToolRequestSchema,
-    async (request): Promise<CallToolResult> => participant.call(async () => {
-      for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
-      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
-    })
+    async (request): Promise<CallToolResult> => {
+      try {
+        return await participant.callAsync(async () => {
+          for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
+          return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
+        });
+      } catch (error) {
+        if (isLockUnavailableError(error) || error instanceof LockTimeoutError) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: error instanceof LockTimeoutError ? "lock_timeout" : "mutation_lock_unavailable",
+                code: error instanceof LockTimeoutError ? "lock_timeout" : "mutation_lock_unavailable",
+                message: error instanceof Error ? error.message : String(error),
+                retryable: true
+              })
+            }],
+            isError: true
+          };
+        }
+        throw error;
+      }
+    }
   );
   return server;
 }
@@ -199,7 +228,7 @@ function sameHttpOrigin(origin: string | undefined, host: string): boolean {
 
 export interface CentralSweepClock {
   now(): number;
-  setInterval(fn: () => void, ms: number): ReturnType<typeof setInterval>;
+  setInterval(fn: () => void | Promise<void>, ms: number): ReturnType<typeof setInterval>;
   clearInterval(handle: ReturnType<typeof setInterval>): void;
 }
 
@@ -249,13 +278,40 @@ function createCentralApp(
   let callbacks = 0;
   let unresolvedEffects = 0;
   const runExecutor = options.runExecutor;
+  const pendingClosures = new Set<() => Promise<void>>();
+  let sweeping = false;
+  const closeParticipantResilient = async (
+    participant: import("./handover/participants.js").AttachmentParticipant,
+    closeHandle: () => Promise<void>
+  ): Promise<void> => {
+    try {
+      await participant.closeAsync(closeHandle, { nonBlocking: true });
+    } catch (error) {
+      if (isLockUnavailableError(error)) {
+        const retryClose = async () => {
+          await participant.closeAsync(closeHandle, { nonBlocking: true });
+        };
+        pendingClosures.add(retryClose);
+        return;
+      }
+      throw error;
+    }
+  };
   const closeAttachment = (id: string, attachment: Attachment): Promise<void> => {
     attachment.closing ??= (async () => {
       sessions.delete(id);
       if (attachment.logical) transports.close(attachment.logical.id);
       inventoryRevision++;
-      await attachment.participant.close(() => attachment.handle.close());
-      await attachment.transport.close();
+      try {
+        await closeParticipantResilient(attachment.participant, () => attachment.handle.close());
+      } catch (error) {
+        process.stderr.write(`h2a central: close_attachment_error: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+      try {
+        await attachment.transport.close();
+      } catch {
+        /* best effort transport cleanup */
+      }
     })();
     return attachment.closing;
   };
@@ -265,45 +321,99 @@ function createCentralApp(
   // so lockstep dilation cannot outrun first contact. Production bounds are
   // far above the floor and keep their wall-clock meaning.
   const quietTicksForIdle = Math.max(5, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
-  const sweep = clock.setInterval(() => {
-    if (!ready) return;
-    const now = clock.now();
-    const liveTransaction = administration()?.transaction()?.value;
-    for (const [id, attachment] of sessions) {
-      if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
-          (attachment.disconnected || now - attachment.touched > options.sessionLeaseMs)) {
-        const liveness = attachment.disconnected ? 'dead' : ownerLiveness({ processIdentity: attachment.logical?.context.shimProcessIdentity }, currentIdentity());
-        if (attachment.logical) transports.detach(attachment.logical.id, liveness);
-        attachment.transport.detachNotifications();
-        if (liveness === 'dead') {
-          const pending = participants()?.ledger.hasPendingForAttachment(attachment.participant.token.attachmentId) ?? false;
-          if (!pending) void closeAttachment(id, attachment);
+  const runSweep = async (): Promise<void> => {
+    if (!ready || sweeping) return;
+    sweeping = true;
+    try {
+      const now = clock.now();
+      const owner = participants();
+      // Opportunistically drain deferred closures and finishes when .mutation.lock is free.
+      if (pendingClosures.size > 0) {
+        for (const retry of Array.from(pendingClosures)) {
+          try {
+            await retry();
+            pendingClosures.delete(retry);
+          } catch (error) {
+            if (isLockUnavailableError(error)) break;
+            pendingClosures.delete(retry);
+          }
         }
       }
+      if (owner && owner.pendingFinishes.length > 0) {
+        await owner.flushPendingFinishesAsync({ nonBlocking: true });
+      }
+      const liveTransaction = administration()?.transaction()?.value;
+      for (const [id, attachment] of sessions) {
+        if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
+            (attachment.disconnected || now - attachment.touched > options.sessionLeaseMs)) {
+          const liveness = attachment.disconnected ? 'dead' : ownerLiveness({ processIdentity: attachment.logical?.context.shimProcessIdentity }, currentIdentity());
+          if (attachment.logical) transports.detach(attachment.logical.id, liveness);
+          attachment.transport.detachNotifications();
+          if (liveness === 'dead') {
+            const pending = owner?.ledger.hasPendingForAttachment(attachment.participant.token.attachmentId) ?? false;
+            if (!pending) void closeAttachment(id, attachment).catch(() => {});
+          }
+        }
+      }
+      const admin = administration();
+      if (admin) {
+        try {
+          if (owner) {
+            await mutationLockAsync(writerDirectory(root), () => { admin.expire(); admin.poll(); }, { nonBlocking: true });
+          } else {
+            admin.expire();
+            admin.poll();
+          }
+        } catch (error) {
+          if (isLockUnavailableError(error)) {
+            quietTicks = 0;
+            return;
+          }
+          admin.indeterminate = true;
+          process.stderr.write(`h2a central: recovery_blocked: ${(error as Error).message}\n`);
+        }
+      }
+      const transaction = administration()?.transaction()?.value;
+      const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
+      // A connecting client holding a live challenge is not an orphan, even when
+      // no session exists yet: the handshake it started must be allowed to land.
+      // A live handshake counts as activity (it resets the count); once a
+      // session has lived and gone, or the challenge lapses, consecutive quiet
+      // ticks retire the server again.
+      const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
+      let quiet = false;
+      if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 &&
+          sessions.size === 0 && pendingClosures.size === 0 && !pending && !handshakeAlive) {
+        try {
+          if (owner && !owner.registry.indeterminate && owner.ledger.ledgerMigrationComplete === true &&
+              owner.pendingFinishes.length === 0 && administration()?.admissionsOpen()) {
+            // Probe for a busy writer on each tick, but reconcile and read
+            // durable history only when this tick could retire the server.
+            quiet = await owner.registry.withLockAsync(
+              () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
+              { nonBlocking: true }
+            );
+          }
+        } catch (error) {
+          if (!isLockUnavailableError(error)) {
+            process.stderr.write(`h2a central: sweep_quiet_error: ${error instanceof Error ? error.message : String(error)}\n`);
+          }
+          quiet = false;
+        }
+      }
+      if (quiet) {
+        quietTicks += 1;
+        if (quietTicks >= quietTicksForIdle) options.requestStop();
+      } else {
+        quietTicks = 0;
+      }
+    } catch (error) {
+      process.stderr.write(`h2a central: sweep_error: ${error instanceof Error ? error.message : String(error)}\n`);
+    } finally {
+      sweeping = false;
     }
-    try { administration()?.expire(); administration()?.poll(); }
-    catch (error) {
-      if (administration()) administration()!.indeterminate = true;
-      process.stderr.write(`h2a central: recovery_blocked: ${(error as Error).message}\n`);
-    }
-    const transaction = administration()?.transaction()?.value;
-    const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
-    // A connecting client holding a live challenge is not an orphan, even when
-    // no session exists yet: the handshake it started must be allowed to land.
-    // A live handshake counts as activity (it resets the count); once a
-    // session has lived and gone, or the challenge lapses, consecutive quiet
-    // ticks retire the server again.
-    const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
-    const owner = participants();
-    const quiet = !closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      owner?.ledger.ledgerMigrationComplete === true && owner.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive;
-    if (quiet) {
-      quietTicks += 1;
-      if (quietTicks >= quietTicksForIdle) options.requestStop();
-    } else {
-      quietTicks = 0;
-    }
-  }, sweepPeriodMs);
+  };
+  const sweep = clock.setInterval(() => runSweep(), sweepPeriodMs);
   sweep?.unref?.();
   app.use("*", async (context, next) => {
     const host = context.req.header("host");
@@ -416,18 +526,37 @@ function createCentralApp(
       return context.json(reply);
     } catch (error) { return context.json({ error: (error as Error).message }, 409); }
   });
-  app.post("/_h2a-central/stop", context => {
+  app.post("/_h2a-central/stop", async context => {
     const admin = administration();
     if (!admin) return context.json({ error: "central MCP is starting" }, 503);
-    return context.json(admin.operatorStop());
+    try {
+      const result = participants()
+        ? await mutationLockAsync(writerDirectory(root), () => admin.operatorStop())
+        : admin.operatorStop();
+      return context.json(result);
+    } catch (error) {
+      if (isLockUnavailableError(error)) {
+        return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+      }
+      return context.json({ error: (error as Error).message }, 409);
+    }
   });
   app.post("/_h2a-central/admin/:operation", async context => {
     const admin = administration();
     if (!admin) return context.json({ error: "central MCP is starting" }, 503);
     try {
       const { step, payload, coordinator } = await context.req.json();
-      return context.json(admin.execute(context.req.param("operation"), step, payload, coordinator));
-    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+      const operation = context.req.param("operation");
+      const result = participants()
+        ? await mutationLockAsync(writerDirectory(root), () => admin.execute(operation, step, payload, coordinator))
+        : admin.execute(operation, step, payload, coordinator);
+      return context.json(result);
+    } catch (error) {
+      if (isLockUnavailableError(error)) {
+        return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+      }
+      return context.json({ error: (error as Error).message }, 409);
+    }
   });
   app.get("/_h2a-central/lease/:id", async context => {
     const attachment = sessions.get(context.req.param("id"));
@@ -497,7 +626,7 @@ function createCentralApp(
         enableJsonResponse: true,
         sessionIdGenerator: randomUUID,
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
-        onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
+        onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current).catch(() => {}); }
       });
       let registry: Pick<ComposeDaemonOptions, "lock" | "memory"> | undefined;
       const requestedLock = captured?.flags["registry-lock-digest"];
@@ -507,7 +636,15 @@ function createCentralApp(
         if (requestedLock !== bridgeLockDigest(options.registry.lock)) return context.json({ error: "integrity_mismatch: bridge and central registry locks differ" }, 409);
         registry = options.registry;
       }
-      const participant = participants()!.attach(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
+      let participant: import("./handover/participants.js").AttachmentParticipant;
+      try {
+        participant = await participants()!.attachAsync(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
+      } catch (error) {
+        if (isLockUnavailableError(error)) {
+          return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+        }
+        throw error;
+      }
       participant.initialized = false;
       const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
         const logical = created?.logical;
@@ -522,20 +659,44 @@ function createCentralApp(
         }
         if (protocol) {
           callbacks++; drainRevision++;
-          const operation = participant.begin('callback');
-          try { await protocol.notification(notification); participant.finish(operation, { delivered: true }); }
-          catch (error) { participant.finish(operation, { state: 'unknown', error: String(error) }, true); throw error; }
-          finally { callbacks--; drainRevision++; }
+          try {
+            let operation: unknown;
+            try {
+              operation = await participant.beginAsync('callback', { nonBlocking: true });
+            } catch (error) {
+              if (isLockUnavailableError(error)) return;
+              throw error;
+            }
+            try {
+              await protocol.notification(notification);
+              try {
+                await participant.finishAsync(operation, { delivered: true }, false, { nonBlocking: true });
+              } catch (finishErr) {
+                if (isLockUnavailableError(finishErr)) {
+                  participants()?.enqueuePendingFinish(operation, { delivered: true }, false);
+                }
+              }
+            } catch (error) {
+              try {
+                await participant.finishAsync(operation, { state: 'unknown', error: String(error) }, true, { nonBlocking: true });
+              } catch (finishErr) {
+                if (isLockUnavailableError(finishErr)) {
+                  participants()?.enqueuePendingFinish(operation, { state: 'unknown', error: String(error) }, true);
+                }
+              }
+              throw error;
+            }
+          } finally { callbacks--; drainRevision++; }
         }
       }, runExecutor, participant, registry, { env: options.env }));
       try { await handle.ready; }
-      catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
+      catch (error) { await closeParticipantResilient(participant, () => handle.close()).catch(() => {}); await transport.close().catch(() => {}); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
       attachment = created = { participant, transport, handle, touched: clock.now() };
       everAttached = true;
       attachment.logical = transports.attach(logicalId, captured ?? { id: logicalId, workspace }, () => attachment!);
       try { await protocol.connect(transport); }
-      catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
+      catch (error) { await closeParticipantResilient(participant, () => handle.close()).catch(() => {}); await transport.close().catch(() => {}); throw error; }
     }
     attachment.touched = clock.now();
     if (context.req.method === 'DELETE') {
@@ -549,7 +710,10 @@ function createCentralApp(
     let response;
     try { response = await attachment.transport.handleRequest(context); }
     catch (error) {
-      if (!requestedSessionId) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
+      if (!requestedSessionId) { await closeParticipantResilient(attachment.participant, () => attachment.handle.close()).catch(() => {}); await attachment.transport.close().catch(() => {}); }
+      if (isLockUnavailableError(error) || error instanceof LockTimeoutError) {
+        return context.json({ error: error instanceof LockTimeoutError ? "lock_timeout" : "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+      }
       throw error;
     }
     // The server owns identity; the shim only retains the expected resume id.
@@ -569,7 +733,7 @@ function createCentralApp(
         }
       } catch { /* Without a negotiated version, freeze remains refused. */ }
     }
-    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
+    if (!requestedSessionId && ![...sessions.values()].includes(attachment)) { await closeParticipantResilient(attachment.participant, () => attachment.handle.close()).catch(() => {}); await attachment.transport.close().catch(() => {}); }
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
@@ -750,17 +914,17 @@ export async function startCentralMcpServer(
       // Writer and catalogue are ready before durable marker publication.
       mkdirSync(root, { recursive: true, mode: 0o700 });
       if (!options.precheck) {
-        participants = new Participants({ root, directory: stateDirectory, marker, writerProof: options.writerProof, authenticationKey: authority.rootKey });
+        participants = await Participants.createAsync({ root, directory: stateDirectory, marker, writerProof: options.writerProof, authenticationKey: authority.rootKey });
         // The admission preclaim has already proved any previous owner dead.
         // A committed old writer gate is reopened only by this new authority.
         if (participants.writerControl().gate !== 'OPEN') {
-          const { updateWriterControl } = await import('./handover/mutation.js');
-          updateWriterControl(root, { gate: 'OPEN', handoverId: null });
+          await updateWriterControlAsync(root, { gate: 'OPEN', handoverId: null });
         }
       }
       sharedStore = createLocalStore({
         root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true,
-        deferConsentHistoryVerification: true
+        deferConsentHistoryVerification: true,
+        centralEventLoopMaxSyncWaitMs: 25
       });
       const catalogServer = createMcpServer({ root, store: sharedStore });
       if (registry) {
@@ -827,8 +991,20 @@ export async function startCentralMcpServer(
         participants?.ledger.stopMigration?.();
         await application!.close(); httpServer!.closeAllConnections();
         await new Promise<void>((resolve, reject) => httpServer!.close(error => error ? reject(error) : resolve()));
-        const drained = application!.drain();
-        if (['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drained[k as keyof typeof drained] === 0)) recordGenerationEnd(authentication!.marker, authority.rootKey);
+        let drained: { calls: number; children: number; briefs: number; callbacks: number; effects: number } | undefined;
+        try {
+          if (participants) {
+            await participants.flushPendingFinishesAsync({ nonBlocking: true });
+            drained = await participants.drainAsync({ timeoutMs: 1000 });
+          } else {
+            drained = application!.drain();
+          }
+        } catch (error) {
+          if (!isLockUnavailableError(error)) {
+            process.stderr.write(`h2a central: stop_drain_error: ${error instanceof Error ? error.message : String(error)}\n`);
+          }
+        }
+        if (drained && ['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drained[k as keyof typeof drained] === 0)) recordGenerationEnd(authentication!.marker, authority.rootKey);
         const retiring = administration?.transaction()?.value;
         if (claim && !(retiring?.mode === 'live-transfer' && retiring.state === 'RETIRED')) removeMarker(markerPath, claim);
         const closeOwnControl = () => {
@@ -839,8 +1015,12 @@ export async function startCentralMcpServer(
             ...stoppedControl.value, revision: stoppedControl.value.revision + 1, ownerState: "CLOSED",
             operatorStopped: stoppedControl.value.operatorStopCommitted }, "componentControl", stoppedControl);
         };
-        if (participants) participants.registry.withLock(closeOwnControl);
-        else closeOwnControl();
+        try {
+          if (participants) await participants.registry.withLockAsync(closeOwnControl);
+          else closeOwnControl();
+        } catch (error) {
+          process.stderr.write(`h2a central: stop_control_error: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
         const transaction = administration?.transaction();
         if (transaction?.value.state === "STOP_COMMITTED") {
           const control = administration!.control()!.value;

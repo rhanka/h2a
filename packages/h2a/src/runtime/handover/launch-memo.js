@@ -84,6 +84,89 @@ export class LaunchJournal {
     // proven result with UNKNOWN. Reconciliation closes the remaining ledger.
     return result?.then ? result.then(finish, fail) : finish(result);
   }
+  async launchAsync(request, execute) {
+    const reserved = await this.registry.withLockAsync(() => {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(request.name)) throw new Error('launch_name_invalid');
+      const path = this.path(request.name), old = readState(path, 'launchMemo');
+      const initialArgumentsDigest = this.argumentsDigest(request);
+      if (old) {
+        if (old.value.initialArgumentsDigest !== initialArgumentsDigest) throw new Error('launch_arguments_conflict');
+        return { existing: this.reconcileMemo(old) };
+      }
+      this.registry.assertOwner(this.token);
+      const launchId = randomUUID(), secret = randomUUID();
+      const launchReceiptReference = relative(resolve(this.root), join(resolve(request.workspace), '.h2a', 'runs', request.name, 'launch.json'));
+      if (launchReceiptReference.startsWith('../') || !launchReceiptReference) throw new Error('launch_workspace_outside_root');
+      const memo = { schemaVersion: 1, attachmentId: this.token.attachmentId, launchName: request.name, launchId,
+        initialArgumentsDigest, state: 'reserved', executionOwner: this.token.ownerProcessIdentity,
+        childProcessIdentity: null, launchReceiptReference, launchTokenBinding: digest(secret), briefReceipt: null, terminalResult: null, retrySafe: false };
+      const locPath = join(this.registry.directory, `launch-location-${launchId}.json`);
+      const location = { schemaVersion: 1, launchId,
+        attachmentId: this.token.attachmentId, workspaceRoot: resolve(this.root), delegation: request.delegation ?? null };
+      publishState(locPath, location, 'launchLocation');
+      this.registry.recordLaunchLocation(locPath, location);
+      publishState(path, memo, 'launchMemo');
+      this.registry.recordLaunchMemo(path, memo);
+      this.registry.bump();
+      const child = this.ledger.begin(this.token, `${launchId}:child`, 'child');
+      const brief = this.ledger.begin(this.token, `${launchId}:brief`, 'brief');
+      const observed = readState(path, 'launchMemo');
+      const launchingMemo = { ...memo, state: 'launching' };
+      replaceState(path, launchingMemo, 'launchMemo', observed);
+      this.registry.recordLaunchMemo(path, launchingMemo);
+      this.registry.bump();
+      return { path, memo, secret, child, brief };
+    });
+    if (reserved.existing) return this.result(reserved.existing);
+    let spawnWrite = Promise.resolve();
+    const onSpawn = childProcessIdentity => {
+      const p = this.registry.withLockAsync(() => {
+        const old = readState(reserved.path, 'launchMemo');
+        if (!old || old.value.state === 'completed') return;
+        const updated = { ...old.value, childProcessIdentity };
+        replaceState(reserved.path, updated, 'launchMemo', old);
+        this.registry.recordLaunchMemo(reserved.path, updated);
+        this.registry.bump();
+      }).catch(() => { /* best effort; terminal memo write or reconciliation settles state */ });
+      spawnWrite = spawnWrite.then(() => p);
+      return p;
+    };
+    const finish = async result => {
+      await spawnWrite;
+      const terminal = result && typeof result === 'object' ? result : { state: 'unknown', retrySafe: false };
+      let persistedTerminal = false;
+      try {
+        return await this.registry.withLockAsync(() => {
+          const old = readState(reserved.path, 'launchMemo');
+          const complete = ['started', 'stopped', 'not-started'].includes(terminal.state);
+          const briefKnown = terminal.state !== 'started' || terminal.prompt?.delivered === true;
+          const memo = { ...old.value, state: complete && briefKnown ? 'completed' : 'unknown',
+            terminalResult: terminal, briefReceipt: terminal.prompt?.delivered === true ? { delivered: true, launchId: old.value.launchId } : null,
+            retrySafe: terminal.state === 'not-started' && terminal.retrySafe === true };
+          replaceState(reserved.path, memo, 'launchMemo', old);
+          this.registry.recordLaunchMemo(reserved.path, memo);
+          this.registry.bump();
+          persistedTerminal = true;
+          try {
+            this.publishDelegation(memo, terminal);
+            this.ledger.finish(reserved.child, terminal, !complete);
+            this.ledger.finish(reserved.brief, memo.briefReceipt ?? terminal, !complete || !briefKnown);
+          } catch {
+            // Terminal memo is already durable; reconciliation closes remaining ledger entries.
+          }
+          return terminal;
+        });
+      } catch (error) {
+        if (persistedTerminal) return terminal;
+        throw error;
+      }
+    };
+    const fail = error => finish({ state: 'unknown', launchId: reserved.memo.launchId, retrySafe: false, error: String(error) });
+    let result;
+    try { result = await execute({ ...request, launchAuthority: { token: reserved.secret, launchId: reserved.memo.launchId, onSpawn } }); }
+    catch (error) { return fail(error); }
+    return finish(result);
+  }
   reconcile(request) {
     return this.registry.withLock(() => {
       const path = this.path(request.name), old = readState(path, 'launchMemo');

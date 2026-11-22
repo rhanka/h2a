@@ -883,6 +883,75 @@ export function handleSessionClose(
   }
 }
 
+export async function handleSessionOpenAsync(
+  sessions: SessionRegistry,
+  args: Parameters<typeof handleSessionOpen>[1]
+): Promise<McpToolResult | McpErrorResult> {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_session_open: missing 'instance'" };
+  }
+  if (
+    args.subscribedTopics !== undefined &&
+    (!Array.isArray(args.subscribedTopics) ||
+      args.subscribedTopics.some(
+        (topic) =>
+          typeof topic !== "string" ||
+          !(H2A_SESSION_NOTIFICATION_TOPICS as readonly string[]).includes(topic)
+      ))
+  ) {
+    return {
+      error:
+        "h2a_session_open: 'subscribedTopics' must be a subset of the canonical topic list"
+    };
+  }
+  try {
+    const session = await sessions.openAsync({
+      instance: args.instance,
+      ...(args.host !== undefined ? { host: args.host } : {}),
+      ...(args.workspace !== undefined ? { workspace: args.workspace } : {}),
+      ...(args.name !== undefined ? { name: args.name } : {}),
+      version: agentVersion(typeof args.host === "string" ? args.host : undefined),
+      ...(args.pid !== undefined ? { pid: args.pid } : {}),
+      ...(args.interests !== undefined ? { interests: args.interests } : {}),
+      ...(args.subscribedTopics !== undefined
+        ? {
+            subscribedTopics: args.subscribedTopics as readonly H2ASessionNotificationTopic[]
+          }
+        : {}),
+      ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {})
+    });
+    const peers = sessions
+      .scanFresh()
+      .filter((peer) => peer.sessionId !== session.sessionId);
+    return { session, peers };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export async function handleSessionCloseAsync(
+  sessions: SessionRegistry,
+  args: { sessionId?: string; state?: H2ASessionState } | undefined
+): Promise<McpToolResult | McpErrorResult> {
+  if (!args || typeof args.sessionId !== "string" || args.sessionId.length === 0) {
+    return { error: "h2a_session_close: missing 'sessionId'" };
+  }
+  if (
+    args.state !== undefined &&
+    !H2A_SESSION_STATES.includes(args.state)
+  ) {
+    return {
+      error: `h2a_session_close: unknown state '${String(args.state)}'`
+    };
+  }
+  try {
+    const closed = await sessions.closeAsync(args.sessionId, args.state ?? "closed");
+    return { ok: true, sessionId: args.sessionId, session: closed };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
 function discoveryNameKey(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed.length > 0 ? slugify(trimmed) : undefined;

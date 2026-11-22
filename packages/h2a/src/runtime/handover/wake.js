@@ -20,7 +20,7 @@ export class WakeJournal {
     return this.pending;
   }
   async execute(ids, instructionLine, inject) {
-    const ticket = this.registry.withLock(() => {
+    const ticket = await this.registry.withLockAsync(() => {
       this.registry.assertOwner(this.token);
       const eligible = this.eligibleEnvelopeIds([...new Set(ids)].sort());
       if (!eligible.length) return null;
@@ -44,13 +44,13 @@ export class WakeJournal {
     let result;
     try { result = await inject(ticket.instructionLine); }
     catch (error) {
-      this.ledger.finish(ticket.operation, { state: 'unknown', error: String(error) }, true);
+      await this.ledger.finishAsync(ticket.operation, { state: 'unknown', error: String(error) }, true);
       return false;
     }
     if (result !== true && result !== false) {
-      this.ledger.finish(ticket.operation, { state: 'unknown' }, true); return false;
+      await this.ledger.finishAsync(ticket.operation, { state: 'unknown' }, true); return false;
     }
-    this.registry.withLock(() => {
+    await this.registry.withLockAsync(() => {
       const updated = replaceState(ticket.path, { ...ticket.started.value, revision: ticket.started.value.revision + 1,
         state: result ? 'delivered' : 'deferred', result }, 'wakeIntent', ticket.started);
       this.registry.recordWakeIntent(ticket.path, updated.value);

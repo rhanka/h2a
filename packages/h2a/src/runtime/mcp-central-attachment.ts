@@ -87,7 +87,7 @@ export function openCentralAttachment(
     return { mcp, ready, async close() {
       mcp.notifications.stop();
       if (participant?.transferred()) mcp.sessions.suspend();
-      else mcp.sessions.closeAll("closed");
+      else await mcp.sessions.closeAllAsync("closed");
     } };
   }
   const input = new PassThrough();
@@ -100,9 +100,16 @@ export function openCentralAttachment(
         const message = JSON.parse(line) as Notification;
         if (message.method) deliveries.push(notify(message));
       }
-      void Promise.all(deliveries).then(() => done(), done);
+      void Promise.all(deliveries).then(() => done(), (err) => done(err instanceof Error ? err : new Error(String(err))));
     } catch (error) { done(error as Error); }
   } });
+  output.on("error", (error) => {
+    try {
+      process.stderr.write(`h2a central attachment: notification stream error: ${error instanceof Error ? error.message : String(error)}\n`);
+    } catch {
+      /* diagnostic only */
+    }
+  });
   const baseEnv = attachmentOptions?.env ?? process.env;
   const daemonEnvironment = Object.fromEntries(Object.entries(baseEnv).filter(([key]) =>
     !(CENTRAL_ATTACHMENT_ENV as readonly string[]).includes(key) &&
