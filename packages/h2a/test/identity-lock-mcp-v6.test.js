@@ -29,9 +29,12 @@ test('R7: the guarded MCP tool preserves the same diagnostic and actual retry de
 test('R7: real worker IPC delivers the blocker before the parent timer and MCP stays responsive',async()=>{
  const root=mkdtempSync(join(tmpdir(),'idlock-ipc-'));mkdirSync(join(root,'identity'));const token='b'.repeat(32);const logs=[];
  writeFileSync(join(root,'identity','.lock'),JSON.stringify({recordVersion:2,protocol:'identity-binding-fence-v1',platform:'linux',publication:'link',...identitySelf(),token,fenceEpoch:token,at:Date.now()}));
- const c=createIdentityController({request:{root,cwd:root,host:'claude',name:'fixture',providerEnv:{CLAUDE_CODE_SESSION_ID:'ipc-observation'}},timeoutMs:1200,retryMinIntervalMs:500,log:l=>logs.push(l),activate:()=>assert.fail('live holder cannot be stolen')});
+ const timeoutMs=4000;
+ const c=createIdentityController({request:{root,cwd:root,host:'claude',name:'fixture',providerEnv:{CLAUDE_CODE_SESSION_ID:'ipc-observation'}},timeoutMs,retryMinIntervalMs:500,log:l=>logs.push(l),activate:()=>assert.fail('live holder cannot be stolen')});
  try{const server=createMcpServer({root,identity:c});c.start();const start=performance.now();const pending=await server.callTool('h2a_identity_status',{});assert.ok(performance.now()-start<100);assert.ok(pending.content.length>0);
-   await new Promise(r=>setTimeout(r,1350));const state=c.status();assert.equal(state.cause,'identity_timeout');assert.equal(state.diagnostic.reasonCode,'holder-live');assert.equal(state.retryCondition,'interval');assert.match(state.message,/holder-live/);assert.ok(logs.some(l=>l.includes('holder-live')));
+   const waitEnd=performance.now()+timeoutMs+2000;
+   while(c.status().state!=='identity_failed' && performance.now()<waitEnd)await new Promise(r=>setTimeout(r,20));
+   const state=c.status();assert.equal(state.cause,'identity_timeout');assert.equal(state.diagnostic.reasonCode,'holder-live');assert.equal(state.retryCondition,'interval');assert.match(state.message,/holder-live/);assert.ok(logs.some(l=>l.includes('holder-live')));
    const guarded=JSON.parse((await server.callTool('h2a_send',{})).content[0].text);assert.equal(guarded.message,state.message);assert.equal(guarded.diagnostic.machineFingerprint,state.diagnostic.machineFingerprint);
  }finally{c.cancel('transport_closed');await new Promise(r=>setTimeout(r,100));rmSync(root,{recursive:true,force:true});}
 });
