@@ -37,7 +37,7 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...actual, homedir: homedirMock };
 });
 
-const { launchLayout, reconcileRunConvIds, registrySessions, restore, tabCommand } =
+const { launchLayout, launchLayoutWithOutcomes, reconcileRunConvIds, registrySessions, restore, tabCommand } =
   await import("./restore.js");
 const {
   buildRestorePlan,
@@ -127,6 +127,32 @@ const EXPECTED_RESTORE_DRY_RUN_RESULT = {
   ],
   total: 5,
   dropped: 1,
+  ledger: [
+    { key: "registry:alpha-1", label: "alpha-1", managedName: "h2a-alpha-1", outcome: "deferred:dry-run" },
+    { key: "registry:alpha-2", label: "alpha-2", managedName: "h2a-alpha-2", outcome: "deferred:dry-run" },
+    { key: "remote:scw-1", label: "cloud-app", outcome: "deferred:dry-run" },
+    { key: "registry:gamma-1", label: "gamma-1", managedName: "h2a-gamma-1", outcome: "deferred:dry-run" },
+    { key: "registry:delta-1", label: "delta-1", managedName: "h2a-delta-1", outcome: "deferred:dry-run" },
+    { key: "registry:broken-dead", label: "broken-dead", outcome: "deferred:unresolved-conversation" },
+    { key: "registry:ambig-native", label: "ambig", managedName: "h2a-ambig", outcome: "failed:dual-host-ambiguous" },
+    { key: "registry:ambig-tmux", label: "ambig", managedName: "h2a-ambig", outcome: "failed:dual-host-ambiguous" },
+    { key: "registry:cloud-local", label: "cloud-app", managedName: "h2a-cloud-app", outcome: "excluded:remote-backed" },
+    { key: "registry:beta-overflow", label: "beta-overflow", managedName: "h2a-beta-overflow", outcome: "excluded:explicit-group-cap" },
+    { key: "registry:epsilon-overflow", label: "epsilon-overflow", managedName: "h2a-epsilon-overflow", outcome: "excluded:shared-pool-cap" },
+  ],
+  observedTotals: {
+    total: 11,
+    alreadyActive: 0,
+    attached: 0,
+    resumedInPlace: 0,
+    recreated: 0,
+    resumed: 0,
+    excluded: 3,
+    deferred: 6,
+    failed: 2,
+  },
+  exitCode: 0,
+  registryConflicts: [],
 };
 
 describe("S0 Step 1 — restore --dry-run byte-for-byte characterization oracle", () => {
@@ -1135,7 +1161,7 @@ describe("D4 — symmetric run/hook dedup by exact managed name", () => {
       enrolledAt: "2026-11-20T10:00:00.000Z",
       lastSeenAt: "2026-11-20T10:06:00.000Z",
     };
-    const hostView = {
+    const hostView: HostViewSnapshot = {
       tmux: { known: true, sessions: [] },
       native: {
         known: true,
@@ -1151,7 +1177,7 @@ describe("D4 — symmetric run/hook dedup by exact managed name", () => {
           },
         ],
       },
-    } as unknown as HostViewSnapshot;
+    };
     const evidence = { home, liveTmuxSessions: [] };
 
     for (const [order, entries] of [
@@ -1179,11 +1205,12 @@ describe("D4 — symmetric run/hook dedup by exact managed name", () => {
       expect(tabCommand(tabs[0]!)).toBe("h2a attach 'h2a-dup-sess'");
       expect(tabCommand(tabs[0]!)).not.toContain("h2a run");
 
-      const conflicts = Reflect.get(plan, "registryConflicts") as
-        | Array<{ label?: string; managedName?: string }>
-        | undefined;
-      expect(conflicts, order).toBeDefined();
-      expect(conflicts!.some((c) => c.managedName === "h2a-dup-sess" || c.label === "dup-sess")).toBe(true);
+      expect(
+        plan.registryConflicts.some(
+          (c) => c.managedName === "h2a-dup-sess" || c.label === "dup-sess",
+        ),
+        order,
+      ).toBe(true);
 
       const resolution = reconcileRunConvIds(entries, () => undefined, evidence);
       const listed = registrySessions(
@@ -1267,7 +1294,7 @@ describe("D2 — foreground facet decisions in decideLayoutTab and planLayoutLau
   };
 
   it("defers controlled shell candidates with deferred:needs-inject and keeps controlled CLI already-active", () => {
-    const cliHost = {
+    const cliHost: HostViewSnapshot = {
       tmux: { known: true, sessions: [] },
       native: {
         known: true,
@@ -1283,8 +1310,8 @@ describe("D2 — foreground facet decisions in decideLayoutTab and planLayoutLau
           },
         ],
       },
-    } as unknown as HostViewSnapshot;
-    const shellHost = {
+    };
+    const shellHost: HostViewSnapshot = {
       tmux: { known: true, sessions: [] },
       native: {
         known: true,
@@ -1300,8 +1327,8 @@ describe("D2 — foreground facet decisions in decideLayoutTab and planLayoutLau
           },
         ],
       },
-    } as unknown as HostViewSnapshot;
-    const otherHost = {
+    };
+    const otherHost: HostViewSnapshot = {
       tmux: { known: true, sessions: [] },
       native: {
         known: true,
@@ -1317,23 +1344,33 @@ describe("D2 — foreground facet decisions in decideLayoutTab and planLayoutLau
           },
         ],
       },
-    } as unknown as HostViewSnapshot;
+    };
 
     const cliDecision = decideLayoutTab(tab, cliHost);
     expect(cliDecision.kind).toBe("skip-live");
-    expect(Reflect.get(cliDecision, "ledgerOutcome")).toBe("already-active");
+    expect(cliDecision.ledgerOutcome).toBe("already-active");
     expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], cliHost).windows[0]!.decisions[0]).toEqual(cliDecision);
 
     const shellDecision = decideLayoutTab(tab, shellHost);
     expect(shellDecision.kind).toBe("defer");
-    expect(Reflect.get(shellDecision, "reason")).toBe("needs-inject");
-    expect(Reflect.get(shellDecision, "ledgerOutcome")).toBe("deferred:needs-inject");
+    if (shellDecision.kind === "defer") {
+      expect(shellDecision.reason).toBe("needs-inject");
+    }
+    expect(shellDecision.ledgerOutcome).toBe("deferred:needs-inject");
     expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], shellHost).windows[0]!.decisions[0]).toEqual(shellDecision);
+    expect(
+      launchLayoutWithOutcomes([{ title: "w", tabs: [tab] }], shellHost, { write: () => true } as never),
+    ).toMatchObject({
+      opened: 0,
+      tabOutcomes: [{ outcome: "deferred:needs-inject" }],
+    });
 
     const otherDecision = decideLayoutTab(tab, otherHost);
     expect(otherDecision.kind).toBe("defer");
-    expect(Reflect.get(otherDecision, "reason")).toBe("foreground-other");
-    expect(Reflect.get(otherDecision, "ledgerOutcome")).toBe("deferred:foreground-other");
+    if (otherDecision.kind === "defer") {
+      expect(otherDecision.reason).toBe("foreground-other");
+    }
+    expect(otherDecision.ledgerOutcome).toBe("deferred:foreground-other");
     expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], otherHost).windows[0]!.decisions[0]).toEqual(otherDecision);
   });
 });

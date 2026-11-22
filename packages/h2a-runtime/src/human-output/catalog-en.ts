@@ -10,7 +10,16 @@ export const locale = "en" as const;
 
 export const strings: Record<string, string> = {
   "restore.ledger.alreadyActive": "Already active",
+  "restore.ledger.attached": "Attached",
+  "restore.ledger.resumedInPlace": "Resumed in place",
+  "restore.ledger.recreated": "Recreated",
+  "restore.ledger.deferred": "Deferred",
+  "restore.ledger.excluded": "Excluded",
+  "restore.ledger.failed": "Failed",
+  "restore.ledger.totals": "Totals: {alreadyActive} already-active, {attached} attached, {resumed} resumed, {recreated} recreated, {deferred} deferred, {excluded} excluded, {failed} failed",
   "restore.ledger.noCandidates": "No sessions to restore",
+  "restore.blocker.staleHost": "stale native PTY host lacks foreground/controller visibility; attach manually or run `h2a doctor` to inspect and drain stale hosts",
+  "restore.conflict.managedName": "registry conflict for \"{label}\" ({managedName}): attach-live row \"{runId}\" and hook row \"{hookId}\" share one managed name; kept one attach",
   "restore.group.shared": "Shared",
   // Station (panel lot S1): every label the single-terminal station prints.
   "station.refusal.notTty": "restore --station needs an interactive terminal (stdin and stdout must be a TTY); nothing was opened.",

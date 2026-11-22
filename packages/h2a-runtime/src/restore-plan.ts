@@ -8,6 +8,12 @@
  */
 
 import type { LayoutConfig } from "./config.js";
+import { humanOutputText } from "./human-output.js";
+import {
+  applicationForeground,
+  UNKNOWN_APPLICATION_FOREGROUND,
+  type ApplicationForeground,
+} from "./native-terminal/protocol.js";
 import {
   isManagedLocalKind,
   looksLikeConversationUuid,
@@ -38,12 +44,14 @@ export type HostViewSnapshot = {
     | {
         readonly known: true;
         readonly complete?: boolean;
-        /** RUNNING native sessions only, with the controller-visibility bit. */
-        readonly sessions: ReadonlyArray<{
-          readonly name: string;
-          readonly controlled: boolean | undefined;
-          readonly socketPath?: string | undefined;
-        }>;
+        /** RUNNING native sessions only, with controller-visibility + optional foreground facets. */
+        readonly sessions: ReadonlyArray<
+          {
+            readonly name: string;
+            readonly controlled: boolean | undefined;
+            readonly socketPath?: string | undefined;
+          } & Partial<ApplicationForeground>
+        >;
       }
     | { readonly known: false };
 };
@@ -149,7 +157,78 @@ export type ConvIdResolution = {
   /** conversation ids OWNED by a run entry — the matching hook entry is a dup of
    *  the same conversation and must not ALSO surface as an anonymous tab. */
   claimedConvIds: Set<string>;
+  /** exact managed names owned by human managed run entries (D4 read-path join). */
+  claimedManagedNames?: Set<string>;
 };
+
+export type RegistryConflictNote = {
+  readonly managedName: string;
+  readonly label: string;
+  readonly runId: string;
+  readonly hookId: string;
+  readonly hookConvId?: string | undefined;
+};
+
+export type RestoreLedgerOutcome =
+  | "already-active"
+  | "attached"
+  | "resumed-in-place"
+  | "recreated"
+  | `excluded:${string}`
+  | `deferred:${string}`
+  | `failed:${string}`;
+
+export type RestoreLedgerEntry = {
+  readonly key: string;
+  readonly label: string;
+  readonly managedName?: string | undefined;
+  readonly outcome: RestoreLedgerOutcome;
+};
+
+export type RestoreObservedTotals = {
+  readonly total: number;
+  readonly alreadyActive: number;
+  readonly attached: number;
+  readonly resumedInPlace: number;
+  readonly recreated: number;
+  readonly resumed: number;
+  readonly excluded: number;
+  readonly deferred: number;
+  readonly failed: number;
+};
+
+/** Recompute D2 observed totals strictly from the per-session ledger rows. */
+export function summarizeRestoreLedger(
+  entries: readonly RestoreLedgerEntry[],
+): RestoreObservedTotals {
+  let alreadyActive = 0;
+  let attached = 0;
+  let resumedInPlace = 0;
+  let recreated = 0;
+  let excluded = 0;
+  let deferred = 0;
+  let failed = 0;
+  for (const entry of entries) {
+    if (entry.outcome === "already-active") alreadyActive += 1;
+    else if (entry.outcome === "attached") attached += 1;
+    else if (entry.outcome === "resumed-in-place") resumedInPlace += 1;
+    else if (entry.outcome === "recreated") recreated += 1;
+    else if (entry.outcome.startsWith("excluded:")) excluded += 1;
+    else if (entry.outcome.startsWith("deferred:")) deferred += 1;
+    else if (entry.outcome.startsWith("failed:")) failed += 1;
+  }
+  return {
+    total: entries.length,
+    alreadyActive,
+    attached,
+    resumedInPlace,
+    recreated,
+    resumed: resumedInPlace,
+    excluded,
+    deferred,
+    failed,
+  };
+}
 
 /**
  * One host-probe lookup consumed by the restore PLAN (attach-live gate).
@@ -263,6 +342,7 @@ export type RestorePlanResult = {
   readonly ambiguousDualHostNames: readonly string[];
   readonly remoteBackedLabels: readonly string[];
   readonly remoteBackedCount: number;
+  readonly registryConflicts: readonly RegistryConflictNote[];
 };
 
 export type TabLaunchDecision =
@@ -272,18 +352,33 @@ export type TabLaunchDecision =
       readonly command: string;
       readonly attachSession?: string | undefined;
       readonly remote?: boolean | undefined;
+      readonly ledgerOutcome: RestoreLedgerOutcome;
       readonly notice?: undefined;
     }
   | {
       readonly kind: "launch";
       readonly tab: LayoutTab;
       readonly command: string;
+      readonly ledgerOutcome: RestoreLedgerOutcome;
       readonly notice?: undefined;
     }
   | {
       readonly kind: "skip-live";
       readonly tab: LayoutTab;
       readonly reason: "already-controlled" | "already-attached";
+      readonly ledgerOutcome: RestoreLedgerOutcome;
+      readonly staleHost?: boolean | undefined;
+      readonly notice?: string | undefined;
+    }
+  | {
+      readonly kind: "defer";
+      readonly tab: LayoutTab;
+      readonly reason:
+        | "needs-inject"
+        | "foreground-other"
+        | "foreground-unknown"
+        | "unresolved-conversation";
+      readonly ledgerOutcome: RestoreLedgerOutcome;
       readonly notice?: string | undefined;
     }
   | {
@@ -296,7 +391,9 @@ export type TabLaunchDecision =
         | "attach-live-gone"
         | "ambiguous-slug";
       readonly skippedLive?: boolean | undefined;
-      readonly notice: string;
+      readonly ledgerOutcome: RestoreLedgerOutcome;
+      readonly staleHost?: boolean | undefined;
+      readonly notice?: string | undefined;
     };
 
 export type LayoutLaunchPlanWindow = {
@@ -374,10 +471,12 @@ export function reconcileRunConvIdsPure(
   const resolvedSid = new Map<string, string>();
   const unresolvedRunIds = new Set<string>();
   const claimedConvIds = new Set<string>();
+  const claimedManagedNames = new Set<string>();
 
   for (const r of entries) {
     if (!isManagedLocalKind(r.kind) || r.source !== "run") continue;
     if (deriveLegacySessionClass(r, evidence) !== "human") continue;
+    claimedManagedNames.add(r.tmuxSession ?? localSessionName(r.id));
     const hooks = hooksByCwd.get(r.cwd) ?? [];
 
     if (looksLikeConversationUuid(r.convId)) {
@@ -408,7 +507,7 @@ export function reconcileRunConvIdsPure(
     claimedConvIds.add(r.convId);
   }
 
-  return { resolvedSid, unresolvedRunIds, claimedConvIds };
+  return { resolvedSid, unresolvedRunIds, claimedConvIds, claimedManagedNames };
 }
 
 /**
@@ -485,6 +584,34 @@ export function registrySessionsPure(
   const probes = managedHostProbes(liveView);
   const registryReadForResolve = { state: "ok" as const, entries: [...entries], unreadable };
 
+  // Pre-compute surviving managed run names independently of entry order so
+  // `[hook, run]` and `[run, hook]` produce the exact same single session.
+  const activeRunManagedNames = new Set<string>();
+  for (const e of entries) {
+    if (!isManagedLocalKind(e.kind) || e.source !== "run") continue;
+    if (
+      e.delegationOrigin !== undefined ||
+      e.delegatorInstance !== undefined ||
+      e.delegatorTmuxSession !== undefined ||
+      e.parent !== undefined
+    ) {
+      continue;
+    }
+    if (deriveLegacySessionClass(e, evidence) !== "human") continue;
+    const projectMaybe = projectForCwd(src, e.cwd);
+    if (!e.cwd.startsWith(`${src}/`) || !projectMaybe) continue;
+    if (resolution && resolution.unresolvedRunIds.has(e.id)) {
+      const candidates = e.tmuxSession
+        ? [e.tmuxSession]
+        : managedSessionCandidates(e.id);
+      const live = liveView?.(e.kind, candidates);
+      if (live === undefined || live.state !== "live") continue;
+      activeRunManagedNames.add(live.name);
+      continue;
+    }
+    activeRunManagedNames.add(e.tmuxSession ?? localSessionName(e.id));
+  }
+
   for (const e of entries) {
     const key = `registry:${e.id}`;
     const label = e.label ?? e.id;
@@ -560,11 +687,12 @@ export function registrySessionsPure(
     }
 
     if (
-      resolution &&
       e.kind === "local" &&
       e.source === "hook" &&
-      e.convId !== undefined &&
-      resolution.claimedConvIds.has(e.convId)
+      ((resolution !== undefined &&
+        e.convId !== undefined &&
+        resolution.claimedConvIds.has(e.convId)) ||
+        (e.tmuxSession !== undefined && activeRunManagedNames.has(e.tmuxSession)))
     ) {
       refusals.push({
         outcome: "refused",
@@ -628,9 +756,39 @@ export function registrySessionsPure(
     out.push(session);
   }
 
-  return { sessions: out, refusals };
+  const { merged, duplicates } = mergeDiscoveredDetailed(out, []);
+  for (const dup of duplicates) {
+    refusals.push({
+      outcome: "refused",
+      key: discoveredKey(dup),
+      label: dup.label ?? dup.project,
+      project: dup.project,
+      reason: "duplicate-conversation",
+      session: dup,
+    });
+  }
+  return { sessions: merged, refusals };
 }
 
+function shouldReplaceDiscovered(
+  prior: DiscoveredSession,
+  candidate: DiscoveredSession,
+): boolean {
+  if (prior.origin !== "registry" && candidate.origin === "registry") return true;
+  if (prior.origin === "registry" && candidate.origin !== "registry") return false;
+  if (prior.attachLive !== true && candidate.attachLive === true) return true;
+  if (prior.attachLive === true && candidate.attachLive !== true) return false;
+  if (prior.hostKind === undefined && candidate.hostKind !== undefined) return true;
+  if (prior.hostKind !== undefined && candidate.hostKind === undefined) return false;
+  return candidate.mtimeMs > prior.mtimeMs;
+}
+
+/**
+ * Deduplicate discovered sessions on read in D4 key order:
+ * 1) exact managed name (unless dual-host ambiguous, which F4 drops separately),
+ * 2) conversation UUID (`sid`),
+ * 3) registry id (`registryId`).
+ */
 export function mergeDiscoveredDetailed(
   registry: readonly DiscoveredSession[],
   scanned: readonly DiscoveredSession[],
@@ -642,33 +800,54 @@ export function mergeDiscoveredDetailed(
     ...registry,
     ...scanned.map((s) => ({ ...s, origin: "scan" as const })),
   ];
-  const deduped: DiscoveredSession[] = [];
+  const deduped: Array<DiscoveredSession | undefined> = [];
   const duplicates: DiscoveredSession[] = [];
+  const indexByManagedName = new Map<string, number>();
   const indexByResumeId = new Map<string, number>();
+  const indexByRegistryId = new Map<string, number>();
+
+  const registerKeys = (session: DiscoveredSession, idx: number): void => {
+    if (session.managedName !== undefined && session.hostAmbiguous !== true) {
+      indexByManagedName.set(session.managedName, idx);
+    }
+    if (session.sid.length > 0) {
+      indexByResumeId.set(session.sid, idx);
+    }
+    if (session.registryId !== undefined) {
+      indexByRegistryId.set(session.registryId, idx);
+    }
+  };
 
   for (const session of combined) {
-    if (session.sid.length === 0) {
-      deduped.push(session);
-      continue;
-    }
-    const priorIndex = indexByResumeId.get(session.sid);
+    const priorIndex =
+      (session.managedName !== undefined && session.hostAmbiguous !== true
+        ? indexByManagedName.get(session.managedName)
+        : undefined) ??
+      (session.sid.length > 0 ? indexByResumeId.get(session.sid) : undefined) ??
+      (session.registryId !== undefined
+        ? indexByRegistryId.get(session.registryId)
+        : undefined);
+
     if (priorIndex === undefined) {
-      indexByResumeId.set(session.sid, deduped.length);
+      const idx = deduped.length;
       deduped.push(session);
+      registerKeys(session, idx);
       continue;
     }
+
     const prior = deduped[priorIndex]!;
-    if (
-      (prior.origin !== "registry" && session.origin === "registry") ||
-      (prior.origin === session.origin && session.mtimeMs > prior.mtimeMs)
-    ) {
+    if (shouldReplaceDiscovered(prior, session)) {
       duplicates.push(prior);
       deduped[priorIndex] = session;
+      registerKeys(session, priorIndex);
     } else {
       duplicates.push(session);
     }
   }
-  return { merged: deduped, duplicates };
+  return {
+    merged: deduped.filter((s): s is DiscoveredSession => s !== undefined),
+    duplicates,
+  };
 }
 
 export function mergeDiscovered(
@@ -910,6 +1089,7 @@ export function buildRestorePlan(
       ambiguousDualHostNames: [],
       remoteBackedLabels: [],
       remoteBackedCount: 0,
+      registryConflicts: [],
     };
   }
 
@@ -1113,6 +1293,30 @@ export function buildRestorePlan(
 
   const total = windows.reduce((n, w) => n + w.tabs.length, 0);
 
+  const attachLiveByManagedName = new Map<string, DiscoveredSession>();
+  for (const s of allDiscovered) {
+    if (s.attachLive === true && s.managedName !== undefined) {
+      attachLiveByManagedName.set(s.managedName, s);
+    }
+  }
+  const registryConflicts: RegistryConflictNote[] = [];
+  const seenConflictKeys = new Set<string>();
+  for (const e of registryEntries) {
+    if (e.kind !== "local" || e.source !== "hook" || !e.tmuxSession) continue;
+    const attachSession = attachLiveByManagedName.get(e.tmuxSession);
+    if (!attachSession) continue;
+    const conflictKey = `${e.tmuxSession}\x00${e.id}`;
+    if (seenConflictKeys.has(conflictKey)) continue;
+    seenConflictKeys.add(conflictKey);
+    registryConflicts.push({
+      managedName: e.tmuxSession,
+      label: attachSession.label ?? attachSession.registryId ?? e.tmuxSession,
+      runId: attachSession.registryId ?? e.tmuxSession,
+      hookId: e.id,
+      ...(e.convId !== undefined ? { hookConvId: e.convId } : {}),
+    });
+  }
+
   return {
     ok: true,
     windows,
@@ -1126,6 +1330,7 @@ export function buildRestorePlan(
       ...new Set(remoteBacked.map((s) => s.label ?? s.project)),
     ],
     remoteBackedCount: remoteBacked.length,
+    registryConflicts,
   };
 }
 
@@ -1193,13 +1398,19 @@ export function ambiguousLiveSessionNames(
   return new Map([...namesBySlug].filter(([, names]) => names.length > 1));
 }
 
+type NativeSessionDecisionView = {
+  readonly controlled: boolean | undefined;
+  readonly foreground: ApplicationForeground;
+  readonly hasForegroundFacet: boolean;
+};
+
 type LayoutDecisionContext = {
   readonly hostView: HostViewSnapshot;
   readonly tmuxKnown: boolean;
   readonly tmuxReason: string | undefined;
   readonly tmuxSessions: ReadonlyArray<LocalSession>;
   readonly nativeSessionsByName:
-    | ReadonlyMap<string, { controlled: boolean | undefined }>
+    | ReadonlyMap<string, NativeSessionDecisionView>
     | undefined;
   readonly ambiguousNativeNames: ReadonlySet<string>;
   readonly liveSessions: ReadonlyArray<{
@@ -1212,6 +1423,49 @@ type LayoutDecisionContext = {
   readonly tabOpts: { forceGateway?: "gateway" | "direct" };
 };
 
+function normalizeNativeForegroundView(
+  session: Partial<ApplicationForeground>,
+): { foreground: ApplicationForeground; hasForegroundFacet: boolean } {
+  const hasForegroundFacet = session.applicationFacet !== undefined;
+  if (!hasForegroundFacet) {
+    return { foreground: UNKNOWN_APPLICATION_FOREGROUND, hasForegroundFacet: false };
+  }
+  if (
+    session.foregroundRevision !== undefined ||
+    session.foregroundProcessGroup !== undefined
+  ) {
+    return {
+      foreground: applicationForeground(session),
+      hasForegroundFacet: true,
+    };
+  }
+  const facet = session.applicationFacet;
+  const inc = session.applicationIncarnation;
+  if ((facet === "cli" || facet === "other") && typeof inc === "string" && inc.length > 0) {
+    return {
+      foreground: {
+        applicationFacet: facet,
+        applicationIncarnation: inc,
+        foregroundProcessGroup: null,
+        foregroundRevision: 0,
+      },
+      hasForegroundFacet: true,
+    };
+  }
+  if (facet === "shell" && (inc === undefined || inc === null)) {
+    return {
+      foreground: {
+        applicationFacet: "shell",
+        applicationIncarnation: null,
+        foregroundProcessGroup: null,
+        foregroundRevision: 0,
+      },
+      hasForegroundFacet: true,
+    };
+  }
+  return { foreground: UNKNOWN_APPLICATION_FOREGROUND, hasForegroundFacet: true };
+}
+
 function createLayoutDecisionContext(
   hostView: HostViewSnapshot,
   opts: LayoutLaunchOptions = {},
@@ -1222,12 +1476,15 @@ function createLayoutDecisionContext(
     ? hostView.tmux.sessions
     : [];
   const nativeSessionsByName:
-    | ReadonlyMap<string, { controlled: boolean | undefined }>
+    | ReadonlyMap<string, NativeSessionDecisionView>
     | undefined = hostView.native.known
     ? new Map(
         hostView.native.sessions.map((session) => [
           session.name,
-          { controlled: session.controlled },
+          {
+            controlled: session.controlled,
+            ...normalizeNativeForegroundView(session),
+          },
         ]),
       )
     : undefined;
@@ -1291,6 +1548,7 @@ function decideTabWithContext(
       tab: t,
       command: tabCommand(t),
       remote: true,
+      ledgerOutcome: "attached",
     };
   }
   const slug = slugify(t.label);
@@ -1302,6 +1560,7 @@ function decideTabWithContext(
         kind: "refuse",
         tab: t,
         reason: "ambiguous-owner",
+        ledgerOutcome: "failed:ambiguous-owner",
         notice: `[h2a] restore: ambiguous-owner for "${t.label}"; refusing attach or recreation\n`,
       };
     }
@@ -1315,16 +1574,59 @@ function decideTabWithContext(
         kind: "refuse",
         tab: t,
         reason: "native-host-unknown",
+        ledgerOutcome: "deferred:native-host-unknown",
         notice: `[h2a] restore: native host state UNKNOWN — "${t.label}" neither relaunched nor attached (fail closed)\n`,
       };
     }
     const view = ctx.nativeSessionsByName.get(exact);
     if (view !== undefined) {
+      if (view.controlled === undefined) {
+        return {
+          kind: "refuse",
+          tab: t,
+          reason: "controller-visibility-unknown",
+          ledgerOutcome: "deferred:stale-host",
+          staleHost: true,
+        };
+      }
       if (view.controlled === true) {
+        const facet = view.foreground.applicationFacet;
+        if (facet === "shell") {
+          if (!t.attachLive && Boolean(t.sid)) {
+            return {
+              kind: "defer",
+              tab: t,
+              reason: "needs-inject",
+              ledgerOutcome: "deferred:needs-inject",
+            };
+          }
+          return {
+            kind: "defer",
+            tab: t,
+            reason: "unresolved-conversation",
+            ledgerOutcome: "deferred:unresolved-conversation",
+          };
+        }
+        if (facet === "other") {
+          return {
+            kind: "defer",
+            tab: t,
+            reason: "foreground-other",
+            ledgerOutcome: "deferred:foreground-other",
+          };
+        }
+        const staleHost = facet === "unknown" && !view.hasForegroundFacet;
         return {
           kind: "skip-live",
           tab: t,
           reason: "already-controlled",
+          ledgerOutcome:
+            facet === "cli"
+              ? "already-active"
+              : staleHost
+                ? "deferred:stale-host"
+                : "deferred:foreground-unknown",
+          ...(staleHost ? { staleHost: true } : {}),
           ...(ctx.includeAttached
             ? {
                 notice: `[h2a] restore: "${t.label}" is already controlled in a terminal; not opening a second controller\n`,
@@ -1332,19 +1634,12 @@ function decideTabWithContext(
             : {}),
         };
       }
-      if (view.controlled === undefined) {
-        return {
-          kind: "refuse",
-          tab: t,
-          reason: "controller-visibility-unknown",
-          notice: `[h2a] restore: controller visibility UNKNOWN for running native session "${t.label}"; attach manually: h2a attach ${exact}\n`,
-        };
-      }
       return {
         kind: "attach",
         tab: t,
         attachSession: exact,
         command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+        ledgerOutcome: "attached",
       };
     }
     if (t.attachLive) {
@@ -1352,6 +1647,7 @@ function decideTabWithContext(
         kind: "refuse",
         tab: t,
         reason: "attach-live-gone",
+        ledgerOutcome: "failed:attach-live-gone",
         notice: `[h2a] restore: "${t.label}" was live at plan time but is gone; no resolved conversation exists to relaunch it\n`,
       };
     }
@@ -1359,6 +1655,7 @@ function decideTabWithContext(
       kind: "launch",
       tab: t,
       command: tabCommand(t, new Set(), ctx.tabOpts),
+      ledgerOutcome: "recreated",
     };
   }
 
@@ -1370,6 +1667,7 @@ function decideTabWithContext(
         tab: t,
         attachSession: exact,
         command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+        ledgerOutcome: "attached",
       };
     }
     const liveTmux = ctx.tmuxSessions.find((session) => session.name === exact);
@@ -1379,6 +1677,7 @@ function decideTabWithContext(
           kind: "skip-live",
           tab: t,
           reason: "already-attached",
+          ledgerOutcome: "already-active",
         };
       }
       return {
@@ -1386,6 +1685,7 @@ function decideTabWithContext(
         tab: t,
         attachSession: exact,
         command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+        ledgerOutcome: "attached",
       };
     }
     if (t.attachLive) {
@@ -1393,6 +1693,7 @@ function decideTabWithContext(
         kind: "refuse",
         tab: t,
         reason: "attach-live-gone",
+        ledgerOutcome: "failed:attach-live-gone",
         notice: `[h2a] restore: "${t.label}" was live at plan time but is gone; no resolved conversation exists to relaunch it\n`,
       };
     }
@@ -1400,6 +1701,7 @@ function decideTabWithContext(
       kind: "launch",
       tab: t,
       command: tabCommand(t, new Set(), ctx.tabOpts),
+      ledgerOutcome: "recreated",
     };
   }
 
@@ -1411,6 +1713,7 @@ function decideTabWithContext(
       tab: t,
       attachSession: exact,
       command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+      ledgerOutcome: "attached",
     };
   }
   const names = ctx.ambiguousLiveNames.get(slug);
@@ -1421,6 +1724,7 @@ function decideTabWithContext(
       tab: t,
       reason: "ambiguous-slug",
       skippedLive: true,
+      ledgerOutcome: "failed:ambiguous-slug",
       notice:
         `[h2a] restore skipped "${t.label}": local session slug is ambiguous (${sorted.join(", ")}); ` +
         `attach explicitly with h2a attach ${sorted[0]} or h2a attach ${sorted[1]}\n`,
@@ -1432,6 +1736,7 @@ function decideTabWithContext(
       kind: "skip-live",
       tab: t,
       reason: "already-attached",
+      ledgerOutcome: "already-active",
     };
   }
   if (
@@ -1443,6 +1748,7 @@ function decideTabWithContext(
       kind: "refuse",
       tab: t,
       reason: "native-host-unknown",
+      ledgerOutcome: "deferred:native-host-unknown",
       notice: `[h2a] restore: native host state UNKNOWN — "${t.label}" not launched (fail closed)\n`,
     };
   }
@@ -1454,12 +1760,14 @@ function decideTabWithContext(
       command: tabCommand(t, new Set([slug]), {
         attachSession: liveSession.name,
       }),
+      ledgerOutcome: "attached",
     };
   }
   return {
     kind: "launch",
     tab: t,
     command: tabCommand(t, new Set(), ctx.tabOpts),
+    ledgerOutcome: "recreated",
   };
 }
 
@@ -1489,6 +1797,7 @@ export function planLayoutLaunch(
   }
   const skippedLive: string[] = [];
   const plannedWindows: LayoutLaunchPlanWindow[] = [];
+  let sawStaleHost = false;
 
   for (const win of windows) {
     const decisions: TabLaunchDecision[] = [];
@@ -1496,16 +1805,26 @@ export function planLayoutLaunch(
     for (const t of win.tabs) {
       const decision = decideTabWithContext(t, ctx);
       decisions.push(decision);
+      if (
+        (decision.kind === "skip-live" || decision.kind === "refuse") &&
+        decision.staleHost === true
+      ) {
+        sawStaleHost = true;
+      }
       if (decision.kind === "attach" || decision.kind === "launch") {
         activeTabs.push({ tab: t, command: decision.command });
       } else if (
         decision.kind === "skip-live" ||
-        decision.skippedLive === true
+        (decision.kind === "refuse" && decision.skippedLive === true)
       ) {
         skippedLive.push(t.label);
       }
     }
     plannedWindows.push({ title: win.title, decisions, activeTabs });
+  }
+
+  if (sawStaleHost) {
+    warnings.push(`[h2a] restore: ${humanOutputText("restore.blocker.staleHost")}\n`);
   }
 
   return { warnings, windows: plannedWindows, skippedLive };

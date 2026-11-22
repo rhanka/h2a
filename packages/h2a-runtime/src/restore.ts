@@ -24,8 +24,11 @@ import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 
 import {
   launchLayout,
+  launchLayoutWithOutcomes,
+  planLayoutLaunch,
   tabCommand,
   type HostViewSnapshot,
+  type TabLaunchOutcome,
 } from "./launch-layout.js";
 import {
   buildRestorePlan,
@@ -41,13 +44,18 @@ import {
   reconcileRunConvIdsPure,
   registrySessionsPure,
   sessionIdentitySlug,
+  summarizeRestoreLedger,
   type ConvIdResolution,
   type DiscoveredSession,
   type LayoutTab,
   type LayoutWindow,
   type LegacySessionEvidence,
   type ManagedLiveLookup,
+  type RegistryConflictNote,
   type RemoteTab,
+  type RestoreLedgerEntry,
+  type RestoreLedgerOutcome,
+  type RestoreObservedTotals,
 } from "./restore-plan.js";
 
 import {
@@ -81,10 +89,13 @@ export {
   ambiguousLiveSessionNames,
   decideLayoutTab,
   launchLayout,
+  launchLayoutWithOutcomes,
   planLayoutLaunch,
   tabCommand,
   type HostViewSnapshot,
+  type LaunchLayoutDetailedResult,
   type TabLaunchDecision,
+  type TabLaunchOutcome,
 } from "./launch-layout.js";
 export {
   buildRestorePlan,
@@ -97,14 +108,19 @@ export {
   managedLiveLookupFromSnapshot,
   mergeDiscovered,
   sessionIdentitySlug,
+  summarizeRestoreLedger,
   type ConvIdResolution,
   type DiscoveredSession,
   type LayoutTab,
   type LayoutWindow,
   type LegacySessionEvidence,
   type ManagedLiveLookup,
+  type RegistryConflictNote,
   type RemoteTab,
   type RestoreClassificationOutcome,
+  type RestoreLedgerEntry,
+  type RestoreLedgerOutcome,
+  type RestoreObservedTotals,
   type RestorePlanOptions,
   type RestorePlanResult,
   type RestorePlanSnapshot,
@@ -377,10 +393,49 @@ export type RestoreOptions = {
   stderr?: NodeJS.WriteStream;
 };
 
+export type RestoreResult = {
+  windows: LayoutWindow[];
+  total: number;
+  dropped: number;
+  ledger: RestoreLedgerEntry[];
+  observedTotals: RestoreObservedTotals;
+  exitCode: number;
+  registryConflicts: readonly RegistryConflictNote[];
+};
+
+function formatCatalogMessage(
+  key: string,
+  vars: Record<string, string | number>,
+): string {
+  let msg = humanOutputText(key);
+  for (const [k, v] of Object.entries(vars)) {
+    msg = msg.split(`{${k}}`).join(String(v));
+  }
+  return msg;
+}
+
+function nonSelectedPrimaryOutcome(
+  c: RestorePlanResult["classifications"][number],
+): RestoreLedgerOutcome | undefined {
+  if (c.outcome === "explicit-overflow") return `excluded:${c.reason}`;
+  if (c.outcome === "shared-overflow") return `excluded:${c.reason}`;
+  if (c.outcome !== "refused") return undefined;
+  switch (c.reason) {
+    case "unresolved-conversation":
+    case "host-unknown":
+      return `deferred:${c.reason}`;
+    case "dual-host-ambiguous":
+      return `failed:${c.reason}`;
+    case "remote-backed":
+    case "group-filter":
+      return `excluded:${c.reason}`;
+    default:
+      return undefined;
+  }
+}
+
 /** Full restore: discover (local) + inject SCW (remote) -> order -> filter -> launch. */
-export function restore(
-  opts: RestoreOptions = {},
-): { windows: LayoutWindow[]; total: number; dropped: number } {
+export function restore(opts: RestoreOptions = {}): RestoreResult {
   const cfg = getLayoutConfig();
   const stderr = opts.stderr ?? process.stderr;
   const remoteTabs = opts.remoteTabs ?? [];
@@ -390,7 +445,16 @@ export function restore(
     stderr.write(
       `[h2a] restore refused: the local registry is unreadable (${registryRead.reason}); nothing was launched (fail closed).\n`,
     );
-    return { windows: [], total: 0, dropped: 0 };
+    const ledger: RestoreLedgerEntry[] = [];
+    return {
+      windows: [],
+      total: 0,
+      dropped: 0,
+      ledger,
+      observedTotals: summarizeRestoreLedger(ledger),
+      exitCode: 1,
+      registryConflicts: [],
+    };
   }
   const evidence = legacySessionEvidence(home);
   const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
@@ -422,6 +486,16 @@ export function restore(
     }
   }
 
+  for (const conflict of plan.registryConflicts) {
+    stderr.write(
+      `[h2a] ${formatCatalogMessage("restore.conflict.managedName", {
+        label: conflict.label,
+        managedName: conflict.managedName,
+        runId: conflict.runId,
+        hookId: conflict.hookId,
+      })}\n`,
+    );
+  }
   for (const skip of plan.unresolvedSkipEntries) {
     stderr.write(
       `[h2a] restore skipped "${skip.label}": no resolved conversation id ` +
@@ -453,19 +527,87 @@ export function restore(
   }
   if (dropped > 0 && !opts.group)
     stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);
+
+  const launchOpts = {
+    ...(opts.reattach ? { reattach: true } : {}),
+    ...(opts.forceGateway ? { forceGateway: opts.forceGateway } : {}),
+  };
+
+  let tabOutcomes: TabLaunchOutcome[] = [];
   if (!opts.dryRun && total > 0) {
-    launchLayout(windows, hostView, stderr, {
-      ...(opts.reattach ? { reattach: true } : {}),
-      ...(opts.forceGateway ? { forceGateway: opts.forceGateway } : {}),
-    });
-    // Auto-record the launched layout (inspect with `remote layout show`).
-    try {
-      writeLastLayout(windows, opts.group);
-    } catch {
-      // best-effort: the windows are open regardless
+    const launched = launchLayoutWithOutcomes(windows, hostView, stderr, launchOpts);
+    tabOutcomes = launched.tabOutcomes;
+    if (launched.opened > 0) {
+      // Auto-record the launched layout (inspect with `remote layout show`).
+      try {
+        writeLastLayout(windows, opts.group);
+      } catch {
+        // best-effort: the windows are open regardless
+      }
     }
+  } else if (total > 0) {
+    const dryPlan = planLayoutLaunch(windows, hostView, launchOpts);
+    for (const warning of dryPlan.warnings) {
+      stderr.write(warning);
+    }
+    tabOutcomes = dryPlan.windows.flatMap((w) =>
+      w.decisions.map((decision) => ({
+        tab: decision.tab,
+        decision,
+        outcome:
+          decision.kind === "attach" || decision.kind === "launch"
+            ? ("deferred:dry-run" as const)
+            : decision.ledgerOutcome,
+      })),
+    );
   }
-  return { windows, total, dropped };
+
+  const selectedKeyByTab = new Map<LayoutTab, string>();
+  for (const c of plan.classifications) {
+    if (c.outcome === "selected") selectedKeyByTab.set(c.tab, c.key);
+  }
+  const ledger: RestoreLedgerEntry[] = tabOutcomes.map((item, idx) => ({
+    key:
+      selectedKeyByTab.get(item.tab) ??
+      (item.tab.remoteId
+        ? `remote:${item.tab.remoteId}`
+        : `tab:${item.tab.managedName ?? item.tab.label}:${idx}`),
+    label: item.tab.label,
+    ...(item.tab.managedName !== undefined
+      ? { managedName: item.tab.managedName }
+      : {}),
+    outcome: item.outcome,
+  }));
+
+  for (const c of plan.classifications) {
+    const outcome = nonSelectedPrimaryOutcome(c);
+    if (outcome === undefined) continue;
+    const managedName = "session" in c ? c.session?.managedName : undefined;
+    ledger.push({
+      key: c.key,
+      label: c.label,
+      ...(managedName !== undefined ? { managedName } : {}),
+      outcome,
+    });
+  }
+
+  const observedTotals = summarizeRestoreLedger(ledger);
+  const hasBlockerOrFailure = ledger.some(
+    (entry) =>
+      entry.outcome.startsWith("failed:") ||
+      entry.outcome.startsWith("deferred:"),
+  );
+  const exitCode = opts.dryRun ? (plan.ok ? 0 : 1) : hasBlockerOrFailure ? 1 : 0;
+
+  return {
+    windows,
+    total,
+    dropped,
+    ledger,
+    observedTotals,
+    exitCode,
+    registryConflicts: plan.registryConflicts,
+  };
 }
 
 // ---------------------------------------------------------------------------
