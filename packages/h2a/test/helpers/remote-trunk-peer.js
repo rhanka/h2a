@@ -748,7 +748,7 @@ export class FakeBinaryTrunkPeer {
       sid: open.sid,
       mode: open.mode ?? "observe",
       afterSeq: open.afterSeq ?? null,
-      afterSeqBytes: open.afterSeqBytes ?? 0,
+      receivedSegBytes: open.receivedSegBytes ?? 0,
       ...(open.cols !== undefined ? { cols: open.cols } : {}),
       ...(open.rows !== undefined ? { rows: open.rows } : {})
     });
