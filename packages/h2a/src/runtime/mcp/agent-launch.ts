@@ -6,7 +6,7 @@ import {
   withWriterMutationAsync,
   writerDirectory
 } from "../handover/mutation.js";
-import { withLocksAsync } from "../local-files/locks.js";
+import { LockTimeoutError, withLocksAsync } from "../local-files/locks.js";
 import { currentIdentity, observeProcess } from "../handover/admission.js";
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -857,33 +857,46 @@ export async function recordMcpRunDelegationAsync(
   timeoutMs = 5000,
 ): Promise<void> {
   if (!delegation || result.ok !== true || result.state !== "started") return;
-  const registryDir = join(root, "registry");
-  mkdirSync(registryDir, { recursive: true, mode: 0o700 });
-  const regLock = join(registryDir, ".lock");
-  const deadline = performance.now() + timeoutMs;
-  while (true) {
-    const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
-    const attempt = await withLocksAsync(
-      [regLock],
-      async () => {
-        try {
-          await withWriterMutationAsync(root, "registry", () => recordMcpRunDelegationUnfenced(root, result, delegation, eventId), { nonBlocking: true });
-          return { ok: true as const };
-        } catch (error) {
-          if (error instanceof MutationLockUnavailableError || (error as { code?: string })?.code === "mutation_lock_unavailable") {
-            return { ok: false as const };
+  try {
+    const registryDir = join(root, "registry");
+    mkdirSync(registryDir, { recursive: true, mode: 0o700 });
+    const regLock = join(registryDir, ".lock");
+    const deadline = performance.now() + timeoutMs;
+    while (true) {
+      const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
+      const attempt = await withLocksAsync(
+        [regLock],
+        async () => {
+          try {
+            await withWriterMutationAsync(root, "registry", () => recordMcpRunDelegationUnfenced(root, result, delegation, eventId), { nonBlocking: true });
+            return { ok: true as const };
+          } catch (error) {
+            if (error instanceof MutationLockUnavailableError || (error as { code?: string })?.code === "mutation_lock_unavailable") {
+              return { ok: false as const };
+            }
+            throw error;
           }
-          throw error;
-        }
-      },
-      { timeoutMs: remaining }
-    );
-    if (attempt.ok) return;
-    const waitRemaining = deadline - performance.now();
-    if (waitRemaining <= 0) throw new MutationLockUnavailableError({ status: 1, signal: null });
-    const wdir = writerDirectory(root);
-    if (existsSync(wdir)) {
-      await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+        },
+        { timeoutMs: remaining }
+      );
+      if (attempt.ok) return;
+      const waitRemaining = deadline - performance.now();
+      if (waitRemaining <= 0) return;
+      const wdir = writerDirectory(root);
+      if (existsSync(wdir)) {
+        await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+      }
     }
+  } catch (error) {
+    // A missing attestation is fail-closed as J?, but lock contention or I/O
+    // failure must never turn a worker that already started into a launch failure.
+    if (
+      error instanceof MutationLockUnavailableError ||
+      error instanceof LockTimeoutError ||
+      (error as { code?: string } | undefined)?.code === "mutation_lock_unavailable"
+    ) {
+      return;
+    }
+    throw error;
   }
 }

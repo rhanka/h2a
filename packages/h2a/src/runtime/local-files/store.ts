@@ -64,14 +64,17 @@ import { appendLaunchRow, launchLookupKey, lookupLaunchRows } from "./launch-ind
 import {
   inboxDir,
   inboxDirRaw,
+  isHostQualifiedAddress,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
   outboxDir,
   outboxDirRaw,
+  resolveRecipient,
   safePathSegment,
   type LocalStorePaths
 } from "./paths.js";
+import { listPresence } from "./presence.js";
 import {
   H2A_STORE_SCHEMA_FILE,
   H2A_STORE_SCHEMA_VERSION,
@@ -274,7 +277,7 @@ export interface LocalStore {
     toolName: string,
     args: Record<string, unknown> | undefined,
     fn: () => T,
-    options?: { timeoutMs?: number }
+    options?: { timeoutMs?: number; signerInstance?: string }
   ): Promise<T>;
 }
 
@@ -506,9 +509,77 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const inboxLock = (actor: string): string => join(inboxDir(paths, actor), ".lock");
   const outboxLock = (actor: string): string => join(outboxDir(paths, actor), ".lock");
 
+  function resolveConductorRemoteTarget(
+    args: Record<string, unknown> | undefined
+  ): string | undefined {
+    if (typeof args?.remote === "string" && args.remote.length > 0) {
+      return args.remote;
+    }
+    const sessions = listPresence(paths.root);
+    const remoteSessions = sessions.filter(
+      (s) => s.host === "remote" || (s.instance && s.instance.startsWith("remote:"))
+    );
+    if (remoteSessions.length === 0) return undefined;
+    const withPane = remoteSessions.filter((s) => s.launchContext?.tmux?.pane);
+    return (withPane.length > 0 ? withPane[0] : remoteSessions[0])?.instance;
+  }
+
+  function resolveInboxLockTarget(action: "put" | "pop", rawInstance: string): string | undefined {
+    const liveSessions = listPresence(paths.root);
+    const registeredIds = listInstances().map((i) => i.instance ?? i.id);
+    const resolution = resolveRecipient({
+      target: rawInstance,
+      liveInstances: liveSessions,
+      registeredInstances: registeredIds,
+      ...(action === "pop" ? { operation: "read" as const } : {})
+    });
+    if (resolution.kind === "refuse" || resolution.kind === "list") return undefined;
+    const recipient = resolution.kind === "deliver-resolved" ? resolution.recipient : rawInstance;
+    if (action === "put" && !isHostQualifiedAddress(recipient)) return undefined;
+    return recipient;
+  }
+
+  function resolveSendLockTarget(rawTo: string): string | undefined {
+    const requestedRecipient = rawTo.trim();
+    if (!requestedRecipient || requestedRecipient.includes("\0")) return undefined;
+    const registrations = listInstances();
+    const fresh = listPresence(paths.root);
+    const live = fresh.filter((session) => {
+      if (session.mirroredAt !== undefined) return true;
+      const pid = session.pid;
+      if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) return false;
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "EPERM";
+      }
+    });
+    let targetStr = requestedRecipient;
+    if (!requestedRecipient.includes(":") && !requestedRecipient.includes("~")) {
+      const key = requestedRecipient.toLocaleLowerCase();
+      const matches = registrations.filter(
+        (registration) => registration.name?.trim().toLocaleLowerCase() === key
+      );
+      if (matches.length > 1) return undefined;
+      if (matches.length === 1) targetStr = matches[0].instance;
+    }
+    const resolution = resolveRecipient({
+      target: targetStr,
+      registeredInstances: registrations.map((entry) => entry.instance),
+      liveInstances: live
+    });
+    if (resolution.kind === "refuse" || resolution.kind === "list") return undefined;
+    let recipient = targetStr;
+    if (resolution.kind === "deliver-resolved") recipient = resolution.recipient;
+    if (resolution.kind === "deliver-hint") recipient = resolution.liveCandidate;
+    return isHostQualifiedAddress(recipient) ? recipient : undefined;
+  }
+
   function resolveToolMutationLocks(
     toolName: string,
-    args: Record<string, unknown> | undefined
+    args: Record<string, unknown> | undefined,
+    signerInstance?: string
   ): { domain: string; lockPaths: string[] } {
     const str = (v: unknown): string | undefined =>
       typeof v === "string" && v.length > 0 ? v : undefined;
@@ -537,22 +608,31 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       case "h2a_drive_consent_cosign":
       case "h2a_drive_consent_revoke": {
         const lockPaths = [registryLock];
-        const from = str(args?.from);
-        const to = str(args?.to);
-        if (from && to) lockPaths.push(negotiationLock(consentPairId(from, to)));
+        const from = toolName === "h2a_drive_consent_request" ? str(signerInstance) : str(args?.from);
+        const to = toolName === "h2a_drive_consent_respond" ? str(signerInstance) : str(args?.to);
+        if (from && to && findInstance(from) && findInstance(to)) {
+          lockPaths.push(negotiationLock(consentPairId(from, to)));
+        }
         return { domain: "consent", lockPaths };
       }
       case "h2a_inbox": {
         const action = str(args?.action);
         if (action === "put" || action === "pop") {
-          const inst = str(args?.instance);
-          return { domain: "inbox", lockPaths: inst ? [inboxLock(inst)] : [] };
+          const rawInst = str(args?.instance);
+          const recipient = rawInst ? resolveInboxLockTarget(action, rawInst) : undefined;
+          return { domain: "inbox", lockPaths: recipient ? [inboxLock(recipient)] : [] };
         }
         return { domain: "inbox", lockPaths: [] };
       }
       case "h2a_send": {
-        const to = str(args?.to);
-        return { domain: "inbox", lockPaths: to ? [inboxLock(to)] : [] };
+        const rawTo = str(args?.to);
+        const recipient = rawTo ? resolveSendLockTarget(rawTo) : undefined;
+        return { domain: "inbox", lockPaths: recipient ? [inboxLock(recipient)] : [] };
+      }
+      case "h2a_conductor_launch": {
+        if (!args?.confirm) return { domain: "inbox", lockPaths: [] };
+        const remote = resolveConductorRemoteTarget(args);
+        return { domain: "inbox", lockPaths: remote ? [inboxLock(remote)] : [] };
       }
       case "h2a_blockage_raise":
       case "h2a_blockage_resolve":
@@ -566,10 +646,10 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     toolName: string,
     args: Record<string, unknown> | undefined,
     fn: () => T,
-    opts?: { timeoutMs?: number }
+    opts?: { timeoutMs?: number; signerInstance?: string }
   ): Promise<T> {
     const timeoutMs = opts?.timeoutMs ?? lockTimeoutMs;
-    const { domain, lockPaths } = resolveToolMutationLocks(toolName, args);
+    const { domain, lockPaths } = resolveToolMutationLocks(toolName, args, opts?.signerInstance);
     if (lockPaths.length === 0 || lockMode === "lease") {
       return withWriterMutationAsync(paths.root, domain, fn, { timeoutMs });
     }

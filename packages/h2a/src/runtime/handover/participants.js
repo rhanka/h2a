@@ -361,12 +361,27 @@ export class AttachmentParticipant {
     if (!request.delegation) return;
     const memo = this.launches.memos().find(m => m.launchName === request.name);
     if (!memo) throw new Error('operation_fenced');
-    const eventId = await this.manager.registry.withLockAsync(() => this.launches.publishDelegation(memo, result));
+    let eventId;
+    try {
+      eventId = await this.manager.registry.withLockAsync(() => this.launches.publishDelegation(memo, result));
+    } catch (error) {
+      if (error instanceof MutationLockUnavailableError || error?.code === 'mutation_lock_unavailable' || error?.name === 'LockTimeoutError') {
+        return;
+      }
+      throw error;
+    }
     try {
       await this.runOwner(() => record(eventId));
     } catch (error) {
-      if (!['ownership_fenced', 'store_admission_closed'].includes(error?.message)) throw error;
-      // The current-owner event remains durable; no old owner effect is replayed.
+      if (
+        ['ownership_fenced', 'store_admission_closed'].includes(error?.message) ||
+        error instanceof MutationLockUnavailableError ||
+        error?.code === 'mutation_lock_unavailable' ||
+        error?.name === 'LockTimeoutError'
+      ) {
+        return;
+      }
+      throw error;
     }
   }
   snapshot() {

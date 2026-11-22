@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawn } from 'node:child_process';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -12,17 +12,25 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { authenticatedHttpRequest } from '../dist/runtime/handover/authenticated-http.js';
 import { currentIdentity } from '../dist/runtime/handover/admission.js';
+import { ColdAdministration } from '../dist/runtime/handover/administration.js';
 import * as mutationModule from '../dist/runtime/handover/mutation.js';
-import { resolveMutationFlock, establishWriterControl, writerDirectory } from '../dist/runtime/handover/mutation.js';
+import { resolveMutationFlock, establishWriterControl, updateWriterControl, writerDirectory } from '../dist/runtime/handover/mutation.js';
 import { Participants } from '../dist/runtime/handover/participants.js';
 import { publishState, readState, replaceState } from '../dist/runtime/handover/state.js';
 import { digest } from '../dist/runtime/handover/wire.js';
+import { consentPairId } from '../dist/runtime/drive/consent.js';
+import { handleDriveConsent } from '../dist/runtime/drive/consent-tools.js';
 import * as presenceModule from '../dist/runtime/local-files/presence.js';
-import { localStorePaths } from '../dist/runtime/local-files/paths.js';
+import { inboxDir, localStorePaths, negotiationDir } from '../dist/runtime/local-files/paths.js';
+import { createLocalStore } from '../dist/runtime/local-files/store.js';
+import { recordMcpRunDelegationAsync } from '../dist/runtime/mcp/agent-launch.js';
+import { handleRegisterInstance } from '../dist/runtime/mcp/handlers.js';
+import { createMcpServer } from '../dist/runtime/mcp/server.js';
 import { SessionRegistry } from '../dist/runtime/mcp/sessions.js';
 import { runMcpStdio } from '../dist/runtime/mcp/stdio.js';
 import { captureCentralAttachment } from '../dist/runtime/mcp-central-context.js';
 import { startCentralMcpServer } from '../dist/runtime/mcp-central.js';
+import { resolveExclusionsDir } from '../dist/runtime/remote-agent/exclusions.js';
 
 function fixture(t, extraOpts = {}) {
   t.mock.method(fs, 'fsyncSync', () => {});
@@ -1025,4 +1033,631 @@ test('T2.9: 6000 ms prolonged contention across .mutation.lock, .presence.lock a
   assert.ok(p99 < 100, `p99 ping exceeded 100ms under 6000ms contention: ${p99.toFixed(1)}ms`);
   assert.equal(rejections.length, 0, `unhandled rejections: ${rejections.map(String).join('; ')}`);
   assert.equal(exceptions.length, 0, `uncaught exceptions: ${exceptions.map(String).join('; ')}`);
+});
+
+// ============================================================================
+// T2.10 (B-1) — ColdAdministration bothLocks + admissionsOpenAsync (0 spawnSync)
+// ============================================================================
+
+function seedBarrierTransaction(stateDir, marker, root, handoverId, barrierDeadline) {
+  const coordinator = currentIdentity();
+  const ref = `transaction-${digest(handoverId).slice(7)}.json`;
+  const sourceFields = ['generation', 'publicationEpoch', 'processIdentity', 'packageVersion', 'buildId', 'manifestDigest'];
+  const tx = {
+    schemaVersion: 1,
+    revision: 1,
+    component: 'mcp',
+    upgradeId: `upg-${handoverId}`,
+    handoverId,
+    transactionEpoch: 1,
+    mode: 'cold-stop',
+    source: Object.fromEntries(sourceFields.map(k => [k, marker[k]])),
+    target: {
+      packageVersion: marker.packageVersion,
+      buildId: marker.buildId,
+      manifestDigest: marker.manifestDigest,
+      entrypoint: join(stateDir, 'fake-bin.js')
+    },
+    coordinator,
+    controllerEpoch: 1,
+    inventoryRevision: 1,
+    state: 'BARRIER',
+    barrierDeadline,
+    precheckEvidenceDigest: `sha256:${'b'.repeat(64)}`,
+    checkpointReferences: [],
+    stepResults: {},
+    successorReservation: {
+      attempts: 0,
+      candidateIdentity: null,
+      selectionEpoch: 1,
+      targetManifestDigest: marker.manifestDigest
+    }
+  };
+  publishState(join(stateDir, ref), tx, 'componentTransaction');
+  const controlPath = join(stateDir, 'component-control.json');
+  const oldControl = readState(controlPath, 'componentControl');
+  replaceState(controlPath, {
+    ...oldControl.value,
+    revision: oldControl.value.revision + 1,
+    activeTransaction: ref,
+    transactionEpoch: 1
+  }, 'componentControl', oldControl);
+  updateWriterControl(root, { gate: 'BARRIER', handoverId });
+  return { ref, coordinator, tx };
+}
+
+test('T2.10 (B-1): ColdAdministration stop/admin/sweep and admissionsOpenAsync do 0 spawnSync and keep ping < 100 ms under .presence.lock / .mutation.lock contention', { timeout: 25_000 }, async t => {
+  const f = fixture(t);
+  const central = await f.start({
+    writerProof: { evidenceDigest: `sha256:${'a'.repeat(64)}`, verify: () => 'qualified' }
+  });
+  const marker = readState(central.markerPath, 'marker').value;
+  const wdir = writerDirectory(f.root);
+
+  // Seed an active BARRIER transaction so admin.expire() / admin.operatorStop() / admin.execute('abort')
+  // all call reconcileParticipants -> participants.abort -> updateWriterControl ({ bothLocks: true }).
+  const { coordinator } = seedBarrierTransaction(marker.stateDirectory, marker, f.root, 'h-b1-admin', Date.now() + 60_000);
+
+  // Spy on child_process.spawnSync AFTER startup and seeding.
+  const origSpawnSync = childProcess.spawnSync;
+  const syncCalls = [];
+  t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
+    syncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    return origSpawnSync(cmd, args, ...rest);
+  });
+  syncBuiltinESMExports();
+
+  // Hold ONLY .presence.lock externally for 1 000 ms (leaving .mutation.lock FREE).
+  // Without { bothLocks: true } on mcp-central.ts:365, :537, :554, mutationLockAsync enters
+  // immediately and updateWriterControl falls back to spawnSync(flock, .presence.lock)!
+  const presHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
+  const releaseTimer = setTimeout(() => { void presHolder.release(); }, 1_000);
+  try {
+    const step = {
+      protocolVersion: 1,
+      mode: 'cold-stop',
+      upgradeId: 'upg-h-b1-admin',
+      handoverId: 'h-b1-admin',
+      transactionEpoch: 1,
+      expectedGeneration: marker.generation,
+      expectedPublicationEpoch: marker.publicationEpoch,
+      inventoryRevision: 1,
+      stepId: 'abort-b1',
+      payloadDigest: digest({})
+    };
+    const adminPromise = authenticatedHttpRequest(
+      central.markerPath,
+      marker,
+      new URL('/_h2a-central/admin/abort', central.endpoint),
+      { method: 'POST', body: JSON.stringify({ step, payload: {}, coordinator }) }
+    );
+
+    await delay(80);
+    const pings = [];
+    for (let i = 0; i < 6; i++) {
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      pings.push(p.elapsedMs);
+      await delay(80);
+    }
+    const maxPing = Math.max(...pings);
+    assert.ok(maxPing < 100, `ping froze for ${maxPing.toFixed(1)}ms during /admin/abort under .presence.lock contention`);
+
+    const adminRes = await adminPromise;
+    const adminBody = await adminRes.text();
+    assert.equal(adminRes.status, 200, adminBody);
+    assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during /admin/abort, saw: ${syncCalls.join('; ')}`);
+  } finally {
+    clearTimeout(releaseTimer);
+    await presHolder.release();
+  }
+
+  // Also test runSweep (admin.expire) and POST /_h2a-central/stop while .presence.lock is held.
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
+  seedBarrierTransaction(marker.stateDirectory, marker, f.root, 'h-b1-sweep', 0);
+  syncCalls.length = 0;
+  t.mock.method(fs, 'fsyncSync', () => {});
+  t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
+    syncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    return origSpawnSync(cmd, args, ...rest);
+  });
+  syncBuiltinESMExports();
+
+  const presHolder2 = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
+  try {
+    // runSweep uses { nonBlocking: true, bothLocks: true }: must skip cleanly without spawnSync!
+    const t0 = performance.now();
+    await f.tick();
+    const sweepMs = performance.now() - t0;
+    assert.ok(sweepMs < 200, `runSweep blocked for ${sweepMs.toFixed(1)}ms while .presence.lock was held`);
+    assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during runSweep, saw: ${syncCalls.join('; ')}`);
+
+    // POST /_h2a-central/stop while .presence.lock is held for 800 ms.
+    const releaseStopTimer = setTimeout(() => { void presHolder2.release(); }, 800);
+    try {
+      const stopPromise = authenticatedHttpRequest(
+        central.markerPath,
+        marker,
+        new URL('/_h2a-central/stop', central.endpoint),
+        { method: 'POST', body: '{}' }
+      );
+      await delay(80);
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      assert.ok(p.elapsedMs < 100, `ping froze for ${p.elapsedMs.toFixed(1)}ms during /stop under .presence.lock contention`);
+      const stopRes = await stopPromise;
+      assert.equal(stopRes.status, 200);
+      assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during /stop, saw: ${syncCalls.join('; ')}`);
+    } finally {
+      clearTimeout(releaseStopTimer);
+    }
+  } finally {
+    await presHolder2.release();
+  }
+
+  // Part 2: ColdAdministration.admissionsOpenAsync on live-transfer contradiction uses async lock (0 spawnSync).
+  const liveDir = join(f.dir, 'b1-live-state');
+  const liveRoot = join(f.dir, 'b1-live-root');
+  fs.mkdirSync(liveDir, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(liveRoot, { recursive: true, mode: 0o700 });
+  const liveMarker = { ...marker, generation: randomUUID(), stateDirectory: liveDir };
+  const liveParticipants = await Participants.createAsync({ root: liveRoot, directory: liveDir, marker: liveMarker });
+  const liveAdmin = new ColdAdministration({
+    directory: liveDir,
+    marker: liveMarker,
+    inventory: () => ({ revision: 1 }),
+    drain: () => ({ revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 }),
+    liveSource: { sourcePublished: () => false },
+    withMutationLock: (fn) => liveParticipants.registry.withLock(fn, { bothLocks: true }),
+    withMutationLockAsync: (fn, opts) => liveParticipants.registry.withLockAsync(fn, { ...opts, bothLocks: true }),
+    close() {}
+  });
+  assert.equal(typeof liveAdmin.admissionsOpenAsync, 'function', 'ColdAdministration.admissionsOpenAsync must exist');
+
+  // Seed a live-transfer RESERVED transaction whose sourcePublished() is false.
+  const liveRef = `transaction-${digest('h-b1-live').slice(7)}.json`;
+  const sourceFields = ['generation', 'publicationEpoch', 'processIdentity', 'packageVersion', 'buildId', 'manifestDigest'];
+  publishState(join(liveDir, liveRef), {
+    schemaVersion: 1, revision: 1, component: 'mcp', upgradeId: 'upg-live', handoverId: 'h-b1-live',
+    transactionEpoch: 1, mode: 'live-transfer',
+    source: Object.fromEntries(sourceFields.map(k => [k, liveMarker[k]])),
+    target: { packageVersion: liveMarker.packageVersion, buildId: liveMarker.buildId, manifestDigest: liveMarker.manifestDigest, entrypoint: join(liveDir, 'fake-bin.js') },
+    coordinator: currentIdentity(), controllerEpoch: 1, inventoryRevision: 1, state: 'RESERVED',
+    barrierDeadline: null, precheckEvidenceDigest: `sha256:${'c'.repeat(64)}`, checkpointReferences: [],
+    stepResults: {}, successorReservation: { attempts: 0, candidateIdentity: null, selectionEpoch: 1, targetManifestDigest: liveMarker.manifestDigest }
+  }, 'componentTransaction');
+  const liveCtrlPath = join(liveDir, 'component-control.json');
+  const oldLiveCtrl = readState(liveCtrlPath, 'componentControl');
+  replaceState(liveCtrlPath, { ...oldLiveCtrl.value, revision: oldLiveCtrl.value.revision + 1, activeTransaction: liveRef, transactionEpoch: 1 }, 'componentControl', oldLiveCtrl);
+
+  syncCalls.length = 0;
+  const liveMutHolder = f.trackHolder(await holdFlockInChild(join(writerDirectory(liveRoot), '.mutation.lock')));
+  const releaseLiveTimer = setTimeout(() => { void liveMutHolder.release(); }, 400);
+  try {
+    const openPromise = liveAdmin.admissionsOpenAsync();
+    // Event loop must remain free while waiting on .mutation.lock.
+    const t0 = performance.now();
+    await delay(50);
+    assert.ok(performance.now() - t0 < 200, 'event loop blocked during admissionsOpenAsync');
+    const isOpen = await openPromise;
+    assert.equal(isOpen, false);
+    assert.equal(liveAdmin.transaction().value.state, 'RECOVERY_BLOCKED');
+    assert.deepEqual(syncCalls, [], `expected 0 spawnSync calls during admissionsOpenAsync, saw: ${syncCalls.join('; ')}`);
+  } finally {
+    clearTimeout(releaseLiveTimer);
+    await liveMutHolder.release();
+  }
+});
+
+// ============================================================================
+// T2.11 (B-2) — h2a_conductor_launch under sharedStore + async pre-acquisition
+// ============================================================================
+
+test('T2.11 (B-2): h2a_conductor_launch with confirm=true uses sharedStore and async lock pre-acquisition (0 flock spawnSync, ping < 100 ms)', { timeout: 25_000 }, async t => {
+  const f = fixture(t);
+  // Provide a minimal shell stub for `track workspace-activity` (zero Python) so recommendation === "launch".
+  const fakeBin = join(f.dir, 'fake-bin');
+  fs.mkdirSync(fakeBin, { recursive: true, mode: 0o700 });
+  const fakeTrack = join(fakeBin, 'track');
+  fs.writeFileSync(fakeTrack, '#!/bin/sh\nprintf \'{"pending":1,"stalled":[{"id":"s1","title":"stalled"}]}\'\n', { mode: 0o755 });
+  const prevPath = process.env.PATH ?? '';
+  process.env.PATH = `${fakeBin}:${prevPath}`;
+  t.after(() => { process.env.PATH = prevPath; });
+
+  const central = await f.start();
+  const { marker, sessionId } = await initDirectSession(central, f.dir);
+  // Warm up lazy registry dispatch before measuring lock contention.
+  await authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 100, method: 'tools/call', params: { name: 'h2a_discover_instances', arguments: {} } })
+  });
+
+  // Register a live remote agent in presence so h2a_conductor_launch resolves it from presence (no args.remote).
+  const remoteInstance = 'remote:h2a:bbbbbbbbbbbb';
+  presenceModule.writePresence(f.root, {
+    sessionId: 'sess:b2-remote',
+    instance: remoteInstance,
+    host: 'remote',
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    heartbeatAt: new Date().toISOString(),
+    lastMcpActivityAt: new Date().toISOString(),
+    state: 'live',
+    interests: { scopes: ['scope:default'], negotiations: [] },
+    subscribedTopics: []
+  });
+
+  // Spy on child_process.spawnSync for any flock invocation.
+  const origSpawnSync = childProcess.spawnSync;
+  const flockSyncCalls = [];
+  t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
+    if (String(cmd).includes('flock')) {
+      flockSyncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    }
+    return origSpawnSync(cmd, args, ...rest);
+  });
+  syncBuiltinESMExports();
+
+  const remoteInboxLock = join(inboxDir(localStorePaths(f.root), remoteInstance), '.lock');
+  const inboxHolder = f.trackHolder(await holdAdvisoryLockInChild(remoteInboxLock));
+  const releaseTimer = setTimeout(() => { void inboxHolder.release(); }, 1_200);
+  try {
+    const launchPromise = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 101,
+        method: 'tools/call',
+        params: {
+          name: 'h2a_conductor_launch',
+          arguments: {
+            workspaceId: 'ws:00000000-0000-4000-8000-0000000000b2',
+            confirm: true,
+            instance: 'claude:self:aaaaaaaaaaaa'
+          }
+        }
+      })
+    });
+
+    await delay(100);
+    const pings = [];
+    let done = false;
+    void launchPromise.finally(() => { done = true; });
+    while (!done && pings.length < 20) {
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      pings.push(p.elapsedMs);
+      await delay(100);
+    }
+    const maxPing = Math.max(...pings);
+    t.diagnostic(`T2.11 maxPing=${maxPing.toFixed(1)}ms over ${pings.length} pings`);
+    assert.ok(maxPing < 100, `ping froze for ${maxPing.toFixed(1)}ms during h2a_conductor_launch under inbox lock contention`);
+
+    const res = await launchPromise;
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(!body.result?.isError, `h2a_conductor_launch failed: ${JSON.stringify(body)}`);
+    const payload = JSON.parse(body.result.content[0].text);
+    assert.equal(payload.action, 'emitted', JSON.stringify(payload));
+    assert.equal(payload.to, remoteInstance);
+    assert.deepEqual(flockSyncCalls, [], `expected 0 flock spawnSync calls in h2a_conductor_launch, saw: ${flockSyncCalls.join('; ')}`);
+  } finally {
+    clearTimeout(releaseTimer);
+    await inboxHolder.release();
+  }
+});
+
+// ============================================================================
+// T2.12 (B-3) — Pre-acquisition for drive_consent_request/respond and resolved h2a_send/h2a_inbox
+// ============================================================================
+
+test('T2.12 (B-3): h2a_drive_consent_request/respond and resolved h2a_send/h2a_inbox targets pre-acquire locks asynchronously past 25 ms contention', { timeout: 25_000 }, async t => {
+  const f = fixture(t);
+  fs.mkdirSync(f.root, { recursive: true, mode: 0o700 });
+  const stateDir = join(f.dir, 'b3-state');
+  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  const marker = { generation: randomUUID(), processIdentity: currentIdentity(), endpointMode: 'discovered', handoverCapabilities: { managedImage: false } };
+  const participants = await Participants.createAsync({ root: f.root, directory: stateDir, marker });
+
+  // Build central-configured LocalStore with centralEventLoopMaxSyncWaitMs: 25.
+  const store = createLocalStore({ root: f.root, alwaysEmitConsentBudget: true, centralEventLoopMaxSyncWaitMs: 25 });
+  const aliceId = 'claude:b3-alice:111111111111';
+  const bobId = 'codex:b3-bob:222222222222';
+  const aliceKeys = generateKeyPairSync('ed25519');
+  const bobKeys = generateKeyPairSync('ed25519');
+  const alicePriv = aliceKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const alicePub = aliceKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const bobPriv = bobKeys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const bobPub = bobKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+
+  store.registerInstance({ id: aliceId, instance: aliceId, name: 'AliceDisplay', roles: ['AGENTS'], scopes: ['scope:default'], registeredAt: new Date().toISOString() });
+  store.registerInstance({ id: bobId, instance: bobId, name: 'BobDisplay', roles: ['AGENTS'], scopes: ['scope:default'], registeredAt: new Date().toISOString() });
+  store.addInstanceKey(aliceId, alicePub);
+  store.addInstanceKey(bobId, bobPub);
+
+  const attAlice = await participants.attachAsync('att-b3-alice', { workspace: f.dir, expectedInstance: aliceId });
+  const attBob = await participants.attachAsync('att-b3-bob', { workspace: f.dir, expectedInstance: bobId });
+  const srvAlice = createMcpServer({
+    root: f.root, workspaceRoot: f.dir, store, participant: attAlice,
+    getSendContext: () => ({ instance: aliceId, privateKeyPem: alicePriv })
+  });
+  const srvBob = createMcpServer({
+    root: f.root, workspaceRoot: f.dir, store, participant: attBob,
+    getSendContext: () => ({ instance: bobId, privateKeyPem: bobPriv })
+  });
+
+  // Write live presence for Bob with display name "BobDisplay".
+  presenceModule.writePresence(f.root, {
+    sessionId: 'sess:b3-bob',
+    instance: bobId,
+    name: 'BobDisplay',
+    host: 'codex',
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+    heartbeatAt: new Date().toISOString(),
+    lastMcpActivityAt: new Date().toISOString(),
+    state: 'live',
+    interests: { scopes: ['scope:default'], negotiations: [] },
+    subscribedTopics: []
+  });
+
+  // 1. h2a_drive_consent_request (from comes from signer, NOT args.from) under 300 ms negotiationLock hold (> 25 ms).
+  const pairId = consentPairId(aliceId, bobId);
+  const pairLockPath = join(negotiationDir(localStorePaths(f.root), pairId), '.lock');
+  const now = Date.now();
+  let requestId;
+  {
+    const holder = f.trackHolder(await holdAdvisoryLockInChild(pairLockPath));
+    const releaseTimer = setTimeout(() => { void holder.release(); }, 300);
+    try {
+      const reqRes = await srvAlice.callTool('h2a_drive_consent_request', {
+        to: bobId,
+        answerBy: new Date(now + 60_000).toISOString(),
+        requestedNotAfter: new Date(now + 120_000).toISOString(),
+        purpose: 'b3-test'
+      });
+      assert.ok(!reqRes.isError, `h2a_drive_consent_request failed under 300ms pair lock contention: ${JSON.stringify(reqRes)}`);
+      const parsed = JSON.parse(reqRes.content[0].text);
+      requestId = parsed.payload.requestId;
+      assert.ok(requestId);
+    } finally {
+      clearTimeout(releaseTimer);
+      await holder.release();
+    }
+  }
+
+  // 2. h2a_drive_consent_respond (to comes from signer, NOT args.to) under 300 ms negotiationLock hold (> 25 ms).
+  {
+    const holder = f.trackHolder(await holdAdvisoryLockInChild(pairLockPath));
+    const releaseTimer = setTimeout(() => { void holder.release(); }, 300);
+    try {
+      const respRes = await srvBob.callTool('h2a_drive_consent_respond', {
+        from: aliceId,
+        requestId,
+        decision: 'refuse',
+        reason: 'b3-test'
+      });
+      assert.ok(!respRes.isError, `h2a_drive_consent_respond failed under 300ms pair lock contention: ${JSON.stringify(respRes)}`);
+    } finally {
+      clearTimeout(releaseTimer);
+      await holder.release();
+    }
+  }
+
+  // 3. h2a_inbox put & pop using display name "BobDisplay" (resolves to bobId) under 300 ms inboxLock(bobId) hold (> 25 ms).
+  const bobInboxLock = join(inboxDir(localStorePaths(f.root), bobId), '.lock');
+  const envId = 'env-b3-inbox-1';
+  {
+    const holder = f.trackHolder(await holdAdvisoryLockInChild(bobInboxLock));
+    const releaseTimer = setTimeout(() => { void holder.release(); }, 300);
+    try {
+      const putRes = await srvAlice.callTool('h2a_inbox', {
+        action: 'put',
+        instance: 'BobDisplay',
+        envelope: {
+          protocol: 'sentropic.h2a',
+          version: '1.0',
+          id: envId,
+          type: 'event',
+          actor: { instance: aliceId, role: 'AGENTS', scope: 'scope:default' },
+          target: { instance: bobId },
+          body: { kind: 'message', topic: 'MESSAGE', text: 'hello' },
+          createdAt: new Date().toISOString()
+        }
+      });
+      assert.ok(!('error' in putRes), `h2a_inbox put (display name) failed under 300ms inbox lock contention: ${JSON.stringify(putRes)}`);
+      assert.equal(putRes.ok, true);
+    } finally {
+      clearTimeout(releaseTimer);
+      await holder.release();
+    }
+  }
+  {
+    const holder = f.trackHolder(await holdAdvisoryLockInChild(bobInboxLock));
+    const releaseTimer = setTimeout(() => { void holder.release(); }, 300);
+    try {
+      const popRes = await srvAlice.callTool('h2a_inbox', {
+        action: 'pop',
+        instance: 'BobDisplay',
+        envelopeId: envId
+      });
+      assert.ok(!('error' in popRes), `h2a_inbox pop (display name) failed under 300ms inbox lock contention: ${JSON.stringify(popRes)}`);
+      assert.equal(popRes.envelope?.id, envId);
+    } finally {
+      clearTimeout(releaseTimer);
+      await holder.release();
+    }
+  }
+
+  // 4. h2a_send using live alias "codex:b3-bob" (resolves via deliver-hint to bobId) under 300 ms inboxLock(bobId) hold (> 25 ms).
+  {
+    const holder = f.trackHolder(await holdAdvisoryLockInChild(bobInboxLock));
+    const releaseTimer = setTimeout(() => { void holder.release(); }, 300);
+    try {
+      const sendRes = await srvAlice.callTool('h2a_send', {
+        to: 'codex:b3-bob',
+        message: 'hello via alias'
+      });
+      assert.ok(!('error' in sendRes), `h2a_send (alias) failed under 300ms inbox lock contention: ${JSON.stringify(sendRes)}`);
+      assert.equal(sendRes.ok, true);
+      assert.equal(sendRes.recipient, bobId);
+    } finally {
+      clearTimeout(releaseTimer);
+      await holder.release();
+    }
+  }
+});
+
+// ============================================================================
+// T2.13 (NB-1..NB-4) — localQueues FIFO cleanup, retryable lock errors, remote_off async, delegation containment
+// ============================================================================
+
+test('T2.13 (NB-1..NB-4): localQueues timeout cleanup, safeError/consent retryable, h2a_remote_off async, and delegation lock containment', { timeout: 25_000 }, async t => {
+  const f = fixture(t);
+
+  // NB-1: Caller B timing out in localQueues while Caller A still waits must NOT delete the queue tail.
+  const nb1Root = join(f.dir, 'nb1-root');
+  const nb1State = join(f.dir, 'nb1-state');
+  fs.mkdirSync(nb1Root, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(nb1State, { recursive: true, mode: 0o700 });
+  establishWriterControl(nb1Root, nb1State);
+  const nb1Wdir = writerDirectory(nb1Root);
+  const nb1Holder = f.trackHolder(await holdFlockInChild(join(nb1Wdir, '.mutation.lock')));
+  try {
+    // Caller A enters queue and blocks in kernel spawn(flock).
+    const callerA = mutationModule.mutationLockAsync(nb1Wdir, () => 'A', { timeoutMs: 2_000 });
+    await delay(50);
+    // Caller B queues behind A and times out quickly (80 ms).
+    await assert.rejects(
+      () => mutationModule.mutationLockAsync(nb1Wdir, () => 'B', { timeoutMs: 80 }),
+      /mutation_lock_unavailable/
+    );
+    // Caller C with nonBlocking:true MUST short-circuit via `nonBlocking && prev` with 0 extra spawn(flock)!
+    let flockSpawnsForC = 0;
+    const origSpawn = childProcess.spawn;
+    t.mock.method(childProcess, 'spawn', (cmd, ...rest) => {
+      if (String(cmd).includes('flock')) flockSpawnsForC++;
+      return origSpawn(cmd, ...rest);
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(
+      () => mutationModule.mutationLockAsync(nb1Wdir, () => 'C', { nonBlocking: true }),
+      /mutation_lock_unavailable/
+    );
+    assert.equal(flockSpawnsForC, 0, 'NB-1: nonBlocking caller C must short-circuit on active queue without spawning flock');
+    t.mock.restoreAll();
+    t.mock.method(fs, 'fsyncSync', () => {});
+    syncBuiltinESMExports();
+    await nb1Holder.release();
+    assert.equal(await callerA, 'A');
+  } finally {
+    await nb1Holder.release();
+  }
+
+  // NB-2: safeError and handleDriveConsent preserve code + retryable:true on LockTimeoutError.
+  const nb2Root = join(f.dir, 'nb2-root');
+  const nb2Store = createLocalStore({ root: nb2Root, centralEventLoopMaxSyncWaitMs: 25 });
+  const nb2RegLock = join(localStorePaths(nb2Root).registry, '.lock');
+  const nb2Holder = f.trackHolder(await holdAdvisoryLockInChild(nb2RegLock));
+  try {
+    const regErr = handleRegisterInstance(nb2Store, {
+      registration: { id: 'claude:nb2', instance: 'claude:nb2', roles: ['AGENTS'], scopes: ['scope:default'], registeredAt: new Date().toISOString() }
+    });
+    assert.equal(regErr.code, 'lock_timeout', `NB-2: expected code='lock_timeout', got ${JSON.stringify(regErr)}`);
+    assert.equal(regErr.retryable, true, `NB-2: expected retryable=true, got ${JSON.stringify(regErr)}`);
+  } finally {
+    await nb2Holder.release();
+  }
+  const nb2Keys = generateKeyPairSync('ed25519');
+  const nb2Priv = nb2Keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const nb2Pub = nb2Keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  nb2Store.registerInstance({ id: 'claude:nb2-a:111111111111', instance: 'claude:nb2-a:111111111111', roles: ['AGENTS'], scopes: ['scope:default'], registeredAt: new Date().toISOString() });
+  nb2Store.registerInstance({ id: 'claude:nb2-b:222222222222', instance: 'claude:nb2-b:222222222222', roles: ['AGENTS'], scopes: ['scope:default'], registeredAt: new Date().toISOString() });
+  nb2Store.addInstanceKey('claude:nb2-a:111111111111', nb2Pub);
+  const nb2Holder2 = f.trackHolder(await holdAdvisoryLockInChild(nb2RegLock));
+  try {
+    const now = Date.now();
+    const consentErr = handleDriveConsent(
+      nb2Store,
+      { instance: 'claude:nb2-a:111111111111', privateKeyPem: nb2Priv },
+      'h2a_drive_consent_request',
+      { to: 'claude:nb2-b:222222222222', answerBy: new Date(now + 60_000).toISOString(), requestedNotAfter: new Date(now + 120_000).toISOString() }
+    );
+    assert.equal(consentErr.isError, true);
+    const parsedConsentErr = JSON.parse(consentErr.content[0].text);
+    assert.equal(parsedConsentErr.code, 'lock_timeout');
+    assert.equal(parsedConsentErr.retryable, true);
+  } finally {
+    await nb2Holder2.release();
+  }
+
+  // NB-3: h2a_remote_off on central stays non-blocking (ping < 100 ms) while .exclusions.lock is held 600 ms.
+  const prevRemoteFlag = process.env.H2A_REMOTE_CONTROL;
+  const prevConfigHome = process.env.XDG_CONFIG_HOME;
+  const nb3Config = join(f.dir, 'nb3-config');
+  fs.mkdirSync(nb3Config, { recursive: true, mode: 0o700 });
+  process.env.H2A_REMOTE_CONTROL = '1';
+  process.env.XDG_CONFIG_HOME = nb3Config;
+  t.after(() => {
+    if (prevRemoteFlag === undefined) delete process.env.H2A_REMOTE_CONTROL;
+    else process.env.H2A_REMOTE_CONTROL = prevRemoteFlag;
+    if (prevConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = prevConfigHome;
+  });
+  const central = await f.start();
+  const { marker, sessionId } = await initDirectSession(central, f.dir);
+  await authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 200, method: 'tools/call', params: { name: 'h2a_discover_instances', arguments: {} } })
+  });
+  const exclLock = join(resolveExclusionsDir({ env: process.env }), '.exclusions.lock');
+  const exclHolder = f.trackHolder(await holdAdvisoryLockInChild(exclLock));
+  const releaseExcl = setTimeout(() => { void exclHolder.release(); }, 600);
+  try {
+    const offPromise = authenticatedHttpRequest(central.markerPath, marker, central.endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': sessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 201, method: 'tools/call',
+        params: { name: 'h2a_remote_off', arguments: { session: 'pty-nb3-test' } }
+      })
+    });
+    await delay(80);
+    const pings = [];
+    let done = false;
+    void offPromise.finally(() => { done = true; });
+    while (!done && pings.length < 15) {
+      const p = await pingOnce(central.endpoint);
+      assert.equal(p.status, 200);
+      pings.push(p.elapsedMs);
+      await delay(80);
+    }
+    const maxPing = Math.max(...pings);
+    assert.ok(maxPing < 100, `NB-3: ping froze for ${maxPing.toFixed(1)}ms during h2a_remote_off under .exclusions.lock contention`);
+    const offRes = await offPromise;
+    assert.equal(offRes.status, 200);
+    const offJson = await offRes.json();
+    assert.ok(!offJson.result?.isError, JSON.stringify(offJson));
+  } finally {
+    clearTimeout(releaseExcl);
+    await exclHolder.release();
+  }
+
+  // NB-4: recordMcpRunDelegationAsync must NOT reject under lock contention after worker already started.
+  const nb4Holder = f.trackHolder(await holdFlockInChild(join(nb1Wdir, '.mutation.lock')));
+  try {
+    await assert.doesNotReject(() => recordMcpRunDelegationAsync(
+      nb1Root,
+      { ok: true, state: 'started', session: { tmuxSession: 'nb4-worker', pid: process.pid } },
+      { origin: 'mcp', delegatorInstance: 'claude:nb4', delegatorTmuxSession: 'nb4-parent' },
+      'evt-nb4',
+      120
+    ));
+  } finally {
+    await nb4Holder.release();
+  }
 });

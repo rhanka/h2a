@@ -20,7 +20,9 @@ import {
 } from "./flag.js";
 import {
   clearSessionExcluded,
+  clearSessionExcludedAsync,
   setSessionExcluded,
+  setSessionExcludedAsync,
   validateSessionTarget
 } from "./exclusions.js";
 import { readLinkStatusFile, type TrunkLinkRefusal, type TrunkLinkStatus } from "./trunk-client.js";
@@ -215,4 +217,74 @@ export function runRemoteControlVerb(
     };
   }
   return { ok: true, verb, state: "stubbed" };
+}
+
+/**
+ * Asynchronous variant for the central MCP event loop: acquires `.exclusions.lock`
+ * with async `withLock` (`setTimeout`, zero `Atomics.wait`) for `off`/`on`.
+ */
+export async function runRemoteControlVerbAsync(
+  verb: string,
+  options: RemoteControlRunOptions
+): Promise<RemoteControlResult> {
+  if (verb !== "off" && verb !== "on") {
+    return runRemoteControlVerb(verb, options);
+  }
+  const env = options.env ?? process.env;
+  if (!isRemoteControlEnabled(env)) {
+    return {
+      ok: false,
+      verb,
+      reason: "remote-control-disabled",
+      message: `h2a remote ${verb}: ${REMOTE_CONTROL_DISABLED_MESSAGE}`
+    };
+  }
+  if ((REMOTE_CONTROL_GATED_VERBS as readonly string[]).includes(verb)) {
+    const interactive = options.isInteractive ?? defaultIsInteractive();
+    if (!interactive || options.confirm !== verb) {
+      return {
+        ok: false,
+        verb,
+        reason: "terminal-gate",
+        message:
+          `h2a remote ${verb}: requires an interactive terminal and typed ` +
+          `confirmation (--confirm ${verb}); site-side approval is the human boundary`
+      };
+    }
+  }
+  if (!validateSessionTarget(options.session)) {
+    return {
+      ok: false,
+      verb,
+      reason: "invalid-session",
+      message: `h2a remote ${verb}: invalid-session (exactly one non-empty session target is required)`
+    };
+  }
+  const mutation =
+    verb === "off"
+      ? await setSessionExcludedAsync(options.session, {
+          root: options.root,
+          configDir: options.configDir,
+          env
+        })
+      : await clearSessionExcludedAsync(options.session, {
+          root: options.root,
+          configDir: options.configDir,
+          env
+        });
+  if (!mutation.ok) {
+    return {
+      ok: false,
+      verb,
+      reason: mutation.reason,
+      message: `h2a remote ${verb}: ${mutation.message}`
+    };
+  }
+  return {
+    ok: true,
+    verb,
+    state: "ok",
+    sessionId: mutation.sessionId,
+    excluded: mutation.excluded
+  };
 }

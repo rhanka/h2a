@@ -126,12 +126,17 @@ async function acquireFlockFdAsync(directory, lockFile, { timeoutMs = 5000, nonB
   const turn = new Promise(resolveTurn => { releaseTurn = resolveTurn; });
   const queueTail = (prev ?? Promise.resolve()).then(() => turn);
   localQueues.set(path, queueTail);
+  // Remove queueTail only once the entire chain up to queueTail (including prev)
+  // has settled, so a timed-out waiter never clears an active predecessor's slot
+  // and lets a subsequent nonBlocking caller bypass the FIFO queue.
+  void queueTail.finally(() => {
+    if (localQueues.get(path) === queueTail) localQueues.delete(path);
+  });
   let turnReleased = false;
   const cleanupQueue = () => {
     if (turnReleased) return;
     turnReleased = true;
     releaseTurn();
-    if (localQueues.get(path) === queueTail) localQueues.delete(path);
   };
   let fd;
   try {

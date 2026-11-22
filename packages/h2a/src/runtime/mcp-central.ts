@@ -362,7 +362,7 @@ function createCentralApp(
       if (admin) {
         try {
           if (owner) {
-            await mutationLockAsync(writerDirectory(root), () => { admin.expire(); admin.poll(); }, { nonBlocking: true });
+            await mutationLockAsync(writerDirectory(root), () => { admin.expire(); admin.poll(); }, { nonBlocking: true, bothLocks: true });
           } else {
             admin.expire();
             admin.poll();
@@ -389,7 +389,7 @@ function createCentralApp(
           sessions.size === 0 && pendingClosures.size === 0 && !pending && !handshakeAlive) {
         try {
           if (owner && !owner.registry.indeterminate && owner.ledger.ledgerMigrationComplete === true &&
-              owner.pendingFinishes.length === 0 && administration()?.admissionsOpen()) {
+              owner.pendingFinishes.length === 0 && await administration()?.admissionsOpenAsync({ nonBlocking: true })) {
             // Probe for a busy writer on each tick, but reconcile and read
             // durable history only when this tick could retire the server.
             quiet = await owner.registry.withLockAsync(
@@ -444,7 +444,7 @@ function createCentralApp(
   });
   app.post('/_h2a-central/shim/:id/register', async context => {
     try {
-      if (!administration()?.admissionsOpen()) throw new Error('admission_closed');
+      if (!(await administration()?.admissionsOpenAsync())) throw new Error('admission_closed');
       const a = shimItem(context), { sourceView: advertisedSource, ...advertisement } = await context.req.json();
       if (Number(context.req.header('x-h2a-auth-transport-epoch')) !== a.transportEpoch) throw new Error('transport_fenced');
       validate('shimInventoryItem', advertisement);
@@ -465,7 +465,12 @@ function createCentralApp(
       a.challengeNonce ??= randomUUID();
       a.activation.participant.advertisement = advertisement;
       return context.json({ challengeNonce: a.challengeNonce, sourceView: a.sourceView, inventoryRevision: transports.revision });
-    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+    } catch (error) {
+      if (isLockUnavailableError(error)) {
+        return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+      }
+      return context.json({ error: (error as Error).message }, 409);
+    }
   });
   // A delegated external controller offers; .7 never initiates a transaction.
   app.post('/_h2a-central/shim/:id/offer', async context => {
@@ -504,7 +509,7 @@ function createCentralApp(
   });
   app.post("/_h2a-central/resume", async context => {
     try {
-      if (!administration()?.admissionsOpen()) throw new Error('admission_closed');
+      if (!(await administration()?.admissionsOpenAsync())) throw new Error('admission_closed');
       const body = validate('resume', await context.req.json());
       const a = transports.attachments.get(body.attachmentId);
       const encoded = context.req.header('x-h2a-attachment');
@@ -527,14 +532,19 @@ function createCentralApp(
       a.resumeResultBytes += Buffer.byteLength(JSON.stringify(reply));
       a.resumeResults.set(body.resumeAttemptId, reply);
       return context.json(reply);
-    } catch (error) { return context.json({ error: (error as Error).message }, 409); }
+    } catch (error) {
+      if (isLockUnavailableError(error)) {
+        return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+      }
+      return context.json({ error: (error as Error).message }, 409);
+    }
   });
   app.post("/_h2a-central/stop", async context => {
     const admin = administration();
     if (!admin) return context.json({ error: "central MCP is starting" }, 503);
     try {
       const result = participants()
-        ? await mutationLockAsync(writerDirectory(root), () => admin.operatorStop())
+        ? await mutationLockAsync(writerDirectory(root), () => admin.operatorStop(), { bothLocks: true })
         : admin.operatorStop();
       return context.json(result);
     } catch (error) {
@@ -551,7 +561,7 @@ function createCentralApp(
       const { step, payload, coordinator } = await context.req.json();
       const operation = context.req.param("operation");
       const result = participants()
-        ? await mutationLockAsync(writerDirectory(root), () => admin.execute(operation, step, payload, coordinator))
+        ? await mutationLockAsync(writerDirectory(root), () => admin.execute(operation, step, payload, coordinator), { bothLocks: true })
         : admin.execute(operation, step, payload, coordinator);
       return context.json(result);
     } catch (error) {
@@ -579,7 +589,16 @@ function createCentralApp(
     try {
     if (options.precheck) return context.json({ error: "precheck_admission_closed" }, 409);
     if (closing) return context.json({ error: "central MCP is stopping" }, 503);
-    if (!administration()?.admissionsOpen()) {
+    let admissionsOpen: boolean;
+    try {
+      admissionsOpen = Boolean(await administration()?.admissionsOpenAsync());
+    } catch (error) {
+      if (isLockUnavailableError(error)) {
+        return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
+      }
+      throw error;
+    }
+    if (!admissionsOpen) {
       let control = context.req.method === "GET";
       if (context.req.method === "POST") {
         try {
@@ -663,6 +682,11 @@ function createCentralApp(
         if (protocol) {
           callbacks++; drainRevision++;
           try {
+            // L2 §4 item 3 (NB-5 trade-off): nonBlocking callback admission drops live
+            // push delivery when .mutation.lock is contended instead of blocking the
+            // central loop. On shim attachments the event is already buffered above in
+            // logical.notifications for resume replay; stdio.ts advances its sync
+            // NotificationDispatcher snapshot immediately because emitNotification is sync.
             let operation: unknown;
             try {
               operation = await participant.beginAsync('callback', { nonBlocking: true });
@@ -954,7 +978,9 @@ export async function startCentralMcpServer(
           if (!liveSource?.verifyAuthority(tx)) compareMarker(markerPath, claim);
         },
         ...(participants ? {
-          withMutationLock: (fn: () => unknown) => participants!.registry.withLock(fn),
+          withMutationLock: (fn: () => unknown) => participants!.registry.withLock(fn, { bothLocks: true }),
+          withMutationLockAsync: (fn: () => unknown, opts?: { nonBlocking?: boolean; timeoutMs?: number }) =>
+            participants!.registry.withLockAsync(fn, { ...opts, bothLocks: true }),
           reconcileParticipants: (tx: any) => participants!.reconcileTransaction(tx),
           assertEligible: () => participants!.assertEligible(),
           barrier: (tx: any) => participants!.barrier(tx.handoverId),

@@ -656,6 +656,11 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       return { accepted: false };
     }
     let callback: unknown;
+    // L2 §4 items 3-4 (NB-5 trade-off): on a central attachment, callback admission
+    // happens asynchronously in mcp-central.ts via beginAsync('callback', { nonBlocking: true })
+    // after buffering the event in logical.notifications. emitNotification stays sync so
+    // NotificationDispatcher advances its snapshot immediately; standalone stdio performs
+    // sync nonBlocking admission here and returns { accepted: false } on contention.
     if (options.participant && !options.centralAttachment) {
       try {
         callback = options.participant.begin('callback', { nonBlocking: true });

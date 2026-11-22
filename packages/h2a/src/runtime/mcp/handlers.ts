@@ -67,7 +67,9 @@ import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
 import type { DiscoveryPager } from "./discovery-pagination.js";
 import type { McpTransportResult } from "./server.js";
-import { runRemoteControlVerb } from "../remote-agent/service.js";
+import { MutationLockUnavailableError } from "../handover/mutation.js";
+import { LockTimeoutError } from "../local-files/locks.js";
+import { runRemoteControlVerb, runRemoteControlVerbAsync } from "../remote-agent/service.js";
 import {
   createObjectiveLoop,
   declareObjectiveLoopDone,
@@ -88,11 +90,26 @@ export interface McpToolResult {
 
 export interface McpErrorResult {
   error: string;
+  code?: string;
+  retryable?: boolean;
 }
 
 const ESCALATION_CHANNELS = new Set(["advise", "decide", "alert"]);
 
 function safeError(reason: unknown): McpErrorResult {
+  if (reason instanceof LockTimeoutError) {
+    return { error: reason.message, code: "lock_timeout", retryable: true };
+  }
+  if (
+    reason instanceof MutationLockUnavailableError ||
+    (reason as { code?: string } | undefined)?.code === "mutation_lock_unavailable"
+  ) {
+    return {
+      error: reason instanceof Error ? reason.message : String(reason),
+      code: "mutation_lock_unavailable",
+      retryable: true
+    };
+  }
   if (reason instanceof Error) return { error: reason.message };
   return { error: String(reason) };
 }
@@ -1365,7 +1382,7 @@ export function handleConductorLaunchCheck(
  * h2a NEVER spawns a process — it only puts a request envelope to remote.
  */
 export function handleConductorLaunch(
-  root: string,
+  storeOrRoot: LocalStore | string,
   args:
     | {
         workspaceId?: string;
@@ -1377,6 +1394,7 @@ export function handleConductorLaunch(
       }
     | undefined
 ): McpToolResult | McpErrorResult {
+  const root = typeof storeOrRoot === "string" ? storeOrRoot : storeOrRoot.paths.root;
   // Resolve workspace id (mirrors handleConductorLaunchCheck)
   let workspaceId: string | undefined;
   if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
@@ -1465,8 +1483,8 @@ export function handleConductorLaunch(
     remoteInstance = chosen.instance;
   }
 
-  // 7. Compose envelope and deliver.
-  const store = createLocalStore({ root });
+  // 7. Compose envelope and deliver using the shared store when supplied.
+  const store = typeof storeOrRoot === "string" ? createLocalStore({ root }) : storeOrRoot;
   const envelope = createEnvelope({
     id: `env-conductor-launch-${Date.now().toString(36)}`,
     type: "event" as const,
@@ -1715,6 +1733,26 @@ export function handleRemoteOff(
 ): McpToolResult | McpErrorResult {
   const session = typeof args?.session === "string" ? args.session : undefined;
   return handleRemoteServiceAction("off", root, { session });
+}
+
+export async function handleRemoteOffAsync(
+  root: string,
+  args: { session?: unknown } | undefined
+): Promise<McpToolResult | McpErrorResult> {
+  const session = typeof args?.session === "string" ? args.session : undefined;
+  try {
+    const result = await runRemoteControlVerbAsync("off", {
+      root,
+      isInteractive: false,
+      ...(session !== undefined ? { session } : {})
+    });
+    if (!result.ok) {
+      return { error: result.message };
+    }
+    return { ...result };
+  } catch (err) {
+    return safeError(err);
+  }
 }
 
 export function handleRemoteKill(

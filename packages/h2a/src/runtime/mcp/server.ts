@@ -27,6 +27,7 @@ import {
   handleLoopStop,
   handleRemoteKill,
   handleRemoteOff,
+  handleRemoteOffAsync,
   handleRemoteStatus,
   handleEscalate,
   handleInbox,
@@ -537,7 +538,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_conductor_launch_check":
         return handleConductorLaunchCheck(store.paths.root, args as never);
       case "h2a_conductor_launch":
-        return handleConductorLaunch(store.paths.root, args as never);
+        return handleConductorLaunch(store, args as never);
       case "h2a_loop_create":
         return handleLoopCreate(store.paths.root, args as never);
       case "h2a_loop_join":
@@ -582,6 +583,9 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
 
   function isCentralSyncMutator(name: string, args: Record<string, unknown> | undefined): boolean {
     if (CENTRAL_SYNC_MUTATING_TOOLS.has(name)) return true;
+    if (name === "h2a_conductor_launch") {
+      return Boolean(args?.confirm);
+    }
     if (name === "h2a_inbox") {
       return args?.action === "put" || args?.action === "pop";
     }
@@ -614,11 +618,16 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       if (name === "h2a_session_close") {
         return withoutLockOwnership(() => handleSessionCloseAsync(sessions, args as never));
       }
+      if (name === "h2a_remote_off") {
+        return handleRemoteOffAsync(store.paths.root, args as never);
+      }
       if (store.acquireMutationLocksForToolAsync && isCentralSyncMutator(name, args)) {
+        const signerInstance = (options.getSendContext?.() ?? options.sendContext)?.instance;
         return store.acquireMutationLocksForToolAsync(
           name,
           args,
-          () => callToolUnfenced(name, args, context) as McpToolResult | McpErrorResult | McpTransportResult
+          () => callToolUnfenced(name, args, context) as McpToolResult | McpErrorResult | McpTransportResult,
+          signerInstance ? { signerInstance } : undefined
         );
       }
       return callToolUnfenced(name, args, context);
