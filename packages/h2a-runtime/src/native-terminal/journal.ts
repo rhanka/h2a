@@ -296,10 +296,14 @@ if (isMainThread && process.argv[2] === "--native-host-journal-writer" && proces
   const writer = new Worker(new URL(import.meta.url), { workerData: { nativeHostJournal: true, logPath: process.argv[3] } });
   let pending = 0, disconnected = false;
   const finish = () => { if (disconnected && pending === 0) process.exit(0); };
+  // Parent death closes the host end of the IPC socketpair before our read
+  // side observes EOF (`disconnect`); suppress EPIPE / channel-closed errors
+  // so post-mortem entries (`exit`) still finish draining.
+  process.on("error", () => {});
   process.on("message", (entry: HostJournalEntry) => { pending += 1; writer.postMessage(entry); });
   writer.on("message", (written: boolean) => {
     pending -= 1;
-    if (process.connected) process.send?.(written);
+    if (process.connected) process.send?.(written, () => {});
     finish();
   });
   writer.on("error", () => process.exit(1));

@@ -225,6 +225,84 @@ describe("native host life journal", () => {
     expect(events.map(e => e.event)).toEqual(["start", "unhandledRejection", "exit"]);
     expect(events[2]).toMatchObject({ exitCode: 1, cause: "unhandledRejection" });
   }, 20_000);
+  it("should drain the exit entry when host dies before writer ack hits EPIPE", async () => {
+    // Regression: when the dying host closes its IPC socketpair end right
+    // after sending `exit` and before the writer reads EOF (`disconnect`), the
+    // writer's `process.send(written)` ack for `unhandledRejection` sees
+    // `process.connected === true` and hits EPIPE, crashing the writer with an
+    // unhandled `'error'` event before `exit` finishes draining.
+    const f = fixture(), script = join(f.root, "epipe-crash.mjs"), preload = join(f.root, "epipe-fault.mjs");
+    const hostExitReady = join(f.root, "host-in-exit"), releaseHost = join(f.root, "release-host");
+    writeFileSync(preload, `import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { isMainThread } from 'node:worker_threads';
+      if (isMainThread && process.argv[2] === '--native-host-journal-writer' && process.send) {
+        const origSend = process.send.bind(process);
+        const hostPid = process.ppid;
+        let sends = 0;
+        process.send = (...args) => {
+          sends += 1;
+          if (sends === 2) {
+            const deadline = Date.now() + 3_000;
+            while (!fs.existsSync(${JSON.stringify(hostExitReady)}) && Date.now() < deadline) {
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
+            }
+            fs.writeFileSync(${JSON.stringify(releaseHost)}, 'go');
+            const hasProc = fs.existsSync('/proc');
+            while (Date.now() < deadline) {
+              try {
+                if (hasProc) {
+                  if (fs.readFileSync('/proc/' + hostPid + '/stat', 'utf8').split(') ').at(-1)?.startsWith('Z ')) break;
+                } else {
+                  process.kill(hostPid, 0);
+                }
+              } catch { break; }
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
+            }
+          }
+          return origSend(...args);
+        };
+      } else if (!isMainThread) {
+        let opens = 0;
+        const open = fs.openSync;
+        fs.openSync = (path, ...args) => {
+          if (String(path) === ${JSON.stringify(`${f.log}.lock`)} && ++opens >= 3) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+          }
+          return open(path, ...args);
+        };
+        syncBuiltinESMExports();
+      }`);
+    writeFileSync(script, `import fs from 'node:fs';
+      import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
+      await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)}, '--socket', ${JSON.stringify(f.socket)}]);
+      process.on('exit', () => {
+        fs.writeFileSync(${JSON.stringify(hostExitReady)}, '1');
+        const deadline = Date.now() + 3_000;
+        while (!fs.existsSync(${JSON.stringify(releaseHost)}) && Date.now() < deadline) {
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
+        }
+      });
+      process.on('SIGUSR1', () => { Promise.reject(new Error('epipe-ack-probe')); });
+      process.send('crash-handler-ready', () => process.disconnect());`);
+    const host = child([script], { ...f.env, NODE_OPTIONS: `--import=${preload}` }, true);
+    expect((await once(host.process, "message"))[0]).toBe("crash-handler-ready");
+    await eventually(
+      () => readHostJournal(f.log).some(e => e.event === "start"),
+      () => `start entry for epipe-ack; events=${JSON.stringify(readHostJournal(f.log).map(e => e.event))}`,
+    );
+    host.process.kill("SIGUSR1");
+    const [code, signal] = await host.closed;
+    expect(code).toBe(1);
+    expect(signal).toBeNull();
+    await eventually(
+      () => readHostJournal(f.log).at(-1)?.event === "exit",
+      () => `exit entry for epipe-ack; events=${JSON.stringify(readHostJournal(f.log).map(e => e.event))}`,
+    );
+    const events = readHostJournal(f.log);
+    expect(events.map(e => e.event)).toEqual(["start", "unhandledRejection", "exit"]);
+    expect(events[2]).toMatchObject({ exitCode: 1, cause: "unhandledRejection" });
+  }, 20_000);
   it("should label an unobserved exit cause unknown without inventing a signal", async () => {
     const f = fixture(), script = join(f.root, "exit.mjs");
     writeFileSync(script, `import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
