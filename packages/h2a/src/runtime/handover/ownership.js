@@ -548,8 +548,10 @@ export class OperationLedger {
   stopMigration() {
     this._migrationStopped = true;
     if (this._migrationTimer !== null) {
-      clearImmediate(this._migrationTimer);
+      if (this._migrationTimerKind === 'timeout') clearTimeout(this._migrationTimer);
+      else clearImmediate(this._migrationTimer);
       this._migrationTimer = null;
+      this._migrationTimerKind = null;
     }
   }
 
@@ -1004,9 +1006,21 @@ export class OperationLedger {
       if (error.code === 'ENOENT') return null;
       throw error;
     }
-    if (!stat.isFile()) return null;
+    if (!stat.isFile() || Number(stat.uid) !== process.getuid() || (Number(stat.mode) & 0o777) !== 0o600) return null;
     const family = classifyFamily(name);
     if (!family) return null;
+    let raw;
+    let fd;
+    try {
+      fd = fs.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const opened = fs.fstatSync(fd, { bigint: true });
+      if (opened.dev !== stat.dev || opened.ino !== stat.ino) return null;
+      raw = JSON.parse(fs.readFileSync(fd, 'utf8'));
+    } catch {
+      return null;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
     let schema = null;
     if (family === 'operations') schema = 'admittedOperation';
     else if (family === 'effects') schema = 'ownerEffect';
@@ -1016,20 +1030,14 @@ export class OperationLedger {
     else if (LAUNCH_LOC_RE.test(name)) schema = 'launchLocation';
     else if (family === 'wakes') schema = 'wakeIntent';
     else if (family === 'checkpoints') {
-      try {
-        const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        schema = raw.emptyAttachments === true ? 'emptyCheckpoint' : 'checkpoint';
-      } catch {
-        return null;
-      }
+      schema = raw.emptyAttachments === true ? 'emptyCheckpoint' : 'checkpoint';
     }
-    let obs;
+    let value;
     try {
-      obs = readState(filePath, schema);
+      value = validate(schema, raw);
     } catch {
       return null;
     }
-    if (!obs) return null;
     return {
       name,
       family,
@@ -1038,8 +1046,7 @@ export class OperationLedger {
       ino: stat.ino,
       mtimeNs: stat.mtimeNs,
       stamp: statStamp(stat),
-      digest: obs.digest,
-      value: obs.value
+      value
     };
   }
 
@@ -1392,8 +1399,21 @@ export class OperationLedger {
     let commitIndex = 0;
     const batchName = utcBatchDirName();
 
+    const scheduleNext = (preferIo = false) => {
+      if (this._migrationStopped) return;
+      if (preferIo) {
+        this._migrationTimerKind = 'timeout';
+        this._migrationTimer = setTimeout(step, 1);
+        this._migrationTimer.unref?.();
+      } else {
+        this._migrationTimerKind = 'immediate';
+        this._migrationTimer = setImmediate(step);
+      }
+    };
+
     const step = () => {
       this._migrationTimer = null;
+      this._migrationTimerKind = null;
       if (this._migrationStopped) return;
 
       try {
@@ -1417,13 +1437,11 @@ export class OperationLedger {
             processed++;
             if (performance.now() - sliceStart >= MIGRATION_MAX_SLICE_MS) break;
           }
-          if (!this._migrationStopped) {
-            this._migrationTimer = setImmediate(step);
-          }
+          scheduleNext(false);
           return;
         }
 
-        // Transition: select archive candidates once inspection completes
+        // Transition: select archive candidates once inspection completes, then yield before lock commits.
         if (archiveQueue === null) {
           archiveQueue = this._selectArchiveCandidates(inspected);
           // Hydrate retained root operations & effects into memory so active/retained indexes are complete.
@@ -1441,16 +1459,17 @@ export class OperationLedger {
               }
             }
           }
+          scheduleNext(true);
+          return;
         }
 
-        // Phase 2: commit archive sub-lots of <= 32 files under lock, yielding between sub-lots
+        // Phase 2: commit archive sub-lots of <= 32 files under lock, yielding with a 1 ms timer so
+        // foreground HTTP I/O (ping/initialize) and writer lock acquisitions never starve behind migration.
         if (commitIndex < archiveQueue.length) {
           const subLot = archiveQueue.slice(commitIndex, commitIndex + MIGRATION_COMMIT_BATCH_SIZE);
           commitIndex += subLot.length;
           this._commitArchiveSubLot(subLot, 'startup-migration', batchName);
-          if (!this._migrationStopped) {
-            this._migrationTimer = setImmediate(step);
-          }
+          scheduleNext(true);
           return;
         }
 
@@ -1465,7 +1484,7 @@ export class OperationLedger {
       }
     };
 
-    this._migrationTimer = setImmediate(step);
+    scheduleNext(false);
   }
 
   restoreArchive() {
