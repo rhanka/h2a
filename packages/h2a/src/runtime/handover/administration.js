@@ -47,14 +47,42 @@ export class ColdAdministration {
     if (tx?.state === 'READY' && tx.source.generation !== this.marker.generation) return true;
     return !blocked.has(tx?.state);
   }
-  observeLivePublication(observed) {
+  needsLivePublicationRecovery(observed) {
     const tx = observed?.value;
-    if (tx?.mode !== 'live-transfer' || ['ABORTED', 'PUBLISHED', 'RETIRED', 'RECOVERY_BLOCKED'].includes(tx.state)) return observed;
-    if (this.options.liveSource.sourcePublished(tx)) return observed;
+    if (tx?.mode !== 'live-transfer' || ['ABORTED', 'PUBLISHED', 'RETIRED', 'RECOVERY_BLOCKED'].includes(tx.state)) return false;
+    return !this.options.liveSource.sourcePublished(tx);
+  }
+  async admissionsOpenAsync(lockOptions) {
+    if (this.indeterminate || this.pause()) return false;
+    const observed = this.transaction();
+    if (this.needsLivePublicationRecovery(observed)) {
+      const persist = () => {
+        const current = this.transaction();
+        if (!this.needsLivePublicationRecovery(current)) return current;
+        this.update(current, { state: 'RECOVERY_BLOCKED' }, null, null);
+        return this.transaction();
+      };
+      if (this.options.withMutationLockAsync) {
+        await this.options.withMutationLockAsync(persist, lockOptions);
+      } else if (this.options.withMutationLock) {
+        this.options.withMutationLock(persist);
+      } else {
+        persist();
+      }
+    }
+    const c = this.control().value;
+    if (c.sourceGeneration !== this.marker.generation || c.ownerState !== 'ACTIVE' || c.operatorStopCommitted) return false;
+    const tx = this.transaction()?.value;
+    if (tx?.state === 'READY' && tx.source.generation !== this.marker.generation) return true;
+    return !blocked.has(tx?.state);
+  }
+  observeLivePublication(observed) {
+    if (!this.needsLivePublicationRecovery(observed)) return observed;
     // Record the contradiction before an authority check can throw, including
     // RESERVED transactions which have no barrier deadline yet.
     const persist = () => {
       const current = this.transaction();
+      if (!this.needsLivePublicationRecovery(current)) return current;
       this.update(current, { state: 'RECOVERY_BLOCKED' }, null, null);
       return this.transaction();
     };

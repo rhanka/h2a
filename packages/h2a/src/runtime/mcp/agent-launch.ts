@@ -1,9 +1,16 @@
 import { digest as argumentsDigest } from "../handover/wire.js";
-import { withWriterMutation } from "../handover/mutation.js";
+import {
+  MutationLockUnavailableError,
+  mutationLockAsync,
+  withWriterMutation,
+  withWriterMutationAsync,
+  writerDirectory
+} from "../handover/mutation.js";
+import { LockTimeoutError, withLocksAsync } from "../local-files/locks.js";
 import { currentIdentity, observeProcess } from "../handover/admission.js";
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { accessSync, appendFileSync, closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
+import { accessSync, appendFileSync, closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -684,7 +691,7 @@ function agyRunCompletion(value: Record<string, unknown>, model?: string): Recor
 export function createH2aRunLauncher(
   execute: H2aRunExecutor = executeH2aRun,
   responseBudgetMs = 49_000,
-  onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void,
+  onCompleted?: (request: H2aRunRequest, result: Record<string, unknown>) => void | Promise<void>,
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
   const previousResults = new Map<string, Stats>();
@@ -730,7 +737,7 @@ export function createH2aRunLauncher(
       catch { /* No previous generation to exclude. */ }
     }
     launches.set(request.name, launching);
-    const finish = (result: unknown): Record<string, unknown> => {
+    const finish = (result: unknown): Record<string, unknown> | Promise<Record<string, unknown>> => {
       const current = result && typeof result === "object" ? result as Record<string, unknown>
         : { error: "h2a_run: launcher returned no structured result", state: "unknown", launchId: request.name, retrySafe: false };
       const resultPath = (current.result as { path?: unknown } | undefined)?.path;
@@ -744,7 +751,10 @@ export function createH2aRunLauncher(
         catch { /* No previous generation at the custom path. */ }
       }
       launches.set(request.name, current);
-      onCompleted?.(request, current);
+      const completed = onCompleted?.(request, current);
+      if (completed && typeof (completed as Promise<void>).then === "function") {
+        return (completed as Promise<void>).then(() => current);
+      }
       return current;
     };
     const failed = (error: unknown) => finish({ error: error instanceof Error ? error.message : String(error),
@@ -837,4 +847,56 @@ export function handleH2aRun(
 
 export function recordMcpRunDelegation(...args: Parameters<typeof recordMcpRunDelegationUnfenced>): ReturnType<typeof recordMcpRunDelegationUnfenced> {
   return withWriterMutation(args[0], 'registry', () => recordMcpRunDelegationUnfenced(...args));
+}
+
+export async function recordMcpRunDelegationAsync(
+  root: string,
+  result: Record<string, unknown>,
+  delegation: H2aRunDelegation | undefined,
+  eventId?: string,
+  timeoutMs = 5000,
+): Promise<void> {
+  if (!delegation || result.ok !== true || result.state !== "started") return;
+  try {
+    const registryDir = join(root, "registry");
+    mkdirSync(registryDir, { recursive: true, mode: 0o700 });
+    const regLock = join(registryDir, ".lock");
+    const deadline = performance.now() + timeoutMs;
+    while (true) {
+      const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
+      const attempt = await withLocksAsync(
+        [regLock],
+        async () => {
+          try {
+            await withWriterMutationAsync(root, "registry", () => recordMcpRunDelegationUnfenced(root, result, delegation, eventId), { nonBlocking: true });
+            return { ok: true as const };
+          } catch (error) {
+            if (error instanceof MutationLockUnavailableError || (error as { code?: string })?.code === "mutation_lock_unavailable") {
+              return { ok: false as const };
+            }
+            throw error;
+          }
+        },
+        { timeoutMs: remaining }
+      );
+      if (attempt.ok) return;
+      const waitRemaining = deadline - performance.now();
+      if (waitRemaining <= 0) return;
+      const wdir = writerDirectory(root);
+      if (existsSync(wdir)) {
+        await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+      }
+    }
+  } catch (error) {
+    // A missing attestation is fail-closed as J?, but lock contention or I/O
+    // failure must never turn a worker that already started into a launch failure.
+    if (
+      error instanceof MutationLockUnavailableError ||
+      error instanceof LockTimeoutError ||
+      (error as { code?: string } | undefined)?.code === "mutation_lock_unavailable"
+    ) {
+      return;
+    }
+    throw error;
+  }
 }

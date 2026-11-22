@@ -1,4 +1,4 @@
-import { withWriterMutation } from '../handover/mutation.js';
+import { withWriterMutation, withWriterMutationAsync } from '../handover/mutation.js';
 /**
  * Durable blockage registry (DEC-092, EVO-3). Parallel to the drumbeat
  * registry: a peer's blockage must outlive the ~15s presence sweep so other
@@ -106,6 +106,14 @@ export function raiseBlockage(...args: Parameters<typeof raiseBlockageUnfenced>)
   return withWriterMutation(args[0], 'blockage', () => raiseBlockageUnfenced(...args));
 }
 
+export function raiseBlockageAsync(...args: Parameters<typeof raiseBlockageUnfenced>): Promise<ReturnType<typeof raiseBlockageUnfenced>> {
+  return withWriterMutationAsync(args[0], 'blockage', () => raiseBlockageUnfenced(...args));
+}
+
 export function resolveBlockage(...args: Parameters<typeof resolveBlockageUnfenced>): ReturnType<typeof resolveBlockageUnfenced> {
   return withWriterMutation(args[0], 'blockage', () => resolveBlockageUnfenced(...args));
+}
+
+export function resolveBlockageAsync(...args: Parameters<typeof resolveBlockageUnfenced>): Promise<ReturnType<typeof resolveBlockageUnfenced>> {
+  return withWriterMutationAsync(args[0], 'blockage', () => resolveBlockageUnfenced(...args));
 }

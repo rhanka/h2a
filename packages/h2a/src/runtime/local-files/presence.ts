@@ -1,4 +1,11 @@
-import { currentExecution, withPresenceMutation, withWriterMutation } from '../handover/mutation.js';
+import {
+  currentExecution,
+  withPresenceMutation,
+  withPresenceMutationAsync,
+  withWriterMutation,
+  withWriterMutationAsync
+} from '../handover/mutation.js';
+import { resolve } from "node:path";
 import {
   closeSync,
   mkdirSync,
@@ -134,7 +141,20 @@ function deletePresenceIfCurrent(root: string, expected: H2ASession): boolean {
     if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
     deletePresenceUnfenced(root, expected.sessionId);
     return true;
-  });
+  }, { bothLocks: true });
+}
+
+export async function deletePresenceIfCurrentAsync(
+  root: string,
+  expected: H2ASession,
+  options?: { timeoutMs?: number; nonBlocking?: boolean }
+): Promise<boolean> {
+  return withWriterMutationAsync(root, 'presence-janitor', () => {
+    const current = readPresence(root, expected.sessionId);
+    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+    deletePresenceUnfenced(root, expected.sessionId);
+    return true;
+  }, { ...options, bothLocks: true });
 }
 
 export interface ListPresenceOptions {
@@ -252,7 +272,7 @@ export function listPresence(
     // Empty-string guard: never blank out a name that is already correct.
     ...(patch.name ? { name: patch.name } : {})
   };
-  writePresence(root, next);
+  writePresenceUnfenced(root, next);
   return next;
 }
 
@@ -351,18 +371,81 @@ export function reapAllDeadPresence(
   return reaped;
 }
 
+export async function reapDeadInstancePresenceAsync(
+  root: string,
+  instance: string,
+  keepSessionId: string,
+  isAlive: (pid: number) => boolean = defaultPidAlive
+): Promise<string[]> {
+  let all: H2ASession[];
+  try {
+    all = listPresence(root, { includeExpired: true });
+  } catch {
+    return [];
+  }
+  const reaped: string[] = [];
+  for (const session of all) {
+    if (session.instance !== instance) continue;
+    if (session.sessionId === keepSessionId) continue;
+    const pid = (session as { pid?: number }).pid;
+    if (typeof pid !== "number") continue;
+    if (isAlive(pid)) continue;
+    try {
+      if (await deletePresenceIfCurrentAsync(root, session)) reaped.push(session.sessionId);
+    } catch {
+      // best-effort: a delete race is harmless (another booter reaped it)
+    }
+  }
+  return reaped;
+}
+
 export function writePresence(...args: Parameters<typeof writePresenceUnfenced>): ReturnType<typeof writePresenceUnfenced> {
   return withPresenceMutation(args[0], args[1].sessionId, args[1].instance, () => writePresenceUnfenced(...args));
 }
 
+export async function writePresenceAsync(
+  root: string,
+  session: H2ASession,
+  options?: { timeoutMs?: number; nonBlocking?: boolean }
+): Promise<PresenceWriteResult> {
+  return withPresenceMutationAsync(root, session.sessionId, session.instance, () => writePresenceUnfenced(root, session), options);
+}
+
 export function deletePresence(...args: Parameters<typeof deletePresenceUnfenced>): ReturnType<typeof deletePresenceUnfenced> {
+  const canonicalRoot = resolve(args[0]);
+  const authority = currentExecution();
+  const requireMutationLock = Boolean(authority?.root === canonicalRoot && !authority.cleanup);
   return withPresenceMutation(args[0], args[1], () => readPresence(args[0], args[1])?.instance, () => {
     deletePresenceUnfenced(...args);
-    const authority = currentExecution();
-    if (authority?.root === args[0] && !authority.cleanup) authority.registry.releasePresence(authority.token, args[1]);
-  });
+    const active = currentExecution();
+    if (active?.root === canonicalRoot && !active.cleanup) active.registry.releasePresence(active.token, args[1]);
+  }, { requireMutationLock });
+}
+
+export async function deletePresenceAsync(
+  root: string,
+  sessionId: string,
+  options?: { timeoutMs?: number; nonBlocking?: boolean }
+): Promise<void> {
+  const canonicalRoot = resolve(root);
+  const authority = currentExecution();
+  const requireMutationLock = Boolean(authority?.root === canonicalRoot && !authority.cleanup);
+  return withPresenceMutationAsync(root, sessionId, () => readPresence(root, sessionId)?.instance, () => {
+    deletePresenceUnfenced(root, sessionId);
+    const active = currentExecution();
+    if (active?.root === canonicalRoot && !active.cleanup) active.registry.releasePresence(active.token, sessionId);
+  }, { ...options, requireMutationLock });
 }
 
 export function updatePresence(...args: Parameters<typeof updatePresenceUnfenced>): ReturnType<typeof updatePresenceUnfenced> {
   return withPresenceMutation(args[0], args[1], () => readPresence(args[0], args[1])?.instance, () => updatePresenceUnfenced(...args));
+}
+
+export async function updatePresenceAsync(
+  root: string,
+  sessionId: string,
+  patch: Parameters<typeof updatePresenceUnfenced>[2],
+  options?: { timeoutMs?: number; nonBlocking?: boolean }
+): Promise<H2ASession | undefined> {
+  return withPresenceMutationAsync(root, sessionId, () => readPresence(root, sessionId)?.instance, () => updatePresenceUnfenced(root, sessionId, patch), options);
 }

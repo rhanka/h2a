@@ -15,10 +15,14 @@ import {
 
 import {
   deletePresence,
+  deletePresenceAsync,
   listPresence,
   updatePresence,
-  writePresence
+  updatePresenceAsync,
+  writePresence,
+  writePresenceAsync
 } from "../local-files/presence.js";
+import { withoutLockOwnership } from "../handover/mutation.js";
 
 export interface OpenSessionRequest {
   /** Identity of the live attachment. Required. */
@@ -59,6 +63,7 @@ export interface SessionRegistryOptions {
 interface SessionEntry {
   session: H2ASession;
   heartbeatHandle?: ReturnType<typeof setInterval>;
+  touchInFlight?: boolean;
   /**
    * Spec 2026-07-25-h2a-lane-addressing §D1b: re-reads the host-native display
    * title (Claude `customTitle` / Codex `thread_name`) so a mid-session rename
@@ -107,6 +112,7 @@ function normalizeTopics(
  */
 export class SessionRegistry {
   private readonly entries = new Map<string, SessionEntry>();
+  private readonly openingSessionIds = new Set<string>();
   private readonly heartbeatIntervalMs: number;
   private readonly expiryMs: number;
   private readonly autoHeartbeat: boolean;
@@ -123,16 +129,21 @@ export class SessionRegistry {
     this.onHeartbeatError = options.onHeartbeatError;
   }
 
-  open(request: OpenSessionRequest): H2ASession {
-    if (typeof request.instance !== "string" || request.instance.length === 0) {
-      throw new TypeError("SessionRegistry.open: 'instance' is required");
-    }
-    const sessionId = request.sessionId ?? generateSessionId();
-    if (this.entries.has(sessionId)) {
-      throw new Error(`SessionRegistry.open: session ${sessionId} already open`);
-    }
-    const now = nowIso();
-    const session: H2ASession = {
+  private armHeartbeat(sessionId: string, entry: SessionEntry): void {
+    // R2-04: never arm long-lived timers while lockOwnership ALS is bound.
+    withoutLockOwnership(() => {
+      entry.heartbeatHandle = setInterval(() => {
+        if (entry.touchInFlight) return;
+        void this.touchAsync(sessionId, { nonBlocking: true }).catch((error) => {
+          try { this.onHeartbeatError?.(error); } catch { /* diagnostic only */ }
+        });
+      }, this.heartbeatIntervalMs);
+      entry.heartbeatHandle.unref?.();
+    });
+  }
+
+  private buildSession(request: OpenSessionRequest, sessionId: string, now: string): H2ASession {
+    return {
       sessionId,
       instance: request.instance,
       ...(request.host !== undefined ? { host: request.host } : {}),
@@ -152,42 +163,94 @@ export class SessionRegistry {
       },
       subscribedTopics: normalizeTopics(request.subscribedTopics)
     };
+  }
+
+  open(request: OpenSessionRequest): H2ASession {
+    if (typeof request.instance !== "string" || request.instance.length === 0) {
+      throw new TypeError("SessionRegistry.open: 'instance' is required");
+    }
+    const sessionId = request.sessionId ?? generateSessionId();
+    if (this.entries.has(sessionId) || this.openingSessionIds.has(sessionId)) {
+      throw new Error(`SessionRegistry.open: session ${sessionId} already open`);
+    }
+    const now = nowIso();
+    const session = this.buildSession(request, sessionId, now);
     writePresence(this.root, session);
     const entry: SessionEntry = { session, lastActivityAt: now };
     if (this.autoHeartbeat) {
-      entry.heartbeatHandle = setInterval(
-        () => {
-          try {
-            this.touch(sessionId);
-          } catch (error) {
-            // A transient disk error must not terminate the MCP attachment.
-            // Keep the last successful heartbeat; the next tick retries it.
-            try { this.onHeartbeatError?.(error); } catch { /* diagnostic only */ }
-          }
-        },
-        this.heartbeatIntervalMs
-      );
-      // Keep the timer from holding the event loop open when stdin closes.
-      entry.heartbeatHandle.unref?.();
+      this.armHeartbeat(sessionId, entry);
     }
     this.entries.set(sessionId, entry);
     return session;
+  }
+
+  async openAsync(request: OpenSessionRequest): Promise<H2ASession> {
+    if (typeof request.instance !== "string" || request.instance.length === 0) {
+      throw new TypeError("SessionRegistry.openAsync: 'instance' is required");
+    }
+    const sessionId = request.sessionId ?? generateSessionId();
+    // PR-05: reserve sessionId synchronously before the first await to reject concurrent duplicates.
+    if (this.entries.has(sessionId) || this.openingSessionIds.has(sessionId)) {
+      throw new Error(`SessionRegistry.openAsync: session ${sessionId} already open`);
+    }
+    this.openingSessionIds.add(sessionId);
+    try {
+      const now = nowIso();
+      const session = this.buildSession(request, sessionId, now);
+      await writePresenceAsync(this.root, session);
+      const entry: SessionEntry = { session, lastActivityAt: now };
+      if (this.autoHeartbeat) {
+        this.armHeartbeat(sessionId, entry);
+      }
+      this.entries.set(sessionId, entry);
+      return session;
+    } finally {
+      this.openingSessionIds.delete(sessionId);
+    }
   }
 
   close(sessionId: string, finalState: H2ASessionState = "closed"): H2ASession | undefined {
     const entry = this.entries.get(sessionId);
     if (entry?.heartbeatHandle) {
       clearInterval(entry.heartbeatHandle);
+      entry.heartbeatHandle = undefined;
     }
-    const updated = updatePresence(this.root, sessionId, {
-      state: finalState,
-      heartbeatAt: nowIso()
-    });
-    this.entries.delete(sessionId);
-    if (finalState === "closed" || finalState === "expired") {
-      deletePresence(this.root, sessionId);
+    try {
+      const updated = updatePresence(this.root, sessionId, {
+        state: finalState,
+        heartbeatAt: nowIso()
+      });
+      if (finalState === "closed" || finalState === "expired") {
+        deletePresence(this.root, sessionId);
+      }
+      return updated;
+    } finally {
+      this.entries.delete(sessionId);
     }
-    return updated;
+  }
+
+  async closeAsync(
+    sessionId: string,
+    finalState: H2ASessionState = "closed",
+    options?: { timeoutMs?: number; nonBlocking?: boolean }
+  ): Promise<H2ASession | undefined> {
+    const entry = this.entries.get(sessionId);
+    if (entry?.heartbeatHandle) {
+      clearInterval(entry.heartbeatHandle);
+      entry.heartbeatHandle = undefined;
+    }
+    try {
+      const updated = await updatePresenceAsync(this.root, sessionId, {
+        state: finalState,
+        heartbeatAt: nowIso()
+      }, options);
+      if (finalState === "closed" || finalState === "expired") {
+        await deletePresenceAsync(this.root, sessionId, options);
+      }
+      return updated;
+    } finally {
+      this.entries.delete(sessionId);
+    }
   }
 
   /**
@@ -255,6 +318,36 @@ export class SessionRegistry {
     return updated;
   }
 
+  async touchAsync(
+    sessionId: string,
+    options?: { timeoutMs?: number; nonBlocking?: boolean }
+  ): Promise<H2ASession | undefined> {
+    const entry = this.entries.get(sessionId);
+    if (!entry || entry.touchInFlight) return undefined;
+    entry.touchInFlight = true;
+    try {
+      const nextName = this.nextDisplayName(entry);
+      let updated = await updatePresenceAsync(this.root, sessionId, {
+        heartbeatAt: nowIso(),
+        ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {}),
+        ...(nextName ? { name: nextName } : {})
+      }, options);
+      if (!updated) {
+        updated = {
+          ...entry.session,
+          heartbeatAt: nowIso(),
+          ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {}),
+          ...(nextName ? { name: nextName } : {})
+        };
+        await writePresenceAsync(this.root, updated, options);
+      }
+      if (updated) entry.session = updated;
+      return updated;
+    } finally {
+      entry.touchInFlight = false;
+    }
+  }
+
   /**
    * WP-F: record that the MCP channel carried an inbound line right now. Cheap
    * (in-memory only); flushed to the presence file by the next heartbeat
@@ -282,10 +375,7 @@ export class SessionRegistry {
     if (!this.autoHeartbeat) return;
     for (const [id, entry] of this.entries) {
       if (!entry.heartbeatHandle) {
-        entry.heartbeatHandle = setInterval(() => {
-          try { this.touch(id); } catch { /* A revoked owner must stop writing. */ }
-        }, this.heartbeatIntervalMs);
-        entry.heartbeatHandle.unref?.();
+        this.armHeartbeat(id, entry);
       }
     }
   }
@@ -313,6 +403,19 @@ export class SessionRegistry {
     for (const sessionId of Array.from(this.entries.keys())) {
       try {
         this.close(sessionId, finalState);
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  }
+
+  async closeAllAsync(
+    finalState: H2ASessionState = "closed",
+    options?: { timeoutMs?: number; nonBlocking?: boolean }
+  ): Promise<void> {
+    for (const sessionId of Array.from(this.entries.keys())) {
+      try {
+        await this.closeAsync(sessionId, finalState, options);
       } catch {
         // best-effort cleanup
       }

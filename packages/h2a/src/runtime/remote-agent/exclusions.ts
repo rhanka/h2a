@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { LockTimeoutError, withLockSync } from "../local-files/locks.js";
+import { LockTimeoutError, withLock, withLockSync } from "../local-files/locks.js";
 import { listPresenceWithDiagnostics } from "../local-files/presence.js";
 import { resolveNodeKeyDir } from "./node-key.js";
 import {
@@ -461,11 +461,55 @@ function mergeAliases(existing: readonly string[] | undefined, extra: readonly s
   return [...set].sort();
 }
 
-function mutateExclusion(
+function applyExclusionLocked(
   target: string,
   excluded: boolean,
-  options: ExclusionMutationOptions
+  options: ExclusionMutationOptions,
+  dir: string,
+  filePath: string,
+  nowIso: string
 ): ExclusionMutationResult {
+  const current = readExclusionsUnlocked(filePath);
+  if (!current.ok) return current;
+  const catalogueIds = readCatalogueIdsSet(options);
+  const resolved = resolveTarget(target, options.root, current.file, catalogueIds);
+  if (!resolved.ok) return resolved;
+
+  const matchSet = new Set<string>([resolved.sid, ...resolved.aliases]);
+  const remaining: StoredExclusionEntry[] = [];
+  let mergedAliases: string[] = [...resolved.aliases];
+
+  for (const entry of current.file.entries) {
+    if (entryMatchesAny(entry, matchSet)) {
+      mergedAliases = mergeAliases(mergedAliases, [entry.sid, ...(entry.aliases ?? [])], resolved.sid);
+    } else {
+      remaining.push(entry);
+    }
+  }
+
+  if (excluded) {
+    const finalAliases = mergeAliases(mergedAliases, [], resolved.sid);
+    const nextEntry: StoredExclusionEntry = {
+      sid: resolved.sid,
+      ...(finalAliases.length > 0 ? { aliases: finalAliases } : {}),
+      updatedAt: nowIso
+    };
+    remaining.push(nextEntry);
+    remaining.sort((a, b) => (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
+  }
+
+  const nextFile: StoredExclusionsFile = {
+    version: 2,
+    entries: remaining
+  };
+  atomicWriteJson0600(dir, filePath, nextFile);
+  return { ok: true, sessionId: resolved.sid, excluded };
+}
+
+function preflightExclusionMutation(
+  target: string,
+  options: ExclusionMutationOptions
+): { ok: true; dir: string; filePath: string; lockPath: string; nowIso: string } | ExclusionMutationResult {
   if (!validateSessionTarget(target)) {
     return {
       ok: false,
@@ -489,63 +533,61 @@ function mutateExclusion(
   const preResolved = resolveTarget(target, options.root, preRead.file, preCatalogueIds);
   if (!preResolved.ok) return preResolved;
 
-  const dir = resolveExclusionsDir(options);
-  const filePath = resolveExclusionsFilePath(options);
-  const lockPath = resolveLockPath(options);
-  const nowIso = new Date((options.now ?? Date.now)()).toISOString();
+  return {
+    ok: true,
+    dir: resolveExclusionsDir(options),
+    filePath: resolveExclusionsFilePath(options),
+    lockPath: resolveLockPath(options),
+    nowIso: new Date((options.now ?? Date.now)()).toISOString()
+  };
+}
 
-  try {
-    ensurePrivateDir(dir);
-    return withLockSync(lockPath, (): ExclusionMutationResult => {
-      const current = readExclusionsUnlocked(filePath);
-      if (!current.ok) return current;
-      const catalogueIds = readCatalogueIdsSet(options);
-      const resolved = resolveTarget(target, options.root, current.file, catalogueIds);
-      if (!resolved.ok) return resolved;
-
-      const matchSet = new Set<string>([resolved.sid, ...resolved.aliases]);
-      const remaining: StoredExclusionEntry[] = [];
-      let mergedAliases: string[] = [...resolved.aliases];
-
-      for (const entry of current.file.entries) {
-        if (entryMatchesAny(entry, matchSet)) {
-          mergedAliases = mergeAliases(mergedAliases, [entry.sid, ...(entry.aliases ?? [])], resolved.sid);
-        } else {
-          remaining.push(entry);
-        }
-      }
-
-      if (excluded) {
-        const finalAliases = mergeAliases(mergedAliases, [], resolved.sid);
-        const nextEntry: StoredExclusionEntry = {
-          sid: resolved.sid,
-          ...(finalAliases.length > 0 ? { aliases: finalAliases } : {}),
-          updatedAt: nowIso
-        };
-        remaining.push(nextEntry);
-        remaining.sort((a, b) => (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
-      }
-
-      const nextFile: StoredExclusionsFile = {
-        version: 2,
-        entries: remaining
-      };
-      atomicWriteJson0600(dir, filePath, nextFile);
-      return { ok: true, sessionId: resolved.sid, excluded };
-    });
-  } catch (err) {
-    if (err instanceof LockTimeoutError) {
-      return {
-        ok: false,
-        reason: "exclusion-state-unavailable",
-        message: "exclusion-state-unavailable: lock timeout on exclusions"
-      };
-    }
+function exclusionMutationError(err: unknown): ExclusionMutationResult {
+  if (err instanceof LockTimeoutError) {
     return {
       ok: false,
       reason: "exclusion-state-unavailable",
-      message: `exclusion-state-unavailable: ${err instanceof Error ? err.message : String(err)}`
+      message: "exclusion-state-unavailable: lock timeout on exclusions"
     };
+  }
+  return {
+    ok: false,
+    reason: "exclusion-state-unavailable",
+    message: `exclusion-state-unavailable: ${err instanceof Error ? err.message : String(err)}`
+  };
+}
+
+function mutateExclusion(
+  target: string,
+  excluded: boolean,
+  options: ExclusionMutationOptions
+): ExclusionMutationResult {
+  const pre = preflightExclusionMutation(target, options);
+  if (!("dir" in pre)) return pre;
+  try {
+    ensurePrivateDir(pre.dir);
+    return withLockSync(pre.lockPath, (): ExclusionMutationResult =>
+      applyExclusionLocked(target, excluded, options, pre.dir, pre.filePath, pre.nowIso)
+    );
+  } catch (err) {
+    return exclusionMutationError(err);
+  }
+}
+
+async function mutateExclusionAsync(
+  target: string,
+  excluded: boolean,
+  options: ExclusionMutationOptions
+): Promise<ExclusionMutationResult> {
+  const pre = preflightExclusionMutation(target, options);
+  if (!("dir" in pre)) return pre;
+  try {
+    ensurePrivateDir(pre.dir);
+    return await withLock(pre.lockPath, (): ExclusionMutationResult =>
+      applyExclusionLocked(target, excluded, options, pre.dir, pre.filePath, pre.nowIso)
+    );
+  } catch (err) {
+    return exclusionMutationError(err);
   }
 }
 
@@ -556,11 +598,25 @@ export function setSessionExcluded(
   return mutateExclusion(target, true, options);
 }
 
+export function setSessionExcludedAsync(
+  target: string,
+  options: ExclusionMutationOptions
+): Promise<ExclusionMutationResult> {
+  return mutateExclusionAsync(target, true, options);
+}
+
 export function clearSessionExcluded(
   target: string,
   options: ExclusionMutationOptions
 ): ExclusionMutationResult {
   return mutateExclusion(target, false, options);
+}
+
+export function clearSessionExcludedAsync(
+  target: string,
+  options: ExclusionMutationOptions
+): Promise<ExclusionMutationResult> {
+  return mutateExclusionAsync(target, false, options);
 }
 
 /**

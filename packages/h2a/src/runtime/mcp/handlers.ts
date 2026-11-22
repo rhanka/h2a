@@ -67,7 +67,9 @@ import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
 import type { DiscoveryPager } from "./discovery-pagination.js";
 import type { McpTransportResult } from "./server.js";
-import { runRemoteControlVerb } from "../remote-agent/service.js";
+import { MutationLockUnavailableError } from "../handover/mutation.js";
+import { LockTimeoutError } from "../local-files/locks.js";
+import { runRemoteControlVerb, runRemoteControlVerbAsync } from "../remote-agent/service.js";
 import {
   createObjectiveLoop,
   declareObjectiveLoopDone,
@@ -88,11 +90,26 @@ export interface McpToolResult {
 
 export interface McpErrorResult {
   error: string;
+  code?: string;
+  retryable?: boolean;
 }
 
 const ESCALATION_CHANNELS = new Set(["advise", "decide", "alert"]);
 
 function safeError(reason: unknown): McpErrorResult {
+  if (reason instanceof LockTimeoutError) {
+    return { error: reason.message, code: "lock_timeout", retryable: true };
+  }
+  if (
+    reason instanceof MutationLockUnavailableError ||
+    (reason as { code?: string } | undefined)?.code === "mutation_lock_unavailable"
+  ) {
+    return {
+      error: reason instanceof Error ? reason.message : String(reason),
+      code: "mutation_lock_unavailable",
+      retryable: true
+    };
+  }
   if (reason instanceof Error) return { error: reason.message };
   return { error: String(reason) };
 }
@@ -883,6 +900,75 @@ export function handleSessionClose(
   }
 }
 
+export async function handleSessionOpenAsync(
+  sessions: SessionRegistry,
+  args: Parameters<typeof handleSessionOpen>[1]
+): Promise<McpToolResult | McpErrorResult> {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_session_open: missing 'instance'" };
+  }
+  if (
+    args.subscribedTopics !== undefined &&
+    (!Array.isArray(args.subscribedTopics) ||
+      args.subscribedTopics.some(
+        (topic) =>
+          typeof topic !== "string" ||
+          !(H2A_SESSION_NOTIFICATION_TOPICS as readonly string[]).includes(topic)
+      ))
+  ) {
+    return {
+      error:
+        "h2a_session_open: 'subscribedTopics' must be a subset of the canonical topic list"
+    };
+  }
+  try {
+    const session = await sessions.openAsync({
+      instance: args.instance,
+      ...(args.host !== undefined ? { host: args.host } : {}),
+      ...(args.workspace !== undefined ? { workspace: args.workspace } : {}),
+      ...(args.name !== undefined ? { name: args.name } : {}),
+      version: agentVersion(typeof args.host === "string" ? args.host : undefined),
+      ...(args.pid !== undefined ? { pid: args.pid } : {}),
+      ...(args.interests !== undefined ? { interests: args.interests } : {}),
+      ...(args.subscribedTopics !== undefined
+        ? {
+            subscribedTopics: args.subscribedTopics as readonly H2ASessionNotificationTopic[]
+          }
+        : {}),
+      ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {})
+    });
+    const peers = sessions
+      .scanFresh()
+      .filter((peer) => peer.sessionId !== session.sessionId);
+    return { session, peers };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export async function handleSessionCloseAsync(
+  sessions: SessionRegistry,
+  args: { sessionId?: string; state?: H2ASessionState } | undefined
+): Promise<McpToolResult | McpErrorResult> {
+  if (!args || typeof args.sessionId !== "string" || args.sessionId.length === 0) {
+    return { error: "h2a_session_close: missing 'sessionId'" };
+  }
+  if (
+    args.state !== undefined &&
+    !H2A_SESSION_STATES.includes(args.state)
+  ) {
+    return {
+      error: `h2a_session_close: unknown state '${String(args.state)}'`
+    };
+  }
+  try {
+    const closed = await sessions.closeAsync(args.sessionId, args.state ?? "closed");
+    return { ok: true, sessionId: args.sessionId, session: closed };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
 function discoveryNameKey(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed.length > 0 ? slugify(trimmed) : undefined;
@@ -1296,7 +1382,7 @@ export function handleConductorLaunchCheck(
  * h2a NEVER spawns a process — it only puts a request envelope to remote.
  */
 export function handleConductorLaunch(
-  root: string,
+  storeOrRoot: LocalStore | string,
   args:
     | {
         workspaceId?: string;
@@ -1308,6 +1394,7 @@ export function handleConductorLaunch(
       }
     | undefined
 ): McpToolResult | McpErrorResult {
+  const root = typeof storeOrRoot === "string" ? storeOrRoot : storeOrRoot.paths.root;
   // Resolve workspace id (mirrors handleConductorLaunchCheck)
   let workspaceId: string | undefined;
   if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
@@ -1396,8 +1483,8 @@ export function handleConductorLaunch(
     remoteInstance = chosen.instance;
   }
 
-  // 7. Compose envelope and deliver.
-  const store = createLocalStore({ root });
+  // 7. Compose envelope and deliver using the shared store when supplied.
+  const store = typeof storeOrRoot === "string" ? createLocalStore({ root }) : storeOrRoot;
   const envelope = createEnvelope({
     id: `env-conductor-launch-${Date.now().toString(36)}`,
     type: "event" as const,
@@ -1646,6 +1733,26 @@ export function handleRemoteOff(
 ): McpToolResult | McpErrorResult {
   const session = typeof args?.session === "string" ? args.session : undefined;
   return handleRemoteServiceAction("off", root, { session });
+}
+
+export async function handleRemoteOffAsync(
+  root: string,
+  args: { session?: unknown } | undefined
+): Promise<McpToolResult | McpErrorResult> {
+  const session = typeof args?.session === "string" ? args.session : undefined;
+  try {
+    const result = await runRemoteControlVerbAsync("off", {
+      root,
+      isInteractive: false,
+      ...(session !== undefined ? { session } : {})
+    });
+    if (!result.ok) {
+      return { error: result.message };
+    }
+    return { ...result };
+  } catch (err) {
+    return safeError(err);
+  }
 }
 
 export function handleRemoteKill(

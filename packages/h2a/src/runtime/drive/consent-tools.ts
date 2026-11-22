@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {computeHash,signCanonical,type H2AJournalPayload} from '@sentropic/h2a';
+import {MutationLockUnavailableError} from '../handover/mutation.js';
+import {LockTimeoutError} from '../local-files/locks.js';
 import type {LocalStore} from '../local-files/store.js';
 import type {H2ASendSigner} from '../send.js';
 import {consentPairId,consentScope,evidence,instant,verified,DRIVE_CONSENT_MAX_ANSWER_MS,DRIVE_CONSENT_MAX_GRANT_MS} from './consent.js';
@@ -67,6 +69,12 @@ export function handleDriveConsent(store:LocalStore,signer:H2ASendSigner|undefin
     const signature=signCanonical(payload,{by:signer.instance,privateKeyPem:signer.privateKeyPem});
     const projection=store.recordDriveConsentEnvelope({id:randomUUID(),type,actor:{instance:signer.instance,role:identity.roles[0]??'AGENTS',scope:'drive-consent'},negotiationId:consentPairId(from,to),createdAt:at,body:{kind:String(payload.kind),payload,signature}});
     return result({payload,projection});
-  }catch(error){return {isError:true as const,content:[{type:'text' as const,text:error instanceof Error?error.message:String(error)}]};}
+  }catch(error){
+    if(error instanceof LockTimeoutError || error instanceof MutationLockUnavailableError || (error as {code?:string}|undefined)?.code==='mutation_lock_unavailable'){
+      const code=error instanceof LockTimeoutError?'lock_timeout':'mutation_lock_unavailable';
+      return {isError:true as const,content:[{type:'text' as const,text:JSON.stringify({error:code,code,message:error instanceof Error?error.message:String(error),retryable:true})}]};
+    }
+    return {isError:true as const,content:[{type:'text' as const,text:error instanceof Error?error.message:String(error)}]};
+  }
 }
 function result(value:unknown){return {content:[{type:'text' as const,text:JSON.stringify(value)}]};}

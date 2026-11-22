@@ -197,7 +197,7 @@ export interface CreateIdentityControllerOptions<P = unknown> {
    * `{ok:false}` fails the identity terminally (no partial availability).
    */
   readonly prepare?: (identity: ResolvedIdentityMessage, signal: AbortSignal) => Promise<P>;
-  readonly activate: (identity: ResolvedIdentityMessage, prepared?: P) => ActivationResult;
+  readonly activate: (identity: ResolvedIdentityMessage, prepared?: P) => ActivationResult | Promise<ActivationResult>;
   /** Diagnostic sink (stderr). Never protocol traffic. */
   readonly log?: (line: string) => void;
   /** Test seam: fork a worker child. Production uses the real fork below. */
@@ -512,40 +512,55 @@ export function createIdentityController<P = unknown>(
   };
 
   const commit = (identity: ResolvedIdentityMessage, prepared?: P): void => {
-    let result: ActivationResult;
+    const thisAttempt = attemptId;
+    const applyResult = (result: ActivationResult): void => {
+      if (attemptId !== thisAttempt || terminal || cancelled) return;
+      if (!result.ok) {
+        fail(result.cause, result.message);
+        return;
+      }
+      // F1: a FULLY-SUCCESSFUL activation is terminal-ready. We do NOT re-check the
+      // deadline here: activation already opened the presence session, armed the
+      // signer/wake and published the correlated readiness ACK — failing now would
+      // leave a live ACK + presence + wake behind a `failed` state (a wedged
+      // connection). The deadline is enforced BEFORE activation (above) and by the
+      // parent timer; if activation itself fails, `activate` rolls its own partial
+      // work back before returning `{ok:false}`.
+      terminal = true;
+      clearTimer();
+      liveSigner = result.signer;
+      state = {
+        state: "identity_ready",
+        attemptId,
+        instance: identity.instance,
+        sessionId: result.sessionId,
+        signingAvailable: liveSigner !== undefined
+      };
+      getActiveMcpTrace()?.phase("identity_ready", {
+        code: liveSigner ? "signing" : "presence_only"
+      });
+      options.log?.(
+        `identity ready: ${identity.instance} (signing ${liveSigner ? "available" : "unavailable"})`
+      );
+    };
+    let result: ActivationResult | Promise<ActivationResult>;
     try {
       result = options.activate(identity, prepared);
     } catch (err) {
       fail("session_open_failed", err instanceof Error ? err.message : String(err));
       return;
     }
-    if (!result.ok) {
-      fail(result.cause, result.message);
+    if (result && typeof (result as Promise<ActivationResult>).then === "function") {
+      void (result as Promise<ActivationResult>).then(
+        (resolved) => applyResult(resolved),
+        (err) => {
+          if (attemptId !== thisAttempt || terminal || cancelled) return;
+          fail("session_open_failed", err instanceof Error ? err.message : String(err));
+        }
+      );
       return;
     }
-    // F1: a FULLY-SUCCESSFUL activation is terminal-ready. We do NOT re-check the
-    // deadline here: activation already opened the presence session, armed the
-    // signer/wake and published the correlated readiness ACK — failing now would
-    // leave a live ACK + presence + wake behind a `failed` state (a wedged
-    // connection). The deadline is enforced BEFORE activation (above) and by the
-    // parent timer; if activation itself fails, `activate` rolls its own partial
-    // work back before returning `{ok:false}`.
-    terminal = true;
-    clearTimer();
-    liveSigner = result.signer;
-    state = {
-      state: "identity_ready",
-      attemptId,
-      instance: identity.instance,
-      sessionId: result.sessionId,
-      signingAvailable: liveSigner !== undefined
-    };
-    getActiveMcpTrace()?.phase("identity_ready", {
-      code: liveSigner ? "signing" : "presence_only"
-    });
-    options.log?.(
-      `identity ready: ${identity.instance} (signing ${liveSigner ? "available" : "unavailable"})`
-    );
+    applyResult(result as ActivationResult);
   };
 
   // Launch ONE identity attempt: fresh attemptId, pending state, deadline timer, worker.

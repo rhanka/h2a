@@ -241,6 +241,48 @@ export function boundCallToolResult(
   };
 }
 
+export async function boundCallToolResultAsync(
+  result: CallToolResultShape,
+  budget: FrameBudget,
+  recover?: (intactJson: string, intactBytes: number) => Promise<PayloadRecoveryRef | undefined>
+): Promise<CallToolResultShape> {
+  const limit = Math.max(MCP_MIN_FRAME_BYTES, budget.maxBytes - 1024);
+  let intact: EncodedFrame;
+  try {
+    intact = encodeFrame({ jsonrpc: "2.0", id: 0, result });
+  } catch {
+    return {
+      content: [{ type: "text", text: JSON.stringify({ code: "serialization_failed" }) }],
+      isError: true
+    };
+  }
+  if (intact.bytes <= limit) return result;
+  let recovery: PayloadRecoveryRef | undefined;
+  if (recover) {
+    try {
+      recovery = await recover(JSON.stringify(result), intact.bytes);
+    } catch {
+      recovery = undefined;
+    }
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          code: "response_too_large",
+          message: "MCP response exceeds the configured byte budget",
+          budgetBytes: budget.maxBytes,
+          actualBytes: intact.bytes,
+          ...(recovery ? { recovery } : {}),
+          retryOriginal: false
+        })
+      }
+    ],
+    isError: true
+  };
+}
+
 export interface NotificationFrameOutcome {
   /** The frame to write (the original, an overflow notice, or a recovery-unavailable notice). */
   readonly frame: EncodedFrame;

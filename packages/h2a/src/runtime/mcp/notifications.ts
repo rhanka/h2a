@@ -6,6 +6,7 @@ import {
 } from "@sentropic/h2a";
 
 import { listBlockages } from "../blockage/registry.js";
+import { withoutLockOwnership } from "../handover/mutation.js";
 import { digest } from "../handover/wire.js";
 import type { LocalStore } from "../local-files/store.js";
 import type { SessionRegistry } from "./sessions.js";
@@ -125,16 +126,19 @@ export class NotificationDispatcher {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => {
-      try {
-        this.tick();
-      } catch (error) {
-        // A scan or sink failure must not kill the MCP or its heartbeats.
-        // Unadvanced snapshots are retried on the next scheduled tick.
-        try { this.onError?.(error); } catch { /* diagnostic only */ }
-      }
-    }, this.intervalMs);
-    this.timer.unref?.();
+    // R2-04: never capture an ambient lockOwnership ALS context in the interval timer.
+    withoutLockOwnership(() => {
+      this.timer = setInterval(() => {
+        try {
+          this.tick();
+        } catch (error) {
+          // A scan or sink failure must not kill the MCP or its heartbeats.
+          // Unadvanced snapshots are retried on the next scheduled tick.
+          try { this.onError?.(error); } catch { /* diagnostic only */ }
+        }
+      }, this.intervalMs);
+      this.timer.unref?.();
+    });
   }
 
   stop(): void {

@@ -2625,6 +2625,7 @@ export async function runMcpServe(
       sessionEnv: readinessEnv,
       ...(io.sharedStore ? { store: io.sharedStore } : {}),
       ...(io.participant ? { participant: io.participant } : {}),
+      ...(io.centralAttachment ? { centralAttachment: true } : {}),
       ...(io.onServer ? { onServer: io.onServer } : {}),
       ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
         runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)

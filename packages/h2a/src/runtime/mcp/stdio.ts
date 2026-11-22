@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
@@ -12,8 +12,9 @@ import {
   detectTmuxLaunchContext,
   type H2ADriver
 } from "../drive/index.js";
+import { MutationLockUnavailableError } from "../handover/mutation.js";
 import { createLocalStore } from "../local-files/index.js";
-import { reapDeadInstancePresence } from "../local-files/presence.js";
+import { reapDeadInstancePresence, reapDeadInstancePresenceAsync } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
 import { currentCliVersion } from "../upgrade/index.js";
 import { captureHostOperatorNotices } from '../../hosts/operator-notices.js';
@@ -80,6 +81,8 @@ export interface RunMcpStdioOptions {
   /** Shared daemon store; sessions, identity and notification state stay per attachment. */
   store?: ReturnType<typeof createLocalStore>;
   participant?: import('../handover/participants.js').AttachmentParticipant;
+  /** True when hosted inside the machine-local central daemon (enforces 0 spawnSync). */
+  centralAttachment?: boolean;
   /** Captured launch environment, never the daemon's environment. */
   sessionEnv?: NodeJS.ProcessEnv;
   /** Internal transport adapter seam; does not change the MCP tool contract. */
@@ -258,6 +261,85 @@ function recordTmuxOwner(session: string, instance: string): void {
   } catch {
     // A missing tmux server means the owner link stays unknown; never invent it.
   }
+}
+
+function currentTmuxSessionForSidecarAsync(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  const nativeSession = (env.H2A_NATIVE_PTY_SESSION ?? "").trim();
+  if (
+    nativeSession &&
+    nativeSession.length <= 128 &&
+    !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(nativeSession)
+  ) {
+    return Promise.resolve(nativeSession);
+  }
+  const pane = env.TMUX_PANE;
+  if (!pane || !/^%\d+$/.test(pane)) {
+    return Promise.resolve(undefined);
+  }
+  return new Promise<string | undefined>((resolveSession) => {
+    let settled = false;
+    let out = "";
+    const finish = (value: string | undefined) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveSession(value);
+    };
+    let child;
+    try {
+      child = spawn("tmux", ["display-message", "-p", "-t", pane, "#{session_name}"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        env
+      });
+    } catch {
+      finish(undefined);
+      return;
+    }
+    const timer = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      finish(undefined);
+    }, 250);
+    timer.unref?.();
+    child.stdout?.on("data", (chunk) => { out += String(chunk); });
+    child.once("error", () => finish(undefined));
+    child.once("exit", (code) => {
+      if (code !== 0) { finish(undefined); return; }
+      const name = out.trim();
+      finish(
+        name && name.length <= 128 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(name)
+          ? name
+          : undefined
+      );
+    });
+  });
+}
+
+function recordTmuxOwnerAsync(session: string, instance: string): Promise<void> {
+  return new Promise<void>((resolveOwner) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveOwner();
+    };
+    let child;
+    try {
+      child = spawn("tmux", ["set-option", "-t", `=${session}`, "@h2a_owner_instance", instance], {
+        stdio: "ignore"
+      });
+    } catch {
+      finish();
+      return;
+    }
+    const timer = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* ignore */ }
+      finish();
+    }, 250);
+    timer.unref?.();
+    child.once("error", finish);
+    child.once("exit", finish);
+  });
 }
 
 export const H2A_MCP_READY_FILE_ENV = "H2A_MCP_READY_FILE";
@@ -573,13 +655,64 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       }
       return { accepted: false };
     }
-    const callback = options.participant?.begin('callback');
-    void enqueueLine(outcome.frame.line).then(() => {
-      if (meta.sequence !== undefined) server.notifications.markDelivered(meta.sequence);
-      if (callback) options.participant!.finish(callback, { delivered: true });
-    }, error => {
-      if (callback) options.participant!.finish(callback, { state: 'unknown', error: String(error) }, true);
-    });
+    let callback: unknown;
+    // L2 §4 items 3-4 (NB-5 trade-off): on a central attachment, callback admission
+    // happens asynchronously in mcp-central.ts via beginAsync('callback', { nonBlocking: true })
+    // after buffering the event in logical.notifications. emitNotification stays sync so
+    // NotificationDispatcher advances its snapshot immediately; standalone stdio performs
+    // sync nonBlocking admission here and returns { accepted: false } on contention.
+    if (options.participant && !options.centralAttachment) {
+      try {
+        callback = options.participant.begin('callback', { nonBlocking: true });
+      } catch (error) {
+        if (
+          error instanceof MutationLockUnavailableError ||
+          (error as { code?: string })?.code === 'mutation_lock_unavailable'
+        ) {
+          return { accepted: false };
+        }
+        throw error;
+      }
+    }
+    void enqueueLine(outcome.frame.line)
+      .then(
+        async () => {
+          if (meta.sequence !== undefined) server.notifications.markDelivered(meta.sequence);
+          if (callback) {
+            try {
+              await options.participant!.finishAsync(callback, { delivered: true }, false, { nonBlocking: true });
+            } catch (finishErr) {
+              if (
+                finishErr instanceof MutationLockUnavailableError ||
+                (finishErr as { code?: string })?.code === 'mutation_lock_unavailable'
+              ) {
+                options.participant!.manager.enqueuePendingFinish(callback, { delivered: true }, false);
+              }
+            }
+          }
+        },
+        async (error) => {
+          if (callback) {
+            try {
+              await options.participant!.finishAsync(callback, { state: 'unknown', error: String(error) }, true, { nonBlocking: true });
+            } catch (finishErr) {
+              if (
+                finishErr instanceof MutationLockUnavailableError ||
+                (finishErr as { code?: string })?.code === 'mutation_lock_unavailable'
+              ) {
+                options.participant!.manager.enqueuePendingFinish(callback, { state: 'unknown', error: String(error) }, true);
+              }
+            }
+          }
+        }
+      )
+      .catch((err) => {
+        try {
+          stderr.write(`h2a mcp-serve: notification callback finish error: ${err instanceof Error ? err.message : String(err)}\n`);
+        } catch {
+          /* diagnostic only */
+        }
+      });
     return { accepted: outcome.accepted };
   };
 
@@ -589,6 +722,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
 
   let meshTimer: ReturnType<typeof setInterval> | undefined;
   let didShutdown = false;
+  let shutdownPromise: Promise<void> | undefined;
   function shutdown(reason: "transport_closed" | "signal" = "transport_closed"): void {
     clearInterval(noticeTimer);
     if (didShutdown) return;
@@ -611,6 +745,32 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);
     }
+  }
+  function shutdownAsync(reason: "transport_closed" | "signal" = "transport_closed"): Promise<void> {
+    if (!options.centralAttachment) {
+      shutdown(reason);
+      return Promise.resolve();
+    }
+    shutdownPromise ??= (async () => {
+      clearInterval(noticeTimer);
+      if (didShutdown) return;
+      didShutdown = true;
+      if (meshTimer) clearInterval(meshTimer);
+      try {
+        identityController?.cancel(reason);
+      } catch {
+        /* best effort */
+      }
+      try {
+        server.notifications.stop();
+        if (options.participant?.transferred()) server.sessions.suspend();
+        else await server.sessions.closeAllAsync("closed");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);
+      }
+    })();
+    return shutdownPromise;
   }
 
   // WP-F: the auto-opened session id, so the line loop can mark MCP activity on
@@ -682,6 +842,57 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     return opened.sessionId;
   }
 
+  async function openAutoOpenSessionAsync(cfg: AutoOpenConfig): Promise<string> {
+    const lc = detectLocalLaunchContext(
+      sessionEnv,
+      options.workspaceRoot ?? process.cwd(),
+      `h2a mcp-serve --host ${cfg.host ?? ""}`.trim()
+    );
+    const opened = await server.sessions.openAsync({
+      instance: cfg.instance,
+      ...(cfg.host !== undefined ? { host: cfg.host } : {}),
+      ...(cfg.workspace !== undefined ? { workspace: cfg.workspace } : {}),
+      ...(cfg.name !== undefined ? { name: cfg.name } : {}),
+      version: agentVersion(cfg.host),
+      ...(lc ? { launchContext: lc } : {}),
+      interests: {
+        scopes: [...(cfg.scopes ?? ["scope:default"])],
+        negotiations: []
+      }
+    });
+    trace?.phase("session_open");
+    if (cfg.refreshDisplayName) {
+      server.sessions.setDisplayNameResolver(opened.sessionId, cfg.refreshDisplayName);
+    }
+    const delegatorTmuxSession = await currentTmuxSessionForSidecarAsync(sessionEnv);
+    if (delegatorTmuxSession && cfg.delegationEligible === true) {
+      delegation = {
+        origin: "mcp:h2a_run",
+        delegatorInstance: cfg.instance,
+        delegatorTmuxSession
+      };
+      if (!sessionEnv.H2A_NATIVE_PTY_SESSION?.trim() && sessionEnv.TMUX_PANE) {
+        await recordTmuxOwnerAsync(delegatorTmuxSession, cfg.instance);
+      }
+    }
+    if (options.participant) {
+      options.participant.delegationReferences = delegation ? [delegation] : [];
+      options.participant.terminalReferences = [{ instance: cfg.instance, launchContext: opened.launchContext ?? null }];
+    }
+    stderr.write(`h2a mcp-serve: auto-opened session for ${cfg.instance}\n`);
+    try {
+      const reaped = await reapDeadInstancePresenceAsync(root, cfg.instance, opened.sessionId);
+      if (reaped.length > 0) {
+        stderr.write(
+          `h2a mcp-serve: reaped ${reaped.length} stale presence file(s) for ${cfg.instance}\n`
+        );
+      }
+    } catch {
+      // best-effort
+    }
+    return opened.sessionId;
+  }
+
   // EVO-1 wake (bug #3): wake the idle host when a new inbox envelope arrives.
   function armInboxWake(cfg: AutoOpenConfig, wakeCfg: NonNullable<RunMcpStdioOptions["wake"]>): void {
     const wakeInstance = cfg.instance;
@@ -720,7 +931,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // Eager auto-open: identity was resolved synchronously before the transport
   // (the historical path, kept for existing consumers/tests). Best-effort unless
   // a structured readiness challenge upgrades failure to fatal.
-  if (options.autoOpen) {
+  if (options.autoOpen && !options.centralAttachment) {
     try {
       autoOpenedSessionId = openAutoOpenSession(options.autoOpen);
     } catch (err) {
@@ -757,7 +968,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       trace?.phase("messaging_bound");
       return { privateKeyPem, clusterMesh };
     } : undefined;
-    const activate = (identity: ResolvedIdentityMessage, prepared?: Prepared): ActivationResult => {
+    const activateSync = (identity: ResolvedIdentityMessage, prepared?: Prepared): ActivationResult => {
       if (!activation) {
         return { ok: false, cause: "identity_worker_failed", message: "no activation wiring" };
       }
@@ -838,6 +1049,83 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       if (liveClusterMesh) startMeshReceive(liveClusterMesh);
       return { ok: true, sessionId, signer: liveSendContext };
     };
+    const activateAsync = async (identity: ResolvedIdentityMessage, prepared?: Prepared): Promise<ActivationResult> => {
+      if (!activation) {
+        return { ok: false, cause: "identity_worker_failed", message: "no activation wiring" };
+      }
+      let privateKeyPem: string | undefined = prepared?.privateKeyPem;
+      if (!prepared && identity.privateKeyPath) {
+        try {
+          privateKeyPem = readFileSync(identity.privateKeyPath, "utf8");
+        } catch (err) {
+          return {
+            ok: false,
+            cause: "identity_storage_failed",
+            message: `cannot read identity key: ${err instanceof Error ? err.message : String(err)}`
+          };
+        }
+      }
+      const cfg = activation.buildAutoOpen(identity);
+      if (cfg.instance !== identity.instance) return { ok: false, cause: "session_open_failed", message: "activation identity mismatch" };
+      let sessionId: string;
+      try {
+        sessionId = await openAutoOpenSessionAsync(cfg);
+      } catch (err) {
+        return {
+          ok: false,
+          cause: "session_open_failed",
+          message: err instanceof Error ? err.message : String(err)
+        };
+      }
+      const rollbackAsync = async (): Promise<void> => {
+        try {
+          await server.sessions.closeAsync(sessionId, "closed");
+        } catch {
+          /* best effort */
+        }
+        try {
+          server.notifications.setOnInboxArrival(() => {});
+        } catch {
+          /* best effort */
+        }
+        liveSendContext = undefined;
+        liveClusterMesh = undefined;
+        delegation = undefined;
+        autoOpenedSessionId = undefined;
+      };
+      if (didShutdown) {
+        await rollbackAsync();
+        return { ok: false, cause: "session_open_failed", message: "attachment closed during activation" };
+      }
+      autoOpenedSessionId = sessionId;
+      try {
+        if (privateKeyPem !== undefined) {
+          const wakeCfg = activation.buildWake?.(privateKeyPem, cfg.instance, cfg.host);
+          if (wakeCfg) armInboxWake(cfg, wakeCfg);
+          liveSendContext = { instance: cfg.instance, privateKeyPem };
+        }
+        liveClusterMesh = prepared?.clusterMesh;
+      } catch (error) {
+        await rollbackAsync();
+        return { ok: false, cause: "session_open_failed", message: error instanceof Error ? error.message : String(error) };
+      }
+      if (options.readiness) {
+        try {
+          publishReadinessAck(options.readiness, sessionId);
+          trace?.phase("readiness_ack");
+        } catch (err) {
+          await rollbackAsync();
+          return {
+            ok: false,
+            cause: "readiness_ack_failed",
+            message: err instanceof Error ? err.message : String(err)
+          };
+        }
+      }
+      if (liveClusterMesh) startMeshReceive(liveClusterMesh);
+      return { ok: true, sessionId, signer: liveSendContext };
+    };
+    const activate = options.centralAttachment ? activateAsync : activateSync;
     identityController = createIdentityController({
       request: options.identityRequest,
       ...(sessionEnv.H2A_IDENTITY_RETRY_MIN_MS !== undefined ? { retryMinIntervalMs: Number(sessionEnv.H2A_IDENTITY_RETRY_MIN_MS) } : {}),
@@ -893,6 +1181,23 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const connection: StdioConnectionState = {};
 
   options.onServer?.(server);
+  if (options.autoOpen && options.centralAttachment) {
+    const autoOpenCfg = options.autoOpen;
+    void openAutoOpenSessionAsync(autoOpenCfg).then(
+      (sid) => {
+        if (didShutdown) {
+          void server.sessions.closeAsync(sid, "closed").catch(() => {});
+          return;
+        }
+        autoOpenedSessionId = sid;
+        if (options.wake) armInboxWake(autoOpenCfg, options.wake);
+      },
+      (err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        stderr.write(`h2a mcp-serve: auto-open failed: ${message}\n`);
+      }
+    );
+  }
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();
   stdin.resume();
@@ -902,14 +1207,15 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     // sessions so presence is marked `closed` immediately rather than lingering
     // as false-live until expiry. Idempotent with the rl `close` path below.
     const onAbort = (): void => {
-      shutdown("signal");
       try {
         rl.close();
       } catch {
         // ignore
       }
-      // Flush the bounded writer before resolving so no queued frame is lost.
-      void writeChain.finally(() => resolve());
+      void shutdownAsync("signal").finally(() => {
+        // Flush the bounded writer before resolving so no queued frame is lost.
+        void writeChain.finally(() => resolve());
+      });
     };
     if (options.signal) {
       if (options.signal.aborted) {
@@ -1070,14 +1376,14 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     rl.on("close", () => {
       if (identityController?.status().state === "identity_pending") identityController.cancel("transport_closed");
       void Promise.allSettled(inFlight).then(() => {
-        shutdown();
-        // Flush bounded output after asynchronous cluster-mesh requests finish.
-        void writeChain.finally(() => resolve());
-      }, (error) => { shutdown(); reject(error); });
+        void shutdownAsync().finally(() => {
+          // Flush bounded output after asynchronous cluster-mesh requests finish.
+          void writeChain.finally(() => resolve());
+        });
+      }, (error) => { void shutdownAsync().finally(() => reject(error)); });
     });
     rl.on("error", (err) => {
-      shutdown();
-      reject(err);
+      void shutdownAsync().finally(() => reject(err));
     });
     identityController?.start();
   });

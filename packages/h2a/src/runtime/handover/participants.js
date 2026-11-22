@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { OwnershipRegistry, OperationLedger } from './ownership.js';
 import { WakeJournal } from './wake.js';
 import { LaunchJournal } from './launch-memo.js';
-import { establishWriterControl, updateWriterControl, writerDirectory, withExecution, currentExecution } from './mutation.js';
+import { establishWriterControl, establishWriterControlAsync, updateWriterControl, writerDirectory, withExecution, currentExecution, MutationLockUnavailableError } from './mutation.js';
 import { readState, publishState } from './state.js';
 import { digest } from './wire.js';
 import { ownerLiveness, currentIdentity } from './admission.js';
@@ -15,10 +15,39 @@ export class Participants {
     this.root = resolve(options.root); this.directory = options.directory; this.marker = options.marker;
     this.writerProof = options.writerProof; this.attachments = new Map(); this.inventoryRevision = 1;
     this.authenticationKey = options.authenticationKey;
-    establishWriterControl(this.root, this.directory);
-    this.registry = new OwnershipRegistry({ directory: this.directory, generation: this.marker.generation,
+    this.pendingFinishes = [];
+    if (!options._registry) {
+      establishWriterControl(this.root, this.directory);
+    }
+    this.registry = options._registry ?? new OwnershipRegistry({ directory: this.directory, generation: this.marker.generation,
       processIdentity: this.marker.processIdentity, lockDirectory: writerDirectory(this.root) });
-    this.ledger = new OperationLedger(this.registry);
+    this.ledger = options._ledger ?? new OperationLedger(this.registry);
+  }
+  static async createAsync(options) {
+    const root = resolve(options.root);
+    await establishWriterControlAsync(root, options.directory);
+    const registry = await OwnershipRegistry.createAsync({ directory: options.directory, generation: options.marker.generation,
+      processIdentity: options.marker.processIdentity, lockDirectory: writerDirectory(root) });
+    const ledger = new OperationLedger(registry);
+    return new Participants({ ...options, _registry: registry, _ledger: ledger });
+  }
+  enqueuePendingFinish(operation, result, unknown = false) {
+    this.pendingFinishes.push({ operation, result, unknown });
+  }
+  async flushPendingFinishesAsync(options = { nonBlocking: true }) {
+    while (this.pendingFinishes.length > 0) {
+      const next = this.pendingFinishes[0];
+      try {
+        await this.ledger.finishAsync(next.operation, next.result, next.unknown, options);
+        this.pendingFinishes.shift();
+      } catch (error) {
+        if (error instanceof MutationLockUnavailableError || error?.code === 'mutation_lock_unavailable') {
+          break;
+        }
+        // Fenced / already settled / conflict: drop so one stale entry does not block the queue.
+        this.pendingFinishes.shift();
+      }
+    }
   }
   writerControl() { return readState(join(writerDirectory(this.root), 'control.json'), 'writerControl').value; }
   assertEligible() {
@@ -32,19 +61,23 @@ export class Participants {
       updateWriterControl(this.root, { restriction: verdict, closureEvidenceDigest: proof.evidenceDigest });
     }
   }
+  _attachLocked(attachmentId, context = {}) {
+    if (this.writerControl().gate !== 'OPEN') throw new Error('store_admission_closed');
+    const input = { attachmentId, presenceSessionId: `pending:${attachmentId}`, expectedInstance: context.expectedInstance ?? 'identity_disabled' };
+    const previous = readState(this.registry.ownerPath(attachmentId), 'ownership');
+    const token = previous && context.attachment?.resume
+      ? this.registry.rebaseline(input, owner => ownerLiveness({ processIdentity: owner.ownerProcessIdentity }, currentIdentity()) === 'dead' ||
+        Boolean(this.authenticationKey && endedOwner(owner, this.marker, this.authenticationKey, this.ledger)))
+      : this.registry.claim(input);
+    const participant = new AttachmentParticipant(this, token, context);
+    this.attachments.set(attachmentId, participant); this.inventoryRevision++;
+    return participant;
+  }
   attach(attachmentId, context = {}) {
-    return this.registry.withLock(() => {
-      if (this.writerControl().gate !== 'OPEN') throw new Error('store_admission_closed');
-      const input = { attachmentId, presenceSessionId: `pending:${attachmentId}`, expectedInstance: context.expectedInstance ?? 'identity_disabled' };
-      const previous = readState(this.registry.ownerPath(attachmentId), 'ownership');
-      const token = previous && context.attachment?.resume
-        ? this.registry.rebaseline(input, owner => ownerLiveness({ processIdentity: owner.ownerProcessIdentity }, currentIdentity()) === 'dead' ||
-          Boolean(this.authenticationKey && endedOwner(owner, this.marker, this.authenticationKey, this.ledger)))
-        : this.registry.claim(input);
-      const participant = new AttachmentParticipant(this, token, context);
-      this.attachments.set(attachmentId, participant); this.inventoryRevision++;
-      return participant;
-    });
+    return this.registry.withLock(() => this._attachLocked(attachmentId, context));
+  }
+  attachAsync(attachmentId, context = {}, options) {
+    return this.registry.withLockAsync(() => this._attachLocked(attachmentId, context), options);
   }
   inventory() {
     this.registry.syncIfExternalChange();
@@ -176,27 +209,33 @@ export class Participants {
     if (tx.state === 'ABORTED' && control.gate === 'BARRIER' && control.handoverId === tx.handoverId) this.abort(tx.handoverId);
     if (['STOP_COMMITTED', 'STOPPED'].includes(tx.state) && control.gate !== 'CLOSED') this.commit();
   }
-  drain() {
+  _drainLocked() {
+    this.registry.syncIfExternalChange();
+    const control = readState(join(this.directory, 'component-control.json'), 'componentControl')?.value;
+    const tx = control?.activeTransaction ? readState(join(this.directory, control.activeTransaction), 'componentTransaction')?.value : undefined;
+    const scope = tx?.mode === 'live-transfer' && tx.source.generation === this.marker.generation && ['PUBLISHED', 'RETIRED'].includes(tx.state)
+      ? { generation: this.marker.generation, processIdentity: this.marker.processIdentity } : undefined;
+    LaunchJournal.reconcileAll(this.registry, this.ledger, scope);
+    const drain = this.ledger.drain(scope);
+    for (const memo of this.registry.allLaunchMemos()) {
+      if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;
+      if (memo.state === 'completed') continue;
+      for (const [kind, key] of [['child', 'children'], ['brief', 'briefs']]) {
+        if (!this.ledger.getOperation(`${memo.launchId}:${kind}`)) drain[key]++;
+      }
+    }
+    drain.complete = this.ledger.ledgerMigrationComplete && ['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drain[k] === 0);
+    return drain;
+  }
+  drain(options) {
     if (this.registry.indeterminate) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 1, complete: false };
     if (!this.ledger.ledgerMigrationComplete) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0, complete: false };
-    return this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
-      const control = readState(join(this.directory, 'component-control.json'), 'componentControl')?.value;
-      const tx = control?.activeTransaction ? readState(join(this.directory, control.activeTransaction), 'componentTransaction')?.value : undefined;
-      const scope = tx?.mode === 'live-transfer' && tx.source.generation === this.marker.generation && ['PUBLISHED', 'RETIRED'].includes(tx.state)
-        ? { generation: this.marker.generation, processIdentity: this.marker.processIdentity } : undefined;
-      LaunchJournal.reconcileAll(this.registry, this.ledger, scope);
-      const drain = this.ledger.drain(scope);
-      for (const memo of this.registry.allLaunchMemos()) {
-        if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;
-        if (memo.state === 'completed') continue;
-        for (const [kind, key] of [['child', 'children'], ['brief', 'briefs']]) {
-          if (!this.ledger.getOperation(`${memo.launchId}:${kind}`)) drain[key]++;
-        }
-      }
-      drain.complete = this.ledger.ledgerMigrationComplete && ['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drain[k] === 0);
-      return drain;
-    });
+    return this.registry.withLock(() => this._drainLocked(), options);
+  }
+  async drainAsync(options) {
+    if (this.registry.indeterminate) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 1, complete: false };
+    if (!this.ledger.ledgerMigrationComplete) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0, complete: false };
+    return this.registry.withLockAsync(() => this._drainLocked(), options);
   }
 }
 
@@ -208,12 +247,15 @@ export class AttachmentParticipant {
     this.launches = new LaunchJournal({ registry: manager.registry, token, ledger: manager.ledger, root: context.workspace ?? manager.root });
     this.wakeHandler = undefined; this.terminalReferences = []; this.delegationReferences = [];
     this.downstreamProtocol = '2025-06-18';
+    this._handleClosed = false;
   }
   authority(operation, cleanup = false) { return { root: this.manager.root, registry: this.manager.registry,
     ledger: this.manager.ledger, token: this.token, operation, cleanup }; }
   runOwner(fn, cleanup = false) { return withExecution(this.authority(undefined, cleanup), fn); }
-  begin(kind) { return this.manager.ledger.begin(this.token, randomUUID(), kind); }
-  finish(operation, result, unknown = false) { return this.manager.ledger.finish(operation, result, unknown); }
+  begin(kind, options) { return this.manager.ledger.begin(this.token, randomUUID(), kind, options); }
+  beginAsync(kind, options) { return this.manager.ledger.beginAsync(this.token, randomUUID(), kind, options); }
+  finish(operation, result, unknown = false, options) { return this.manager.ledger.finish(operation, result, unknown, options); }
+  finishAsync(operation, result, unknown = false, options) { return this.manager.ledger.finishAsync(operation, result, unknown, options); }
   bind(mcp) { this.mcp = mcp; }
   identity() {
     const result = this.mcp.callTool('h2a_identity_status', {});
@@ -231,15 +273,68 @@ export class AttachmentParticipant {
       return fn();
     }
     const operation = this.begin('call');
-    const finish = result => { this.finish(operation, { completed: true }); return result; };
-    const fail = error => { this.finish(operation, { error: String(error) }, true); throw error; };
+    const finishSync = result => { this.finish(operation, { completed: true }); return result; };
+    const failSync = error => {
+      try {
+        this.finish(operation, { error: String(error) }, true);
+      } catch (finishErr) {
+        if (finishErr instanceof MutationLockUnavailableError || finishErr?.code === 'mutation_lock_unavailable') {
+          this.manager.enqueuePendingFinish(operation, { error: String(error) }, true);
+        }
+      }
+      throw error;
+    };
+    const finishAsync = async result => {
+      await this.finishAsync(operation, { completed: true });
+      return result;
+    };
+    const failAsync = async error => {
+      try {
+        await this.finishAsync(operation, { error: String(error) }, true, { timeoutMs: 250 });
+      } catch (finishErr) {
+        if (finishErr instanceof MutationLockUnavailableError || finishErr?.code === 'mutation_lock_unavailable') {
+          this.manager.enqueuePendingFinish(operation, { error: String(error) }, true);
+        }
+      }
+      throw error;
+    };
     try {
       const result = withExecution(this.authority(operation), fn);
-      return result?.then ? result.then(finish, fail) : finish(result);
-    } catch (error) { return fail(error); }
+      return result?.then ? result.then(finishAsync, failAsync) : finishSync(result);
+    } catch (error) { return failSync(error); }
+  }
+  async callAsync(fn) {
+    const parent = currentExecution();
+    if (parent?.registry === this.manager.registry && parent.operation?.kind === 'call' &&
+        parent.operation.attachmentId === this.token.attachmentId) {
+      this.manager.ledger.assertOperation(parent.operation);
+      return fn();
+    }
+    const operation = await this.beginAsync('call');
+    try {
+      const result = await withExecution(this.authority(operation), fn);
+      await this.finishAsync(operation, { completed: true });
+      return result;
+    } catch (error) {
+      try {
+        await this.finishAsync(operation, { error: String(error) }, true, { timeoutMs: 250 });
+      } catch (finishErr) {
+        if (finishErr instanceof MutationLockUnavailableError || finishErr?.code === 'mutation_lock_unavailable') {
+          this.manager.enqueuePendingFinish(operation, { error: String(error) }, true);
+        }
+      }
+      throw error;
+    }
   }
   executeLaunch(request, execute) {
     return this.launches.launch(request, enriched => {
+      const memo = this.launches.memos().find(m => m.launchName === request.name);
+      const operation = this.launches.operation(memo, 'child');
+      return withExecution(this.authority(operation), () => execute(enriched));
+    });
+  }
+  executeLaunchAsync(request, execute) {
+    return this.launches.launchAsync(request, enriched => {
       const memo = this.launches.memos().find(m => m.launchName === request.name);
       const operation = this.launches.operation(memo, 'child');
       return withExecution(this.authority(operation), () => execute(enriched));
@@ -262,6 +357,33 @@ export class AttachmentParticipant {
       // The current-owner event remains durable; no old owner effect is replayed.
     }
   }
+  async completeLaunchAsync(request, result, record) {
+    if (!request.delegation) return;
+    const memo = this.launches.memos().find(m => m.launchName === request.name);
+    if (!memo) throw new Error('operation_fenced');
+    let eventId;
+    try {
+      eventId = await this.manager.registry.withLockAsync(() => this.launches.publishDelegation(memo, result));
+    } catch (error) {
+      if (error instanceof MutationLockUnavailableError || error?.code === 'mutation_lock_unavailable' || error?.name === 'LockTimeoutError') {
+        return;
+      }
+      throw error;
+    }
+    try {
+      await this.runOwner(() => record(eventId));
+    } catch (error) {
+      if (
+        ['ownership_fenced', 'store_admission_closed'].includes(error?.message) ||
+        error instanceof MutationLockUnavailableError ||
+        error?.code === 'mutation_lock_unavailable' ||
+        error?.name === 'LockTimeoutError'
+      ) {
+        return;
+      }
+      throw error;
+    }
+  }
   snapshot() {
     const notification = this.mcp.notifications.checkpointState();
     const snapshot = { schemaVersion: 1, attachmentId: this.token.attachmentId, ownershipEpoch: this.token.ownershipEpoch,
@@ -282,6 +404,22 @@ export class AttachmentParticipant {
     } else {
       await this.runOwner(fn, true);
       this.manager.registry.close(this.token);
+    }
+    this.manager.attachments.delete(this.token.attachmentId); this.manager.inventoryRevision++;
+  }
+  async closeAsync(fn, options) {
+    if (this.transferred()) {
+      this.mcp?.notifications.stop(); this.mcp?.sessions.suspend();
+      if (!this._handleClosed) {
+        this._handleClosed = true;
+        await fn();
+      }
+    } else {
+      if (!this._handleClosed) {
+        this._handleClosed = true;
+        await this.runOwner(fn, true);
+      }
+      await this.manager.registry.closeAsync(this.token, options);
     }
     this.manager.attachments.delete(this.token.attachmentId); this.manager.inventoryRevision++;
   }
