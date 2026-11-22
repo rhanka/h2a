@@ -8,7 +8,7 @@
  * snapshot capping (<= 512 rows, <= 256 KiB canonical JSON).
  */
 
-import type { H2ALaunchContext, H2ASession } from "../../session.js";
+import { H2A_WORK_STATUSES, type H2ALaunchContext, type H2ASession } from "../../session.js";
 import { sanitizePresenceForMirror } from "../mirror/sanitize.js";
 import { classifyLaunchHost } from "./fleet-inventory.js";
 import {
@@ -18,6 +18,8 @@ import {
   wireInstanceId
 } from "./wire-ids.js";
 import {
+  CATALOGUE_LABEL_MAX_BYTES,
+  CATALOGUE_LABEL_PREFIX_MAX_BYTES,
   CATALOGUE_MAX_ROWS,
   CATALOGUE_ROW_MAX_BYTES,
   CATALOGUE_SNAPSHOT_MAX_BYTES,
@@ -76,6 +78,9 @@ const UNIX_ABS_PATH_RE = /(?:^|[\s=:(,"'])\/(?:\S|$)/;
 const WINDOWS_ABS_PATH_RE = /[A-Za-z]:[\\/]/;
 const UNC_PATH_RE = /(?:^|[\s=:(,"'])\\\\[^\\\s]+\\[^\\\s]+/;
 const FILE_URI_RE = /file:\/\//i;
+const HOST_RE = /^[a-z0-9._-]{1,16}$/;
+const ISO_24_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const ALLOWED_WORK_STATUSES: ReadonlySet<string> = new Set<string>([...H2A_WORK_STATUSES, "unknown"]);
 
 export function isInternalCompanionNativeId(nativeId: string): boolean {
   return typeof nativeId === "string" && nativeId.endsWith(".h2a");
@@ -140,19 +145,121 @@ function collectLocalLeakValues(session: H2ASession, socketPath?: string): Set<s
   return blocked;
 }
 
+/**
+ * Strip C0 (U+0000..U+001F), DEL (U+007F), and lone UTF-16 surrogates from a
+ * catalogue display label, leaving C1 (U+0080..U+009F) and all valid scalars
+ * intact per SPEC_EVOL_REMOTE_FASTLANE.md (r11 §7.2).
+ */
+export function stripCatalogueLabel(value: string): string {
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < value.length ? value.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += value.slice(i, i + 2);
+        i += 1;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      continue;
+    }
+    if ((code >= 0x00 && code <= 0x1f) || code === 0x7f) {
+      continue;
+    }
+    out += value[i]!;
+  }
+  return out;
+}
+
+/**
+ * JCS-escaped string content byte length (without surrounding quotes):
+ * quotes and backslashes count 2 bytes, all other scalars count UTF-8 bytes.
+ */
+export function jcsEscapedLength(value: string): number {
+  let bytes = 0;
+  for (const ch of value) {
+    if (ch === '"' || ch === "\\") {
+      bytes += 2;
+    } else {
+      bytes += Buffer.byteLength(ch, "utf8");
+    }
+  }
+  return bytes;
+}
+
+/**
+ * Bound a catalogue label to at most 64 UTF-8 bytes and 64 JCS-escaped bytes,
+ * truncating on whole Unicode scalars within 61 bytes on both measures plus `…`.
+ */
+export function boundCatalogueLabel(value: string): string | undefined {
+  const stripped = stripCatalogueLabel(value);
+  if (stripped.length === 0) return undefined;
+  if (
+    Buffer.byteLength(stripped, "utf8") <= CATALOGUE_LABEL_MAX_BYTES &&
+    jcsEscapedLength(stripped) <= CATALOGUE_LABEL_MAX_BYTES
+  ) {
+    return stripped;
+  }
+  let prefix = "";
+  let utf8Bytes = 0;
+  let jcsBytes = 0;
+  for (const ch of stripped) {
+    const chUtf8 = Buffer.byteLength(ch, "utf8");
+    const chJcs = ch === '"' || ch === "\\" ? 2 : chUtf8;
+    if (
+      utf8Bytes + chUtf8 > CATALOGUE_LABEL_PREFIX_MAX_BYTES ||
+      jcsBytes + chJcs > CATALOGUE_LABEL_PREFIX_MAX_BYTES
+    ) {
+      break;
+    }
+    prefix += ch;
+    utf8Bytes += chUtf8;
+    jcsBytes += chJcs;
+  }
+  return `${prefix}…`;
+}
+
+function hasLeakPattern(value: string, localValues?: ReadonlySet<string>): boolean {
+  if (FILE_URI_RE.test(value)) return true;
+  if (UNIX_ABS_PATH_RE.test(value)) return true;
+  if (WINDOWS_ABS_PATH_RE.test(value)) return true;
+  if (UNC_PATH_RE.test(value)) return true;
+  if (localValues && (localValues.has(value) || localValues.has(value.trim()))) {
+    return true;
+  }
+  return false;
+}
+
+function sanitizeCatalogueLabel(
+  value: string | undefined,
+  localValues?: ReadonlySet<string>
+): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  const stripped = stripCatalogueLabel(value);
+  if (stripped.length === 0) return undefined;
+  if (hasLeakPattern(stripped, localValues)) return undefined;
+  return boundCatalogueLabel(stripped);
+}
+
+function normalizeCatalogueTimestamp(value: string | undefined): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  try {
+    const iso = new Date(value).toISOString();
+    return ISO_24_RE.test(iso) ? iso : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function sanitizeDisplayScalar(
   value: string | undefined,
   localValues?: ReadonlySet<string>
 ): string | undefined {
   if (typeof value !== "string" || value.length === 0) return undefined;
   if (CONTROL_CHAR_RE.test(value)) return undefined;
-  if (FILE_URI_RE.test(value)) return undefined;
-  if (UNIX_ABS_PATH_RE.test(value)) return undefined;
-  if (WINDOWS_ABS_PATH_RE.test(value)) return undefined;
-  if (UNC_PATH_RE.test(value)) return undefined;
-  if (localValues && (localValues.has(value) || localValues.has(value.trim()))) {
-    return undefined;
-  }
+  if (hasLeakPattern(value, localValues)) return undefined;
   return value;
 }
 
@@ -200,17 +307,25 @@ export function projectJoinedCatalogueRow(input: ProjectJoinedRowInput): Catalog
 
   const localValues = collectLocalLeakValues(input.presence, input.socketPath);
   const mirrored = sanitizePresenceForMirror(input.presence);
-  const safeName = sanitizeDisplayScalar(mirrored.name, localValues);
-  const safeWorkspaceLabel = sanitizeDisplayScalar(mirrored.workspace?.label, localValues);
+  const safeName = sanitizeCatalogueLabel(mirrored.name, localValues);
+  const safeWorkspaceLabel = sanitizeCatalogueLabel(mirrored.workspace?.label, localValues);
   // `host` keeps its CLI vocabulary (e.g. "claude", "codex") and must not be
   // stripped when `launchContext.command` happens to equal the CLI name.
-  const safeHost = sanitizeDisplayScalar(mirrored.host);
+  const rawSafeHost = sanitizeDisplayScalar(mirrored.host);
+  const safeHost = rawSafeHost !== undefined && HOST_RE.test(rawSafeHost) ? rawSafeHost : undefined;
+  const startedAt = normalizeCatalogueTimestamp(mirrored.startedAt);
+  const heartbeatAt = normalizeCatalogueTimestamp(mirrored.heartbeatAt);
   const instanceId =
     typeof mirrored.instance === "string" && mirrored.instance.length > 0
       ? wireInstanceId(mirrored.instance)
       : undefined;
   const instanceStatus: CatalogueInstanceStatus = input.instanceStatus ?? "live";
-  const workStatus = input.presenceFresh ? (mirrored.workStatus ?? "unknown") : "unknown";
+  const workStatus =
+    input.presenceFresh &&
+    typeof mirrored.workStatus === "string" &&
+    ALLOWED_WORK_STATUSES.has(mirrored.workStatus)
+      ? mirrored.workStatus
+      : "unknown";
 
   return {
     sessionId: input.sessionId,
@@ -219,8 +334,8 @@ export function projectJoinedCatalogueRow(input: ProjectJoinedRowInput): Catalog
     ...(safeHost === undefined ? {} : { host: safeHost }),
     ...(safeName === undefined ? {} : { name: safeName }),
     ...(safeWorkspaceLabel === undefined ? {} : { workspaceLabel: safeWorkspaceLabel }),
-    startedAt: mirrored.startedAt,
-    heartbeatAt: mirrored.heartbeatAt,
+    ...(startedAt === undefined ? {} : { startedAt }),
+    ...(heartbeatAt === undefined ? {} : { heartbeatAt }),
     state: input.state,
     workStatus,
     hostKind: input.hostKind,
@@ -272,78 +387,14 @@ function canonicalUtf8Bytes(value: unknown): number {
   return Buffer.byteLength(canonicalTrunkJson(value), "utf8");
 }
 
-function shrinkFieldToFit(
-  row: CatalogueSessionRow,
-  field: "name" | "workspaceLabel",
-  maxBytes: number
-): CatalogueSessionRow {
-  const value = row[field];
-  if (value === undefined) return row;
-
-  const withoutField = { ...row };
-  delete (withoutField as Record<string, unknown>)[field];
-  if (canonicalUtf8Bytes(withoutField) > maxBytes) {
-    return withoutField;
-  }
-
-  // Binary search on Unicode code points so surrogate pairs are never split
-  // and JSON escaping (quotes, backslashes, multi-byte UTF-8) is measured
-  // on the exact serialized canonical bytes.
-  const codePoints = Array.from(value);
-  let lo = 0;
-  let hi = codePoints.length;
-  let best = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >>> 1;
-    if (mid === 0) {
-      best = Math.max(best, 0);
-      lo = 1;
-      continue;
-    }
-    const candidate: CatalogueSessionRow = {
-      ...withoutField,
-      [field]: codePoints.slice(0, mid).join("")
-    };
-    if (canonicalUtf8Bytes(candidate) <= maxBytes) {
-      best = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  if (best === 0) return withoutField;
-  return {
-    ...withoutField,
-    [field]: codePoints.slice(0, best).join("")
-  };
-}
-
-/**
- * Fit one catalogue row within `CATALOGUE_ROW_MAX_BYTES` (512 canonical UTF-8
- * bytes): shrinks `name` first on code-point boundaries, then `workspaceLabel`,
- * keeping all identifiers intact. Returns `null` if still unencodable.
- */
-export function fitCatalogueRowToBound(
-  row: CatalogueSessionRow,
-  maxBytes: number = CATALOGUE_ROW_MAX_BYTES
-): CatalogueSessionRow | null {
-  if (canonicalUtf8Bytes(row) <= maxBytes) return row;
-  let current = shrinkFieldToFit(row, "name", maxBytes);
-  if (canonicalUtf8Bytes(current) <= maxBytes) return current;
-  current = shrinkFieldToFit(current, "workspaceLabel", maxBytes);
-  if (canonicalUtf8Bytes(current) <= maxBytes) return current;
-  return null;
-}
-
 function compareBinaryString(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**
- * Sort rows stably by `sessionId` (binary order), shrink or drop unencodable
- * rows, and retain the longest prefix fitting within `CATALOGUE_MAX_ROWS` (512)
- * and `CATALOGUE_SNAPSHOT_MAX_BYTES` (256 KiB), measured on canonical UTF-8
- * JSON bytes including the final `truncatedRows`.
+ * Sort rows stably by `sessionId` (binary order) and retain the longest prefix
+ * fitting within `CATALOGUE_MAX_ROWS` (512) and `CATALOGUE_SNAPSHOT_MAX_BYTES`
+ * (256 KiB), measured on canonical UTF-8 JSON bytes including `truncatedRows`.
  */
 export function buildBoundedCatalogueSnapshot(input: {
   readonly rows: readonly CatalogueSessionRow[];
@@ -355,18 +406,8 @@ export function buildBoundedCatalogueSnapshot(input: {
   const s = input.s ?? 1;
   const at = input.at;
 
-  const sorted = [...input.rows].sort((a, b) => compareBinaryString(a.sessionId, b.sessionId));
-  const encodable: CatalogueSessionRow[] = [];
-  let unencodableCount = 0;
-
-  for (const row of sorted) {
-    const fitted = fitCatalogueRowToBound(row, CATALOGUE_ROW_MAX_BYTES);
-    if (fitted === null) {
-      unencodableCount += 1;
-    } else {
-      encodable.push(fitted);
-    }
-  }
+  const encodable = [...input.rows].sort((a, b) => compareBinaryString(a.sessionId, b.sessionId));
+  const unencodableCount = 0;
 
   const maxCandidateCount = Math.min(encodable.length, CATALOGUE_MAX_ROWS);
   const makeCandidate = (k: number): CatalogueSnapshot => ({

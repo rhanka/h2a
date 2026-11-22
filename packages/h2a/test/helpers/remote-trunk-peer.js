@@ -126,6 +126,22 @@ function applyRevokedToRow(row, revokedIds) {
   return row;
 }
 
+export function provisionalWireRow(row) {
+  const out = { sid: row.sessionId };
+  if (row.instanceId !== undefined) out.instanceId = row.instanceId;
+  if (row.instanceStatus !== undefined) out.instanceStatus = row.instanceStatus;
+  if (row.host !== undefined) out.cliHost = row.host;
+  if (row.name !== undefined) out.name = row.name;
+  if (row.workspaceLabel !== undefined) out.workspaceLabel = row.workspaceLabel;
+  if (row.startedAt !== undefined) out.startedAt = row.startedAt;
+  if (row.heartbeatAt !== undefined) out.heartbeatAt = row.heartbeatAt;
+  if (row.workStatus !== undefined) out.workStatus = row.workStatus;
+  if (row.hostKind !== undefined) out.terminalHost = row.hostKind;
+  out.operable = Boolean(row.operable);
+  if (row.excluded === true) out.excluded = true;
+  return out;
+}
+
 export function createSimulatedTrunkContractProvider(options = {}) {
   const maxCatalogueRecordBytes = options.maxCatalogueRecordBytes ?? 8192;
   const maxSignallingRecordBytes = options.maxSignallingRecordBytes ?? 8192;

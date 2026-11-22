@@ -38,6 +38,8 @@ import {
   nativeCatalogueSid,
   presenceCatalogueSid,
   wireInstanceId,
+  jcsEscapedLength,
+  canonicalTrunkJson,
   readExclusions,
   setSessionExcluded,
   clearSessionExcluded,
@@ -54,6 +56,7 @@ import {
   assertFixtureContractVersion,
   createFakeCatalogueTrunkProvider
 } from "./helpers/remote-trunk-fakes.js";
+import { provisionalWireRow } from "./helpers/remote-trunk-peer.js";
 
 import {
   listNativeInventoryForRemote,
@@ -967,7 +970,7 @@ test("LH-06 privacy: strips sentinels, paths, file:// URIs, controls, coordinate
 
     const row4 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-4"));
     assert.equal(row4.name, undefined, "exact copy of launch command must be omitted");
-    assert.equal(row4.workspaceLabel, undefined, "control char in workspaceLabel must be omitted");
+    assert.equal(row4.workspaceLabel, "badlabel", "C0 control char in workspaceLabel must be stripped");
 
     // Round-trip & foreign property rejection on row, snapshot, and delta (one at a time)
     assert.deepEqual(parseCatalogueSnapshot(wire), snap);
@@ -1666,11 +1669,18 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     const totalSnapBytes = Buffer.byteLength(serializeCatalogueSnapshot(lastMsg), "utf8");
     assert.ok(totalSnapBytes <= 262_144, `snapshot exceeded 256 KiB: ${totalSnapBytes}`);
     for (const row of lastMsg.rows) {
-      const rowJson = JSON.stringify(row);
-      assert.ok(Buffer.byteLength(rowJson, "utf8") <= 512, `row exceeded 512 bytes: ${Buffer.byteLength(rowJson, "utf8")}`);
-      // No broken surrogate pairs (every string is well-formed UTF-16)
-      if (row.name !== undefined) assert.equal(row.name.isWellFormed(), true, "truncated name must respect code-point boundaries");
-      if (row.workspaceLabel !== undefined) assert.equal(row.workspaceLabel.isWellFormed(), true, "truncated workspaceLabel must respect code-point boundaries");
+      if (row.name !== undefined) {
+        assert.equal(row.name.isWellFormed(), true, "truncated name must respect code-point boundaries");
+        assert.ok(Buffer.byteLength(row.name, "utf8") <= 64, "name must fit in 64 UTF-8 bytes");
+        assert.ok(jcsEscapedLength(row.name) <= 64, "name must fit in 64 JCS-escaped bytes");
+      }
+      if (row.workspaceLabel !== undefined) {
+        assert.equal(row.workspaceLabel.isWellFormed(), true, "truncated workspaceLabel must respect code-point boundaries");
+        assert.ok(Buffer.byteLength(row.workspaceLabel, "utf8") <= 64, "workspaceLabel must fit in 64 UTF-8 bytes");
+        assert.ok(jcsEscapedLength(row.workspaceLabel) <= 64, "workspaceLabel must fit in 64 JCS-escaped bytes");
+      }
+      const wireBytes = Buffer.byteLength(canonicalTrunkJson(provisionalWireRow(row)), "utf8");
+      assert.ok(wireBytes <= 480, `provisional wire row exceeded 480 bytes: ${wireBytes}`);
     }
     assert.ok(audits.length >= 2 && audits[audits.length - 1].truncatedRows === lastMsg.truncatedRows);
 

@@ -13,8 +13,15 @@ export const TRUNK_PROTOCOL_VERSION = 1 as const;
 export const TRUNK_RECORD_MAX_BYTES = 32768 as const;
 export const TRUNK_TERMINAL_TEXT_MAX_BYTES = 16384 as const;
 export const CATALOGUE_MAX_ROWS = 512 as const;
-export const CATALOGUE_ROW_MAX_BYTES = 512 as const;
+export const CATALOGUE_ROW_MAX_BYTES = 480 as const;
 export const CATALOGUE_SNAPSHOT_MAX_BYTES = 262144 as const;
+export const CATALOGUE_LABEL_MAX_BYTES = 64 as const;
+export const CATALOGUE_LABEL_PREFIX_MAX_BYTES = 61 as const;
+export const CATALOGUE_ID_MAX_BYTES = 36 as const;
+export const CATALOGUE_PART_MAX_ROWS = 16 as const;
+export const CATALOGUE_SNAPSHOT_MAX_PARTS = 32 as const;
+export const CATALOGUE_DELTA_MAX_ENTRIES = 16 as const;
+export const CATALOGUE_RECORD_MAX_BYTES = 8192 as const;
 export const TERMINAL_INPUT_MAX_BYTES = 4096 as const;
 export const TERMINAL_OUTPUT_COALESCE_BYTES = 16384 as const;
 
