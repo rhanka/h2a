@@ -18,7 +18,7 @@ Refusals: `unauthorized`, `consent-pending`, `consent-refused`, `consent-expired
 
 The append-only pair journal is the sole source of truth. Each open store derives an in-memory domain index from it: live pair request/grant/revocation evidence within the 48-hour cap window (all live requests fit within 25 hours), plus one valid expired request group for denial diagnostics and signed per-request terminal revocation markers with their request witnesses (O(revocations), not O(history)), admission IDs within 48 hours for replay detection, and the per-pair anti-rollback high-water scalar. No signature-verification result is cached: the resolver verifies relevant signed evidence and active keys for every reception. The final journal entry is retained only to construct the next hash-chain link, not as a historical integrity certificate.
 
-A missing or suspect index is fully reconstructed from the journal, never self-authorizing. An external journal fingerprint change (inode, size, nanosecond mtime/ctime) causes reconstruction outside the registry lock. A receiver store performs full-chain verification at startup and every 60 seconds while alive, outside admission and outside the registry lock. Each periodic pass reads and verifies the whole chain, including already-covered entries; it does not trust a cached verified head plus delta. A detected fault prevents consent authorization. Ordinary journal reads also retain full verification. Corrupt on-disk journals retain the existing `consent-invalid` / 403 mapping.
+A missing or suspect index is fully reconstructed from the journal, never self-authorizing. An external journal fingerprint change (device, inode, size, nanosecond mtime/ctime) causes reconstruction outside the registry lock. A receiver store performs full-chain verification every 60 seconds while alive, outside admission and outside the registry lock. Store creation also runs the full pass by default. Central MCP sets `deferConsentHistoryVerification: true` so readiness stays independent of the size of the consent history, scheduling the first full pass on the 60-second periodic timer; each pair's first business use still verifies its chain before authorization. Periodic verification runs asynchronously (`verifyConsentHistoryAsync`, protected against re-entrancy) via streaming (`fs.createReadStream` + `readline`) with incremental per-entry chain validation (`verifyJournalEntryStep`) and cooperative event-loop yielding every 250 entries or `<= 8 ms`, skipping pairs whose `consentStamp` is unchanged and without recorded failure. `keys.jsonl` reads are cached per `(dev, ino, size, mtimeNs, ctimeNs)` and memoized within pruning passes so expired-request checks never reread `keys.jsonl` in a loop. A detected fault prevents consent authorization. Ordinary journal reads also retain full verification. Corrupt on-disk journals retain the existing `consent-invalid` / 403 mapping.
 
 Historical retroactive-alteration detection is **deferred, not removed**: a change not caught by the fingerprint is detected at the next full pass (60 seconds plus event-loop scheduling delay), or at restart. Startup, periodic verification and exceptional index rebuilds remain O(history); steady-state reception depends on the pair's bounded evidence window and replay lookup, not total journal history. The journal itself remains append-only and can grow without bound; pruning the derived index never deletes journal records. Reads do not advance the persisted high-water scalar or append audits; writes/admissions do.
 
@@ -80,10 +80,7 @@ At **one reception per second**, seven days means 604,800 receptions, about
 measured slope. These week/month values are linear projections, not executions
 of week/month-sized journals; memory and I/O pressure may increase them.
 
-The startup full pass runs **once per MCP server process** when its store is
-created and reused, followed by full periodic passes every 60 seconds. The **CLI
-pays the startup full pass once per command invocation** that creates a store;
-there is no store reused across CLI processes. The earlier inventory estimated
+MCP stores run full periodic passes asynchronously every 60 seconds in cooperative `<= 8 ms` streaming slices (zero `readFileSync` on pair journals, skipping unchanged pairs via `consentStamp`, with a stat-validated `keys.jsonl` cache). The standard MCP server also runs a synchronous full pass when it creates its store. Central MCP shares one store across attachments and passes `deferConsentHistoryVerification: true` so full-store verification starts at the first periodic pass; each pair's first on-demand business use still verifies its chain before authorization. The **CLI pays the startup full pass once per command invocation** that creates a store; there is no store reused across CLI processes. The earlier inventory estimated
 about 25 call sites; this checkout has 36 textual `createLocalStore(` call sites
 in `packages/h2a/src/cli.ts`. This debt covers CLI startup as well as MCP startup.
 
@@ -109,7 +106,7 @@ At or above escalation, the signal emits `due:true` and
 `<store root>/drive-consent-budget.json`: durationMs, thresholdMs,
 identityDeadlineMs, crossedAt (ISO), and track `01M39VC11XBNSE8W2ASMQRRKZV`.
 The durable marker lives on the writable **server store root**, not in an agent
-session. Every subsequent creation (and periodic pass) rereads and re-emits the
+session. Every subsequent full pass rereads and re-emits the
 saved crossing with `replayed:true` before measuring again, even for a quiet CLI.
 It persists until handled by this precise recheck rule: a fresh measurement
 strictly below escalation best-effort removes it, after replay; a measurement at

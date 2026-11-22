@@ -85,7 +85,7 @@ import { readInstallReceipt } from "./registry/host-bootstrap.js";
 import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
 import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
-import { centralOperator, centralOperatorExitCode, centralFailureExitCode, centralResidueReport } from "./runtime/mcp-central-operator.js";
+import { centralCompact, centralOperator, centralOperatorExitCode, centralFailureExitCode, centralResidueReport, parseCentralCompactArgs } from "./runtime/mcp-central-operator.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
@@ -543,6 +543,7 @@ export function renderCliHelp(
     "  h2a central status|stop   (authenticated control; stop persists MCP pause and drains without force)",
     "                           (pause_active_stop_deferred remains armed; explicit serve resumes before commit)",
     "  h2a central residues [--workspace <repo>] [--agy-config <file>]   (report only; never rewrites or deletes residues)",
+    "  h2a central compact [--root <path>] [--runtime-base <dir>] [--dry-run] [--restore] [--json]   (reversible locked compaction/restoration of central handover state)",
     "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--allow-tracked] [--force] [--no-wake] [--remove]   (edits only the h2a entry, preserves surrounding bytes and creates a backup; tracked files require --allow-tracked; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
     "  h2a host status [--host <name>]",
     "  h2a registry catalog   (registry publisher entries; metadata only, writes nothing)",
@@ -8309,6 +8310,17 @@ export function runCli(
   }
   if (command === "central") {
     const sub = argv[1];
+    if (sub === "compact") {
+      try {
+        const compactOpts = parseCentralCompactArgs(argv.slice(2));
+        const result = centralCompact({ ...compactOpts, env: options.env ?? process.env });
+        streams.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        return centralOperatorExitCode(result);
+      } catch (error) {
+        streams.stderr.write(`h2a central compact: ${(error as Error).message}\n`);
+        return centralFailureExitCode(error);
+      }
+    }
     const { flags: centralFlags } = parseFlags(argv.slice(1));
     if (sub === "stop" && centralFlags.force !== undefined) { streams.stderr.write("h2a central stop: no force mode\n"); return 1; }
     if (sub === "residues") {
@@ -8319,7 +8331,7 @@ export function runCli(
       streams.stdout.write(JSON.stringify(result, null, 2) + "\n");
       return centralOperatorExitCode(result);
     }).catch(error => { streams.stderr.write(`h2a central ${sub}: ${(error as Error).message}\n`); return centralFailureExitCode(error); });
-    streams.stderr.write("h2a central: use status, stop or residues\n");
+    streams.stderr.write("h2a central: use status, stop, residues or compact\n");
     return 1;
   }
   if (command === "store") return cmdStore(argv.slice(1), streams);
