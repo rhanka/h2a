@@ -15,11 +15,12 @@
  *   `<root>/remote-control/link-status.json` under `<root>/remote-control/.lock`.
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { LockTimeoutError, withLockSync } from "../local-files/locks.js";
+import { planCatalogueUpdate, type CatalogueProjection } from "./catalogue-plan.js";
 import { isRemoteControlEnabled, isRemoteControlKilledByEnv } from "./flag.js";
 import { loadNodeKey, type NodeKeyOptions } from "./node-key.js";
 import { readRemoteControlKillFlag, setRemoteControlKillFlag } from "./service.js";
@@ -35,16 +36,29 @@ import {
   type InstanceActResult
 } from "./trunk-instance.js";
 import {
+  AUTHORITY_SYNC_DEADLINE_MS,
+  AuthoritySyncStager,
+  type AuthorityGrantEntry,
+  type TrunkAuthorityState
+} from "./trunk-authority.js";
+import {
+  CATALOGUE_SNAPSHOT_MAX_BYTES,
+  CATALOGUE_SNAPSHOT_MAX_PARTS,
   isTrunkRecord,
   signTrunkBytes,
   TRUNK_PROTOCOL_VERSION,
   type CatalogueDelta,
-  type CatalogueRowStatusUpdate,
   type CatalogueSessionRow,
-  type CatalogueSnapshot,
+  type CatalogueSnapshotEnd,
+  type CatalogueSnapshotPart,
   type CreditRecord,
   type InstanceBoundRecord,
   type InstanceRevokedRecord,
+  type PropGrantRecord,
+  type StateActiveRecord,
+  type StateBeginRecord,
+  type StateEndRecord,
+  type StatePartRecord,
   type TermOpen,
   type TermOpened,
   type TrunkAuthPayload,
@@ -112,19 +126,7 @@ export interface TrunkConnector {
   open(endpoint: string, handlers: TrunkConnectionHandlers): TrunkConnection;
 }
 
-export type CatalogueStatusUpdate = CatalogueRowStatusUpdate;
-
-export type CatalogueEmitEvent =
-  | CatalogueSnapshot
-  | CatalogueDelta
-  | { readonly kind: "snapshot"; readonly at: number; readonly rows: readonly CatalogueSessionRow[]; readonly truncatedRows?: number }
-  | {
-      readonly kind: "delta";
-      readonly at: number;
-      readonly adds?: readonly CatalogueSessionRow[];
-      readonly updates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-      readonly removes?: readonly string[];
-    };
+export type CatalogueEmitEvent = CatalogueProjection;
 
 export interface TrunkCatalogueSource {
   startWatch(emit: (event: CatalogueEmitEvent) => void): void;
@@ -166,12 +168,9 @@ export interface TrunkInstanceBindPayload {
 }
 
 export interface PreparedCatalogueRecord {
-  readonly record: CatalogueSnapshot | CatalogueDelta;
+  readonly record: CatalogueSnapshotPart | CatalogueSnapshotEnd | CatalogueDelta;
   readonly encodedBytes: number;
   readonly nextCursor: unknown;
-  readonly deliveredAdds?: readonly CatalogueSessionRow[];
-  readonly deliveredUpdates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-  readonly deliveredRemoves?: readonly string[];
 }
 
 export interface TrunkContractProvider {
@@ -184,18 +183,36 @@ export interface TrunkContractProvider {
   decodeFrame(frame: Uint8Array | string): { readonly ok: true; readonly record: TrunkRecord; readonly encodedBodyBytes: number } | { readonly ok: false; readonly code: string };
   canonicalAuthBytes(payload: TrunkAuthPayload): Uint8Array;
   canonicalInstanceBindBytes(payload: TrunkInstanceBindPayload): Uint8Array;
-  prepareNextCatalogueRecord(request: {
-    readonly mode: "snapshot" | "delta";
-    readonly at: number;
-    readonly rows?: readonly CatalogueSessionRow[];
-    readonly truncatedRows?: number;
-    readonly removes?: readonly string[];
-    readonly updates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-    readonly adds?: readonly CatalogueSessionRow[];
-    readonly cursor: unknown;
-    readonly nextSeq: number;
-    readonly revokedInstanceIds?: ReadonlySet<string>;
-  }): PreparedCatalogueRecord | null;
+  canonicalStateRecordBytes(record: unknown): Uint8Array;
+  measureJcsBytes(value: unknown): number;
+  planCatalogueSnapshot(request: {
+    readonly nodeId: string;
+    readonly snapId: string;
+    readonly rows: readonly CatalogueSessionRow[];
+    readonly truncatedRows: number;
+  }): { readonly partCount: number; readonly totalEncodedBytes: number };
+  prepareNextCatalogueRecord(
+    request:
+      | {
+          readonly mode: "snapshot";
+          readonly nodeId: string;
+          readonly snapId: string;
+          readonly rows: readonly CatalogueSessionRow[];
+          readonly truncatedRows: number;
+          readonly cursor: unknown;
+          readonly nextCatSeq: number;
+          readonly nextSeq: number;
+        }
+      | {
+          readonly mode: "delta";
+          readonly nodeId: string;
+          readonly removes: readonly string[];
+          readonly upserts: readonly CatalogueSessionRow[];
+          readonly cursor: unknown;
+          readonly nextCatSeq: number;
+          readonly nextSeq: number;
+        }
+  ): PreparedCatalogueRecord | null;
 }
 
 export interface TrunkAuditEvent {
@@ -205,6 +222,7 @@ export interface TrunkAuditEvent {
   readonly tenantId: string;
   readonly enrolmentRef: string;
   readonly instanceId?: string;
+  readonly instanceHandle?: string;
   readonly fingerprint?: string;
   readonly reason?: string;
   readonly linkGeneration?: number;
@@ -213,6 +231,7 @@ export interface TrunkAuditEvent {
 export interface TrunkLinkRefusal {
   readonly code: string;
   readonly instanceId?: string;
+  readonly instanceHandle?: string;
   readonly at: number;
 }
 
@@ -284,6 +303,7 @@ function sanitizeStatus(raw: unknown): TrunkLinkStatus | undefined {
       out.lastRefusal = {
         code: lr["code"],
         ...(typeof lr["instanceId"] === "string" ? { instanceId: lr["instanceId"] } : {}),
+        ...(typeof lr["instanceHandle"] === "string" ? { instanceHandle: lr["instanceHandle"] } : {}),
         at: lr["at"]
       };
     }
@@ -360,12 +380,34 @@ export function writeLinkStatusFile(
   }
 }
 
-interface PendingDeltaState {
-  at: number;
-  removes: Set<string>;
-  priorityUpdates: Map<string, CatalogueStatusUpdate>;
-  updates: Map<string, CatalogueSessionRow>;
-  adds: Map<string, CatalogueSessionRow>;
+type InFlightCatalogueSeries =
+  | {
+      readonly mode: "snapshot";
+      readonly snapId: string;
+      readonly projection: CatalogueProjection;
+      cursor: unknown;
+    }
+  | {
+      readonly mode: "delta";
+      readonly projection: CatalogueProjection;
+      readonly removes: readonly string[];
+      readonly upserts: readonly CatalogueSessionRow[];
+      cursor: unknown;
+    };
+
+interface PendingAuthoritySnapshot {
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly imageSha256: string;
+  readonly grants: readonly AuthorityGrantEntry[];
+}
+
+interface SyncConnectionState {
+  generation: number;
+  state: "idle" | "staging" | "discarded" | "applied" | "active";
+  initialCompleted: boolean;
+  stager: AuthoritySyncStager | null;
+  pending: PendingAuthoritySnapshot | null;
 }
 
 interface ActiveConnectionState {
@@ -373,7 +415,7 @@ interface ActiveConnectionState {
   handle: TrunkConnection | null;
   earlyOutboundQueue: Uint8Array[];
   closed: boolean;
-  phase: "awaiting-hello" | "awaiting-ready" | "ready";
+  phase: "awaiting-hello" | "awaiting-ready" | "syncing" | "ready";
   expectedInboundSeq: number;
   outboundSeq: number;
   linkGeneration?: number;
@@ -386,28 +428,14 @@ interface ActiveConnectionState {
   pongTimer: unknown;
   livenessTimer: unknown;
   killWatchdogTimer: unknown;
+  syncDeadlineTimer: unknown;
+  sync: SyncConnectionState | null;
   // Catalogue streaming state for this connection generation
-  deliveredRows: Map<string, CatalogueSessionRow>;
-  activeSnapshot: { at: number; rows: readonly CatalogueSessionRow[]; truncatedRows?: number } | null;
-  snapshotCursor: unknown;
-  queuedLatestSnapshot: { at: number; rows: readonly CatalogueSessionRow[]; truncatedRows?: number } | null;
-  pendingDelta: PendingDeltaState | null;
-  deltaCursor: unknown;
-  queuedDelta: PendingDeltaState | null;
-}
-
-function emptyDelta(at: number): PendingDeltaState {
-  return {
-    at,
-    removes: new Set(),
-    priorityUpdates: new Map(),
-    updates: new Map(),
-    adds: new Map()
-  };
-}
-
-function isStatusOnlyUpdate(u: CatalogueSessionRow | CatalogueStatusUpdate): u is CatalogueStatusUpdate {
-  return !("hostKind" in u) && "instanceStatus" in u && "instanceId" in u;
+  catSeq: number;
+  delivered: CatalogueProjection | null;
+  latest: CatalogueProjection | null;
+  refused: CatalogueProjection | null;
+  inFlight: InFlightCatalogueSeries | null;
 }
 
 export class TrunkClient {
@@ -426,6 +454,7 @@ export class TrunkClient {
   #statusRetryTimer: unknown = null;
   #pendingStatusPatch: Partial<TrunkLinkStatus> | null = null;
   #instanceManager: TrunkInstanceManager | null = null;
+  #activeAuthority: TrunkAuthorityState | null = null;
 
   constructor(options: TrunkClientOptions) {
     this.#opts = options;
@@ -441,6 +470,19 @@ export class TrunkClient {
 
   getLinkGeneration(): number | undefined {
     return this.#linkGeneration;
+  }
+
+  getAuthority(): TrunkAuthorityState | null {
+    if (!this.#activeAuthority) return null;
+    return {
+      stateRevision: this.#activeAuthority.stateRevision,
+      grants: this.#activeAuthority.grants.map((g) => ({
+        fromMeshId: g.fromMeshId,
+        fromTenantId: g.fromTenantId,
+        resourceKinds: [...g.resourceKinds]
+      })),
+      propagationFenced: this.#activeAuthority.propagationFenced
+    };
   }
 
   readLinkStatus(): TrunkLinkStatus | undefined {
@@ -461,11 +503,12 @@ export class TrunkClient {
     this.#clearReconnectTimer();
     const conn = this.#activeConn;
     if (conn && !conn.closed) {
-      if (conn.phase === "ready") {
+      if (conn.phase === "ready" || conn.phase === "syncing") {
         this.#sendRecord(conn, { v: TRUNK_PROTOCOL_VERSION, t: "bye", ch: 0 });
       }
       this.#teardownConnection(conn, reason, { notifyLoss: false });
     }
+    this.#activeAuthority = null;
     this.#state = "stopped";
     this.#persistStatus({ state: "stopped", reason, updatedAt: this.#opts.clock.now() });
     this.#instanceManager?.dispose();
@@ -474,8 +517,11 @@ export class TrunkClient {
   }
 
   bindInstance(instanceId: string): { readonly ok: boolean; readonly reason?: string } {
-    if (!this.#activeConn || this.#activeConn.closed || this.#activeConn.phase !== "ready" || !this.#instanceManager) {
+    if (!this.#activeConn || this.#activeConn.closed || !this.#instanceManager) {
       return { ok: false, reason: "link-not-ready" };
+    }
+    if (this.#activeConn.phase !== "ready") {
+      return this.#instanceManager.requestBind(instanceId);
     }
     return this.#instanceManager.requestBind(instanceId);
   }
@@ -638,13 +684,13 @@ export class TrunkClient {
       pongTimer: null,
       livenessTimer: null,
       killWatchdogTimer: null,
-      deliveredRows: new Map(),
-      activeSnapshot: null,
-      snapshotCursor: null,
-      queuedLatestSnapshot: null,
-      pendingDelta: null,
-      deltaCursor: null,
-      queuedDelta: null
+      syncDeadlineTimer: null,
+      sync: null,
+      catSeq: 0,
+      delivered: null,
+      latest: null,
+      refused: null,
+      inFlight: null
     };
     this.#activeConn = conn;
     this.#state = "connecting";
@@ -778,6 +824,11 @@ export class TrunkClient {
       return;
     }
 
+    if (conn.phase === "syncing") {
+      this.#dispatchSyncingRecord(conn, rec);
+      return;
+    }
+
     // Phase === "ready"
     this.#dispatchReadyRecord(conn, rec);
   }
@@ -857,17 +908,22 @@ export class TrunkClient {
   }
 
   #handleReady(conn: ActiveConnectionState, ready: TrunkReadyRecord): void {
-    const maxRecs = Math.min(MAX_CREDIT_WINDOW_RECORDS, ready.limits?.maxCreditRecords ?? MAX_CREDIT_WINDOW_RECORDS);
-    const maxBytes = Math.min(MAX_CREDIT_WINDOW_BYTES, ready.limits?.maxCreditBytes ?? MAX_CREDIT_WINDOW_BYTES);
-    conn.credit = new TrunkCreditManager({ maxWindowRecords: maxRecs, maxWindowBytes: maxBytes });
+    conn.credit = new TrunkCreditManager({
+      maxWindowRecords: MAX_CREDIT_WINDOW_RECORDS,
+      maxWindowBytes: MAX_CREDIT_WINDOW_BYTES
+    });
     conn.credit.openChannel(1);
 
-    conn.phase = "ready";
+    conn.phase = "syncing";
     conn.linkGeneration = ready.linkGeneration;
     conn.lastPongAt = this.#opts.clock.now();
-    this.#linkGeneration = ready.linkGeneration;
-    this.#state = "ready";
-    this.#backoffAttempt = 0;
+    conn.sync = {
+      generation: ready.syncGeneration - 1,
+      state: "idle",
+      initialCompleted: false,
+      stager: null,
+      pending: null
+    };
 
     if (!this.#instanceManager) {
       this.#instanceManager = new TrunkInstanceManager({
@@ -880,7 +936,7 @@ export class TrunkClient {
         clock: this.#opts.clock,
         canonicalBindBytes: (payload) => this.#opts.contract!.canonicalInstanceBindBytes(payload),
         sendBindRecord: (rec) => this.sendControl(0, rec),
-        onAudit: (ev) => this.#opts.onAudit?.({ ...ev, linkGeneration: this.#linkGeneration }),
+        onAudit: (ev) => this.#opts.onAudit?.({ ...ev, linkGeneration: conn.linkGeneration }),
         onRefusalRecorded: (refusal) => {
           this.#persistStatus({ lastRefusal: refusal, updatedAt: refusal.at });
         },
@@ -890,28 +946,239 @@ export class TrunkClient {
       });
     }
 
-    // Apply ALL revocations to instance store and catalogue BEFORE accepting watch or dispatching channels.
-    const effectiveRevoked = this.#instanceManager.onReady(ready.bindNonce, ready.revokedInstances);
-    this.#opts.catalogue.applyRevokedInstances(effectiveRevoked);
+    this.#instanceManager.onLinkOpened(ready.bindNonce);
 
-    const now = this.#opts.clock.now();
-    const outageMs = this.#lastLostAt !== null ? Math.max(0, now - this.#lastLostAt) : undefined;
-    this.#lastLostAt = null;
-
+    this.#state = "syncing";
     this.#persistStatus({
-      state: "ready",
+      state: "syncing",
       linkGeneration: ready.linkGeneration,
-      updatedAt: now
+      updatedAt: this.#opts.clock.now()
     });
-    this.#emitLinkEvent({
-      kind: "link-ready",
-      at: now,
-      linkGeneration: ready.linkGeneration,
-      ...(outageMs !== undefined ? { outageMs } : {})
-    });
-    this.#opts.terminalConsumer?.onLinkReady?.({ linkGeneration: ready.linkGeneration, at: now });
-
     this.#startLiveTimers(conn);
+    this.#armSyncDeadline(conn);
+  }
+
+  #armSyncDeadline(conn: ActiveConnectionState): void {
+    if (conn.syncDeadlineTimer !== null) return;
+    conn.syncDeadlineTimer = this.#opts.clock.setTimeout(() => {
+      conn.syncDeadlineTimer = null;
+      if (this.#activeConn !== conn || conn.closed || !conn.sync || conn.sync.state === "active") return;
+      this.#handleConnectionLoss(conn, "sync-timeout", true);
+    }, AUTHORITY_SYNC_DEADLINE_MS);
+  }
+
+  #clearSyncDeadline(conn: ActiveConnectionState): void {
+    if (conn.syncDeadlineTimer !== null) {
+      this.#opts.clock.clearTimeout(conn.syncDeadlineTimer);
+      conn.syncDeadlineTimer = null;
+    }
+  }
+
+  #invalidateAuthoritySyncByFloor(conn: ActiveConnectionState): void {
+    const sync = conn.sync;
+    if (!sync || !this.#instanceManager) return;
+    const floor = this.#instanceManager.currentRevisionFloor();
+    if (sync.state === "staging" && sync.stager && floor > sync.stager.getStateRevision()) {
+      sync.state = "discarded";
+      sync.stager = null;
+    } else if (sync.state === "applied" && sync.pending && floor > sync.pending.stateRevision) {
+      sync.state = "discarded";
+      sync.pending = null;
+    }
+  }
+
+  #dispatchSyncingRecord(conn: ActiveConnectionState, rec: TrunkRecord): void {
+    if (rec.ch !== 0) {
+      this.#closeProtocolError(conn, "unexpected-record-before-active");
+      return;
+    }
+    switch (rec.t) {
+      case "state.begin":
+      case "state.part":
+      case "state.end":
+      case "state.active":
+        this.#handleAuthorityRecord(conn, rec);
+        return;
+      case "ping":
+        this.#sendRecord(conn, { t: "pong", ch: 0, at: rec.at });
+        return;
+      case "pong":
+        conn.lastPongAt = this.#opts.clock.now();
+        this.#reschedulePongTimer(conn);
+        return;
+      case "superseded":
+        this.#handleTerminalCause(conn, "superseded", rec.reason ?? "superseded");
+        return;
+      case "revoked":
+        this.#handleTerminalCause(conn, "revoked", rec.reason ?? "revoked");
+        return;
+      case "kill":
+        this.#handleTerminalCause(conn, "killed", rec.reason ?? "kill");
+        return;
+      case "bye":
+        this.#handleTerminalCause(conn, "stopped", "bye");
+        return;
+      case "err":
+        this.#closeProtocolError(conn, rec.code);
+        return;
+      default:
+        this.#closeProtocolError(conn, "unexpected-record-before-active");
+        return;
+    }
+  }
+
+  #handleAuthorityRecord(
+    conn: ActiveConnectionState,
+    rec: StateBeginRecord | StatePartRecord | StateEndRecord | StateActiveRecord
+  ): void {
+    const sync = conn.sync;
+    const contract = this.#opts.contract;
+    if (!sync || !contract || !this.#instanceManager) {
+      this.#closeSyncFault(conn);
+      return;
+    }
+
+    if (rec.t === "state.begin") {
+      if (sync.state === "staging" || rec.syncGeneration !== sync.generation + 1) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      if (sync.state === "active") {
+        this.#armSyncDeadline(conn);
+      }
+      const floor = this.#instanceManager.currentRevisionFloor();
+      const stager = new AuthoritySyncStager({
+        expectedGeneration: rec.syncGeneration,
+        revisionFloor: floor,
+        canonicalRecordBytes: (r) => contract.canonicalStateRecordBytes(r),
+        measureJcsBytes: (v) => contract.measureJcsBytes(v)
+      });
+      const res = stager.begin(rec);
+      if (!res.ok) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      sync.generation = rec.syncGeneration;
+      sync.state = "staging";
+      sync.stager = stager;
+      sync.pending = null;
+      return;
+    }
+
+    if (rec.t === "state.part") {
+      if (rec.syncGeneration !== sync.generation) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      if (sync.state === "discarded") return;
+      if (sync.state !== "staging" || !sync.stager) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      const res = sync.stager.part(rec);
+      if (!res.ok) {
+        this.#closeSyncFault(conn);
+      }
+      return;
+    }
+
+    if (rec.t === "state.end") {
+      if (rec.syncGeneration !== sync.generation) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      if (sync.state === "discarded") return;
+      if (sync.state !== "staging" || !sync.stager) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      const res = sync.stager.end(rec);
+      if (!res.ok) {
+        this.#closeSyncFault(conn);
+        return;
+      }
+      const revokedIds = res.revocations.map((r) => r.instanceId);
+      const effectiveRevoked = this.#instanceManager.applyAuthorityRevocations(revokedIds, res.stateRevision);
+      this.#opts.catalogue.applyRevokedInstances(effectiveRevoked);
+
+      sync.stager = null;
+      sync.pending = {
+        syncGeneration: rec.syncGeneration,
+        stateRevision: res.stateRevision,
+        imageSha256: res.imageSha256,
+        grants: res.grants
+      };
+      sync.state = "applied";
+
+      // Last statement: peer may reply synchronously with state.active or relaunch state.begin.
+      this.#sendRecord(conn, {
+        t: "state.applied",
+        ch: 0,
+        syncGeneration: rec.syncGeneration,
+        stateRevision: res.stateRevision,
+        imageSha256: res.imageSha256
+      });
+      return;
+    }
+
+    // state.active
+    if (
+      sync.state !== "applied" ||
+      !sync.pending ||
+      rec.syncGeneration !== sync.pending.syncGeneration ||
+      rec.stateRevision !== sync.pending.stateRevision ||
+      rec.imageSha256 !== sync.pending.imageSha256
+    ) {
+      this.#closeSyncFault(conn);
+      return;
+    }
+    const activated = sync.pending;
+    sync.pending = null;
+    sync.state = "active";
+    this.#clearSyncDeadline(conn);
+
+    const floor = this.#instanceManager.currentRevisionFloor();
+    this.#activeAuthority = {
+      stateRevision: activated.stateRevision,
+      grants: activated.grants,
+      propagationFenced: activated.stateRevision < floor
+    };
+
+    if (!sync.initialCompleted) {
+      sync.initialCompleted = true;
+      conn.phase = "ready";
+      this.#linkGeneration = conn.linkGeneration;
+      this.#state = "ready";
+      this.#backoffAttempt = 0;
+      const now = this.#opts.clock.now();
+      const outageMs = this.#lastLostAt !== null ? Math.max(0, now - this.#lastLostAt) : undefined;
+      this.#lastLostAt = null;
+      this.#persistStatus({
+        state: "ready",
+        linkGeneration: conn.linkGeneration,
+        updatedAt: now
+      });
+      this.#emitLinkEvent({
+        kind: "link-ready",
+        at: now,
+        linkGeneration: conn.linkGeneration,
+        ...(outageMs !== undefined ? { outageMs } : {})
+      });
+      this.#opts.terminalConsumer?.onLinkReady?.({ linkGeneration: conn.linkGeneration!, at: now });
+      this.#startIdleLiveness(conn);
+      this.#instanceManager.activate();
+    }
+  }
+
+  #handlePropGrant(conn: ActiveConnectionState, rec: PropGrantRecord): void {
+    this.#instanceManager?.raiseRevisionFloor(rec.stateRevision);
+    if (this.#activeAuthority) {
+      this.#activeAuthority = {
+        ...this.#activeAuthority,
+        propagationFenced: true
+      };
+    }
+    this.#invalidateAuthoritySyncByFloor(conn);
   }
 
   #dispatchReadyRecord(conn: ActiveConnectionState, rec: TrunkRecord): void {
@@ -921,7 +1188,10 @@ export class TrunkClient {
       rec.t === "auth" ||
       rec.t === "ready" ||
       rec.t === "instance.bind" ||
-      rec.t === "cat.snapshot" ||
+      rec.t === "state.applied" ||
+      (rec.t as string) === "prop.push" ||
+      rec.t === "cat.snapshot.part" ||
+      rec.t === "cat.snapshot.end" ||
       rec.t === "cat.delta" ||
       rec.t === "term.opened" ||
       rec.t === "term.out" ||
@@ -936,6 +1206,15 @@ export class TrunkClient {
 
     if (rec.ch === 0) {
       switch (rec.t) {
+        case "state.begin":
+        case "state.part":
+        case "state.end":
+        case "state.active":
+          this.#handleAuthorityRecord(conn, rec);
+          return;
+        case "prop.grant":
+          this.#handlePropGrant(conn, rec);
+          return;
         case "ping":
           this.#sendRecord(conn, { t: "pong", ch: 0, at: rec.at });
           return;
@@ -964,6 +1243,7 @@ export class TrunkClient {
         }
         case "instance.revoked":
           this.#instanceManager?.onInstanceRevoked(rec as InstanceRevokedRecord);
+          this.#invalidateAuthoritySyncByFloor(conn);
           return;
         case "err":
           this.#closeProtocolError(conn, rec.code);
@@ -1085,104 +1365,30 @@ export class TrunkClient {
   #startWatch(conn: ActiveConnectionState): void {
     this.#stopIdleLiveness(conn);
     conn.watching = true;
-    conn.activeSnapshot = null;
-    conn.snapshotCursor = null;
-    conn.queuedLatestSnapshot = null;
-    conn.pendingDelta = null;
-    conn.deltaCursor = null;
-    conn.queuedDelta = null;
-    conn.deliveredRows.clear();
+    conn.delivered = null;
+    conn.latest = null;
+    conn.refused = null;
+    conn.inFlight = null;
 
-    this.#opts.catalogue.startWatch((ev) => {
+    this.#opts.catalogue.startWatch((projection) => {
       if (this.#activeConn !== conn || conn.closed || !conn.watching) return;
-      this.#onCatalogueEmit(conn, ev);
+      this.#onCatalogueEmit(conn, projection);
     });
   }
 
   #stopWatch(conn: ActiveConnectionState): void {
     if (!conn.watching) return;
     conn.watching = false;
-    conn.activeSnapshot = null;
-    conn.snapshotCursor = null;
-    conn.queuedLatestSnapshot = null;
-    conn.pendingDelta = null;
-    conn.deltaCursor = null;
-    conn.queuedDelta = null;
-    conn.deliveredRows.clear();
+    conn.delivered = null;
+    conn.latest = null;
+    conn.refused = null;
+    conn.inFlight = null;
     this.#opts.catalogue.stopWatch();
     this.#startIdleLiveness(conn);
   }
 
-  #onCatalogueEmit(conn: ActiveConnectionState, ev: CatalogueEmitEvent): void {
-    const isSnapshot = ("kind" in ev && ev.kind === "snapshot") || ("t" in ev && ev.t === "cat.snapshot");
-    if (isSnapshot) {
-      const snap = ev as CatalogueSnapshot | { readonly kind: "snapshot"; readonly at: number; readonly rows: readonly CatalogueSessionRow[]; readonly truncatedRows?: number };
-      if (conn.activeSnapshot !== null && conn.snapshotCursor !== null) {
-        // Under saturation keep at most current in-flight selection and latest bounded view.
-        conn.queuedLatestSnapshot = {
-          at: snap.at,
-          rows: snap.rows,
-          ...(snap.truncatedRows !== undefined ? { truncatedRows: snap.truncatedRows } : {})
-        };
-      } else {
-        conn.activeSnapshot = {
-          at: snap.at,
-          rows: snap.rows,
-          ...(snap.truncatedRows !== undefined ? { truncatedRows: snap.truncatedRows } : {})
-        };
-        conn.snapshotCursor = null;
-        conn.pendingDelta = null;
-        conn.deltaCursor = null;
-        conn.queuedDelta = null;
-      }
-      this.#pumpCatalogue(conn);
-      return;
-    }
-
-    // delta (`kind: "delta"` from test double or `t: "cat.delta"` from LH-06 projector)
-    const deltaEv = ev as CatalogueDelta | {
-      readonly kind: "delta";
-      readonly at: number;
-      readonly adds?: readonly CatalogueSessionRow[];
-      readonly updates?: readonly (CatalogueSessionRow | CatalogueStatusUpdate)[];
-      readonly removes?: readonly string[];
-    };
-    const target = conn.deltaCursor !== null
-      ? (conn.queuedDelta ??= emptyDelta(deltaEv.at))
-      : (conn.pendingDelta ??= emptyDelta(deltaEv.at));
-    target.at = deltaEv.at;
-
-    for (const sid of deltaEv.removes ?? []) {
-      target.adds.delete(sid);
-      target.updates.delete(sid);
-      target.priorityUpdates.delete(sid);
-      if (conn.deliveredRows.has(sid)) {
-        target.removes.add(sid);
-      }
-    }
-    for (const u of deltaEv.updates ?? []) {
-      if (isStatusOnlyUpdate(u)) {
-        if (conn.deliveredRows.has(u.sessionId)) {
-          target.priorityUpdates.set(u.sessionId, u);
-        }
-      } else {
-        target.removes.delete(u.sessionId);
-        if (conn.deliveredRows.has(u.sessionId)) {
-          target.updates.set(u.sessionId, u);
-        } else {
-          target.adds.set(u.sessionId, u);
-        }
-      }
-    }
-    for (const a of deltaEv.adds ?? []) {
-      target.removes.delete(a.sessionId);
-      if (conn.deliveredRows.has(a.sessionId)) {
-        target.updates.set(a.sessionId, a);
-      } else {
-        target.adds.set(a.sessionId, a);
-      }
-    }
-
+  #onCatalogueEmit(conn: ActiveConnectionState, projection: CatalogueProjection): void {
+    conn.latest = projection;
     this.#pumpCatalogue(conn);
   }
 
@@ -1197,109 +1403,116 @@ export class TrunkClient {
       if (conn.credit.availableOutput(1).records < 1) {
         return;
       }
-      const nextSeq = conn.outboundSeq + 1;
-      const revokedIds = this.#instanceManager?.revokedIds();
-
-      // Priority 1: snapshot (initial or remaining tail)
-      if (conn.activeSnapshot !== null) {
-        const prepared = contract.prepareNextCatalogueRecord({
-          mode: "snapshot",
-          at: conn.activeSnapshot.at,
-          rows: conn.activeSnapshot.rows,
-          ...(conn.activeSnapshot.truncatedRows !== undefined ? { truncatedRows: conn.activeSnapshot.truncatedRows } : {}),
-          cursor: conn.snapshotCursor,
-          nextSeq,
-          revokedInstanceIds: revokedIds
-        });
-        if (!prepared) {
-          conn.activeSnapshot = conn.queuedLatestSnapshot;
-          conn.queuedLatestSnapshot = null;
-          conn.snapshotCursor = null;
-          continue;
-        }
-        if (!conn.credit.canSendOutput(1, prepared.encodedBytes)) {
-          // Pause without consuming `s` or advancing cursor.
-          return;
-        }
-        const sent = this.#sendRecord(conn, prepared.record as unknown as Record<string, unknown>);
-        if (!sent) return;
-        conn.credit.recordSentOutput(1, prepared.encodedBytes);
-        for (const r of prepared.deliveredAdds ?? []) {
-          conn.deliveredRows.set(r.sessionId, r);
-        }
-        if (prepared.nextCursor === null || prepared.nextCursor === undefined) {
-          conn.activeSnapshot = conn.queuedLatestSnapshot;
-          conn.queuedLatestSnapshot = null;
-          conn.snapshotCursor = null;
-        } else {
-          conn.snapshotCursor = prepared.nextCursor;
-        }
-        continue;
+      if (conn.latest === null) {
+        return;
       }
 
-      // Priority 2: pending delta (priority status updates first, then removes/updates/adds via provider)
-      if (conn.pendingDelta !== null) {
-        const d = conn.pendingDelta;
-        const allUpdates: Array<CatalogueSessionRow | CatalogueStatusUpdate> = [
-          ...d.priorityUpdates.values(),
-          ...d.updates.values()
-        ];
-        const prepared = contract.prepareNextCatalogueRecord({
-          mode: "delta",
-          at: d.at,
-          removes: [...d.removes],
-          updates: allUpdates,
-          adds: [...d.adds.values()],
-          cursor: conn.deltaCursor,
-          nextSeq,
-          revokedInstanceIds: revokedIds
-        });
-        if (!prepared) {
-          conn.pendingDelta = conn.queuedDelta;
-          conn.queuedDelta = null;
-          conn.deltaCursor = null;
-          continue;
-        }
-        if (!conn.credit.canSendOutput(1, prepared.encodedBytes)) {
-          return;
-        }
-        const sent = this.#sendRecord(conn, prepared.record as unknown as Record<string, unknown>);
-        if (!sent) return;
-        conn.credit.recordSentOutput(1, prepared.encodedBytes);
-        for (const sid of prepared.deliveredRemoves ?? []) {
-          conn.deliveredRows.delete(sid);
-        }
-        for (const u of prepared.deliveredUpdates ?? []) {
-          if (isStatusOnlyUpdate(u)) {
-            const prev = conn.deliveredRows.get(u.sessionId);
-            if (prev) {
-              conn.deliveredRows.set(u.sessionId, { ...prev, instanceId: u.instanceId, instanceStatus: u.instanceStatus });
-            }
-          } else {
-            conn.deliveredRows.set(u.sessionId, u);
+      if (conn.inFlight === null) {
+        if (conn.refused !== null) {
+          if (planCatalogueUpdate(conn.refused, conn.latest).kind === "none") {
+            return;
           }
+          conn.refused = null;
         }
-        for (const a of prepared.deliveredAdds ?? []) {
-          conn.deliveredRows.set(a.sessionId, a);
+
+        const plan = planCatalogueUpdate(conn.delivered, conn.latest);
+        if (plan.kind === "none") {
+          return;
         }
-        if (prepared.nextCursor === null || prepared.nextCursor === undefined) {
-          conn.pendingDelta = conn.queuedDelta;
-          conn.queuedDelta = null;
-          conn.deltaCursor = null;
+
+        if (plan.kind === "snapshot") {
+          const snapId = randomUUID();
+          const metrics = contract.planCatalogueSnapshot({
+            nodeId: this.#opts.enrolment.nodeId,
+            snapId,
+            rows: conn.latest.rows,
+            truncatedRows: conn.latest.truncatedRows
+          });
+          if (
+            metrics.partCount > CATALOGUE_SNAPSHOT_MAX_PARTS ||
+            metrics.totalEncodedBytes > CATALOGUE_SNAPSHOT_MAX_BYTES
+          ) {
+            this.#sendRecord(conn, {
+              t: "err",
+              ch: 1,
+              code: "catalogue-too-large",
+              retryable: false
+            });
+            this.#emitAudit({
+              kind: "catalogue-too-large",
+              reason: `parts=${metrics.partCount},bytes=${metrics.totalEncodedBytes}`
+            });
+            conn.refused = conn.latest;
+            return;
+          }
+          conn.inFlight = {
+            mode: "snapshot",
+            snapId,
+            projection: conn.latest,
+            cursor: null
+          };
         } else {
-          conn.deltaCursor = prepared.nextCursor;
+          conn.inFlight = {
+            mode: "delta",
+            projection: conn.latest,
+            removes: plan.removes,
+            upserts: plan.upserts,
+            cursor: null
+          };
         }
-        continue;
       }
 
-      return;
+      const series = conn.inFlight;
+      const nextSeq = conn.outboundSeq + 1;
+      const nextCatSeq = conn.catSeq + 1;
+      const prepared =
+        series.mode === "snapshot"
+          ? contract.prepareNextCatalogueRecord({
+              mode: "snapshot",
+              nodeId: this.#opts.enrolment.nodeId,
+              snapId: series.snapId,
+              rows: series.projection.rows,
+              truncatedRows: series.projection.truncatedRows,
+              cursor: series.cursor,
+              nextCatSeq,
+              nextSeq
+            })
+          : contract.prepareNextCatalogueRecord({
+              mode: "delta",
+              nodeId: this.#opts.enrolment.nodeId,
+              removes: series.removes,
+              upserts: series.upserts,
+              cursor: series.cursor,
+              nextCatSeq,
+              nextSeq
+            });
+
+      if (!prepared) {
+        conn.delivered = series.projection;
+        conn.inFlight = null;
+        continue;
+      }
+      if (!conn.credit.canSendOutput(1, prepared.encodedBytes)) {
+        // Pause without consuming `s`, `catSeq`, or advancing cursor.
+        return;
+      }
+      const sent = this.#sendRecord(conn, prepared.record as unknown as Record<string, unknown>);
+      if (!sent) return;
+      conn.credit.recordSentOutput(1, prepared.encodedBytes);
+      conn.catSeq = nextCatSeq;
+      if (prepared.nextCursor === null || prepared.nextCursor === undefined) {
+        conn.delivered = series.projection;
+        conn.inFlight = null;
+      } else {
+        series.cursor = prepared.nextCursor;
+      }
     }
   }
 
   #startLiveTimers(conn: ActiveConnectionState): void {
     const schedulePing = () => {
       conn.pingTimer = this.#opts.clock.setTimeout(() => {
-        if (this.#activeConn !== conn || conn.closed || conn.phase !== "ready") return;
+        if (this.#activeConn !== conn || conn.closed || (conn.phase !== "ready" && conn.phase !== "syncing")) return;
         this.#sendRecord(conn, { t: "ping", ch: 0, at: this.#opts.clock.now() });
         if (this.#activeConn === conn && !conn.closed) {
           schedulePing();
@@ -1308,11 +1521,10 @@ export class TrunkClient {
     };
     schedulePing();
     this.#reschedulePongTimer(conn);
-    this.#startIdleLiveness(conn);
     const scheduleKillWatchdog = () => {
       conn.killWatchdogTimer = this.#opts.clock.setTimeout(() => {
         conn.killWatchdogTimer = null;
-        if (this.#activeConn !== conn || conn.closed || conn.phase !== "ready") return;
+        if (this.#activeConn !== conn || conn.closed || (conn.phase !== "ready" && conn.phase !== "syncing")) return;
         const env = this.#resolveEnv();
         if (isRemoteControlKilledByEnv(env)) {
           this.#handleTerminalCause(conn, "killed", "killed-by-env");
@@ -1343,7 +1555,7 @@ export class TrunkClient {
     const elapsed = Math.max(0, this.#opts.clock.now() - conn.lastPongAt);
     const remaining = Math.max(0, PONG_TIMEOUT_MS - elapsed);
     conn.pongTimer = this.#opts.clock.setTimeout(() => {
-      if (this.#activeConn !== conn || conn.closed || conn.phase !== "ready") return;
+      if (this.#activeConn !== conn || conn.closed || (conn.phase !== "ready" && conn.phase !== "syncing")) return;
       conn.pongTimer = null;
       this.#handleConnectionLoss(conn, "pong-timeout", true);
     }, remaining);
@@ -1384,6 +1596,7 @@ export class TrunkClient {
       this.#opts.clock.clearTimeout(conn.killWatchdogTimer);
       conn.killWatchdogTimer = null;
     }
+    this.#clearSyncDeadline(conn);
     this.#stopIdleLiveness(conn);
   }
 
@@ -1407,6 +1620,13 @@ export class TrunkClient {
     });
     this.#emitAudit({ kind: `link-${state}`, reason, linkGeneration: conn.linkGeneration });
     this.#emitLinkEvent({ kind: state, at: this.#opts.clock.now(), reason, linkGeneration: conn.linkGeneration });
+  }
+
+  #closeSyncFault(conn: ActiveConnectionState): void {
+    if (!conn.closed) {
+      this.#sendRecord(conn, { t: "err", ch: 0, code: "sync-state-invalid", retryable: false });
+    }
+    this.#closeProtocolError(conn, "sync-state-invalid");
   }
 
   #closeProtocolError(conn: ActiveConnectionState, code: string): void {
@@ -1436,13 +1656,12 @@ export class TrunkClient {
       conn.watching = false;
       this.#opts.catalogue.stopWatch();
     }
-    conn.activeSnapshot = null;
-    conn.snapshotCursor = null;
-    conn.queuedLatestSnapshot = null;
-    conn.pendingDelta = null;
-    conn.deltaCursor = null;
-    conn.queuedDelta = null;
-    conn.deliveredRows.clear();
+    conn.sync = null;
+    conn.catSeq = 0;
+    conn.delivered = null;
+    conn.latest = null;
+    conn.refused = null;
+    conn.inFlight = null;
 
     const closedChannels = [...conn.activeChannels];
     conn.activeChannels.clear();
@@ -1451,6 +1670,7 @@ export class TrunkClient {
 
     if (this.#activeConn === conn) {
       this.#activeConn = null;
+      this.#activeAuthority = null;
     }
 
     if (conn.handle) {

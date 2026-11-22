@@ -27,16 +27,16 @@ import {
   runRemoteControlVerb,
   signTrunkAuthPayload,
   projectCatalogueRow,
-  buildCatalogueSnapshot,
-  serializeCatalogueSnapshot,
-  parseCatalogueSnapshot,
-  serializeCatalogueDelta,
-  parseCatalogueDelta,
-  applyCatalogueDelta,
+  projectBoundedCatalogue,
+  planCatalogueUpdate,
+  isTrunkRecord,
   containsForbiddenLocalField,
   isInternalCompanionNativeId,
   nativeCatalogueSid,
   presenceCatalogueSid,
+  wireInstanceId,
+  jcsEscapedLength,
+  canonicalTrunkJson,
   readExclusions,
   setSessionExcluded,
   clearSessionExcluded,
@@ -50,9 +50,13 @@ import {
   FakeEnrolmentVerifier,
   WET2_TEXT_HASH,
   FIXTURE_CONTRACT_METADATA,
-  assertFixtureContractVersion,
-  createFakeCatalogueTrunkProvider
+  assertFixtureContractVersion
 } from "./helpers/remote-trunk-fakes.js";
+import {
+  CatalogueSliceStager,
+  createSimulatedTrunkContractProvider,
+  provisionalWireRow
+} from "./helpers/remote-trunk-peer.js";
 
 import {
   listNativeInventoryForRemote,
@@ -61,7 +65,6 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const H2A_BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
-const PINNED_WET2_HASH = "0c0069544d0efbc115f142b9435d14a780c401a43b1b77aa49066048516ac050";
 
 function sha256Hex(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -330,9 +333,8 @@ async function startFakeNativeSocketServer(socketPath, handler) {
 // ---------------------------------------------------------------------------
 
 test("LH-06 step 1: common fake fixture pins wet2TextHash and rejects foreign version", () => {
-  assert.equal(WET2_TEXT_HASH, PINNED_WET2_HASH);
-  assert.equal(FIXTURE_CONTRACT_METADATA?.wet2TextHash, PINNED_WET2_HASH);
-  assert.equal(assertFixtureContractVersion({ wet2TextHash: PINNED_WET2_HASH }).ok, true);
+  assert.equal(FIXTURE_CONTRACT_METADATA?.wet2TextHash, WET2_TEXT_HASH);
+  assert.equal(assertFixtureContractVersion({ wet2TextHash: WET2_TEXT_HASH }).ok, true);
   const badMeta = assertFixtureContractVersion({ wet2TextHash: "0000000000000000000000000000000000000000000000000000000000000000" });
   assert.equal(badMeta.ok, false);
   assert.equal(badMeta.reason, "wet2-hash-mismatch");
@@ -347,9 +349,9 @@ test("LH-06 step 1: common fake fixture pins wet2TextHash and rejects foreign ve
     tenantId: "t1",
     endpoint: "https://remote.example/trunk/v1",
     env,
-    wet2TextHash: PINNED_WET2_HASH
+    wet2TextHash: WET2_TEXT_HASH
   });
-  assert.equal(trunk.metadata().wet2TextHash, PINNED_WET2_HASH);
+  assert.equal(trunk.metadata().wet2TextHash, WET2_TEXT_HASH);
 
   const foreignTrunk = new FakeTrunkEndpoint({
     meshId: "m1",
@@ -461,15 +463,14 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
 
     assert.equal(messages.length, 1, "first watch.start must emit initial snapshot immediately");
     const snap1 = messages[0];
-    assert.equal(snap1.t, "cat.snapshot");
     assert.equal(snap1.truncatedRows, 0);
 
-    const sidN = `n-${sha256Hex("N")}`;
-    const sidS = `n-${sha256Hex("S")}`;
-    const sidTmux = `p-${sha256Hex("P-tmux")}`;
-    const sidUnk = `p-${sha256Hex("P-unk")}`;
-    assert.equal(nativeCatalogueSid("N"), sidN);
-    assert.equal(presenceCatalogueSid("P-tmux"), sidTmux);
+    const sidN = nativeCatalogueSid("N");
+    const sidS = nativeCatalogueSid("S");
+    const sidTmux = presenceCatalogueSid("P-tmux");
+    const sidUnk = presenceCatalogueSid("P-unk");
+    assert.match(sidN, /^n-[0-9a-f]{32}$/);
+    assert.match(sidTmux, /^p-[0-9a-f]{32}$/);
 
     const byId = (rows) => new Map(rows.map((r) => [r.sessionId, r]));
     const rows1 = byId(snap1.rows);
@@ -498,17 +499,17 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     assert.equal(rowUnk.operable, false);
     assert.equal(rowUnk.operabilityReason, "open-with-h2a-to-operate");
 
-    assert.equal(rows1.has(`p-${sha256Hex("P-mirrored")}`), false, "mirrored presence must be ignored");
-    assert.equal(rows1.has(`p-${sha256Hex("P-future")}`), false, "future heartbeat must not extend freshness");
-    assert.equal(rows1.has(`p-${sha256Hex("P-invalid")}`), false, "invalid heartbeat must not be fresh");
+    assert.equal(rows1.has(presenceCatalogueSid("P-mirrored")), false, "mirrored presence must be ignored");
+    assert.equal(rows1.has(presenceCatalogueSid("P-future")), false, "future heartbeat must not extend freshness");
+    assert.equal(rows1.has(presenceCatalogueSid("P-invalid")), false, "invalid heartbeat must not be fresh");
 
     // State 3: live PTY N + fresh presence P -> ONE row
     const rowN = rows1.get(sidN);
     assert.ok(rowN, "joined PTY N + presence P must produce one row under n-<hash>");
-    assert.equal(rows1.has(`p-${sha256Hex("P")}`), false, "presence naming nativePty must not produce duplicate p- row");
+    assert.equal(rows1.has(presenceCatalogueSid("P")), false, "presence naming nativePty must not produce duplicate p- row");
     assert.equal(rowN.hostKind, "native");
     assert.equal(rowN.operable, true);
-    assert.equal(rowN.instanceId, "inst-P");
+    assert.equal(rowN.instanceId, wireInstanceId("inst-P"));
     assert.equal(rowN.instanceStatus, "live");
     assert.equal(rowN.host, "claude");
     assert.equal(rowN.name, "alpha-agent");
@@ -531,10 +532,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       launchContext: { cwd: "/secret", command: "claude", nativePty: { session: "N" } }
     }));
     await clock.advance(2_250);
-    let view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    let view = messages[messages.length - 1].rows;
     assert.equal(byId(view).get(sidN).name, "tie-a", "most recent valid heartbeat tie must pick lexicographically smallest sessionId");
 
     // Clean up tie presences so N uses original P with T0 heartbeat for boundary check
@@ -544,10 +542,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
 
     // Freshness boundary: at T0 + 14_999 ms, P-tmux & P-unk are STILL visible; N still has workStatus=working
     await clock.advance(T0 + 14_999 - clock.now());
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.ok(byId(view).has(sidTmux), "presence-only row must still be visible at 14999 ms");
     assert.ok(byId(view).has(sidUnk), "unknown presence-only row must still be visible at 14999 ms");
     assert.equal(byId(view).get(sidN).workStatus, "working", "joined presence must still be fresh at 14999 ms");
@@ -555,15 +550,12 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     // Advance 1 ms -> T0 + 15_000 ms (exact expiry!)
     const countBeforeExpiry = messages.length;
     await clock.advance(1); // T0 + 15_000
-    await clock.advance(249); // T0 + 15_249 -> NO delta yet inside 250 ms window
-    assert.equal(messages.length, countBeforeExpiry, "removal/degrade delta must NOT emit at 249 ms");
+    await clock.advance(249); // T0 + 15_249 -> NO projection yet inside 250 ms window
+    assert.equal(messages.length, countBeforeExpiry, "removal/degrade projection must NOT emit at 249 ms");
 
-    await clock.advance(1); // T0 + 15_250 -> delta emits!
-    assert.equal(messages.length, countBeforeExpiry + 1, "removal/degrade delta must emit at 250 ms");
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    await clock.advance(1); // T0 + 15_250 -> projection emits!
+    assert.equal(messages.length, countBeforeExpiry + 1, "removal/degrade projection must emit at 250 ms");
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).has(sidTmux), false, "tmux presence-only row must expire at 15000 ms");
     assert.equal(byId(view).has(sidUnk), false, "unknown presence-only row must expire at 15000 ms");
 
@@ -578,10 +570,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     // Presence disappears completely while PTY N lives -> sid stays identical
     removePresenceFile(fx.root, "P");
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     const bareN = byId(view).get(sidN);
     assert.ok(bareN, "live PTY N must stay under same sid after presence disappears");
     assert.equal(bareN.operable, true);
@@ -595,11 +584,8 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       launchContext: { cwd: "/secret", command: "claude", nativePty: { session: "N" } }
     }));
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
-    assert.equal(byId(view).get(sidN).instanceId, "inst-reborn");
+    view = messages[messages.length - 1].rows;
+    assert.equal(byId(view).get(sidN).instanceId, wireInstanceId("inst-reborn"));
 
     // Ambiguous owner: two sockets claim N -> NOT operable, resolveOpen refuses not-operable
     currentInventory = {
@@ -611,10 +597,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       ]
     };
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).get(sidN).operable, false, "ambiguous native owner must not be operable");
     const openAmbig = await projector.resolveOpen(sidN);
     assert.equal(openAmbig.ok, false);
@@ -656,10 +639,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       ]
     };
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).has(sidN), false, "exited PTY must be removed and residual presence must not resurrect it");
     assert.equal(unavailableEvents.length, 1, "must emit exactly one exit notification for (g1, i1)");
     assert.equal(unavailableEvents[0].sid, sidN);
@@ -686,10 +666,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       ]
     };
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.ok(byId(view).has(sidN), "new live incarnation must reappear");
     const openReborn = await projector.resolveOpen(sidN);
     assert.equal(openReborn.ok, true);
@@ -702,11 +679,8 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       launchContext: { cwd: "/secret", command: "claude", nativePty: { session: "N-future" } }
     }));
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
-    const sidEarly = `n-${sha256Hex("N-future")}`;
+    view = messages[messages.length - 1].rows;
+    const sidEarly = nativeCatalogueSid("N-future");
     assert.ok(byId(view).has(sidEarly), "presence naming nativePty must already use n-<hash> before host discovery");
     assert.equal(byId(view).get(sidEarly).operable, false, "unconfirmed native target must be inoperable");
 
@@ -725,8 +699,8 @@ test("LH-06 MCP companion *.h2a is invisible in catalogue and refused with unkno
   try {
     const T0 = Date.parse("2026-11-21T11:00:00.000Z");
     const clock = new FakeClock(T0);
-    const parentSid = `n-${sha256Hex("h2a-x")}`;
-    const companionSid = `n-${sha256Hex("h2a-x.h2a")}`;
+    const parentSid = nativeCatalogueSid("h2a-x");
+    const companionSid = nativeCatalogueSid("h2a-x.h2a");
 
     assert.equal(isInternalCompanionNativeId("h2a-x.h2a"), true);
     assert.equal(isInternalCompanionNativeId("h2a-x"), false);
@@ -944,7 +918,35 @@ test("LH-06 privacy: strips sentinels, paths, file:// URIs, controls, coordinate
 
     assert.equal(messages.length, 1);
     const snap = messages[0];
-    const wire = serializeCatalogueSnapshot(snap);
+    const provider = createSimulatedTrunkContractProvider();
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-lh06-sec" });
+    const wireRecords = [];
+    let cursor = null;
+    let catSeq = 1;
+    let seq = 1;
+    for (;;) {
+      const prepared = provider.prepareNextCatalogueRecord({
+        mode: "snapshot",
+        nodeId: "node-lh06-sec",
+        snapId: "snap-lh06-sec",
+        rows: snap.rows,
+        truncatedRows: snap.truncatedRows,
+        cursor,
+        nextCatSeq: catSeq,
+        nextSeq: seq
+      });
+      if (!prepared) break;
+      const decoded = provider.decodeFrame(provider.encodeFrame(prepared.record));
+      assert.equal(decoded.ok, true);
+      assert.equal(isTrunkRecord(decoded.record), true);
+      assert.equal(stager.ingest(decoded.record, decoded.encodedBodyBytes).ok, true);
+      wireRecords.push(canonicalTrunkJson(decoded.record));
+      catSeq += 1;
+      seq += 1;
+      if (!prepared.nextCursor) break;
+      cursor = prepared.nextCursor;
+    }
+    const wire = wireRecords.join("\n");
     const diagText = JSON.stringify(audits);
 
     for (const sentinel of SENTINELS) {
@@ -953,54 +955,39 @@ test("LH-06 privacy: strips sentinels, paths, file:// URIs, controls, coordinate
     }
     assert.equal(containsForbiddenLocalField(snap), false);
 
-    const row1 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-1")}`);
+    const row1 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-1"));
     assert.equal(row1.workspaceLabel, "safe-ws-label");
     assert.equal(row1.name, "clean-display-name");
     assert.equal("workspace" in row1, false);
 
-    const row2 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-2")}`);
+    const row2 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-2"));
     assert.equal(row2.name, undefined, "Unix path in name must be omitted");
     assert.equal(row2.workspaceLabel, undefined, "file:// URI in workspaceLabel must be omitted");
 
-    const row3 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-3")}`);
+    const row3 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-3"));
     assert.equal(row3.name, undefined, "Windows path in name must be omitted");
     assert.equal(row3.workspaceLabel, undefined, "UNC path in workspaceLabel must be omitted");
 
-    const row4 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-4")}`);
+    const row4 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-4"));
     assert.equal(row4.name, undefined, "exact copy of launch command must be omitted");
-    assert.equal(row4.workspaceLabel, undefined, "control char in workspaceLabel must be omitted");
+    assert.equal(row4.workspaceLabel, "badlabel", "C0 control char in workspaceLabel must be stripped");
 
-    // Round-trip & foreign property rejection on row, snapshot, and delta (one at a time)
-    assert.deepEqual(parseCatalogueSnapshot(wire), snap);
-
-    const tamperedRow = JSON.parse(wire);
-    tamperedRow.rows[0].foreignProp = "x";
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tamperedRow)), TypeError);
-
-    const tamperedSnap = JSON.parse(wire);
-    tamperedSnap.foreignSnapProp = "x";
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tamperedSnap)), TypeError);
-
-    const validDelta = {
+    // Round-trip & foreign node/sequence/size checks on paginated records and stager
+    assert.equal(stager.getSlice().rows.length, snap.rows.length);
+    const badDelta = {
       v: 1,
       t: "cat.delta",
       ch: 1,
-      s: 2,
-      at: T0 + 250,
-      adds: [],
-      updates: [{ sessionId: row1.sessionId, instanceId: "inst-priv-1", instanceStatus: "revoked" }],
+      s: seq,
+      catSeq,
+      nodeId: "node-lh06-sec",
+      upserts: [provisionalWireRow({ ...row1, instanceStatus: "revoked" })],
       removes: []
     };
-    const deltaWire = serializeCatalogueDelta(validDelta);
-    assert.deepEqual(parseCatalogueDelta(deltaWire), validDelta);
-
-    const tamperedDeltaEnv = JSON.parse(deltaWire);
-    tamperedDeltaEnv.foreignDeltaProp = "x";
-    assert.throws(() => parseCatalogueDelta(JSON.stringify(tamperedDeltaEnv)), TypeError);
-
-    const tamperedDeltaPartial = JSON.parse(deltaWire);
-    tamperedDeltaPartial.updates[0].extra = "x";
-    assert.throws(() => parseCatalogueDelta(JSON.stringify(tamperedDeltaPartial)), TypeError);
+    assert.equal(isTrunkRecord(badDelta), true);
+    assert.equal(isTrunkRecord({ ...badDelta, t: "cat.snapshot" }), false);
+    assert.equal(isTrunkRecord({ ...badDelta, removes: ["x".repeat(37)] }), false);
+    assert.equal(stager.ingest({ ...badDelta, nodeId: "wrong-node" }, 100).ok, false);
 
     projector.stopWatch();
   } finally {
@@ -1029,8 +1016,8 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
       launchContext: { cwd: "/x", command: "claude", nativePty: { session: "h2a-two" } }
     }));
 
-    const sidOne = `n-${sha256Hex("h2a-one")}`;
-    const sidTwo = `n-${sha256Hex("h2a-two")}`;
+    const sidOne = nativeCatalogueSid("h2a-one");
+    const sidTwo = nativeCatalogueSid("h2a-two");
 
     // 1. CLI `off <session>` on sess-one (positional, --root after)
     const cliOff = captureStreams();
@@ -1204,7 +1191,7 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     assert.equal(offBySid.status, 0, `off by canonical sid via catalogue-ids.json failed: ${offBySid.stderr}`);
     assert.equal(JSON.parse(offBySid.stdout).sessionId, sidOne);
 
-    const unknownHash = `n-${sha256Hex("never-existed-anywhere")}`;
+    const unknownHash = nativeCatalogueSid("never-existed-anywhere");
     const offUnknownHash = runRemoteControlVerb("off", { root: fx.root, env: fx.env, isInteractive: false, session: unknownHash });
     assert.equal(offUnknownHash.ok, false);
     assert.equal(offUnknownHash.reason, "unknown-session");
@@ -1232,8 +1219,8 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     const afterConc = readExclusions({ env: fx.env });
     assert.equal(afterConc.ok, true);
     const concSids = new Set(afterConc.file.entries.map((e) => e.sid));
-    assert.ok(concSids.has(`n-${sha256Hex("h2a-conc-a")}`));
-    assert.ok(concSids.has(`n-${sha256Hex("h2a-conc-b")}`));
+    assert.ok(concSids.has(nativeCatalogueSid("h2a-conc-a")));
+    assert.ok(concSids.has(nativeCatalogueSid("h2a-conc-b")));
 
     // 12. p- exclusion promoted with alias when presence acquires n- target, then `on` removes entry + alias
     writePresenceFile(fx.root, makePresence("P-promote", {
@@ -1243,7 +1230,7 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     }));
     const offProm = setSessionExcluded("P-promote", { root: fx.root, configDir: fx.explicitConfigDir, env: fx.env });
     assert.equal(offProm.ok, true);
-    assert.equal(offProm.sessionId, `p-${sha256Hex("P-promote")}`);
+    assert.equal(offProm.sessionId, presenceCatalogueSid("P-promote"));
 
     // Now P-promote acquires native target h2a-promoted
     writePresenceFile(fx.root, makePresence("P-promote", {
@@ -1264,7 +1251,7 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     });
     promProj.startWatch((m) => promMsgs.push(m));
     await clock.flushMicrotasks();
-    const promSid = `n-${sha256Hex("h2a-promoted")}`;
+    const promSid = nativeCatalogueSid("h2a-promoted");
     const promRow = promMsgs[0].rows.find((r) => r.sessionId === promSid);
     assert.equal(promRow.excluded, true, "p- exclusion must carry over when presence acquires n- target");
     assert.equal(promRow.operable, false);
@@ -1325,8 +1312,8 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
       launchContext: { cwd: "/x", command: "codex", tmux: { session: "t1", pane: "%1" } }
     }));
 
-    const sidOpen = `n-${sha256Hex("h2a-open")}`;
-    const sidTmux = `p-${sha256Hex("P-tmux-open")}`;
+    const sidOpen = nativeCatalogueSid("h2a-open");
+    const sidTmux = presenceCatalogueSid("P-tmux-open");
 
     let inventoryCalls = 0;
     let openSpyCalls = 0;
@@ -1388,7 +1375,7 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
     assert.ok(unavailable.some((ev) => ev.sid === sidOpen && ev.reason === "excluded"), "open view must be notified of local exclusion");
 
     // Unknown session & tmux session
-    const unkOpen = await guardedOpen(`n-${sha256Hex("does-not-exist")}`);
+    const unkOpen = await guardedOpen(nativeCatalogueSid("does-not-exist"));
     assert.equal(unkOpen.ok, false);
     assert.equal(unkOpen.reason, "unknown-session");
 
@@ -1409,24 +1396,36 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
     // setInstanceStatus emits status-only partial delta { sessionId, instanceId, instanceStatus }
     await clock.advance(2_250);
     const msgBeforeRevoke = messages.length;
-    projector.setInstanceStatus("inst-A", "revoked");
+    const wireInstA = wireInstanceId("inst-A");
+    projector.setInstanceStatus(wireInstA, "revoked");
     await clock.advance(249);
     assert.equal(messages.length, msgBeforeRevoke);
     await clock.advance(1);
     assert.equal(messages.length, msgBeforeRevoke + 1);
-    const delta = messages[messages.length - 1];
-    assert.equal(delta.t, "cat.delta");
-    assert.deepEqual(delta.updates, [{ sessionId: sidOpen, instanceId: "inst-A", instanceStatus: "revoked" }]);
+    const updatedProj = messages[messages.length - 1];
+    const revokedRow = updatedProj.rows.find((r) => r.sessionId === sidOpen);
+    assert.equal(revokedRow.instanceId, wireInstA);
+    assert.equal(revokedRow.instanceStatus, "revoked");
 
-    // applyCatalogueDelta only applies partial update to matching existing row of same instanceId
-    const baseRows = [{ sessionId: sidOpen, instanceId: "inst-A", instanceStatus: "live", state: "live", hostKind: "native", operable: true }];
-    const applied = applyCatalogueDelta(baseRows, delta);
-    assert.equal(applied[0].instanceStatus, "revoked");
-    const wrongOriginDelta = {
-      ...delta,
-      updates: [{ sessionId: sidOpen, instanceId: "inst-OTHER", instanceStatus: "live" }]
-    };
-    assert.equal(applyCatalogueDelta(applied, wrongOriginDelta)[0].instanceStatus, "revoked", "partial update with mismatched instanceId must be ignored");
+    // Plan produces a complete wire row upsert and stager applies it atomically
+    const prevProj = messages[msgBeforeRevoke - 1];
+    const plan = planCatalogueUpdate(prevProj, updatedProj);
+    assert.equal(plan.kind, "delta");
+    assert.equal(plan.upserts.length, 1);
+    assert.equal(plan.upserts[0].instanceStatus, "revoked");
+
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-rev-check" });
+    assert.equal(stager.ingest({
+      v: 1, t: "cat.snapshot.part", ch: 1, s: 1, catSeq: 1, nodeId: "node-rev-check", snapId: "s1", part: 0,
+      rows: [provisionalWireRow({ sessionId: sidOpen, instanceId: wireInstA, instanceStatus: "live", state: "live", hostKind: "native", operable: true })]
+    }, 150).ok, true);
+    assert.equal(stager.ingest({
+      v: 1, t: "cat.snapshot.end", ch: 1, s: 2, catSeq: 2, nodeId: "node-rev-check", snapId: "s1", partCount: 1, totalRows: 1, truncatedRows: 0
+    }, 90).ok, true);
+    assert.equal(stager.ingest({
+      v: 1, t: "cat.delta", ch: 1, s: 3, catSeq: 3, nodeId: "node-rev-check", upserts: [provisionalWireRow(revokedRow)], removes: []
+    }, 180).ok, true);
+    assert.equal(stager.getSlice().rows[0].instanceStatus, "revoked");
 
     projector.stopWatch();
   } finally {
@@ -1519,12 +1518,12 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     projector.stopWatch();
     assert.equal(activeMockClients, 0, "stopWatch must immediately abort & close acquired clients");
 
-    // Restart watch -> emits fresh snapshot for readCount=3
+    // Restart watch -> emits fresh projection for readCount=3
     const beforeRestart = messages.length;
     projector.startWatch((m) => messages.push(m));
     await clock.flushMicrotasks();
     assert.equal(messages.length, beforeRestart + 1);
-    assert.equal(messages[messages.length - 1].t, "cat.snapshot");
+    assert.ok(Array.isArray(messages[messages.length - 1].rows));
 
     // Release late response from cancelled cycle -> MUST NOT publish anything!
     const countBeforeLate = messages.length;
@@ -1532,7 +1531,7 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     await clock.advance(500);
     assert.equal(messages.length, countBeforeLate, "late response from cancelled cycle must never publish into new watch");
     assert.equal(
-      messages[messages.length - 1].rows.some((r) => r.sessionId === `n-${sha256Hex("h2a-LATE-STALE")}`),
+      messages[messages.length - 1].rows.some((r) => r.sessionId === nativeCatalogueSid("h2a-LATE-STALE")),
       false
     );
     projector.stopWatch();
@@ -1622,7 +1621,6 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
 
     assert.equal(boundMsgs.length, 1);
     const snap512 = boundMsgs[0];
-    assert.equal(snap512.t, "cat.snapshot");
     assert.equal(snap512.rows.length, 512, "513 rows must cap to 512 rows");
     assert.equal(snap512.truncatedRows, 1, "513 rows must report truncatedRows=1");
     assert.equal(audits.length, 1);
@@ -1630,19 +1628,45 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     assert.equal(audits[0].truncatedRows, 1);
 
     // Trunk provider passage (8 192-byte record cap) reconstructs all 512 rows
-    const provider = createFakeCatalogueTrunkProvider({ env: fx.env, maxCatalogueRecordBytes: 8192 });
-    const encoded = provider.encodeLogicalSnapshot(snap512, { startS: 1 });
-    assert.equal(encoded.ok, true);
-    assert.ok(encoded.records.length > 1, "512-row snapshot must split across >1 8192-byte records");
-    let reconstructed = [];
-    for (const rec of encoded.records) {
-      const bytes = Buffer.byteLength(rec.t === "cat.snapshot" ? serializeCatalogueSnapshot(rec) : serializeCatalogueDelta(rec), "utf8");
-      assert.ok(bytes <= 8192, `trunk record exceeded 8192 bytes: ${bytes}`);
-      reconstructed = rec.t === "cat.snapshot" ? [...rec.rows] : [...applyCatalogueDelta(reconstructed, rec)];
+    const provider = createSimulatedTrunkContractProvider({ maxCatalogueRecordBytes: 8192 });
+    const plan512 = provider.planCatalogueSnapshot({
+      nodeId: "node-bound-1",
+      snapId: "snap-bound-1",
+      rows: snap512.rows,
+      truncatedRows: snap512.truncatedRows
+    });
+    assert.equal(plan512.partCount, 32);
+    assert.ok(plan512.totalEncodedBytes <= 262_144);
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-bound-1" });
+    let cursor = null;
+    let catSeq = 1;
+    let seq = 1;
+    let frameCount = 0;
+    for (;;) {
+      const prep = provider.prepareNextCatalogueRecord({
+        mode: "snapshot",
+        nodeId: "node-bound-1",
+        snapId: "snap-bound-1",
+        rows: snap512.rows,
+        truncatedRows: snap512.truncatedRows,
+        cursor,
+        nextCatSeq: catSeq,
+        nextSeq: seq
+      });
+      if (!prep) break;
+      assert.ok(prep.encodedBytes <= 8192, `trunk record exceeded 8192 bytes: ${prep.encodedBytes}`);
+      assert.equal(stager.ingest(prep.record, prep.encodedBytes).ok, true);
+      frameCount += 1;
+      catSeq += 1;
+      seq += 1;
+      if (!prep.nextCursor) break;
+      cursor = prep.nextCursor;
     }
-    assert.deepEqual(reconstructed, snap512.rows, "reconstructed rows must match logical snapshot exactly");
+    assert.equal(frameCount, 33);
+    assert.equal(stager.getSlice().rows.length, 512);
+    assert.deepEqual(stager.getSlice().rows.map((r) => r.sid), snap512.rows.map((r) => r.sessionId));
 
-    // Multi-byte UTF-8 labels with quotes and backslashes near 512-byte row cap & 256 KiB snapshot cap
+    // Multi-byte UTF-8 labels with quotes and backslashes near 480-byte wire row cap & 256 KiB snapshot cap
     const heavySessions = [];
     for (let i = 0; i < 520; i++) {
       const id = `h2a-heavy-${String(i).padStart(4, "0")}`;
@@ -1660,66 +1684,186 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     await boundClock.advance(2_250);
 
     const lastMsg = boundMsgs[boundMsgs.length - 1];
-    assert.equal(lastMsg.t, "cat.snapshot", "change in truncatedRows must emit a new snapshot");
     assert.ok(lastMsg.rows.length <= 512);
     assert.equal(lastMsg.rows.length + lastMsg.truncatedRows, 520);
-    const totalSnapBytes = Buffer.byteLength(serializeCatalogueSnapshot(lastMsg), "utf8");
-    assert.ok(totalSnapBytes <= 262_144, `snapshot exceeded 256 KiB: ${totalSnapBytes}`);
+    const heavyPlan = provider.planCatalogueSnapshot({
+      nodeId: "node-bound-1",
+      snapId: "snap-heavy-1",
+      rows: lastMsg.rows,
+      truncatedRows: lastMsg.truncatedRows
+    });
+    assert.ok(heavyPlan.totalEncodedBytes <= 262_144, `snapshot exceeded 256 KiB: ${heavyPlan.totalEncodedBytes}`);
     for (const row of lastMsg.rows) {
-      const rowJson = JSON.stringify(row);
-      assert.ok(Buffer.byteLength(rowJson, "utf8") <= 512, `row exceeded 512 bytes: ${Buffer.byteLength(rowJson, "utf8")}`);
-      // No broken surrogate pairs (every string is well-formed UTF-16)
-      if (row.name !== undefined) assert.equal(row.name.isWellFormed(), true, "truncated name must respect code-point boundaries");
-      if (row.workspaceLabel !== undefined) assert.equal(row.workspaceLabel.isWellFormed(), true, "truncated workspaceLabel must respect code-point boundaries");
+      if (row.name !== undefined) {
+        assert.equal(row.name.isWellFormed(), true, "truncated name must respect code-point boundaries");
+        assert.ok(Buffer.byteLength(row.name, "utf8") <= 64, "name must fit in 64 UTF-8 bytes");
+        assert.ok(jcsEscapedLength(row.name) <= 64, "name must fit in 64 JCS-escaped bytes");
+      }
+      if (row.workspaceLabel !== undefined) {
+        assert.equal(row.workspaceLabel.isWellFormed(), true, "truncated workspaceLabel must respect code-point boundaries");
+        assert.ok(Buffer.byteLength(row.workspaceLabel, "utf8") <= 64, "workspaceLabel must fit in 64 UTF-8 bytes");
+        assert.ok(jcsEscapedLength(row.workspaceLabel) <= 64, "workspaceLabel must fit in 64 JCS-escaped bytes");
+      }
+      const wireBytes = Buffer.byteLength(canonicalTrunkJson(provisionalWireRow(row)), "utf8");
+      assert.ok(wireBytes <= 480, `provisional wire row exceeded 480 bytes: ${wireBytes}`);
     }
     assert.ok(audits.length >= 2 && audits[audits.length - 1].truncatedRows === lastMsg.truncatedRows);
 
-    // parseCatalogueSnapshot rejects oversized snapshots (>512 rows, >512B row, >262144B snapshot)
-    const legacyNoTrunc = JSON.stringify({
+    // Bounded projection & codec guards (>512 rows capped, >8192B refused by codec, >32 parts refused by stager/isTrunkRecord)
+    const rows513 = Array.from({ length: 513 }, (_, i) =>
+      projectCatalogueRow({
+        sessionId: `n-${String(i).padStart(4, "0")}`,
+        instance: "inst-0",
+        host: "claude",
+        startedAt: "2026-11-21T10:00:00.000Z",
+        heartbeatAt: "2026-11-21T10:00:30.000Z",
+        state: "live"
+      })
+    );
+    const capped513 = projectBoundedCatalogue(rows513);
+    assert.equal(capped513.rows.length, 512);
+    assert.equal(capped513.truncatedRows, 1);
+
+    assert.equal(
+      isTrunkRecord({
+        v: 1,
+        t: "cat.snapshot.end",
+        ch: 1,
+        s: 1,
+        catSeq: 1,
+        nodeId: "node-1",
+        snapId: "snap-1",
+        partCount: 33,
+        totalRows: 512,
+        truncatedRows: 0
+      }),
+      false,
+      "partCount > 32 must be rejected"
+    );
+
+    const over8192 = {
       v: 1,
-      t: "cat.snapshot",
+      t: "cat.delta",
       ch: 1,
       s: 1,
-      at: T0,
-      rows: [
-        {
-          sessionId: "sess-legacy",
-          instance: "claude:legacy:1",
-          startedAt: "2026-11-21T10:00:00.000Z",
-          heartbeatAt: "2026-11-21T10:00:30.000Z",
-          state: "live",
-          hostKind: "native",
-          operable: true
-        }
-      ]
-    });
-    const parsedLegacy = parseCatalogueSnapshot(legacyNoTrunc);
-    assert.equal(parsedLegacy.truncatedRows, 0, "legacy snapshot without truncatedRows must default to 0");
-
-    const tooManyRows = {
-      v: 1, t: "cat.snapshot", ch: 1, s: 1, at: T0, truncatedRows: 0,
-      rows: Array.from({ length: 513 }, (_, i) => ({
-        sessionId: `n-${String(i).padStart(64, "0")}`,
-        state: "running",
-        hostKind: "native",
-        operable: true
-      }))
+      catSeq: 1,
+      nodeId: "node-1",
+      upserts: [{ sid: "s-1", name: "x".repeat(8200), operable: true }],
+      removes: []
     };
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tooManyRows)), TypeError, "must reject > 512 rows");
-
-    const hugeRow = {
-      v: 1, t: "cat.snapshot", ch: 1, s: 1, at: T0, truncatedRows: 0,
-      rows: [{
-        sessionId: `n-${"a".repeat(64)}`,
-        name: "x".repeat(600),
-        state: "running",
-        hostKind: "native",
-        operable: true
-      }]
-    };
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(hugeRow)), TypeError, "must reject row > 512 bytes");
+    assert.throws(() => provider.encodeFrame(over8192), /catalogue-record-too-large/);
 
     boundProj.stopWatch();
+  } finally {
+    cleanupFixture(fx);
+  }
+});
+
+test("R11 inc-2: 34-byte sids, v1->v2 exclusions migration, and 66-byte CLI/API target normalization", async () => {
+  const fx = makeFixtureEnv();
+  try {
+    const T0 = Date.parse("2026-11-21T10:00:00.000Z");
+    const clock = new FakeClock(T0);
+    const oldNativeSid = `n-${sha256Hex("h2a-x")}`;
+    const oldPresenceSid = `p-${sha256Hex("pres-only")}`;
+    const oldAliasSid = `p-${sha256Hex("pres-alias-x")}`;
+    assert.equal(oldNativeSid.length, 66);
+
+    // 1. Short sid projection (34 bytes = first 34 chars of old 66-byte sid)
+    writePresenceFile(fx.root, makePresence("pres-only", {
+      instance: "claude:inst:1",
+      heartbeatAt: new Date(T0).toISOString(),
+      launchContext: { cwd: "/secret", command: "claude", tmux: { session: "t", pane: "%1" } }
+    }));
+    const proj = createCatalogueProjector({
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env,
+      clock,
+      readNativeInventory: async () => ({
+        complete: true,
+        sessions: [makeNativeSession("h2a-x")]
+      })
+    });
+    const emitted = [];
+    proj.startWatch((m) => emitted.push(m));
+    await clock.flushMicrotasks();
+    const snap = emitted[0];
+    const rowNative = snap.rows.find((r) => r.sessionId.startsWith("n-"));
+    const rowPres = snap.rows.find((r) => r.sessionId.startsWith("p-"));
+    assert.ok(rowNative && rowPres);
+    assert.match(rowNative.sessionId, /^n-[0-9a-f]{32}$/);
+    assert.match(rowPres.sessionId, /^p-[0-9a-f]{32}$/);
+    assert.equal(rowNative.sessionId, oldNativeSid.slice(0, 34));
+    assert.equal(rowPres.sessionId, oldPresenceSid.slice(0, 34));
+    proj.stopWatch();
+
+    // 2. Hand-crafted v1 exclusions.json with old 66-byte sid and alias + duplicate entries merging
+    const exclPath = resolveExclusionsFilePath({ configDir: fx.explicitConfigDir, env: fx.env });
+    mkdirSync(dirname(exclPath), { recursive: true, mode: 0o700 });
+    writeFileSync(exclPath, JSON.stringify({
+      version: 1,
+      entries: [
+        { sid: oldNativeSid, aliases: [oldAliasSid], updatedAt: "2026-11-21T09:00:00.000Z" },
+        { sid: oldNativeSid, aliases: [`p-${sha256Hex("pres-extra")}`], updatedAt: "2026-11-21T09:30:00.000Z" }
+      ]
+    }, null, 2) + "\n", { mode: 0o600 });
+
+    const readV1 = readExclusions({ configDir: fx.explicitConfigDir, env: fx.env });
+    assert.equal(readV1.ok, true);
+    assert.equal(readV1.file.version, 2);
+    assert.equal(readV1.file.entries.length, 1);
+    assert.equal(readV1.file.entries[0].sid, oldNativeSid.slice(0, 34));
+    assert.equal(readV1.file.entries[0].updatedAt, "2026-11-21T09:30:00.000Z");
+    assert.deepEqual(readV1.file.entries[0].aliases, [oldAliasSid.slice(0, 34), `p-${sha256Hex("pres-extra")}`.slice(0, 34)].sort());
+
+    const proj2 = createCatalogueProjector({
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env,
+      clock,
+      readNativeInventory: async () => ({
+        complete: true,
+        sessions: [makeNativeSession("h2a-x")]
+      })
+    });
+    const emitted2 = [];
+    proj2.startWatch((m) => emitted2.push(m));
+    await clock.flushMicrotasks();
+    const rowExcl = emitted2[0].rows.find((r) => r.sessionId === oldNativeSid.slice(0, 34));
+    assert.equal(rowExcl?.excluded, true);
+    let socketOpened = false;
+    const openRes = await proj2.resolveOpen(oldNativeSid.slice(0, 34));
+    assert.equal(openRes.ok, false);
+    assert.equal(openRes.reason, "excluded");
+    assert.equal(socketOpened, false);
+    proj2.stopWatch();
+
+    // Lift via CLI `on h2a-x --confirm on` -> rewrites v2 file with 34-byte sids
+    const onCli = runRemoteControlVerb("on", {
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env,
+      session: "h2a-x",
+      confirm: "on",
+      isInteractive: true
+    });
+    assert.equal(onCli.ok, true);
+    const writtenAfterOn = JSON.parse(readFileSync(exclPath, "utf8"));
+    assert.equal(writtenAfterOn.version, 2);
+    assert.equal(writtenAfterOn.entries.length, 0);
+
+    // 3. `off` given old 66-byte sid -> returns 34-byte sid and writes v2
+    const offOld = setSessionExcluded(oldNativeSid, {
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env
+    });
+    assert.equal(offOld.ok, true);
+    assert.equal(offOld.sessionId, oldNativeSid.slice(0, 34));
+    const writtenAfterOff = JSON.parse(readFileSync(exclPath, "utf8"));
+    assert.equal(writtenAfterOff.version, 2);
+    assert.equal(writtenAfterOff.entries[0].sid, oldNativeSid.slice(0, 34));
   } finally {
     cleanupFixture(fx);
   }

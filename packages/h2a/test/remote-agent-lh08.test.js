@@ -133,7 +133,7 @@ function cleanup(iso) {
 
 class TestTerminalReceiver {
   appliedSeq = 0;
-  afterSeqBytes = 0;
+  receivedSegBytes = 0;
   paintCount = 0;
   text = "";
   screen = "";
@@ -160,8 +160,8 @@ class TestTerminalReceiver {
   openPayload(overrides = {}) {
     return {
       mode: "observe",
-      afterSeq: this.appliedSeq === 0 && this.afterSeqBytes === 0 ? null : this.appliedSeq,
-      afterSeqBytes: this.afterSeqBytes,
+      afterSeq: this.appliedSeq === 0 && this.receivedSegBytes === 0 ? null : this.appliedSeq,
+      receivedSegBytes: this.receivedSegBytes,
       ...overrides
     };
   }
@@ -169,7 +169,7 @@ class TestTerminalReceiver {
   discardPartialSegment() {
     this.#segBuffers = [];
     this.#segStreamOffset = 0;
-    this.afterSeqBytes = 0;
+    this.receivedSegBytes = 0;
   }
 
   /**
@@ -227,7 +227,7 @@ class TestTerminalReceiver {
             this.#segBuffers.push(bytes.subarray(skip));
           }
           this.#segStreamOffset += bytes.byteLength;
-          this.afterSeqBytes = this.#segBuffers.reduce((s, b) => s + b.byteLength, 0);
+          this.receivedSegBytes = this.#segBuffers.reduce((s, b) => s + b.byteLength, 0);
           if (rec.segLast === true) {
             const whole = Buffer.concat(this.#segBuffers);
             const decoded = this.#decoder.decode(whole);
@@ -554,7 +554,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
 
     // 1a. Open with suggested 200x80 -> must return host 103x39, human holder, epoch 7
     const rx2 = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 2, sid: sidX, mode: "observe", afterSeq: null, afterSeqBytes: 0, cols: 200, rows: 80 });
+    peer.sendTermOpen(conn, { ch: 2, sid: sidX, mode: "observe", afterSeq: null, receivedSegBytes: 0, cols: 200, rows: 80 });
     grantChannelCredit(peer, conn, 2, 0, 0);
     await clock.advance(20);
     drainClientRecords(conn, 2, rx2);
@@ -580,7 +580,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
 
     // 1b. Open without holder -> holderKind="none"
     const rx3 = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 3, sid: sidNoHolder, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 3, sid: sidNoHolder, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     await clock.flushMicrotasks();
     drainClientRecords(conn, 3, rx3);
     assert.equal(rx3.openedRecords.length, 1);
@@ -590,7 +590,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
 
     // 1c. Legacy v1 host state lacking size or provenance -> err(host-upgrade-required)
     const rx4 = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 4, sid: sidLegacy, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 4, sid: sidLegacy, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     await clock.flushMicrotasks();
     drainClientRecords(conn, 4, rx4);
     assert.equal(rx4.openedRecords.length, 0);
@@ -601,7 +601,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
     const connectsBeforeComp = host.calls.connects.length;
     const attachBeforeComp = host.calls.attachObserver.length;
     const rx5 = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 5, sid: sidCompanion, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 5, sid: sidCompanion, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     await clock.flushMicrotasks();
     drainClientRecords(conn, 5, rx5);
     assert.equal(rx5.errRecords.length, 1);
@@ -612,7 +612,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
     // 1e-bis. Concurrent `off` between resolveOpen and attachObserver -> 0 term.opened, 0 term.out
     const rxBetween = new TestTerminalReceiver();
     const releaseAttach = host.holdNextAttach();
-    peer.sendTermOpen(conn, { ch: 8, sid: sidNoHolder, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 8, sid: sidNoHolder, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     grantChannelCredit(peer, conn, 8, 0, 0);
     await clock.flushMicrotasks();
     const offBetween = spawnSync(
@@ -631,7 +631,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
     // 1e. Suspended read-output + cross-process `off` -> 0 new outbound term.out after off
     const rx6 = new TestTerminalReceiver();
     const releaseRead = host.holdNextRead();
-    peer.sendTermOpen(conn, { ch: 6, sid: sidX, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 6, sid: sidX, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     grantChannelCredit(peer, conn, 6, 0, 0);
     await clock.flushMicrotasks();
     const outCountBeforeOff = conn.receivedTermOut.get(6)?.length ?? 0;
@@ -650,7 +650,7 @@ test("LH-08 open & authority: size 103x39, holderKind human/none, v1 host-upgrad
     // 1f. Already excluded session -> 0 socket connects on open
     const connectsBeforeExcl = host.calls.connects.length;
     const rx7 = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 7, sid: sidX, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 7, sid: sidX, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     await clock.flushMicrotasks();
     drainClientRecords(conn, 7, rx7);
     assert.equal(host.calls.connects.length, connectsBeforeExcl);
@@ -675,7 +675,7 @@ test("LH-08 record bounds: coalescer splits at 16384B and 16ms, segments 16385B,
     generation: "g1",
     incarnation: "i1",
     afterSeq: 0,
-    afterSeqBytes: 0,
+    receivedSegBytes: 0,
     rangeIndex
   });
 
@@ -810,8 +810,8 @@ test("LH-08 atomic coalesced cut, duplicate stability, agent restart empty index
     restarted.peer.sendWatchStart(restarted.conn);
     await clock.flushMicrotasks();
 
-    // Reopen at appliedSeq=4, afterSeqBytes=0 -> receives ONLY seq 5
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 2, sid, mode: "observe", afterSeq: 4, afterSeqBytes: 0 });
+    // Reopen at appliedSeq=4, receivedSegBytes=0 -> receives ONLY seq 5
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 2, sid, mode: "observe", afterSeq: 4, receivedSegBytes: 0 });
     grantChannelCredit(restarted.peer, restarted.conn, 2, 0, 0);
     await clock.advance(32);
     drainClientRecords(restarted.conn, 2, rx);
@@ -819,10 +819,10 @@ test("LH-08 atomic coalesced cut, duplicate stability, agent restart empty index
     assert.equal(rx.text, "line-1\nline-2\nline-3\nline-4\nline-5\n");
     restarted.peer.sendTermClose(restarted.conn, 2, sid);
 
-    // Reopen at state.latestSeq (5) with afterSeqBytes=0 -> immediate term.opened, 0 output, 0 readOutput
+    // Reopen at state.latestSeq (5) with receivedSegBytes=0 -> immediate term.opened, 0 output, 0 readOutput
     const readsBeforeLatest = host.calls.readOutput.length;
     const rxLatest = new TestTerminalReceiver();
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 3, sid, mode: "observe", afterSeq: 5, afterSeqBytes: 0 });
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 3, sid, mode: "observe", afterSeq: 5, receivedSegBytes: 0 });
     await clock.flushMicrotasks();
     drainClientRecords(restarted.conn, 3, rxLatest);
     assert.equal(rxLatest.openedRecords.length, 1);
@@ -832,13 +832,13 @@ test("LH-08 atomic coalesced cut, duplicate stability, agent restart empty index
 
     // Ahead cursor (afterSeq=99) & invalid positive offset -> err(resume-unavailable)
     const rxAhead = new TestTerminalReceiver();
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 4, sid, mode: "observe", afterSeq: 99, afterSeqBytes: 0 });
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 4, sid, mode: "observe", afterSeq: 99, receivedSegBytes: 0 });
     await clock.flushMicrotasks();
     drainClientRecords(restarted.conn, 4, rxAhead);
     assert.equal(rxAhead.errRecords[0]?.code, "resume-unavailable");
 
     const rxBadOff = new TestTerminalReceiver();
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 5, sid, mode: "observe", afterSeq: 5, afterSeqBytes: 10 });
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 5, sid, mode: "observe", afterSeq: 5, receivedSegBytes: 10 });
     await clock.flushMicrotasks();
     drainClientRecords(restarted.conn, 5, rxBadOff);
     assert.equal(rxBadOff.errRecords[0]?.code, "resume-unavailable");
@@ -852,16 +852,16 @@ test("LH-08 atomic coalesced cut, duplicate stability, agent restart empty index
       }
       return false;
     });
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 6, sid, mode: "observe", afterSeq: 5, afterSeqBytes: 0 });
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 6, sid, mode: "observe", afterSeq: 5, receivedSegBytes: 0 });
     grantChannelCredit(restarted.peer, restarted.conn, 6, 0, 0);
     await clock.advance(32);
     const resSeg = drainClientRecords(restarted.conn, 6, rx);
     assert.equal(resSeg.cut, true);
-    assert.equal(rx.afterSeqBytes, 16_384);
+    assert.equal(rx.receivedSegBytes, 16_384);
     assert.equal(rx.appliedSeq, 5);
     restarted.peer.sendTermClose(restarted.conn, 6, sid);
 
-    // Reopen with afterSeq=5, afterSeqBytes=16384 -> restarts from seg=0, receiver strips prefix, zero \uFFFD
+    // Reopen with afterSeq=5, receivedSegBytes=16384 -> restarts from seg=0, receiver strips prefix, zero \uFFFD
     rx.setCutBeforeApply(null);
     const paintsBeforeEmoji = rx.paintCount;
     restarted.peer.sendTermOpen(restarted.conn, { ch: 7, sid, ...rx.openPayload() });
@@ -874,10 +874,10 @@ test("LH-08 atomic coalesced cut, duplicate stability, agent restart empty index
     assert.ok(rx.text.endsWith(emojiStr));
     restarted.peer.sendTermClose(restarted.conn, 7, sid);
 
-    // Replay same segmented chunk with afterSeqBytes=0 (receiver lost prefix)
+    // Replay same segmented chunk with receivedSegBytes=0 (receiver lost prefix)
     const rxFreshSeg = new TestTerminalReceiver();
     rxFreshSeg.appliedSeq = 5;
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 8, sid, mode: "observe", afterSeq: 5, afterSeqBytes: 0 });
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 8, sid, mode: "observe", afterSeq: 5, receivedSegBytes: 0 });
     grantChannelCredit(restarted.peer, restarted.conn, 8, 0, 0);
     await clock.advance(32);
     drainClientRecords(restarted.conn, 8, rxFreshSeg);
@@ -893,7 +893,7 @@ test("LH-08 atomic coalesced cut, duplicate stability, agent restart empty index
     rxGap.appliedSeq = 2;
     rxGap.text = "stale-fragment";
     rxGap.screen = "stale-fragment";
-    restarted.peer.sendTermOpen(restarted.conn, { ch: 9, sid, mode: "observe", afterSeq: 2, afterSeqBytes: 0 });
+    restarted.peer.sendTermOpen(restarted.conn, { ch: 9, sid, mode: "observe", afterSeq: 2, receivedSegBytes: 0 });
     grantChannelCredit(restarted.peer, restarted.conn, 9, 0, 0);
     await clock.advance(32);
     drainClientRecords(restarted.conn, 9, rxGap);
@@ -937,8 +937,8 @@ test("LH-08 credit independence, term.exit signal number vs omitted on stopSigna
     // Two observers on ch=2 (zero credit after 1 record) and ch=3 (ample credit)
     const rx2 = new TestTerminalReceiver();
     const rx3 = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 2, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
-    peer.sendTermOpen(conn, { ch: 3, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 2, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 3, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     grantChannelCredit(peer, conn, 2, 0, 0, 1, 100);
     grantChannelCredit(peer, conn, 3, 0, 0, 8, 131_072);
     await clock.advance(32);
@@ -962,7 +962,7 @@ test("LH-08 credit independence, term.exit signal number vs omitted on stopSigna
     assert.ok(ch3ReadCounter.count > ch3ReadsBeforePause, "unblocked ch=3 continues reading");
 
     // Active commands on observe view -> refused, view stays alive
-    peer.sendTermOpen(conn, { ch: 4, sid, mode: "control", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 4, sid, mode: "control", afterSeq: null, receivedSegBytes: 0 });
     peer.sendRecord(conn, { t: "term.in", ch: 3, sid, generation: "gen-1", incarnation: "inc-1", epoch: 1, inSeq: 1, origin: "user", dataB64: Buffer.from("ls\n").toString("base64") });
     peer.sendRecord(conn, { t: "term.ctl", ch: 3, sid, action: "acquire" });
     peer.sendRecord(conn, { t: "term.resize", ch: 3, sid, cols: 100, rows: 50 });
@@ -996,7 +996,7 @@ test("LH-08 credit independence, term.exit signal number vs omitted on stopSigna
     });
     await clock.advance(2_050);
     const rxNoSig = new TestTerminalReceiver();
-    peer.sendTermOpen(conn, { ch: 5, sid: sidNoSig, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+    peer.sendTermOpen(conn, { ch: 5, sid: sidNoSig, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
     grantChannelCredit(peer, conn, 5, 0, 0);
     await clock.advance(32);
     host.sessions.get("h2a-nosig").status = "exited";
@@ -1011,6 +1011,69 @@ test("LH-08 credit independence, term.exit signal number vs omitted on stopSigna
     bridge.dispose();
     projector.stopWatch();
     client.stop();
+  } finally {
+    cleanup(iso);
+  }
+});
+
+test("LH-08 R11 inc-0: term.open requires receivedSegBytes and rejects legacy field", async () => {
+  const iso = makeIsolation();
+  try {
+    const clock = new AsyncFakeClock();
+    const host = makeFakeNativeHost({ socketPath: join(iso.runtimeDir, "h.sock") });
+    host.setSession("h2a-r11", {
+      cols: 80,
+      rows: 24,
+      holderKind: "none",
+      chunks: [{ seq: 1, data: "ok\n" }]
+    });
+
+    const { peer, projector, bridge, client, conn } = connectClientWithBridge(iso, host, clock);
+    peer.sendWatchStart(conn);
+    await clock.flushMicrotasks();
+    const sid = nativeCatalogueSid("h2a-r11");
+
+    // 1. term.open with receivedSegBytes: 0 and without the legacy field -> must open
+    const rx = new TestTerminalReceiver();
+    peer.sendRecord(conn, {
+      t: "term.open",
+      ch: 2,
+      sid,
+      mode: "observe",
+      afterSeq: null,
+      receivedSegBytes: 0
+    });
+    grantChannelCredit(peer, conn, 2, 0, 0);
+    await clock.advance(32);
+    drainClientRecords(conn, 2, rx);
+    assert.equal(rx.openedRecords.length, 1, "term.open with receivedSegBytes must emit term.opened");
+    assert.equal(conn.closed, false);
+
+    // 2. term.open carrying only the legacy field -> must close link on invalid-record
+    const client2Bundle = (() => {
+      bridge.dispose();
+      projector.stopWatch();
+      client.stop();
+      return connectClientWithBridge(iso, host, clock);
+    })();
+    client2Bundle.peer.sendWatchStart(client2Bundle.conn);
+    await clock.flushMicrotasks();
+    const legacyKey = ["after", "Seq", "Bytes"].join("");
+    client2Bundle.peer.sendRecord(client2Bundle.conn, {
+      t: "term.open",
+      ch: 2,
+      sid,
+      mode: "observe",
+      afterSeq: null,
+      [legacyKey]: 0
+    });
+    await clock.flushMicrotasks();
+    assert.equal(client2Bundle.conn.closed, true, "term.open with legacy field only must close link");
+    assert.equal(client2Bundle.client.readLinkStatus()?.reason, "invalid-record");
+
+    client2Bundle.bridge.dispose();
+    client2Bundle.projector.stopWatch();
+    client2Bundle.client.stop();
   } finally {
     cleanup(iso);
   }
