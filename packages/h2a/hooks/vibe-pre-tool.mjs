@@ -11,12 +11,14 @@ function hasForbiddenAttributionTrailer(command) {
   const rules = [
     /^\s*co-authored-by\s*:/im,
     /^\s*claude-session\s*:/im,
-    /^\s*generated-by\s*:.*\b(?:claude|anthropic|codex|openai|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|ai)\b/im,
-    /generated\s+(?:with|by)\s+\[?(?:claude(?:\s+code)?|codex|gemini|antigravity|mistral\s+vibe|vibe|muse|copilot|cursor)\b/i,
+    /^\s*(?:ai-)?assisted-by\s*:/im,
+    /^\s*generated-(?:by|with)\s*:.*(?:^|[^a-z0-9])(?:claude|anthropic|codex|openai|gpt\d*|chatgpt|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|windsurf|codeium|aider|cline|devin|deepseek|qwen|grok|llm|ai)(?:[^a-z0-9]|$)/im,
+    /\bgenerated\s+(?:with|by)\s+(?:(?:the|an?)\s+)?[\[*_`~]*(?:(?:github|google|meta|openai|anthropic|mistral)\s+)?(?:claude|anthropic|codex|openai|gpt\d*|chatgpt|gemini|antigravity|agy|mistral|vibe|muse|copilot|cursor|windsurf|codeium|aider|cline|devin|deepseek|qwen|grok|llm|ai)(?:[^a-z0-9]|$)/i,
+    /🤖\uFE0F?\s*generated\s+(?:with|by)\b/i,
     /claude\.com\/claude-code/i,
     /claude\.ai\/code\/session_[a-z0-9_-]+/i,
-    /🤖/u,
-    /(?:["'`]|^|\n)\s*(?:co-authored-by|claude-session)\s*:/im
+    /(?:<[^@\s>]+@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)>|(?:^|[\s<("'`])(?:(?:noreply|claude|codex|vibe|mistral|cursor|assist|assistant|agent|ai|bot)[^@\s>)"'`]*@(?:anthropic\.com|openai\.com|mistral\.ai|cursor\.com|cursor\.sh)|(?:claude|codex|copilot|github-copilot|cursor|gemini-code-assist|antigravity|mistral-vibe)(?:\[bot\])?@(?:users\.noreply\.github\.com|github\.com))(?=$|[\s>)"'`,.;]))/i,
+    /(?:["'`]|^|\n)\s*(?:co-authored-by|claude-session|(?:ai-)?assisted-by)\s*:/im,
   ];
   return rules.some(re => re.test(expanded));
 }
