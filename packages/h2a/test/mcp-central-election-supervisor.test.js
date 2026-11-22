@@ -243,10 +243,10 @@ test("T3.1a: SIGSTOP central with 1 pending op and 15,500 files is evicted (< 7s
     };
     writeFileSync(join(f.stateDir, pendingOpName), Buffer.concat([canonicalBytes(pendingOpDoc), Buffer.from("\n")]), { mode: 0o600 });
 
-    // Wait briefly (>= 1200ms after marker1.startedAt) so startupGraceMs (5000ms) is cleanly elapsed
-    // by the end of the 1.5s + 0.5s + 2.7s shim+launcher probe sequence, well before 15.5k migration finishes.
+    // Wait briefly (>= 1500ms after marker1.startedAt) so startupGraceMs (5000ms) is cleanly elapsed
+    // by the end of the 1.5s + 0.5s + 1.8s shim+launcher probe sequence, well before 15.5k migration finishes.
     const elapsedSinceStart = Date.now() - Date.parse(marker1.startedAt);
-    if (elapsedSinceStart < 1_200) await delay(1_200 - elapsedSinceStart);
+    if (elapsedSinceStart < 1_500) await delay(1_500 - elapsedSinceStart);
 
     // Freeze central #1 with SIGSTOP (SIGCONT forbidden)
     process.kill(child1.pid, "SIGSTOP");

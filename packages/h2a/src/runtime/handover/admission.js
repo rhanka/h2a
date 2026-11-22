@@ -85,7 +85,7 @@ function sleepMs(ms) {
  */
 export async function probeOwnerHealth(markerPath, observedMarker, authority, options = {}) {
   const {
-    pingTimeoutMs = 800,
+    pingTimeoutMs = 500,
     pingAttempts = 3,
     pingBackoffMs = 150,
     startupGraceMs = 5_000,
@@ -249,9 +249,10 @@ export async function evictUnresponsiveOwnerLocked(authority, oldMarker, options
         catch (error) { if (error?.code !== 'ESRCH') throw error; }
       }
       const killDeadline = Date.now() + sigkillWaitMs;
+      const killPollMs = Math.min(pollIntervalMs, 20);
       liveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
       while (liveness !== 'dead' && Date.now() < killDeadline) {
-        await sleepMs(pollIntervalMs);
+        await sleepMs(killPollMs);
         liveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
       }
       if (liveness !== 'dead') {
