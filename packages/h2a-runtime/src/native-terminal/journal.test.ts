@@ -138,10 +138,28 @@ describe("native host life journal", () => {
       process.on('SIGUSR1', () => { ${action}; });
       process.send('crash-handler-ready', () => process.disconnect());`);
     const host = child([script], { ...f.env, PRIVATE_VALUE: secret }, true);
-    expect((await once(host.process, "message"))[0]).toBe("crash-handler-ready");
+    // Both waits below were unbounded: under full-suite load a slow fixture
+    // boot or a slow crash cycle hit the bare 5 s vitest default with no step
+    // attribution (trust-root run 44979643496: "rejection" timed out at
+    // 5006 ms while its "exception"/"abort" siblings passed in <1 s; the host
+    // records crashes via uncaughtExceptionMonitor, which preserves Node's
+    // fatal behavior, so the cycle is deterministic and only its timing
+    // varies). Bound each step with the fixture output attached so the next
+    // stall names its step; the timer is cleared on settle so a slow-but-met
+    // step leaves no dangling handle behind.
+    const boundedStep = <T>(step: string, pending: Promise<T>): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(
+          `real host ${failure} fixture stalled at ${step}: ${JSON.stringify(host.output())}`)), 20_000);
+        pending.then(
+          (value) => { clearTimeout(timer); resolve(value); },
+          (error) => { clearTimeout(timer); reject(error); },
+        );
+      });
+    expect(((await boundedStep("crash-handler-ready", once(host.process, "message"))) as unknown[])[0]).toBe("crash-handler-ready");
     await eventually(() => readHostJournal(f.log).some(e => e.event === "start"));
     host.process.kill("SIGUSR1");
-    const [code, signal] = await host.closed;
+    const [code, signal] = await boundedStep("host exit", host.closed);
     if (failure !== "abort") await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     const events = readHostJournal(f.log);
     expect(readFileSync(f.log, "utf8")).not.toContain(secret);
@@ -155,7 +173,10 @@ describe("native host life journal", () => {
       expect(events[1]).toMatchObject({ error: "[REDACTED]" }); expect((events[1] as any).stack).toContain(":");
       expect(events[2]).toMatchObject({ exitCode: 1, cause: kind });
     }
-  });
+    // 60 s covers the worst attributed stall (20 s per bounded step plus the
+    // two 5 s `eventually` polls) so the test timeout never fires first and
+    // hides which step stalled.
+  }, 60_000);
   it("should label an unobserved exit cause unknown without inventing a signal", async () => {
     const f = fixture(), script = join(f.root, "exit.mjs");
     writeFileSync(script, `import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
