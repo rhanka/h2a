@@ -209,7 +209,7 @@ export interface TermOpen {
   readonly sid: string;
   readonly mode: TerminalMode;
   readonly afterSeq: number | null;
-  readonly afterSeqBytes: number;
+  readonly receivedSegBytes: number;
   readonly cols?: number;
   readonly rows?: number;
 }
@@ -526,7 +526,7 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
         isNonEmptyString(rec["sid"]) &&
         (rec["mode"] === "observe" || rec["mode"] === "control") &&
         (rec["afterSeq"] === null || isSafeNonNegInt(rec["afterSeq"])) &&
-        isSafeNonNegInt(rec["afterSeqBytes"]) &&
+        isSafeNonNegInt(rec["receivedSegBytes"]) &&
         (rec["cols"] === undefined || isSafePosInt(rec["cols"])) &&
         (rec["rows"] === undefined || isSafePosInt(rec["rows"]))
       );

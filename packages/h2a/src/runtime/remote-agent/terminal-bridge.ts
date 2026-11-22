@@ -558,7 +558,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     }
 
     if (!chState.openedSent) {
-      if (chState.open.afterSeqBytes > 0) {
+      if (chState.open.receivedSegBytes > 0) {
         if (replay.gap !== null || !chState.assembler.validateResumeFirstChunk(replay.chunks[0])) {
           abortChannelWithErr(chState, "resume-unavailable", false, false);
           return;
@@ -720,7 +720,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       abortChannelWithErr(chState, "resume-unavailable", false, false);
       return;
     }
-    if (effectiveAfterSeq === validState.latestSeq && chState.open.afterSeqBytes > 0) {
+    if (effectiveAfterSeq === validState.latestSeq && chState.open.receivedSegBytes > 0) {
       abortChannelWithErr(chState, "resume-unavailable", false, false);
       return;
     }
@@ -730,12 +730,12 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       generation: validState.generation,
       incarnation: validState.incarnation,
       afterSeq: effectiveAfterSeq,
-      afterSeqBytes: chState.open.afterSeqBytes,
+      receivedSegBytes: chState.open.receivedSegBytes,
       rangeIndex,
       coalesceMs
     });
 
-    if (effectiveAfterSeq === validState.latestSeq && chState.open.afterSeqBytes === 0) {
+    if (effectiveAfterSeq === validState.latestSeq && chState.open.receivedSegBytes === 0) {
       const shareRes = catalogue.withShareAllowed(chState.sid, () => {
         if (chState.closed) return;
         chState.ctx.sendControl({
@@ -780,10 +780,10 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       if (open.afterSeq !== null && !isSafeNonNegInt(open.afterSeq)) {
         return { ok: false, code: "invalid-open", retryable: false };
       }
-      if (!isSafeNonNegInt(open.afterSeqBytes)) {
+      if (!isSafeNonNegInt(open.receivedSegBytes)) {
         return { ok: false, code: "invalid-open", retryable: false };
       }
-      if (open.afterSeq === null && open.afterSeqBytes > 0) {
+      if (open.afterSeq === null && open.receivedSegBytes > 0) {
         return { ok: false, code: "resume-unavailable", retryable: false };
       }
       if (open.cols !== undefined && !isSafePosInt(open.cols)) {
