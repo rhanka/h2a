@@ -1403,6 +1403,8 @@ Allowed files:
 - `packages/h2a-runtime/src/native-host.ts` (facet typing; L1b resume transport call)
 - `packages/h2a-runtime/src/restore.ts` (`captureHostViewSnapshot`, plan, ledger, shared join export)
 - `packages/h2a-runtime/src/launch-layout.ts` (`HostViewSnapshot` facet, in-place decision, per-tab outcome return)
+- `packages/h2a-runtime/src/restore-plan.ts` (L1a). Ce module porte la seule jointure `run`/`hook` en lecture pour le plan et les listes. Les clés sont, dans l’ordre, le nom géré exact, l’UUID de conversation et l’identifiant du registre. Ce module porte aussi `HostViewSnapshot` et la décision unique par onglet. `launch-layout.ts` applique les décisions de `planLayoutLaunch` et retourne les issues observées par onglet. `restore.ts` relaie la jointure aux listes, capture la vue des hôtes et agrège les issues dans le ledger. Chaque session physique compte une fois.
+- `packages/h2a-runtime/src/restore-plan.test.ts` (L1a). Vérifier une seule attache pour les deux lignes de même nom exact et une note de conflit du registre. Vérifier la décision pour une CLI déjà active et pour un shell attaché candidat à la reprise. Ce dernier donne `deferred:needs-inject` jusqu’à L1b.
 - `packages/h2a-runtime/src/conv-guard.ts` (native owner evidence only)
 - `packages/h2a-runtime/src/relaunch.ts` (native sweep rule + routing in-place resume through `tryAcquireResumeLaunchClaim`, L1b)
 - `packages/h2a-runtime/src/index.ts` (restore/relaunch wiring + ledger printing via the L6a catalog, which lands before L1a — no new hardcoded-language strings; new keys are added to the L6a catalog data files, which are part of this allow-list for key additions only)

@@ -9,7 +9,16 @@ export const locale = "fr" as const;
 
 export const strings: Record<string, string> = {
   "restore.ledger.alreadyActive": "Déjà active",
+  "restore.ledger.attached": "Attachée",
+  "restore.ledger.resumedInPlace": "Reprise en place",
+  "restore.ledger.recreated": "Recréée",
+  "restore.ledger.deferred": "Différée",
+  "restore.ledger.excluded": "Exclue",
+  "restore.ledger.failed": "Échouée",
+  "restore.ledger.totals": "Totaux : {alreadyActive} déjà active(s), {attached} attachée(s), {resumed} reprise(s), {recreated} recréée(s), {deferred} différée(s), {excluded} exclue(s), {failed} échouée(s)",
   "restore.ledger.noCandidates": "Aucune session à restaurer",
+  "restore.blocker.staleHost": "hôte PTY natif ancien sans visibilité de premier plan ni de contrôleur ; attachez manuellement ou exécutez `h2a doctor` pour inspecter et purger les hôtes anciens",
+  "restore.conflict.managedName": "conflit de registre pour « {label} » ({managedName}) : la ligne attach-live « {runId} » et la ligne hook « {hookId} » partagent le même nom géré ; une seule attache conservée",
   "restore.group.shared": "Partagées",
   // Station (panel lot S1): every label the single-terminal station prints.
   "station.refusal.notTty": "restore --station exige un terminal interactif (stdin et stdout doivent être un TTY) ; rien n'a été ouvert.",
