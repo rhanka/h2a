@@ -18,8 +18,10 @@ test('B incident: the real MCP JSON-RPC stdio transport reaches identity_ready w
      {env:{...process.env,IDLOCK_SIM_ROOT:root,CLAUDE_CODE_SESSION_ID:'stdio-incident'},stdio:['pipe','pipe','pipe']});
    let buffer='',stderr='';let sequence=0;const responses=new Map();
    child.stderr.on('data',b=>stderr+=b);child.stdout.on('data',b=>{buffer+=b;for(let end=buffer.indexOf('\n');end>=0;end=buffer.indexOf('\n')){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);let row;try{row=JSON.parse(line);}catch{continue;}if(responses.has(row.id)){responses.get(row.id)(row);responses.delete(row.id);}}});
-   const rpc=(method,params)=>new Promise((resolve,reject)=>{const id=++sequence;const timer=setTimeout(()=>{responses.delete(id);reject(new Error('RPC timeout: '+stderr));},2000);responses.set(id,row=>{clearTimeout(timer);resolve(row);});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');});
-   const init=await rpc('initialize',{});assert.ok(init.result.serverInfo);
+   const rpc=(method,params,timeoutMs=2000)=>new Promise((resolve,reject)=>{const id=++sequence;const timer=setTimeout(()=>{responses.delete(id);reject(new Error('RPC timeout: '+stderr));},timeoutMs);responses.set(id,row=>{clearTimeout(timer);resolve(row);});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');});
+   // Cold child boot (Node + legacy loader + D16 preload) can exceed 2 s under
+   // CI shard contention; keep 2 s per post-boot RPC and the 10 s total budget.
+   const init=await rpc('initialize',{},5000);assert.ok(init.result.serverInfo);
    // Total envelope 10 s (was 2 s): child boot plus identity activation need
    // headroom on a loaded CI runner (measured >2 s with the lane sharing the
    // runner with the Track/AgentStats/Focus suites). The per-RPC 2 s timers

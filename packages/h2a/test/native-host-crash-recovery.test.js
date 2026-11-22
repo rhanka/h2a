@@ -27,7 +27,10 @@ test('incident lab waits for its recorded descendants to exit before deleting th
   const live = () => {
     try { const stat = readFileSync(`/proc/${record.pid}/stat`, 'utf8').split(') ')[1].split(' ');
       return stat[19] === record.start && !['Z', 'X'].includes(stat[0]);
-    } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    // The task can be reaped between open() and read() of its stat file;
+    // ESRCH on the read means it is already gone, like ENOENT on the open
+    // (restart-lab dead() treats both as gone).
+    } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return false; throw error; }
   };
   const kill = process.kill.bind(process);
   let requested;
@@ -61,7 +64,10 @@ test('incident lab tolerates a recorded descendant reaped between its liveness c
   const gone = () => {
     try { const state = readFileSync(`/proc/${record.pid}/stat`, 'utf8').split(') ')[1].split(' ')[0];
       return ['Z', 'X'].includes(state);
-    } catch (error) { if (error.code === 'ENOENT') return true; throw error; }
+    // The task can be reaped between open() and read() of its stat file;
+    // ESRCH on the read means it is already gone, like ENOENT on the open
+    // (restart-lab dead() treats both as gone).
+    } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
   };
   // The parked wait blocks only this thread, so the victim's exit -- and its
   // reap, which never depends on this event loop: the launcher already

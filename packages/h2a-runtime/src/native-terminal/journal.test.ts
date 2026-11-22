@@ -35,10 +35,13 @@ function fixture(parent = qualRoot) {
   cleanups.push(async () => { rmSync(root, { recursive: true, force: true }); });
   return { root, env, log, socket };
 }
-async function eventually(predicate: () => boolean) {
+async function eventually(predicate: () => boolean, detail?: () => string) {
   const end = Date.now() + 5_000;
   while (!predicate()) {
-    if (Date.now() >= end) throw new Error("expected journal/host observation did not arrive");
+    if (Date.now() >= end) {
+      const extra = detail ? `: ${detail()}` : "";
+      throw new Error(`expected journal/host observation did not arrive${extra}`);
+    }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
@@ -138,11 +141,31 @@ describe("native host life journal", () => {
       process.on('SIGUSR1', () => { ${action}; });
       process.send('crash-handler-ready', () => process.disconnect());`);
     const host = child([script], { ...f.env, PRIVATE_VALUE: secret }, true);
-    expect((await once(host.process, "message"))[0]).toBe("crash-handler-ready");
-    await eventually(() => readHostJournal(f.log).some(e => e.event === "start"));
+    // Bound each IPC/exit wait and attach step/journal diagnostics to every
+    // observation poll so a stall under full-suite trust-root load always names
+    // the exact step, exit status, journal contents, and fixture output.
+    const boundedStep = <T>(step: string, pending: Promise<T>): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(
+          `real host ${failure} fixture stalled at ${step}: ${JSON.stringify(host.output())}`)), 20_000);
+        pending.then(
+          (value) => { clearTimeout(timer); resolve(value); },
+          (error) => { clearTimeout(timer); reject(error); },
+        );
+      });
+    expect(((await boundedStep("crash-handler-ready", once(host.process, "message"))) as unknown[])[0]).toBe("crash-handler-ready");
+    await eventually(
+      () => readHostJournal(f.log).some(e => e.event === "start"),
+      () => `start entry for ${failure}; events=${JSON.stringify(readHostJournal(f.log).map(e => e.event))} output=${JSON.stringify(host.output())}`,
+    );
     host.process.kill("SIGUSR1");
-    const [code, signal] = await host.closed;
-    if (failure !== "abort") await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
+    const [code, signal] = await boundedStep("host exit", host.closed);
+    if (failure !== "abort") {
+      await eventually(
+        () => readHostJournal(f.log).at(-1)?.event === "exit",
+        () => `exit entry for ${failure} (code=${String(code)}, signal=${String(signal)}); events=${JSON.stringify(readHostJournal(f.log).map(e => e.event))} output=${JSON.stringify(host.output())}`,
+      );
+    }
     const events = readHostJournal(f.log);
     expect(readFileSync(f.log, "utf8")).not.toContain(secret);
     if (failure === "abort") {
@@ -155,7 +178,53 @@ describe("native host life journal", () => {
       expect(events[1]).toMatchObject({ error: "[REDACTED]" }); expect((events[1] as any).stack).toContain(":");
       expect(events[2]).toMatchObject({ exitCode: 1, cause: kind });
     }
-  });
+    // 60 s covers the worst attributed stall (20 s per bounded step plus the
+    // two 5 s `eventually` polls) so the test timeout never fires first and
+    // hides which step stalled.
+  }, 60_000);
+  it("should drain crash and exit entries when post-mortem journal I/O exceeds HOST_JOURNAL_DRAIN_MS", async () => {
+    // Regression for trust-root run 44986923500: a dying host cannot flush
+    // before exit, so both the crash entry and the exit entry must drain after
+    // parent IPC disconnect. Reusing the 100 ms host flush cap as the writer's
+    // post-disconnect timer killed the writer mid-drain under CI contention and
+    // dropped the `exit` record permanently.
+    const f = fixture(), script = join(f.root, "slow-crash.mjs"), preload = join(f.root, "slow-drain.mjs");
+    writeFileSync(preload, `import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { isMainThread } from 'node:worker_threads';
+      if (!isMainThread) {
+        let opens = 0;
+        const open = fs.openSync;
+        fs.openSync = (path, ...args) => {
+          if (String(path) === ${JSON.stringify(`${f.log}.lock`)} && ++opens >= 2) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60);
+          }
+          return open(path, ...args);
+        };
+        syncBuiltinESMExports();
+      }`);
+    writeFileSync(script, `import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
+      await runNativeTerminalHostProcess([process.execPath, ${JSON.stringify(entry)}, '--socket', ${JSON.stringify(f.socket)}]);
+      process.on('SIGUSR1', () => { Promise.reject(new Error('slow-drain-probe')); });
+      process.send('crash-handler-ready', () => process.disconnect());`);
+    const host = child([script], { ...f.env, NODE_OPTIONS: `--import=${preload}` }, true);
+    expect((await once(host.process, "message"))[0]).toBe("crash-handler-ready");
+    await eventually(
+      () => readHostJournal(f.log).some(e => e.event === "start"),
+      () => `start entry for slow-drain; events=${JSON.stringify(readHostJournal(f.log).map(e => e.event))}`,
+    );
+    host.process.kill("SIGUSR1");
+    const [code, signal] = await host.closed;
+    expect(code).toBe(1);
+    expect(signal).toBeNull();
+    await eventually(
+      () => readHostJournal(f.log).at(-1)?.event === "exit",
+      () => `exit entry for slow-drain; events=${JSON.stringify(readHostJournal(f.log).map(e => e.event))}`,
+    );
+    const events = readHostJournal(f.log);
+    expect(events.map(e => e.event)).toEqual(["start", "unhandledRejection", "exit"]);
+    expect(events[2]).toMatchObject({ exitCode: 1, cause: "unhandledRejection" });
+  }, 20_000);
   it("should label an unobserved exit cause unknown without inventing a signal", async () => {
     const f = fixture(), script = join(f.root, "exit.mjs");
     writeFileSync(script, `import {runNativeTerminalHostProcess} from ${JSON.stringify(processModule)};
@@ -233,7 +302,7 @@ describe("native host life journal", () => {
     // Only PIDs emitted by this fixture's blocked writer are inspected.
     await eventually(() => attempts.every(({ pid }) => {
       try { return readFileSync(`/proc/${pid}/stat`, "utf8").split(") ").at(-1)!.startsWith("Z "); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return true; throw error; }
+      catch (error) { if (["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return true; throw error; }
     }));
   });
   it("should preserve a live writer lock while a real host serves and stops", async () => {
