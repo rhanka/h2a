@@ -569,6 +569,7 @@ export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 
 /** The provenance of an exclusive controller, used only for human-input safety. */
 export type NativeTerminalControllerActivity = "human" | "automation";
+type SessionControllerActivity = NativeTerminalControllerActivity | "remote";
 
 export type NativeTerminalSize = Readonly<{
   cols: number;
@@ -586,6 +587,7 @@ export type NativeTerminalControllerIdentity = Readonly<{
 
 export type NativeTerminalControllerOptions = Readonly<{
   takeover?: boolean;
+  passive?: boolean;
   pid?: number;
   tty?: string;
 }>;
@@ -646,6 +648,21 @@ export type NativeTerminalControllerLease = Readonly<{
   controllerId: string;
   epoch: number;
 }>;
+
+export type NativeTerminalRemoteRefusalReason =
+  | "recent-human"
+  | "held-by-automation"
+  | "held-by-remote"
+  | "already-held";
+
+export type NativeTerminalRemoteAcquireResult = Readonly<
+  | { granted: true; lease: NativeTerminalControllerLease }
+  | {
+      granted: false;
+      reason: NativeTerminalRemoteRefusalReason;
+      controllerEpoch: number;
+    }
+>;
 
 export type NativeTerminalControllerState = Readonly<{
   id: string;
@@ -777,7 +794,7 @@ type SessionRecord = {
   respawning: boolean;
   onRespawnOldExit?: (event: { exitCode: number; signal?: number }) => void;
   controllerId: string | null;
-  controllerActivity: NativeTerminalControllerActivity | null;
+  controllerActivity: SessionControllerActivity | null;
   controllerIdentity: NativeTerminalControllerIdentity | null;
   controllerEpoch: number;
   lastHumanActivityAt: number | null;
@@ -1310,10 +1327,46 @@ export class NativeTerminalHost {
     if (options.tty !== undefined && (options.tty.length === 0 || options.tty.length > 256 || /[\p{Cc}\p{Cf}]/u.test(options.tty))) {
       throw new TypeError("terminal controller tty must be a printable name of 1-256 characters");
     }
+    if (options.passive !== undefined && typeof options.passive !== "boolean") {
+      throw new TypeError("terminal controller passive must be a boolean");
+    }
+    if (options.passive === true) {
+      if (options.takeover === true) {
+        throw new TypeError("terminal controller passive cannot be combined with takeover");
+      }
+      if (activity !== "human") {
+        throw new TypeError("terminal controller passive requires human activity");
+      }
+      if (record.status !== "running") {
+        throw new Error(`terminal session is not running: ${id}`);
+      }
+    }
     if (record.controllerId !== null && options.takeover !== true) {
       const holder = record.controllerIdentity;
       throw new Error(`terminal session already has a controller: ${id}; pid=${holder?.pid ?? "unknown"} tty=${holder?.tty ?? "unknown"} since=${holder?.since ?? "unknown"}; use h2a attach ${id.replace(/^h2a-/, "")} --takeover to detach it`);
     }
+    const displacedRemote =
+      record.controllerId !== null && record.controllerActivity === "remote";
+    const lease = this.#grantControllerLease(
+      record,
+      controllerId,
+      activity,
+      options,
+      options.passive === true,
+    );
+    if (displacedRemote && record.status === "running") {
+      this.#restoreLocalSizeAfterRemote(record);
+    }
+    return lease;
+  }
+
+  #grantControllerLease(
+    record: SessionRecord,
+    controllerId: string,
+    activity: SessionControllerActivity,
+    options: { pid?: number; tty?: string } = {},
+    passive = false,
+  ): NativeTerminalControllerLease {
     // Serialized with the lease grant: old input and disconnect cleanup are
     // fenced by the new epoch, even if the previous attach is still exiting.
     record.controllerEpoch += 1;
@@ -1325,15 +1378,53 @@ export class NativeTerminalHost {
       tty: options.tty ?? "unknown",
       since: new Date().toISOString(),
     });
-    if (activity === "human") record.lastHumanActivityAt = Date.now();
+    if (activity === "human" && !passive) record.lastHumanActivityAt = Date.now();
     return Object.freeze({
       role: "controller",
-      id,
+      id: record.id,
       generation: this.#generation,
       incarnation: record.incarnation,
       controllerId,
       epoch: record.controllerEpoch,
     });
+  }
+
+  #restoreLocalSizeAfterRemote(record: SessionRecord): void {
+    if (record.status !== "running") return;
+    const target = record.respawning
+      ? (record.pendingRespawnLocalSize ?? record.lastLocalSize)
+      : record.lastLocalSize;
+    if (!target) return;
+    const effective = record.respawning
+      ? (record.pendingRespawnSize ?? { cols: record.cols, rows: record.rows })
+      : { cols: record.cols, rows: record.rows };
+    if (effective.cols === target.cols && effective.rows === target.rows) return;
+    if (record.respawning) {
+      record.pendingRespawnSize = Object.freeze({ cols: target.cols, rows: target.rows });
+      return;
+    }
+    try {
+      record.pty.resize(target.cols, target.rows);
+      record.cols = target.cols;
+      record.rows = target.rows;
+    } catch {
+      recordHostFault(HOST_FAULT_COUNTERS.remoteSizeRestoreFailed);
+    }
+  }
+
+  #hasRecentHumanActivity(
+    record: SessionRecord,
+    activityWindowMs: number,
+    nowMs = Date.now(),
+  ): boolean {
+    const activityAt = record.lastHumanActivityAt;
+    return (
+      activityAt !== null &&
+      (!Number.isSafeInteger(activityAt) ||
+        activityAt < 0 ||
+        nowMs < activityAt ||
+        (activityWindowMs > 0 && nowMs - activityAt < activityWindowMs))
+    );
   }
 
   /**
@@ -1361,23 +1452,82 @@ export class NativeTerminalHost {
     if (record.controllerId !== null) {
       throw new Error(`terminal session already has a controller: ${id}`);
     }
-    const activityAt = record.lastHumanActivityAt;
-    if (
-      activityAt !== null &&
-      (!Number.isSafeInteger(activityAt) || activityAt < 0 || Date.now() < activityAt ||
-        (activityWindowMs > 0 && Date.now() - activityAt < activityWindowMs))
-    ) {
+    if (this.#hasRecentHumanActivity(record, activityWindowMs)) {
       throw new Error(`terminal session has recent human activity: ${id}`);
     }
     return this.acquireController(id, controllerId, "automation");
+  }
+
+  acquireRemoteControllerIfNoRecentHuman(
+    id: string,
+    controllerId: string,
+    activityWindowMs: number,
+  ): NativeTerminalRemoteAcquireResult {
+    if (!Number.isSafeInteger(activityWindowMs) || activityWindowMs < 0) {
+      throw new RangeError("terminal human activity window must be a non-negative safe integer");
+    }
+    const record = this.#requireControllableSession(id);
+    if (
+      controllerId.trim().length === 0 ||
+      controllerId.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal controller id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
+    }
+    if (record.status !== "running") {
+      throw new Error(`terminal session is not running: ${id}`);
+    }
+    if (record.controllerId === null) {
+      if (this.#hasRecentHumanActivity(record, activityWindowMs)) {
+        return Object.freeze({
+          granted: false,
+          reason: "recent-human",
+          controllerEpoch: record.controllerEpoch,
+        });
+      }
+      return Object.freeze({
+        granted: true,
+        lease: this.#grantControllerLease(record, controllerId, "remote", { tty: "remote" }),
+      });
+    }
+    if (record.controllerActivity === "automation") {
+      return Object.freeze({
+        granted: false,
+        reason: "held-by-automation",
+        controllerEpoch: record.controllerEpoch,
+      });
+    }
+    if (record.controllerActivity === "remote") {
+      return Object.freeze({
+        granted: false,
+        reason: record.controllerId === controllerId ? "already-held" : "held-by-remote",
+        controllerEpoch: record.controllerEpoch,
+      });
+    }
+    if (this.#hasRecentHumanActivity(record, activityWindowMs)) {
+      return Object.freeze({
+        granted: false,
+        reason: "recent-human",
+        controllerEpoch: record.controllerEpoch,
+      });
+    }
+    return Object.freeze({
+      granted: true,
+      lease: this.#grantControllerLease(record, controllerId, "remote", { tty: "remote" }),
+    });
   }
 
   releaseController(
     lease: NativeTerminalControllerLease,
   ): NativeTerminalControllerState {
     const record = this.#requireMatchingController(lease);
+    const wasRemote = record.controllerActivity === "remote";
     if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
     this.#invalidateController(record);
+    if (wasRemote && record.status === "running") {
+      this.#restoreLocalSizeAfterRemote(record);
+    }
     return Object.freeze({
       id: record.id,
       generation: this.#generation,

@@ -16,6 +16,10 @@ import {
 } from "./terminal-modes.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import { ReplayFilter } from "./replay-filter.js";
+import {
+  OBSERVER_INPUT_PENDING_TIMEOUT_MS,
+  ObserverInputClassifier,
+} from "./observer-input.js";
 import { TerminalUndoRegistry } from "./attach-recovery.js";
 import {
   appendCrashLog,
@@ -25,6 +29,8 @@ import {
 import type { NativeStatusBarLinkState } from "../status-projection.js";
 
 export const ATTACH_PENDING_INPUT_MAX_BYTES = 64 * 1024;
+export const REMOTE_OBSERVER_BANNER =
+  "remote control active — remote.sent-tech.ca — type to take back";
 
 /** The host answered "no such session", or its endpoint is provably gone. */
 export function isDefinitiveNativeTerminalAbsence(error: unknown): boolean {
@@ -72,6 +78,7 @@ export interface SessionViewStatusBar {
   peekRestoreSequence(): string;
   restoreSequence(): string;
   transformChildOutput(data: string): string;
+  setObserverBanner?(banner: string | undefined, repaint?: boolean): boolean;
 }
 
 /**
@@ -117,9 +124,11 @@ export type NativeSessionViewOptions = {
   readonly sessionId: string;
   readonly stdout: NodeJS.WriteStream;
   readonly now: () => number;
+  readonly delay?: ((ms: number) => Promise<void>) | undefined;
   readonly tty: string;
   readonly statusBar: SessionViewStatusBar;
   readonly takeover?: boolean | undefined;
+  readonly remoteObserver?: boolean | undefined;
   readonly ownOuterMouse?: boolean | undefined;
   readonly saveTerminalReset?: ((sequence: string) => void) | undefined;
   readonly getChildCols?: (() => number | undefined) | undefined;
@@ -153,7 +162,9 @@ export class NativeSessionView {
   readonly stdout: NodeJS.WriteStream;
   readonly statusBar: SessionViewStatusBar;
   readonly #now: () => number;
+  readonly #delay: (ms: number) => Promise<void>;
   readonly #tty: string;
+  readonly #remoteObserver: boolean;
   readonly #ownOuterMouse: boolean;
   readonly #saveTerminalReset: ((sequence: string) => void) | undefined;
   readonly #getChildCols: () => number | undefined;
@@ -172,6 +183,18 @@ export class NativeSessionView {
   terminalEnded = false;
   exitCode = 0;
   active: ActiveAttachConnection | undefined;
+  observing = false;
+  wasObservingBeforeReconnect = false;
+  observerClient: NativeTerminalAttachClient | undefined;
+  observerIncarnation: { generation: string; incarnation: string } | undefined;
+  #observerFilter: ReplayFilter | undefined;
+  readonly #observerInput = new ObserverInputClassifier();
+  #pendingInputTimerToken = 0;
+  #takebackInFlight: Promise<void> | undefined;
+  #discardingPaste = false;
+  #bannerNoticeShown = false;
+  #inputSuspended = false;
+  #afterAcquire: (() => void) | undefined;
   transportFailure: unknown;
   interruptedAt: number | undefined;
   pendingInputBytes = 0;
@@ -186,7 +209,11 @@ export class NativeSessionView {
     this.stdout = options.stdout;
     this.statusBar = options.statusBar;
     this.#now = options.now;
+    this.#delay =
+      options.delay ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.#tty = options.tty;
+    this.#remoteObserver = options.remoteObserver === true;
     this.#ownOuterMouse = options.ownOuterMouse === true;
     this.#saveTerminalReset = options.saveTerminalReset;
     this.#getChildCols =
@@ -279,7 +306,14 @@ export class NativeSessionView {
     replay: NativeTerminalReplay,
     options: { catchUp?: boolean } = {},
   ): void {
-    const filter = options.catchUp === true ? new ReplayFilter() : undefined;
+    const observerFilter = this.observing
+      ? (this.#observerFilter ?? (this.#observerFilter = new ReplayFilter()))
+      : undefined;
+    const catchUpFilter =
+      observerFilter === undefined && options.catchUp === true
+        ? new ReplayFilter()
+        : undefined;
+    const filter = observerFilter ?? catchUpFilter;
     if (replay.gap) {
       this.resetModes();
       this.modes = new TerminalModeTracker();
@@ -292,18 +326,22 @@ export class NativeSessionView {
         this.enableOuterMouse();
       }
       this.statusBar.resumeAfterReset();
+      if (this.observing) {
+        this.#observerFilter = new ReplayFilter();
+      }
       if (replay.terminalModePrefix) {
         this.resetRelay.feed(replay.terminalModePrefix);
       }
     }
+    const activeFilter = this.observing ? this.#observerFilter : catchUpFilter;
     for (const chunk of replay.chunks) {
-      const data = filter ? filter.filter(chunk.data) : chunk.data;
+      const data = activeFilter ? activeFilter.filter(chunk.data) : chunk.data;
       if (data) this.resetRelay.feed(data);
       this.seq = chunk.seq;
     }
-    if (filter) {
+    if (catchUpFilter) {
       // An unfinished sequence goes out unchanged: live output completes it.
-      const tail = filter.flush();
+      const tail = catchUpFilter.flush();
       if (tail) this.resetRelay.feed(tail);
     }
     this.statusBar.flushAfterOutputBatch();
@@ -368,6 +406,7 @@ export class NativeSessionView {
     state: NativeTerminalSessionState,
     lease: NativeTerminalControllerLease,
   ): boolean {
+    if (this.observing) return false;
     if (state.status === "exited" && !state.stopSignal) return false;
     if (
       state.generation === lease.generation &&
@@ -413,10 +452,253 @@ export class NativeSessionView {
     return true;
   }
 
+  handleRemoteSwitchState(state: NativeTerminalSessionState): boolean {
+    if (!this.#remoteObserver || this.observing || this.detached || this.terminalEnded) {
+      return false;
+    }
+    const current = this.active;
+    if (!current) return false;
+    if (
+      state.holderKind === "remote" &&
+      state.status === "running" &&
+      state.stopSignal === null &&
+      state.generation === current.lease.generation &&
+      state.incarnation === current.lease.incarnation &&
+      state.controllerEpoch !== undefined &&
+      state.controllerEpoch !== current.lease.epoch
+    ) {
+      this.#enterObserverMode(current.client, state);
+      return true;
+    }
+    return false;
+  }
+
+  isTakebackInFlight(): boolean {
+    return this.#takebackInFlight !== undefined;
+  }
+
+  #purgeForObserverOrTakeback(): void {
+    this.pendingInput.length = 0;
+    this.pendingInputBytes = 0;
+    this.#inputDecoder.end();
+  }
+
+  #enterObserverMode(
+    client: NativeTerminalAttachClient,
+    state: NativeTerminalSessionState,
+  ): void {
+    this.active = undefined;
+    this.observerClient = client;
+    this.observerIncarnation = {
+      generation: state.generation,
+      incarnation: state.incarnation,
+    };
+    this.observing = true;
+    this.wasObservingBeforeReconnect = true;
+    this.transportFailure = undefined;
+    this.#observerFilter = new ReplayFilter();
+    this.#observerInput.reset();
+    this.#pendingInputTimerToken += 1;
+    this.#discardingPaste = false;
+    this.#purgeForObserverOrTakeback();
+    const handledByBar =
+      this.statusBar.setObserverBanner?.(REMOTE_OBSERVER_BANNER) === true;
+    if (!handledByBar && !this.#bannerNoticeShown) {
+      this.#bannerNoticeShown = true;
+      this.stdout.write(`\r\n[h2a] ${REMOTE_OBSERVER_BANNER}\r\n`);
+    }
+  }
+
+  #exitObserverMode(clearBanner = true): void {
+    this.observing = false;
+    this.wasObservingBeforeReconnect = false;
+    this.observerClient = undefined;
+    this.observerIncarnation = undefined;
+    this.#pendingInputTimerToken += 1;
+    this.#bannerNoticeShown = false;
+    const tail = this.#observerFilter?.flush();
+    this.#observerFilter = undefined;
+    if (tail) {
+      this.resetRelay.feed(tail);
+    }
+    if (clearBanner) {
+      this.statusBar.setObserverBanner?.(undefined);
+    }
+  }
+
+  clearObserverForExit(): void {
+    this.observing = false;
+    this.wasObservingBeforeReconnect = false;
+    this.#pendingInputTimerToken += 1;
+    this.#bannerNoticeShown = false;
+    this.#observerFilter = undefined;
+    this.statusBar.setObserverBanner?.(undefined, false);
+    this.observerClient?.close();
+    this.observerClient = undefined;
+    this.observerIncarnation = undefined;
+  }
+
+  #armPendingInputTimer(): void {
+    const token = ++this.#pendingInputTimerToken;
+    void this.#delay(OBSERVER_INPUT_PENDING_TIMEOUT_MS).then(() => {
+      if (
+        token !== this.#pendingInputTimerToken ||
+        !this.observing ||
+        this.detached ||
+        this.terminalEnded
+      ) {
+        return;
+      }
+      const expired = this.#observerInput.expirePending();
+      if (expired?.kind === "keystroke") {
+        this.#triggerTakeback(false);
+      }
+    });
+  }
+
+  #triggerTakeback(pasteOpen: boolean): void {
+    if (
+      this.#takebackInFlight !== undefined ||
+      !this.observing ||
+      this.detached ||
+      this.terminalEnded
+    ) {
+      return;
+    }
+    const client = this.observerClient;
+    if (!client) return;
+    if (pasteOpen) this.#discardingPaste = true;
+    this.#purgeForObserverOrTakeback();
+    this.#takebackInFlight = (async () => {
+      try {
+        const lease = await client.acquireController(
+          this.sessionId,
+          this.#controllerId,
+          "human",
+          { takeover: true, pid: process.pid, tty: this.#tty },
+        );
+        if (
+          this.detached ||
+          this.terminalEnded ||
+          this.observerClient !== client
+        ) {
+          await client.releaseController(lease).catch(() => {});
+          return;
+        }
+        this.#exitObserverMode(true);
+        this.#purgeForObserverOrTakeback();
+        await this.attachLease({ client, lease }, this.#afterAcquire);
+      } catch (error) {
+        if (
+          this.detached ||
+          this.terminalEnded ||
+          this.observerClient !== client
+        ) {
+          return;
+        }
+        this.markObserverTransportFailure(client, error);
+      }
+    })().finally(() => {
+      this.#takebackInFlight = undefined;
+    });
+  }
+
+  async returnFromObserverPassive(): Promise<
+    { returned: true } | { returned: false; retryState: NativeTerminalSessionState }
+  > {
+    const client = this.observerClient;
+    if (!client || !this.observing || this.#takebackInFlight !== undefined) {
+      return { returned: true };
+    }
+    try {
+      const lease = await client.acquireController(
+        this.sessionId,
+        this.#controllerId,
+        "human",
+        { passive: true, pid: process.pid, tty: this.#tty },
+      );
+      if (
+        this.detached ||
+        this.terminalEnded ||
+        this.observerClient !== client
+      ) {
+        await client.releaseController(lease).catch(() => {});
+        return { returned: true };
+      }
+      this.#exitObserverMode(true);
+      await this.attachLease({ client, lease }, this.#afterAcquire);
+      return { returned: true };
+    } catch (error) {
+      if (
+        error instanceof NativeTerminalRemoteError &&
+        (error.message.includes("already has a controller") ||
+          error.message.includes("not running"))
+      ) {
+        const retryState = await client.state(this.sessionId);
+        return { returned: false, retryState };
+      }
+      this.markObserverTransportFailure(client, error);
+      return { returned: true };
+    }
+  }
+
+  markObserverTransportFailure(
+    client: NativeTerminalAttachClient,
+    error: unknown,
+  ): void {
+    if (this.observerClient !== client) return;
+    this.#exitObserverMode(true);
+    this.wasObservingBeforeReconnect = true;
+    if (this.transportFailure === undefined) {
+      this.transportFailure = error;
+      this.interruptedAt = this.#now();
+    }
+    client.close();
+  }
+
+  reportObserverLoss(
+    state: NativeTerminalSessionState,
+    reason: string,
+    isExitOrStop: boolean,
+  ): void {
+    this.clearObserverForExit();
+    if (this.#onControllerLost) {
+      this.#onControllerLost({ kind: "controller-changed", reason, state });
+    } else {
+      this.restoreBarForNotice();
+      this.stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
+    }
+    this.exitCode =
+      state.status === "exited" && !state.stopSignal
+        ? (state.exit?.exitCode ?? 0)
+        : 0;
+    if (isExitOrStop) {
+      this.#logCrash(
+        sessionExitCrashEntry(state, {
+          sessionId: this.sessionId,
+          detail: reason,
+        }),
+      );
+    } else {
+      this.#logCrash({
+        event: "refusal",
+        sessionId: this.sessionId,
+        reason: "controller-changed",
+        detail: reason,
+      });
+    }
+    this.terminalEnded = true;
+  }
+
   closeActive(): void {
     const current = this.active;
     this.active = undefined;
     current?.client.close();
+    const obs = this.observerClient;
+    this.observerClient = undefined;
+    this.observing = false;
+    this.#pendingInputTimerToken += 1;
+    obs?.close();
   }
 
   markTransportFailure(
@@ -468,16 +750,89 @@ export class NativeSessionView {
     this.closeActive();
   }
 
+  async #handleWriteFailure(
+    current: ActiveAttachConnection,
+    failedChunk: Buffer,
+    error: unknown,
+  ): Promise<void> {
+    if (
+      this.observing &&
+      this.observerClient === current.client &&
+      error instanceof NativeTerminalRemoteError &&
+      error.message === "stale terminal controller lease"
+    ) {
+      return;
+    }
+    if (
+      this.active === current &&
+      !this.observing &&
+      this.#remoteObserver &&
+      error instanceof NativeTerminalRemoteError &&
+      error.message === "stale terminal controller lease"
+    ) {
+      this.#inputSuspended = true;
+      let state: NativeTerminalSessionState | undefined;
+      try {
+        state = await current.client.state(this.sessionId);
+      } catch {
+        this.#inputSuspended = false;
+        this.markTransportFailure(current, error, true);
+        return;
+      }
+      if (this.active !== current || this.detached || this.terminalEnded) {
+        this.#inputSuspended = false;
+        this.markTransportFailure(current, error, true);
+        return;
+      }
+      if (
+        state.holderKind === "remote" &&
+        state.status === "running" &&
+        state.stopSignal === null
+      ) {
+        const queued = [failedChunk, ...this.pendingInput.splice(0)];
+        this.pendingInputBytes = 0;
+        this.#inputDecoder.end();
+        this.#inputSuspended = false;
+        this.#enterObserverMode(current.client, state);
+        let sawKeystroke = false;
+        let pasteStarted = false;
+        for (const block of queued) {
+          const res = this.#observerInput.feed(block, this.#now());
+          if (res.kind === "keystroke") {
+            sawKeystroke = true;
+            if (res.pasteStarted) pasteStarted = true;
+          }
+        }
+        if (sawKeystroke) {
+          this.#pendingInputTimerToken += 1;
+          this.#triggerTakeback(pasteStarted || this.#observerInput.isInBracketedPaste());
+        } else if (this.#observerInput.hasPending()) {
+          this.#armPendingInputTimer();
+        }
+        return;
+      }
+      this.#inputSuspended = false;
+    }
+    this.markTransportFailure(current, error, true);
+  }
+
   pumpInput(): void {
     if (
       this.#inputPump !== undefined ||
+      this.#inputSuspended ||
       this.detached ||
+      this.observing ||
       this.active === undefined
     ) {
       return;
     }
     this.#inputPump = (async () => {
-      while (!this.detached && this.pendingInput.length > 0) {
+      while (
+        !this.detached &&
+        !this.#inputSuspended &&
+        !this.observing &&
+        this.pendingInput.length > 0
+      ) {
         const current = this.active;
         if (current === undefined) return;
         const chunk = this.pendingInput[0]!;
@@ -486,16 +841,20 @@ export class NativeSessionView {
           if (decoded.length > 0) {
             await current.client.write(current.lease, decoded);
           }
-          this.pendingInput.shift();
-          this.pendingInputBytes -= chunk.length;
+          if (this.pendingInput[0] === chunk) {
+            this.pendingInput.shift();
+            this.pendingInputBytes -= chunk.length;
+          }
         } catch (error) {
           // The host may have accepted the write before the response path
           // broke. Drop this ONE uncertain chunk with an explicit warning;
           // replaying it could duplicate a command. Later queued input stays
           // ordered and is delivered only after a fresh exclusive lease.
-          this.pendingInput.shift();
-          this.pendingInputBytes -= chunk.length;
-          this.markTransportFailure(current, error, true);
+          if (this.pendingInput[0] === chunk) {
+            this.pendingInput.shift();
+            this.pendingInputBytes -= chunk.length;
+          }
+          await this.#handleWriteFailure(current, chunk, error);
           return;
         }
       }
@@ -503,6 +862,8 @@ export class NativeSessionView {
       this.#inputPump = undefined;
       if (
         !this.detached &&
+        !this.#inputSuspended &&
+        !this.observing &&
         this.active !== undefined &&
         this.pendingInput.length > 0
       ) {
@@ -521,6 +882,34 @@ export class NativeSessionView {
     chunk: Buffer,
     maxPendingBytes = ATTACH_PENDING_INPUT_MAX_BYTES,
   ): boolean {
+    if (this.observing) {
+      if (this.#takebackInFlight !== undefined || this.#discardingPaste) {
+        if (this.#discardingPaste || this.#observerInput.isInBracketedPaste()) {
+          if (this.#observerInput.consumePasteDiscard(chunk)) {
+            this.#discardingPaste = false;
+          }
+        }
+        return true;
+      }
+      const res = this.#observerInput.feed(chunk, this.#now());
+      if (res.kind === "report") {
+        this.#pendingInputTimerToken += 1;
+        return true;
+      }
+      if (res.kind === "pending") {
+        this.#armPendingInputTimer();
+        return true;
+      }
+      this.#pendingInputTimerToken += 1;
+      this.#triggerTakeback(this.#observerInput.isInBracketedPaste());
+      return true;
+    }
+    if (this.#discardingPaste) {
+      if (this.#observerInput.consumePasteDiscard(chunk)) {
+        this.#discardingPaste = false;
+      }
+      return true;
+    }
     if (this.pendingInputBytes + chunk.length > maxPendingBytes) {
       return false;
     }
@@ -565,14 +954,53 @@ export class NativeSessionView {
       if (this.#resizeGate && !this.#resizeGate(cols, rows)) return;
       void current.client
         .resize(current.lease, cols, rows)
-        .catch((error) => this.markTransportFailure(current, error));
+        .catch(async (error) => {
+          if (
+            this.#remoteObserver &&
+            this.active === current &&
+            error instanceof NativeTerminalRemoteError &&
+            error.message === "stale terminal controller lease"
+          ) {
+            try {
+              const state = await current.client.state(this.sessionId);
+              if (
+                this.active === current &&
+                !this.detached &&
+                !this.terminalEnded &&
+                state.holderKind === "remote" &&
+                state.status === "running" &&
+                state.stopSignal === null
+              ) {
+                this.#enterObserverMode(current.client, state);
+                return;
+              }
+            } catch {
+              // Fall through to markTransportFailure
+            }
+          }
+          this.markTransportFailure(current, error);
+        });
     }
+  }
+
+  async attachObserverConnection(
+    client: NativeTerminalAttachClient,
+    state: NativeTerminalSessionState,
+    afterAcquire?: () => void,
+  ): Promise<void> {
+    this.#afterAcquire = afterAcquire;
+    this.transportFailure = undefined;
+    await this.statusBar.probe(true, "attached");
+    afterAcquire?.();
+    this.saveReset();
+    this.#enterObserverMode(client, state);
   }
 
   async connectAndAcquire(
     connect: () => Promise<NativeTerminalAttachClient>,
     afterAcquire?: () => void,
   ): Promise<NativeTerminalSessionState> {
+    this.#afterAcquire = afterAcquire;
     const client = await connect();
     try {
       const state = await client.state(this.sessionId);
@@ -580,16 +1008,53 @@ export class NativeSessionView {
         client.close();
         return state;
       }
-      const lease = await client.acquireController(
-        this.sessionId,
-        this.#controllerId,
-        "human",
-        { takeover: this.takeoverPending, pid: process.pid, tty: this.#tty },
-      );
-      // A reconnect must never take the terminal back from a newer attach.
-      this.takeoverPending = false;
-      await this.attachLease({ client, lease }, afterAcquire);
-      return state;
+      if (
+        this.#remoteObserver &&
+        !this.takeoverPending &&
+        state.status === "running" &&
+        state.stopSignal === null &&
+        state.holderKind === "remote"
+      ) {
+        await this.attachObserverConnection(client, state, afterAcquire);
+        return state;
+      }
+      const passive = this.wasObservingBeforeReconnect && !this.takeoverPending;
+      try {
+        const lease = await client.acquireController(
+          this.sessionId,
+          this.#controllerId,
+          "human",
+          {
+            takeover: this.takeoverPending,
+            ...(passive ? { passive: true } : {}),
+            pid: process.pid,
+            tty: this.#tty,
+          },
+        );
+        // A reconnect must never take the terminal back from a newer attach.
+        this.takeoverPending = false;
+        this.wasObservingBeforeReconnect = false;
+        await this.attachLease({ client, lease }, afterAcquire);
+        return state;
+      } catch (acquireError) {
+        if (
+          this.#remoteObserver &&
+          !this.takeoverPending &&
+          acquireError instanceof NativeTerminalRemoteError &&
+          acquireError.message.includes("already has a controller")
+        ) {
+          const reread = await client.state(this.sessionId);
+          if (
+            reread.status === "running" &&
+            reread.stopSignal === null &&
+            reread.holderKind === "remote"
+          ) {
+            await this.attachObserverConnection(client, reread, afterAcquire);
+            return reread;
+          }
+        }
+        throw acquireError;
+      }
     } catch (error) {
       client.close();
       throw error;
@@ -604,6 +1069,7 @@ export class NativeSessionView {
     connection: ActiveAttachConnection,
     afterAcquire?: () => void,
   ): Promise<void> {
+    this.#afterAcquire = afterAcquire;
     this.active = connection;
     this.transportFailure = undefined;
     await this.statusBar.probe(true, "attached");
@@ -620,9 +1086,16 @@ export class NativeSessionView {
       await current.client.releaseController(current.lease).catch(() => {});
       current.client.close();
     }
+    const obs = this.observerClient;
+    this.observerClient = undefined;
+    this.observing = false;
+    this.#pendingInputTimerToken += 1;
+    obs?.close();
   }
 
   dispose(): void {
+    this.#pendingInputTimerToken += 1;
+    this.#discardingPaste = false;
     this.statusBar.dispose();
   }
 }

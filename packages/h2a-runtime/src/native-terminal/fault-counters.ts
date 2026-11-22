@@ -35,6 +35,7 @@ export const HOST_FAULT_COUNTERS = {
   supervisorRespawnAbandoned: "supervisor.respawn-abandoned",
   processShutdownWriteFailed: "process.shutdown-write-failed",
   processFatalWriteFailed: "process.fatal-write-failed",
+  remoteSizeRestoreFailed: "host.remote-size-restore-failed",
 } as const;
 
 const counts = new Map<string, number>();

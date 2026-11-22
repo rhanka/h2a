@@ -2576,6 +2576,400 @@ describe("NativeTerminalHost", () => {
     expect(ptys.get("alpha")!.write).toHaveBeenLastCalledWith("human-input\r");
   });
 
+  it("LH-05 grants remote controller when unheld and no human activity", () => {
+    const { spawner } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc1-unheld",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+    const before = host.state("alpha");
+    const res = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:secret-1", 30_000);
+    expect(res.granted).toBe(true);
+    if (!res.granted) throw new Error("expected grant");
+    expect(res.lease.role).toBe("controller");
+    expect(res.lease.epoch).toBe((before.controllerEpoch ?? 0) + 1);
+    const after = host.state("alpha");
+    expect(after.controlled).toBe(true);
+    expect(after.holderKind).toBe("remote");
+    expect(after.controller?.pid).toBeNull();
+    expect(after.controller?.tty).toBe("remote");
+    expect(after.controller?.controllerId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(after.lastHumanActivityAt).toBeNull();
+    expect(JSON.stringify(after)).not.toContain("h2a-remote:secret-1");
+  });
+
+  it("LH-05 enforces 30s boundary after human release and rejects unexploitable clock", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const { spawner } = stubSpawner();
+      const host = new NativeTerminalHost({
+        generation: "lh05-inc1-past",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+      });
+      createSession(host, "alpha");
+      const h = host.acquireController("alpha", "human-1", "human");
+      host.write(h, "hi");
+      host.releaseController(h);
+      const epochAfterRelease = host.state("alpha").controllerEpoch!;
+
+      vi.setSystemTime(129_999);
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000)).toEqual({
+        granted: false,
+        reason: "recent-human",
+        controllerEpoch: epochAfterRelease,
+      });
+
+      // Unexploitable clock: system time before lastHumanActivityAt
+      vi.setSystemTime(99_000);
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000)).toEqual({
+        granted: false,
+        reason: "recent-human",
+        controllerEpoch: epochAfterRelease,
+      });
+
+      vi.setSystemTime(130_000);
+      const granted = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000);
+      expect(granted.granted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("LH-05 refuses remote while human active (acquire alone and write push window)", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const { spawner, ptys } = stubSpawner();
+      const host = new NativeTerminalHost({
+        generation: "lh05-inc1-active-human",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+      });
+      createSession(host, "alpha");
+      const h = host.acquireController("alpha", "human-1", "human");
+      const epoch1 = host.state("alpha").controllerEpoch!;
+
+      vi.setSystemTime(129_999);
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000)).toEqual({
+        granted: false,
+        reason: "recent-human",
+        controllerEpoch: epoch1,
+      });
+      expect(host.state("alpha").holderKind).toBe("human");
+      expect(host.state("alpha").lastHumanActivityAt).toBe(100_000);
+
+      vi.setSystemTime(120_000);
+      host.write(h, "k");
+      vi.setSystemTime(149_999);
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000)).toEqual({
+        granted: false,
+        reason: "recent-human",
+        controllerEpoch: epoch1,
+      });
+      expect(host.state("alpha").holderKind).toBe("human");
+      expect(host.state("alpha").lastHumanActivityAt).toBe(120_000);
+      host.write(h, "still-works");
+      expect(ptys.get("alpha")!.write).toHaveBeenLastCalledWith("still-works");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("LH-05 displaces idle human at 30000ms and fences stale human lease", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const { spawner, ptys } = stubSpawner();
+      const host = new NativeTerminalHost({
+        generation: "lh05-inc1-idle-human",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+      });
+      createSession(host, "alpha");
+      const h = host.acquireController("alpha", "human-1", "human");
+      host.resize(h, 110, 35);
+      const epoch1 = host.state("alpha").controllerEpoch!;
+
+      vi.setSystemTime(130_000);
+      const res = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000);
+      expect(res.granted).toBe(true);
+      if (!res.granted) throw new Error("expected grant");
+      expect(res.lease.epoch).toBe(epoch1 + 1);
+      expect(() => host.write(h, "x")).toThrow(/stale terminal controller lease/);
+      expect(() => host.resize(h, 90, 20)).toThrow(/stale terminal controller lease/);
+      expect(() => host.releaseController(h)).toThrow(/stale terminal controller lease/);
+      expect(ptys.get("alpha")!.write).not.toHaveBeenCalled();
+      expect(ptys.get("alpha")!.resize).toHaveBeenCalledTimes(1);
+      expect(host.state("alpha").lastHumanActivityAt).toBe(100_000);
+      expect(host.state("alpha").lastLocalSize).toEqual({ cols: 110, rows: 35 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("LH-05 refuses held-by-automation regardless of elapsed time", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const { spawner, ptys } = stubSpawner();
+      const host = new NativeTerminalHost({
+        generation: "lh05-inc1-auto",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+      });
+      createSession(host, "alpha");
+      const auto = host.acquireController("alpha", "drive-1", "automation");
+      const ep = host.state("alpha").controllerEpoch!;
+
+      vi.setSystemTime(100_000 + 3_600_000);
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000)).toEqual({
+        granted: false,
+        reason: "held-by-automation",
+        controllerEpoch: ep,
+      });
+      expect(host.state("alpha").controllerEpoch).toBe(ep);
+      host.write(auto, "ok");
+      expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("LH-05 returns already-held for same remote identity and held-by-remote for different identity", () => {
+    const { spawner } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc1-remote",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+    const g = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:one", 30_000);
+    expect(g.granted).toBe(true);
+    if (!g.granted) throw new Error("expected grant");
+
+    expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:one", 30_000)).toEqual({
+      granted: false,
+      reason: "already-held",
+      controllerEpoch: g.lease.epoch,
+    });
+    expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:two", 30_000)).toEqual({
+      granted: false,
+      reason: "held-by-remote",
+      controllerEpoch: g.lease.epoch,
+    });
+    expect(host.state("alpha").controllerEpoch).toBe(g.lease.epoch);
+  });
+
+  it("LH-05 throws on unknown, exited, and stopping sessions", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc1-status",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("missing", "h2a-remote:1", 30_000))
+      .toThrow(/unknown terminal session/);
+
+    createSession(host, "alpha");
+    const h = host.acquireController("alpha", "human-1", "human");
+    host.stop(h, "SIGTERM");
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000))
+      .toThrow(/not running/);
+
+    ptys.get("alpha")!.emitExit({ exitCode: 0 });
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000))
+      .toThrow(/already exited/);
+  });
+
+  it("LH-05 validates window and controllerId parameters and supports zero window", () => {
+    const { spawner } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc1-params",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", -1)).toThrow(RangeError);
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 1.5)).toThrow(RangeError);
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "", 30_000)).toThrow(RangeError);
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "   ", 30_000)).toThrow(RangeError);
+    expect(() => host.acquireRemoteControllerIfNoRecentHuman("alpha", "a".repeat(129), 30_000)).toThrow(RangeError);
+
+    const h = host.acquireController("alpha", "human-1", "human");
+    host.write(h, "just-typed");
+    const zero = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 0);
+    expect(zero.granted).toBe(true);
+  });
+
+  it("LH-05 keeps lastHumanActivityAt and lastLocalSize untouched by remote write and resize", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc1-acts",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+    const g = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000);
+    if (!g.granted) throw new Error("expected grant");
+    host.write(g.lease, "remote-data");
+    expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("remote-data");
+    host.resize(g.lease, 132, 45);
+    const st = host.state("alpha");
+    expect(st.cols).toBe(132);
+    expect(st.rows).toBe(45);
+    expect(st.lastLocalSize).toBeNull();
+    expect(st.lastHumanActivityAt).toBeNull();
+  });
+
+  it("LH-05 preserves generic human and automation refusal rules under remote holder", () => {
+    const { spawner } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc1-witnesses",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+    const g = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000);
+    expect(g.granted).toBe(true);
+    expect(() => host.acquireController("alpha", "h2", "human")).toThrow(/already has a controller/);
+    expect(() => host.acquireAutomationControllerIfNoRecentHuman("alpha", "d", 4_000))
+      .toThrow(/already has a controller/);
+    expect(() => host.acquireController("alpha", "bad", "remote" as NativeTerminalControllerActivity))
+      .toThrow(TypeError);
+  });
+
+  it("LH-05 restores lastLocalSize on remote release and human takeover, handles null/equal/error and no-restore exits", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "lh05-inc2-restore",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+    const pty = ptys.get("alpha")!;
+    const h = host.acquireController("alpha", "human-1", "human");
+    host.resize(h, 120, 41);
+    host.releaseController(h);
+    pty.resize.mockClear();
+
+    // Release restores 120x41
+    const r1 = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 0);
+    if (!r1.granted) throw new Error("expected grant");
+    host.resize(r1.lease, 132, 45);
+    pty.resize.mockClear();
+    host.releaseController(r1.lease);
+    expect(pty.resize).toHaveBeenCalledTimes(1);
+    expect(pty.resize).toHaveBeenCalledWith(120, 41);
+    expect(host.state("alpha")).toMatchObject({ cols: 120, rows: 41, holderKind: "none", lastLocalSize: { cols: 120, rows: 41 } });
+
+    // Takeover restores 120x41 and advances epoch
+    const r2 = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:2", 0);
+    if (!r2.granted) throw new Error("expected grant");
+    host.resize(r2.lease, 132, 45);
+    pty.resize.mockClear();
+    const h2 = host.acquireController("alpha", "human-2", "human", { takeover: true });
+    expect(h2.epoch).toBe(r2.lease.epoch + 1);
+    expect(pty.resize).toHaveBeenCalledTimes(1);
+    expect(pty.resize).toHaveBeenCalledWith(120, 41);
+    expect(() => host.write(r2.lease, "x")).toThrow(/stale/);
+    expect(() => host.resize(r2.lease, 80, 24)).toThrow(/stale/);
+    expect(() => host.releaseController(r2.lease)).toThrow(/stale/);
+
+    // Equal size -> 0 resize
+    const r3 = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:3", 0);
+    if (!r3.granted) throw new Error("expected grant");
+    pty.resize.mockClear();
+    host.releaseController(r3.lease);
+    expect(pty.resize).not.toHaveBeenCalled();
+
+    // Resize failure during restore counts fault and completes release
+    const r4 = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:4", 0);
+    if (!r4.granted) throw new Error("expected grant");
+    host.resize(r4.lease, 132, 45);
+    const beforeFault = hostFaultCounters()[HOST_FAULT_COUNTERS.remoteSizeRestoreFailed] ?? 0;
+    pty.resize.mockImplementationOnce(() => { throw new Error("EIO"); });
+    host.releaseController(r4.lease);
+    expect(host.state("alpha")).toMatchObject({ cols: 132, rows: 45, holderKind: "none" });
+    expect(hostFaultCounters()[HOST_FAULT_COUNTERS.remoteSizeRestoreFailed]).toBe(beforeFault + 1);
+
+    // Null lastLocalSize -> 0 resize
+    createSession(host, "beta");
+    const rb = host.acquireRemoteControllerIfNoRecentHuman("beta", "h2a-remote:b", 0);
+    if (!rb.granted) throw new Error("expected grant");
+    host.resize(rb.lease, 140, 48);
+    ptys.get("beta")!.resize.mockClear();
+    host.releaseController(rb.lease);
+    expect(ptys.get("beta")!.resize).not.toHaveBeenCalled();
+    expect(host.state("beta")).toMatchObject({ cols: 140, rows: 48 });
+
+    // No restore on stopIfIncarnation / exit / stopAll
+    const rStop = host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:s", 0);
+    if (!rStop.granted) throw new Error("expected grant");
+    host.resize(rStop.lease, 132, 45);
+    pty.resize.mockClear();
+    const st = host.state("alpha");
+    host.stopIfIncarnation("alpha", st.generation, st.incarnation, "SIGTERM");
+    pty.emitExit({ exitCode: 0 });
+    expect(pty.resize).not.toHaveBeenCalled();
+  });
+
+  it("LH-05 supports passive human acquire without updating lastHumanActivityAt and enforces guards", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000);
+      const { spawner } = stubSpawner();
+      const host = new NativeTerminalHost({
+        generation: "lh05-inc2-passive",
+        replayBytesPerSession: 32,
+        spawner,
+        registryPath,
+      });
+      createSession(host, "alpha");
+      // Fresh session: lastHumanActivityAt stays null
+      const p0 = host.acquireController("alpha", "attach-0", "human", { passive: true });
+      expect(host.state("alpha").lastHumanActivityAt).toBeNull();
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000).granted).toBe(true);
+
+      // Aged activity: passive acquire leaves lastHumanActivityAt unchanged
+      vi.setSystemTime(200_000);
+      const h = host.acquireController("alpha", "attach-h", "human", { takeover: true });
+      host.releaseController(h);
+      vi.setSystemTime(260_000);
+      const p1 = host.acquireController("alpha", "attach-p", "human", { passive: true });
+      expect(host.state("alpha").lastHumanActivityAt).toBe(200_000);
+      expect(host.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:2", 30_000).granted).toBe(true);
+      expect(p0.epoch).toBeLessThan(p1.epoch);
+
+      // Guards
+      expect(() => host.acquireController("alpha", "x", "human", { passive: true, takeover: true })).toThrow(TypeError);
+      expect(() => host.acquireController("alpha", "x", "automation", { passive: true })).toThrow(TypeError);
+      expect(() => host.acquireController("alpha", "x", "human", { passive: true })).toThrow(/already has a controller/);
+
+      const st = host.state("alpha");
+      host.stopIfIncarnation("alpha", st.generation, st.incarnation, "SIGTERM");
+      expect(() => host.acquireController("alpha", "x", "human", { passive: true })).toThrow(/not running/);
+      // Non-passive generic acquire still allowed on stopping
+      expect(() => host.acquireController("alpha", "x", "human")).not.toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("should reject stale controller epochs after ownership changes", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({

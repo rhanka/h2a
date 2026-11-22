@@ -26,7 +26,9 @@
  *   kill-if-incarnation --id X --generation G --incarnation I
  *                                     fenced owner stop for explicit restart
  *   attach  --id X [--takeover]       interactive raw bridge on this terminal
- *                                     (detach: Ctrl-\\ ; exits when session exits)
+ *                                     (becomes observer with banner under remote
+ *                                     control; first keystroke takes back;
+ *                                     detach: Ctrl-\\ ; exits when session exits)
  *   station [--state-file F] [--dead-count N]
  *                                     every live session on this terminal, one
  *                                     displayed at a time (`h2a restore --station`;
@@ -614,6 +616,12 @@ type StatusBarRightPanelHost = {
   paint(): void;
 };
 
+function formatExactColumns(text: string, cols: number): string {
+  const glyphs = Array.from(text);
+  if (glyphs.length >= cols) return glyphs.slice(0, cols).join("");
+  return `${text}${" ".repeat(cols - glyphs.length)}`;
+}
+
 /** One bottom bar per displayed session: the station builds its own (S1). */
 export function createNativeStatusBar(
   id: string,
@@ -659,6 +667,8 @@ class NativeStatusBarController {
   #restored = false;
   #pendingSeq = "";
   #lastGraphicChar = "";
+  #observerBanner: string | undefined;
+  #sawChildOutputInBatch = false;
   #rightPanelMarkerProvider:
     | (() => NativeStatusBarRightPanelMarker | undefined)
     | undefined;
@@ -890,14 +900,30 @@ class NativeStatusBarController {
   }
 
   flushAfterOutputBatch(): void {
+    const hadChildOutput = this.#sawChildOutputInBatch;
+    this.#sawChildOutputInBatch = false;
     if (this.#pendingSeq.length > 0) return;
-    if (this.#needsRepaint && this.isActive()) {
-      this.paint(false);
+    if (
+      this.isActive() &&
+      (this.#needsRepaint || (this.#observerBanner !== undefined && hadChildOutput))
+    ) {
+      this.paint(this.#observerBanner !== undefined && hadChildOutput);
     }
     if (this.#panelDirty && this.#panelActive()) {
       this.#panelDirty = false;
       this.#rightPanel!.paint();
     }
+  }
+
+  setObserverBanner(banner: string | undefined, repaint = true): boolean {
+    const changed = this.#observerBanner !== banner;
+    this.#observerBanner = banner;
+    if (!this.isActive()) return false;
+    if (repaint && (changed || banner !== undefined)) {
+      this.#needsRepaint = true;
+      this.paint(true);
+    }
+    return true;
   }
 
   flushPendingSequence(): string {
@@ -1071,7 +1097,7 @@ class NativeStatusBarController {
       this.#needsRepaint = true;
     }
 
-    if (!this.#renderLine) return;
+    if (!this.#renderLine && this.#observerBanner === undefined) return;
     const panelMarker = this.#rightPanelMarkerProvider?.();
     const selectedDelegatedNames = this.#selectedDelegatedNamesProvider?.();
     const renderSnapshot: NativeStatusBarSnapshot =
@@ -1084,7 +1110,10 @@ class NativeStatusBarController {
               : {}),
           }
         : this.#snapshot;
-    const line = this.#renderLine(renderSnapshot, cols);
+    const line =
+      this.#observerBanner !== undefined
+        ? formatExactColumns(this.#observerBanner, cols)
+        : this.#renderLine!(renderSnapshot, cols);
     if (
       !force &&
       !this.#needsRepaint &&
@@ -1113,6 +1142,7 @@ class NativeStatusBarController {
   }
 
   transformChildOutput(data: string): string {
+    if (data.length > 0) this.#sawChildOutputInBatch = true;
     if (!this.#containmentActive()) {
       if (this.#pendingSeq.length > 0) {
         const flushed = this.#pendingSeq + data;
@@ -1900,9 +1930,11 @@ export async function runAttach(
     sessionId: id,
     stdout,
     now: () => runtime.now(),
+    delay: (ms) => runtime.delay(ms),
     tty,
     statusBar,
     takeover: options.takeover,
+    remoteObserver: true,
     ownOuterMouse: rightPanel !== undefined,
     saveTerminalReset: runtime.saveTerminalReset,
     getChildCols: () =>
@@ -2020,11 +2052,15 @@ export async function runAttach(
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
     let statePollMs = ATTACH_STATE_POLL_MS;
     let nextStatePollAt = runtime.now() + statePollMs;
+    let otherHolderSince: { controllerId: string; at: number } | undefined;
 
     for (;;) {
       if (view.detached || view.terminalEnded) break;
 
-      if (view.active === undefined || view.transportFailure !== undefined) {
+      if (
+        (view.active === undefined && !view.observing) ||
+        view.transportFailure !== undefined
+      ) {
         const disconnectStartedAt = view.interruptedAt ?? runtime.now();
         const failureCause =
           view.transportFailure instanceof Error
@@ -2112,13 +2148,18 @@ export async function runAttach(
       }
 
       const current = view.active;
+      const client = current?.client ?? view.observerClient;
+      if (!client) continue;
       try {
-        const replay = await current.client.readOutput(
+        const replay = await client.readOutput(
           view.sessionId,
           view.seq,
           NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
         );
         if (view.detached) break;
+        if (replay.state !== undefined) {
+          view.handleRemoteSwitchState(replay.state);
+        }
         view.feedReplay(replay);
         if (
           rightPanel &&
@@ -2150,19 +2191,16 @@ export async function runAttach(
           // tight local RPC spin under sustained model output.
           await runtime.delay(ATTACH_ACTIVE_POLL_MS);
         }
+        if (view.detached || view.terminalEnded) break;
+
+        let observedState: NativeTerminalSessionState | undefined;
         if (replay.state !== undefined) {
           statePollMs = ATTACH_STATE_POLL_MS;
           nextStatePollAt = runtime.now() + statePollMs;
-          if (view.controllerChanged(replay.state, current.lease)) break;
-          if (replay.state.status === "exited") {
-            view.exitCode = replay.state.exit?.exitCode ?? 0;
-            appendCrashLog("attach", sessionExitCrashEntry(replay.state, { sessionId: view.sessionId, detail: "session exited during attach" }));
-            break;
-          }
+          observedState = replay.state;
         } else if (runtime.now() >= nextStatePollAt) {
-          let state: NativeTerminalSessionState | undefined;
           try {
-            state = await current.client.state(view.sessionId);
+            observedState = await client.state(view.sessionId);
             statePollMs = ATTACH_STATE_POLL_MS;
             nextStatePollAt = runtime.now() + statePollMs;
           } catch (stateError) {
@@ -2172,18 +2210,106 @@ export async function runAttach(
             statePollMs = Math.min(ATTACH_STATE_POLL_MAX_MS, statePollMs * 2);
             nextStatePollAt = runtime.now() + statePollMs;
           }
-          if (state !== undefined) {
-            if (view.controllerChanged(state, current.lease)) break;
-            if (state.status === "exited") {
-              view.exitCode = state.exit?.exitCode ?? 0;
-              appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: view.sessionId, detail: "session exited during attach" }));
+        }
+
+        while (observedState !== undefined && !view.detached && !view.terminalEnded) {
+          if (view.observing) {
+            const incChanged =
+              view.observerIncarnation !== undefined &&
+              (observedState.generation !== view.observerIncarnation.generation ||
+                observedState.incarnation !== view.observerIncarnation.incarnation);
+            if (
+              incChanged ||
+              observedState.stopSignal !== null ||
+              observedState.status === "exited"
+            ) {
+              otherHolderSince = undefined;
+              if (
+                observedState.status === "exited" &&
+                !observedState.stopSignal &&
+                !incChanged
+              ) {
+                view.clearObserverForExit();
+                view.exitCode = observedState.exit?.exitCode ?? 0;
+                appendCrashLog(
+                  "attach",
+                  sessionExitCrashEntry(observedState, {
+                    sessionId: view.sessionId,
+                    detail: "session exited during attach",
+                  }),
+                );
+                view.terminalEnded = true;
+              } else {
+                const reason = observedState.stopSignal
+                  ? `session stopped (${observedState.stopSignal})`
+                  : "controller released or session replaced";
+                view.reportObserverLoss(
+                  observedState,
+                  reason,
+                  observedState.status === "exited" ||
+                    observedState.stopSignal !== null,
+                );
+              }
               break;
             }
+            const holderKind = observedState.holderKind ?? "none";
+            if (holderKind === "none" && observedState.status === "running") {
+              otherHolderSince = undefined;
+              if (!view.isTakebackInFlight()) {
+                const ret = await view.returnFromObserverPassive();
+                if (!ret.returned) {
+                  observedState = ret.retryState;
+                  continue;
+                }
+              }
+              break;
+            }
+            if (holderKind === "remote") {
+              otherHolderSince = undefined;
+              break;
+            }
+            // holderKind is "human" or "automation": two readings >= 1000ms apart with same public id
+            const cid = observedState.controller?.controllerId;
+            if (cid) {
+              if (otherHolderSince?.controllerId === cid) {
+                if (runtime.now() - otherHolderSince.at >= 1_000) {
+                  const reason = observedState.controller
+                    ? `controller taken over by pid=${observedState.controller.pid ?? "unknown"} tty=${observedState.controller.tty} since=${observedState.controller.since}`
+                    : "controller released or session replaced";
+                  view.reportObserverLoss(observedState, reason, false);
+                  otherHolderSince = undefined;
+                }
+              } else {
+                otherHolderSince = { controllerId: cid, at: runtime.now() };
+              }
+            } else {
+              otherHolderSince = undefined;
+            }
+            break;
           }
+
+          otherHolderSince = undefined;
+          if (current !== undefined && view.active === current) {
+            if (view.controllerChanged(observedState, current.lease)) break;
+            if (observedState.status === "exited") {
+              view.exitCode = observedState.exit?.exitCode ?? 0;
+              appendCrashLog(
+                "attach",
+                sessionExitCrashEntry(observedState, {
+                  sessionId: view.sessionId,
+                  detail: "session exited during attach",
+                }),
+              );
+              view.terminalEnded = true;
+            }
+          }
+          break;
         }
+        if (view.terminalEnded) break;
       } catch (error) {
         if (view.detached) break;
         if (isDefinitiveNativeTerminalAbsence(error)) {
+          view.clearObserverForExit();
           appendCrashLog("attach", sessionExitCrashEntry(
             { exit: null, stopSignal: null },
             { sessionId: view.sessionId, reason: "definitive-absence", detail: "session proven absent during attach; exit code unknown" },
@@ -2191,7 +2317,11 @@ export async function runAttach(
           view.exitCode = 1;
           break;
         }
-        view.markTransportFailure(current, error);
+        if (view.observing && client === view.observerClient) {
+          view.markObserverTransportFailure(client, error);
+        } else if (current !== undefined) {
+          view.markTransportFailure(current, error);
+        }
       }
     }
   } finally {
