@@ -1149,12 +1149,12 @@ test("relative H2A_ROOT deterministically selects stdio and never derives centra
     }
   };
   const resA = runServe(repoA, ["--root", ".h2a"]);
-  assert.equal(resA.code, 1);
+  assert.equal(resA.code, 2);
   assert.match(resA.stderr, /central MCP root must be an absolute path/);
   assert.equal(existsSync(join(repoA, ".h2a")), false, "repoA must not have .h2a created");
 
   const resB = runServe(repoB, [], { H2A_ROOT: ".h2a" });
-  assert.equal(resB.code, 1);
+  assert.equal(resB.code, 2);
   assert.match(resB.stderr, /central MCP root must be an absolute path/);
   assert.equal(existsSync(join(repoB, ".h2a")), false, "repoB must not have .h2a created");
 
