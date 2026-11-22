@@ -461,4 +461,119 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     expect(savedResets).toContain("A:\x1b[?1004l");
     expect(savedResets).toContain("B:\x1b[?2004l");
   });
+
+  it("LH-05 transitions to observer on remote switch, purges input queue, filters queries, and takes back on keystroke", async () => {
+    const stdout = new FakeOutput();
+    const writes: string[] = [];
+    const acquireCalls: Array<Record<string, unknown>> = [];
+    const releaseCalls: number[] = [];
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const banners: Array<string | undefined> = [];
+
+    const lease1: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-lh05-sv",
+      generation: "gen-1",
+      incarnation: "inc-1",
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const lease2: NativeTerminalControllerLease = {
+      ...lease1,
+      epoch: 3,
+    };
+    let rejectFirstWrite!: (err: Error) => void;
+    const firstWriteBlocked = new Promise<void>((_, reject) => {
+      rejectFirstWrite = reject;
+    });
+    let writeCount = 0;
+
+    const client: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        acquireCalls.push(opts as Record<string, unknown>);
+        return acquireCalls.length === 1 ? lease1 : lease2;
+      },
+      async releaseController(l) {
+        releaseCalls.push(l.epoch);
+        return { id: "h2a-lh05-sv", generation: "gen-1", incarnation: "inc-1", controllerEpoch: l.epoch };
+      },
+      async readOutput() {
+        return replay("h2a-lh05-sv", 1, "");
+      },
+      async state() {
+        return {
+          ...running("h2a-lh05-sv", true),
+          generation: "gen-1",
+          incarnation: "inc-1",
+          holderKind: "remote",
+          controllerEpoch: 2,
+          stopSignal: null,
+        };
+      },
+      async write(_l, data) {
+        writeCount += 1;
+        if (writeCount === 1) return firstWriteBlocked;
+        writes.push(data);
+      },
+      async resize(_l, cols, rows) {
+        resizes.push({ cols, rows });
+      },
+      close() {},
+    };
+
+    const view = createSessionView({
+      sessionId: "h2a-lh05-sv",
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      statusBar: {
+        ...noopStatusBar(stdout),
+        setObserverBanner: (b) => {
+          banners.push(b);
+          return true;
+        },
+      },
+    });
+
+    await view.connectAndAcquire(async () => client);
+    // Queue 3 blocks: first in flight, two queued; split UTF-8 prefix before switch
+    view.enqueueInput(Buffer.from([0xe2, 0x82]));
+    view.enqueueInput(Buffer.from("queued-1"));
+    view.enqueueInput(Buffer.from("queued-2"));
+    expect(view.handleRemoteSwitchState({
+      ...running("h2a-lh05-sv", true),
+      generation: "gen-1",
+      incarnation: "inc-1",
+      holderKind: "remote",
+      controllerEpoch: 2,
+      stopSignal: null,
+    })).toBe(true);
+    expect(view.observing).toBe(true);
+    expect(view.pendingInputBytes).toBe(0);
+    expect(releaseCalls).toEqual([]);
+    expect(banners).toEqual(["remote control active — remote.sent-tech.ca — type to take back"]);
+
+    rejectFirstWrite(new Error("aborted"));
+    await view.drainInputPump();
+    expect(view.pendingInputBytes).toBe(0);
+
+    // Output split CSI c across two replays is filtered
+    view.feedReplay(replay("h2a-lh05-sv", 2, "A\x1b["));
+    view.feedReplay(replay("h2a-lh05-sv", 3, "cB"));
+    expect(stdout.chunks.join("")).toBe("AB");
+
+    // Report is ignored; keystroke takes back and is discarded, UTF-8 decoder was reset
+    view.enqueueInput(Buffer.from("\x1b[I"));
+    expect(acquireCalls.length).toBe(1);
+    view.enqueueInput(Buffer.from("x"));
+    await vi.waitFor(() => expect(view.observing).toBe(false));
+    expect(acquireCalls.at(-1)).toMatchObject({ takeover: true });
+    view.enqueueInput(Buffer.from("y"));
+    await view.drainInputPump();
+    expect(writes).toEqual(["y"]);
+    expect(banners.at(-1)).toBeUndefined();
+    view.dispose();
+  });
 });

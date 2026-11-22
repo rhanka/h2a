@@ -103,6 +103,7 @@ export type NativeTerminalOperation =
   | "attach-observer"
   | "acquire-controller"
   | "acquire-controller-if-no-recent-human"
+  | "acquire-remote-controller-if-no-recent-human"
   | "release-controller"
   | "write"
   | "resize"
@@ -247,6 +248,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "attach-observer",
     "acquire-controller",
     "acquire-controller-if-no-recent-human",
+    "acquire-remote-controller-if-no-recent-human",
     "release-controller",
     "write",
     "resize",

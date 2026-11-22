@@ -279,12 +279,16 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       if (record.takeover !== undefined && typeof record.takeover !== "boolean") {
         throw new TypeError("terminal controller takeover must be a boolean");
       }
+      if (record.passive !== undefined && typeof record.passive !== "boolean") {
+        throw new TypeError("terminal controller passive must be a boolean");
+      }
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
         controllerActivity(record.activity),
         {
           ...(record.takeover !== undefined ? { takeover: record.takeover as boolean } : {}),
+          ...(record.passive !== undefined ? { passive: record.passive as boolean } : {}),
           ...(record.pid !== undefined ? { pid: requiredInteger(record.pid, "controller pid") } : {}),
           ...(record.tty !== undefined ? { tty: requiredString(record.tty, "controller tty") } : {}),
         },
@@ -301,6 +305,18 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       );
       context.leases.set(lease.id, lease);
       return lease;
+    }
+    case "acquire-remote-controller-if-no-recent-human": {
+      const record = requiredRecord(params, "params");
+      const result = host.acquireRemoteControllerIfNoRecentHuman(
+        requiredIdentifier(record.id, "session id"),
+        requiredIdentifier(record.controllerId, "controller id"),
+        requiredNonNegativeInteger(record.activityWindowMs, "human activity window"),
+      );
+      if (result.granted) {
+        context.leases.set(result.lease.id, result.lease);
+      }
+      return result;
     }
     case "release-controller": {
       const lease = ownedLease(context, params);

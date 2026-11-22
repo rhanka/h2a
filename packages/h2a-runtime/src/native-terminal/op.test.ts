@@ -2830,4 +2830,173 @@ describe("native attach right panel (L0)", () => {
     expect(capturedRows[2]).toBe(capturedRows[0]);
     expect(capturedRows[3]).toBe(capturedRows[0]);
   });
+
+  it("LH-05 renders full-width observer banner on TTY bar, repaints after ESC # 8, filters switch batch, and handles takeback and stop", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput() as FakeOutput & { isTTY?: boolean };
+    stdout.isTTY = true;
+    let now = 0;
+    let reads = 0;
+    let holderKind: "human" | "remote" = "human";
+    let status: "running" | "stopping" | "exited" = "running";
+    let stopSignal: string | null = null;
+    let epoch = 1;
+    const writes: string[] = [];
+    const acquireCalls: Array<Record<string, unknown>> = [];
+
+    const client: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        acquireCalls.push(opts as Record<string, unknown>);
+        if ((opts as { takeover?: boolean }).takeover) {
+          holderKind = "human";
+          epoch += 1;
+        }
+        return {
+          role: "controller",
+          id: "h2a-alpha",
+          generation: "generation-1",
+          incarnation: "1",
+          controllerId: "ctrl-1",
+          epoch,
+        };
+      },
+      async releaseController() {
+        return { id: "h2a-alpha", generation: "generation-1", incarnation: "1", controllerEpoch: epoch };
+      },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          holderKind = "remote";
+          epoch = 2;
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 1, data: "hello\x1b[cworld" }],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        if (reads === 2) {
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 2, data: "\x1b#8\x1b[45;1HLINE45" }],
+            gap: null,
+            latestSeq: 2,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        if (reads === 3) {
+          // Reports ignored; keystroke takes back
+          stdin.emit("data", Buffer.from("\x1b[I"));
+          stdin.emit("data", Buffer.from("x"));
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 2,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        if (reads === 4) {
+          stdin.emit("data", Buffer.from("y"));
+          holderKind = "remote";
+          epoch += 1;
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 3, data: "again" }],
+            gap: null,
+            latestSeq: 3,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        status = "stopping";
+        stopSignal = "SIGTERM";
+        return {
+          generation: "generation-1",
+          incarnation: "1",
+          chunks: [],
+          gap: null,
+          latestSeq: 3,
+          state: {
+            ...running(false),
+            incarnation: "1",
+            holderKind: "none",
+            controllerEpoch: epoch,
+            status,
+            stopSignal,
+          },
+        };
+      },
+      async state() {
+        return {
+          ...running(holderKind !== "none"),
+          incarnation: "1",
+          holderKind,
+          controllerEpoch: epoch,
+          status,
+          stopSignal,
+        };
+      },
+      async write(_l, data) {
+        writes.push(data);
+      },
+      async resize() {},
+      close() {},
+    };
+
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      { statusBar: { enabled: true, env: {} }, rightPanel: false },
+    );
+
+    expect(code).toBe(0);
+    const out = stdout.chunks.join("");
+    expect(out).toContain("remote control active — remote.sent-tech.ca — type to take back" + " ".repeat(57));
+    expect(out).not.toContain("\x1b[c");
+    expect(out).toContain("session stopped (SIGTERM)");
+    expect(out).not.toContain("controller revoked");
+    expect(writes).toEqual(["y"]);
+    expect(acquireCalls.some((c) => c.passive === true)).toBe(false);
+  });
 });

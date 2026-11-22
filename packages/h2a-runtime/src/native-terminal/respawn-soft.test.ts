@@ -615,4 +615,64 @@ describe("native terminal soft respawn (respawnIfIncarnation)", () => {
       }),
     ).rejects.toThrow(NativeTerminalRemoteError);
   });
+
+  it("LH-05 restores pending local size during soft respawn on remote release and takeover", async () => {
+    const directory = createPrivateTestDirectory("rs-lh05");
+    directories.push(directory);
+    let resolveGate!: () => void;
+    const gate = new Promise<void>((resolve) => { resolveGate = resolve; });
+    const { spawner, spawned } = createFakeSpawner({
+      autoExitOnSignal: () => false,
+    });
+    const host = new NativeTerminalHost({
+      generation: "gen-soft-lh05",
+      replayBytesPerSession: 8192,
+      spawner,
+      registryPath: makeRegistry(directory),
+      readLeaderStartTime: () => 4242,
+    });
+    const initial = host.create({
+      id: "h2a-alpha",
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+      cols: 80,
+      rows: 24,
+    });
+    const h = host.acquireController("h2a-alpha", "human-1", "human");
+    host.resize(h, 120, 41);
+    host.releaseController(h);
+
+    const respawnPromise = host.respawnIfIncarnation({
+      id: "h2a-alpha",
+      generation: initial.generation,
+      incarnation: initial.incarnation,
+      command: "/bin/bash",
+      args: [],
+      cwd: directory,
+      env: {},
+    });
+    const r1 = host.acquireRemoteControllerIfNoRecentHuman("h2a-alpha", "h2a-remote:1", 0);
+    if (!r1.granted) throw new Error("expected grant");
+    host.resize(r1.lease, 132, 45);
+    host.releaseController(r1.lease);
+
+    // Human resizes during respawn, then remote resizes, then human takeover
+    const h2 = host.acquireController("h2a-alpha", "human-2", "human");
+    host.resize(h2, 100, 30);
+    const r2 = host.acquireRemoteControllerIfNoRecentHuman("h2a-alpha", "h2a-remote:2", 0);
+    if (!r2.granted) throw new Error("expected grant");
+    host.resize(r2.lease, 132, 45);
+    host.acquireController("h2a-alpha", "human-3", "human", { takeover: true });
+
+    await Promise.resolve();
+    spawned[0]!.emitExit(0, 15);
+    void gate;
+    resolveGate();
+    const afterRespawn = await respawnPromise;
+    expect(spawned[1]!.options.cols).toBe(100);
+    expect(spawned[1]!.options.rows).toBe(30);
+    expect(afterRespawn.lastLocalSize).toEqual({ cols: 100, rows: 30 });
+  });
 });

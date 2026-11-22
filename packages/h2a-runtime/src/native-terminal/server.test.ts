@@ -1281,4 +1281,73 @@ describe("native terminal socket path limits", () => {
     expect(fallback.endsWith("/native-terminal.sock")).toBe(true);
     expect(Buffer.byteLength(fallback)).toBeLessThanOrEqual(limit);
   });
+
+  it("LH-05 arbitrates remote leases over socket, binds to connection, restores on close, and validates passive/error codes", async () => {
+    const { socketPath, client: witness, ptys } = await service();
+    await witness.create(createOptions("lh05-sock"));
+    const remote1 = await NativeTerminalClient.connect(socketPath);
+    const remote2 = await NativeTerminalClient.connect(socketPath);
+    cleanup.push(async () => {
+      remote1.close();
+      remote2.close();
+    });
+
+    // Grant over socket
+    const res1 = await remote1.acquireRemoteControllerIfNoRecentHuman("lh05-sock", "h2a-remote:r1", 30_000);
+    expect(res1.granted).toBe(true);
+    if (!res1.granted) throw new Error("expected grant");
+    expect((await witness.state("lh05-sock")).holderKind).toBe("remote");
+    expect((await witness.list()).find((s) => s.id === "lh05-sock")?.holderKind).toBe("remote");
+    expect((await witness.readOutput("lh05-sock", 0)).state?.holderKind).toBe("remote");
+
+    // Connection-bound lease: remote2 cannot use remote1's lease
+    await expect(remote2.write(res1.lease, "x")).rejects.toThrow(/not owned by this connection/);
+    await expect(remote2.resize(res1.lease, 100, 30)).rejects.toThrow(/not owned by this connection/);
+    await expect(remote2.releaseController(res1.lease)).rejects.toThrow(/not owned by this connection/);
+
+    // Refusals resolve on success channel
+    expect(await remote1.acquireRemoteControllerIfNoRecentHuman("lh05-sock", "h2a-remote:r1", 30_000)).toEqual({
+      granted: false,
+      reason: "already-held",
+      controllerEpoch: res1.lease.epoch,
+    });
+    expect(await remote2.acquireRemoteControllerIfNoRecentHuman("lh05-sock", "h2a-remote:r2", 30_000)).toEqual({
+      granted: false,
+      reason: "held-by-remote",
+      controllerEpoch: res1.lease.epoch,
+    });
+
+    // Connection close releases lease and restores local size
+    const h = await witness.acquireController("lh05-sock", "h1", "human", { takeover: true });
+    await witness.resize(h, 110, 35);
+    await witness.releaseController(h);
+    const r3 = await remote1.acquireRemoteControllerIfNoRecentHuman("lh05-sock", "h2a-remote:r1", 0);
+    if (!r3.granted) throw new Error("expected grant");
+    await remote1.resize(r3.lease, 132, 45);
+    remote1.close();
+    const afterClose = await eventually(() => witness.state("lh05-sock"), (s) => s.holderKind === "none");
+    expect(afterClose.cols).toBe(110);
+    expect(afterClose.rows).toBe(35);
+
+    // Passive acquire over socket leaves lastHumanActivityAt unchanged
+    const beforePassive = (await witness.state("lh05-sock")).lastHumanActivityAt;
+    const passiveLease = await witness.acquireController("lh05-sock", "h-passive", "human", { passive: true });
+    expect((await witness.state("lh05-sock")).lastHumanActivityAt).toBe(beforePassive);
+    await witness.releaseController(passiveLease);
+
+    // Unknown session -> operation-failed
+    await expect(witness.acquireRemoteControllerIfNoRecentHuman("missing", "h2a-remote:x", 30_000))
+      .rejects.toMatchObject({ name: "NativeTerminalRemoteError", code: "operation-failed" });
+    await expect(witness.state("missing"))
+      .rejects.toMatchObject({ name: "NativeTerminalRemoteError", code: "operation-failed" });
+
+    // Stopping session -> operation-failed for remote and passive
+    const st = await witness.state("lh05-sock");
+    await witness.stopIfIncarnation("lh05-sock", st.generation, st.incarnation, "SIGTERM");
+    await expect(witness.acquireRemoteControllerIfNoRecentHuman("lh05-sock", "h2a-remote:x", 30_000))
+      .rejects.toMatchObject({ name: "NativeTerminalRemoteError", code: "operation-failed" });
+    await expect(witness.acquireController("lh05-sock", "h-p2", "human", { passive: true }))
+      .rejects.toMatchObject({ name: "NativeTerminalRemoteError", code: "operation-failed" });
+    void ptys;
+  });
 });
