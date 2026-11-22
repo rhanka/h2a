@@ -2830,4 +2830,438 @@ describe("native attach right panel (L0)", () => {
     expect(capturedRows[2]).toBe(capturedRows[0]);
     expect(capturedRows[3]).toBe(capturedRows[0]);
   });
+
+  it("LH-05 renders full-width observer banner on TTY bar, repaints after ESC # 8, filters switch batch, and handles takeback and stop", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput() as FakeOutput & { isTTY?: boolean };
+    stdout.isTTY = true;
+    let now = 0;
+    let reads = 0;
+    let holderKind: "human" | "remote" = "human";
+    let status: "running" | "stopping" | "exited" = "running";
+    let stopSignal: string | null = null;
+    let epoch = 1;
+    const writes: string[] = [];
+    const acquireCalls: Array<Record<string, unknown>> = [];
+
+    const client: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        acquireCalls.push(opts as Record<string, unknown>);
+        if ((opts as { takeover?: boolean }).takeover) {
+          holderKind = "human";
+          epoch += 1;
+        }
+        return {
+          role: "controller",
+          id: "h2a-alpha",
+          generation: "generation-1",
+          incarnation: "1",
+          controllerId: "ctrl-1",
+          epoch,
+        };
+      },
+      async releaseController() {
+        return { id: "h2a-alpha", generation: "generation-1", incarnation: "1", controllerEpoch: epoch };
+      },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          holderKind = "remote";
+          epoch = 2;
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 1, data: "hello\x1b[cworld" }],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        if (reads === 2) {
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 2, data: "\x1b#8\x1b[45;1HLINE45" }],
+            gap: null,
+            latestSeq: 2,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        if (reads === 3) {
+          // Reports ignored; keystroke takes back
+          stdin.emit("data", Buffer.from("\x1b[I"));
+          stdin.emit("data", Buffer.from("x"));
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 2,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        if (reads === 4) {
+          stdin.emit("data", Buffer.from("y"));
+          holderKind = "remote";
+          epoch += 1;
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 3, data: "again" }],
+            gap: null,
+            latestSeq: 3,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind,
+              controllerEpoch: epoch,
+              status,
+              stopSignal,
+            },
+          };
+        }
+        status = "stopping";
+        stopSignal = "SIGTERM";
+        return {
+          generation: "generation-1",
+          incarnation: "1",
+          chunks: [],
+          gap: null,
+          latestSeq: 3,
+          state: {
+            ...running(false),
+            incarnation: "1",
+            holderKind: "none",
+            controllerEpoch: epoch,
+            status,
+            stopSignal,
+          },
+        };
+      },
+      async state() {
+        return {
+          ...running(holderKind !== "none"),
+          incarnation: "1",
+          holderKind,
+          controllerEpoch: epoch,
+          status,
+          stopSignal,
+        };
+      },
+      async write(_l, data) {
+        writes.push(data);
+      },
+      async resize() {},
+      close() {},
+    };
+
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      { statusBar: { enabled: true, env: {} }, rightPanel: false },
+    );
+
+    expect(code).toBe(0);
+    const out = stdout.chunks.join("");
+    expect(out).toContain("remote control active — remote.sent-tech.ca — type to take back" + " ".repeat(57));
+    expect(out).not.toContain("\x1b[c");
+    expect(out).toContain("session stopped (SIGTERM)");
+    expect(out).not.toContain("controller revoked");
+    expect(writes).toEqual(["y"]);
+    expect(acquireCalls.some((c) => c.passive === true)).toBe(false);
+  });
+
+  it("LH-05 launches under remote control on TTY, clamps output, handles empty replay, passive return, disputed return, 40-col truncation, and 0x1c detach", async () => {
+    // Part A: launch under remote, empty replay, passive return, disputed return, then detach 0x1c
+    const stdinA = new FakeInput();
+    const stdoutA = new FakeOutput() as FakeOutput & { isTTY?: boolean };
+    stdoutA.isTTY = true;
+    let nowA = 0;
+    let readsA = 0;
+    let holderKindA: "human" | "automation" | "remote" | "none" = "remote";
+    let holderIdA = "remote-uuid";
+    let epochA = 2;
+    const acquireCallsA: Array<Record<string, unknown>> = [];
+    const releaseCallsA: number[] = [];
+    const resizesA: Array<{ cols: number; rows: number }> = [];
+
+    const clientA: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        acquireCallsA.push(opts as Record<string, unknown>);
+        if ((opts as { passive?: boolean }).passive && holderKindA !== "none") {
+          const { NativeTerminalRemoteError } = await import("./protocol.js");
+          throw new NativeTerminalRemoteError("operation-failed", "terminal session already has a controller");
+        }
+        holderKindA = "human";
+        epochA += 1;
+        return {
+          role: "controller",
+          id: "h2a-alpha",
+          generation: "generation-1",
+          incarnation: "1",
+          controllerId: "ctrl-a",
+          epoch: epochA,
+        };
+      },
+      async releaseController(l) {
+        releaseCallsA.push(l.epoch);
+        return { id: "h2a-alpha", generation: "generation-1", incarnation: "1", controllerEpoch: epochA };
+      },
+      async readOutput() {
+        readsA += 1;
+        if (readsA === 1) {
+          // Empty replay: must not write banner again or anything spurious
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 0,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind: holderKindA,
+              controllerEpoch: epochA,
+              status: "running",
+              stopSignal: null,
+            },
+          };
+        }
+        if (readsA === 2) {
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [{ seq: 1, data: "\x1b[45;1HROW45" }],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind: holderKindA,
+              controllerEpoch: epochA,
+              status: "running",
+              stopSignal: null,
+            },
+          };
+        }
+        if (readsA === 3) {
+          // Remote releases -> passive return -> acquireController({ passive: true })
+          holderKindA = "none";
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(false),
+              incarnation: "1",
+              holderKind: "none",
+              controllerEpoch: epochA,
+              status: "running",
+              stopSignal: null,
+            },
+          };
+        }
+        if (readsA === 4) {
+          // Switch back to remote, then transient automation -> none
+          holderKindA = "remote";
+          epochA += 1;
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind: "remote",
+              controllerEpoch: epochA,
+              status: "running",
+              stopSignal: null,
+            },
+          };
+        }
+        if (readsA === 5) {
+          holderKindA = "automation";
+          holderIdA = "auto-1";
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind: "automation",
+              controllerEpoch: epochA,
+              controller: { controllerId: holderIdA, pid: null, tty: "auto", since: "2026-11-22T00:00:00.000Z" },
+              status: "running",
+              stopSignal: null,
+            },
+          };
+        }
+        if (readsA === 6) {
+          // Switch back to remote then detach via 0x1c
+          holderKindA = "remote";
+          epochA += 1;
+          return {
+            generation: "generation-1",
+            incarnation: "1",
+            chunks: [],
+            gap: null,
+            latestSeq: 1,
+            state: {
+              ...running(true),
+              incarnation: "1",
+              holderKind: "remote",
+              controllerEpoch: epochA,
+              status: "running",
+              stopSignal: null,
+            },
+          };
+        }
+        stdinA.emit("data", Buffer.from([0x1c]));
+        return {
+          generation: "generation-1",
+          incarnation: "1",
+          chunks: [],
+          gap: null,
+          latestSeq: 1,
+        };
+      },
+      async state() {
+        return {
+          ...running(holderKindA !== "none"),
+          incarnation: "1",
+          holderKind: holderKindA,
+          controllerEpoch: epochA,
+          ...(holderKindA !== "none" ? { controller: { controllerId: holderIdA, pid: null, tty: "other", since: "2026-11-22T00:00:00.000Z" } } : {}),
+          status: "running",
+          stopSignal: null,
+        };
+      },
+      async write() {},
+      async resize(_l, cols, rows) {
+        resizesA.push({ cols, rows });
+      },
+      close() {},
+    };
+
+    const codeA = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => clientA,
+        stdin: stdinA as unknown as NodeJS.ReadStream,
+        stdout: stdoutA as unknown as NodeJS.WriteStream,
+        now: () => nowA,
+        delay: async (ms) => { nowA += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      { statusBar: { enabled: true, env: {} }, rightPanel: false },
+    );
+    expect(codeA).toBe(0);
+    const outA = stdoutA.chunks.join("");
+    expect(outA).toContain("remote control active — remote.sent-tech.ca — type to take back" + " ".repeat(57));
+    expect(outA).not.toContain("[h2a] remote control active");
+    expect(outA).toContain("\x1b[39;1HROW45");
+    expect(acquireCallsA.some((c) => c.passive === true)).toBe(true);
+    expect(resizesA).toEqual([{ cols: 120, rows: 39 }]);
+    expect(releaseCallsA).toEqual([]);
+
+    // Part B: 40-col truncation and replaced incarnation notice
+    const stdinB = new FakeInput();
+    const stdoutB = { columns: 40, rows: 20, isTTY: true, chunks: [] as string[], write(c: string) { this.chunks.push(String(c)); return true; } };
+    let readsB = 0;
+    let nowB = 0;
+    const clientB: AttachClient = {
+      async acquireController() {
+        throw new Error("must not acquire when launched under remote");
+      },
+      async releaseController() {
+        return { id: "h2a-alpha", generation: "generation-1", incarnation: "1", controllerEpoch: 2 };
+      },
+      async readOutput() {
+        readsB += 1;
+        return {
+          generation: "generation-1",
+          incarnation: readsB === 1 ? "1" : "2",
+          chunks: [],
+          gap: null,
+          latestSeq: 0,
+          state: {
+            ...running(true),
+            incarnation: readsB === 1 ? "1" : "2",
+            holderKind: "remote",
+            controllerEpoch: 2,
+            status: "running",
+            stopSignal: null,
+          },
+        };
+      },
+      async state() {
+        return {
+          ...running(true),
+          incarnation: "1",
+          holderKind: "remote",
+          controllerEpoch: 2,
+          status: "running",
+          stopSignal: null,
+        };
+      },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+    const codeB = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => clientB,
+        stdin: stdinB as unknown as NodeJS.ReadStream,
+        stdout: stdoutB as unknown as NodeJS.WriteStream,
+        now: () => nowB,
+        delay: async (ms) => { nowB += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      { statusBar: { enabled: true, env: {} }, rightPanel: false },
+    );
+    expect(codeB).toBe(0);
+    const outB = stdoutB.chunks.join("");
+    expect(outB).toContain("remote control active — remote.sent-tech.");
+    expect(outB).not.toContain("type to take back");
+    expect(outB).toContain("controller released or session replaced");
+  });
 });

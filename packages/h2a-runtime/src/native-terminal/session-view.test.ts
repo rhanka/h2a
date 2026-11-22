@@ -461,4 +461,363 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     expect(savedResets).toContain("A:\x1b[?1004l");
     expect(savedResets).toContain("B:\x1b[?2004l");
   });
+
+  it("LH-05 transitions to observer on remote switch, purges input queue, filters queries, and takes back on keystroke", async () => {
+    const stdout = new FakeOutput();
+    const writes: string[] = [];
+    const acquireCalls: Array<Record<string, unknown>> = [];
+    const releaseCalls: number[] = [];
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const banners: Array<string | undefined> = [];
+
+    const lease1: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-lh05-sv",
+      generation: "gen-1",
+      incarnation: "inc-1",
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const lease2: NativeTerminalControllerLease = {
+      ...lease1,
+      epoch: 3,
+    };
+    let rejectFirstWrite!: (err: Error) => void;
+    const firstWriteBlocked = new Promise<void>((_, reject) => {
+      rejectFirstWrite = reject;
+    });
+    let writeCount = 0;
+    let switchedToRemote = false;
+
+    const client: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        acquireCalls.push(opts as Record<string, unknown>);
+        return acquireCalls.length === 1 ? lease1 : lease2;
+      },
+      async releaseController(l) {
+        releaseCalls.push(l.epoch);
+        return { id: "h2a-lh05-sv", generation: "gen-1", incarnation: "inc-1", controllerEpoch: l.epoch };
+      },
+      async readOutput() {
+        return replay("h2a-lh05-sv", 1, "");
+      },
+      async state() {
+        return {
+          ...running("h2a-lh05-sv", true),
+          generation: "gen-1",
+          incarnation: "inc-1",
+          holderKind: switchedToRemote ? "remote" : "human",
+          controllerEpoch: switchedToRemote ? 2 : 1,
+          stopSignal: null,
+        };
+      },
+      async write(_l, data) {
+        writeCount += 1;
+        if (writeCount === 1) return firstWriteBlocked;
+        writes.push(data);
+      },
+      async resize(_l, cols, rows) {
+        resizes.push({ cols, rows });
+      },
+      close() {},
+    };
+
+    const view = createSessionView({
+      sessionId: "h2a-lh05-sv",
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      statusBar: {
+        ...noopStatusBar(stdout),
+        setObserverBanner: (b) => {
+          banners.push(b);
+          return true;
+        },
+      },
+    });
+
+    await view.connectAndAcquire(async () => client);
+    expect(view.observing).toBe(false);
+    // Queue 3 blocks: first in flight, two queued; split UTF-8 prefix before switch
+    view.enqueueInput(Buffer.from([0xe2, 0x82]));
+    view.enqueueInput(Buffer.from("queued-1"));
+    view.enqueueInput(Buffer.from("queued-2"));
+    switchedToRemote = true;
+    expect(view.handleRemoteSwitchState({
+      ...running("h2a-lh05-sv", true),
+      generation: "gen-1",
+      incarnation: "inc-1",
+      holderKind: "remote",
+      controllerEpoch: 2,
+      stopSignal: null,
+    })).toBe(true);
+    expect(view.observing).toBe(true);
+    expect(view.pendingInputBytes).toBe(0);
+    expect(releaseCalls).toEqual([]);
+    expect(banners).toEqual(["remote control active — remote.sent-tech.ca — type to take back"]);
+
+    // Resize while observing must not issue client resize
+    view.sendChildResize();
+    expect(resizes).toEqual([]);
+
+    rejectFirstWrite(new Error("aborted"));
+    await view.drainInputPump();
+    expect(view.pendingInputBytes).toBe(0);
+
+    // Output split CSI c across two replays is filtered
+    view.feedReplay(replay("h2a-lh05-sv", 2, "A\x1b["));
+    view.feedReplay(replay("h2a-lh05-sv", 3, "cB"));
+    expect(stdout.chunks.join("")).toBe("AB");
+
+    // Report is ignored; keystroke takes back and is discarded, UTF-8 decoder was reset
+    view.enqueueInput(Buffer.from("\x1b[I"));
+    expect(acquireCalls.length).toBe(1);
+    view.enqueueInput(Buffer.from("x"));
+    await vi.waitFor(() => expect(view.observing).toBe(false));
+    expect(acquireCalls.at(-1)).toMatchObject({ takeover: true });
+    view.enqueueInput(Buffer.from("y"));
+    await view.drainInputPump();
+    expect(writes).toEqual(["y"]);
+    expect(banners.at(-1)).toBeUndefined();
+    view.dispose();
+  });
+
+  it("LH-05 handles concurrent stale-lease write/resize, 25ms pending timer, bracketed paste discard, and launch/reconnect modes", async () => {
+    const { NativeTerminalRemoteError } = await import("./protocol.js");
+
+    // 1. Concurrent write rejection with keystroke vs report-only, plus bracketed paste discard
+    const stdout1 = new FakeOutput();
+    const writes1: string[] = [];
+    const acquireCalls1: Array<Record<string, unknown>> = [];
+    const lease1: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-lh05-c",
+      generation: "gen-1",
+      incarnation: "inc-1",
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+    const lease2: NativeTerminalControllerLease = { ...lease1, epoch: 3 };
+    let holderKind1: "human" | "remote" = "human";
+    let rejectWrite1!: (err: Error) => void;
+    let writeCall1 = 0;
+
+    const client1: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        acquireCalls1.push(opts as Record<string, unknown>);
+        if ((opts as { takeover?: boolean }).takeover) holderKind1 = "human";
+        return acquireCalls1.length === 1 ? lease1 : lease2;
+      },
+      async releaseController(l) {
+        return { id: "h2a-lh05-c", generation: "gen-1", incarnation: "inc-1", controllerEpoch: l.epoch };
+      },
+      async readOutput() {
+        return replay("h2a-lh05-c", 1, "");
+      },
+      async state() {
+        return {
+          ...running("h2a-lh05-c", true),
+          generation: "gen-1",
+          incarnation: "inc-1",
+          holderKind: holderKind1,
+          controllerEpoch: holderKind1 === "remote" ? 2 : 1,
+          stopSignal: null,
+        };
+      },
+      async write(_l, data) {
+        writeCall1 += 1;
+        if (writeCall1 === 1) {
+          return new Promise<void>((_, reject) => {
+            rejectWrite1 = reject;
+          });
+        }
+        writes1.push(data);
+      },
+      async resize() {
+        throw new NativeTerminalRemoteError("operation-failed", "stale terminal controller lease");
+      },
+      close() {},
+    };
+
+    const view1 = createSessionView({
+      sessionId: "h2a-lh05-c",
+      stdout: stdout1 as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      statusBar: noopStatusBar(stdout1),
+    });
+    await view1.connectAndAcquire(async () => client1);
+    // Report rejected on stale lease while remote holds -> observer without takeback
+    holderKind1 = "remote";
+    view1.enqueueInput(Buffer.from("\x1b[I"));
+    rejectWrite1(new NativeTerminalRemoteError("operation-failed", "stale terminal controller lease"));
+    await view1.drainInputPump();
+    await vi.waitFor(() => expect(view1.observing).toBe(true));
+    expect(acquireCalls1.length).toBe(1);
+    expect(stdout1.chunks.join("")).toContain("[h2a] remote control active");
+
+    // Bracketed paste across 3 chunks: none of paste written, block after close is written
+    view1.enqueueInput(Buffer.from("\x1b[200~part1"));
+    view1.enqueueInput(Buffer.from("part2"));
+    view1.enqueueInput(Buffer.from("part3\x1b[201~"));
+    await vi.waitFor(() => expect(view1.observing).toBe(false));
+    view1.enqueueInput(Buffer.from("after"));
+    await view1.drainInputPump();
+    expect(writes1).toEqual(["after"]);
+    view1.dispose();
+
+    // 2. Concurrent resize stale-lease + remote -> enters observer without takeback; 25ms ESC timer
+    const stdout2 = new FakeOutput();
+    const acquireCalls2: Array<Record<string, unknown>> = [];
+    let releaseDelay!: () => void;
+    let timerArmed = 0;
+    const view2 = createSessionView({
+      sessionId: "h2a-lh05-t",
+      stdout: stdout2 as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: () => {
+        timerArmed += 1;
+        return new Promise<void>((resolve) => {
+          releaseDelay = resolve;
+        });
+      },
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      statusBar: noopStatusBar(stdout2),
+    });
+    holderKind1 = "human";
+    writeCall1 = 0;
+    await view2.connectAndAcquire(async () => client1);
+    holderKind1 = "remote";
+    view2.sendChildResize();
+    await vi.waitFor(() => expect(view2.observing).toBe(true));
+    expect(acquireCalls2.length).toBe(0);
+
+    // ESC followed by focus report cancels timer -> zero takeback
+    view2.enqueueInput(Buffer.from([0x1b]));
+    expect(timerArmed).toBe(1);
+    view2.enqueueInput(Buffer.from("[I"));
+    releaseDelay();
+    await Promise.resolve();
+    expect(view2.observing).toBe(true);
+
+    // Bare ESC expires at 25ms -> triggers takeback
+    view2.enqueueInput(Buffer.from([0x1b]));
+    expect(timerArmed).toBe(2);
+    releaseDelay();
+    await vi.waitFor(() => expect(view2.observing).toBe(false));
+    view2.dispose();
+
+    // 3. Launch under remote, launch race, --takeover, and passive reconnect
+    const stdout3 = new FakeOutput();
+    const calls3: Array<Record<string, unknown>> = [];
+    let launchPhase: "remote" | "race-none-then-remote" | "none" = "remote";
+    let closeCalls3 = 0;
+    const client3: AttachClient = {
+      async acquireController(_id, _cid, _act, opts) {
+        calls3.push(opts as Record<string, unknown>);
+        if (launchPhase === "race-none-then-remote" && !(opts as { takeover?: boolean }).takeover) {
+          launchPhase = "remote";
+          throw new NativeTerminalRemoteError("operation-failed", "terminal session already has a controller");
+        }
+        return { ...lease1, epoch: 5 };
+      },
+      async releaseController(l) {
+        return { id: "h2a-lh05-l", generation: "gen-1", incarnation: "inc-1", controllerEpoch: l.epoch };
+      },
+      async readOutput() {
+        return replay("h2a-lh05-l", 1, "");
+      },
+      async state() {
+        return {
+          ...running("h2a-lh05-l", launchPhase !== "none"),
+          generation: "gen-1",
+          incarnation: "inc-1",
+          holderKind: launchPhase === "remote" ? "remote" : "none",
+          controllerEpoch: 4,
+          stopSignal: null,
+        };
+      },
+      async write() {},
+      async resize() {},
+      close() {
+        closeCalls3 += 1;
+      },
+    };
+
+    const view3 = createSessionView({
+      sessionId: "h2a-lh05-l",
+      stdout: stdout3 as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      statusBar: noopStatusBar(stdout3),
+    });
+    await view3.connectAndAcquire(async () => client3);
+    expect(view3.observing).toBe(true);
+    expect(calls3.length).toBe(0);
+    // clearObserverForExit closes observerClient before clearing reference
+    view3.clearObserverForExit();
+    expect(closeCalls3).toBe(1);
+    expect(view3.observerClient).toBeUndefined();
+
+    // Launch race: state=none -> acquire throws already has a controller -> reread=remote -> observer
+    launchPhase = "race-none-then-remote";
+    const viewRace = createSessionView({
+      sessionId: "h2a-lh05-l",
+      stdout: stdout3 as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      statusBar: noopStatusBar(stdout3),
+    });
+    await viewRace.connectAndAcquire(async () => client3);
+    expect(viewRace.observing).toBe(true);
+    viewRace.markObserverTransportFailure(client3, new Error("socket closed"));
+    expect(viewRace.wasObservingBeforeReconnect).toBe(true);
+    // Reconnect when holder became none uses passive: true
+    launchPhase = "none";
+    await viewRace.connectAndAcquire(async () => client3);
+    expect(viewRace.observing).toBe(false);
+    expect(calls3.at(-1)).toMatchObject({ passive: true });
+    viewRace.dispose();
+
+    // --takeover under remote takes immediately without banner
+    launchPhase = "remote";
+    const stdoutTakeover = new FakeOutput();
+    const viewTakeover = createSessionView({
+      sessionId: "h2a-lh05-l",
+      stdout: stdoutTakeover as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      takeover: true,
+      remoteObserver: true,
+      statusBar: noopStatusBar(stdoutTakeover),
+    });
+    await viewTakeover.connectAndAcquire(async () => client3);
+    expect(viewTakeover.observing).toBe(false);
+    expect(stdoutTakeover.chunks.join("")).not.toContain("remote control active");
+    viewTakeover.dispose();
+
+    // remoteObserver: false keeps existing controllerChanged detach behavior
+    const stdoutOff = new FakeOutput();
+    const viewOff = createSessionView({
+      sessionId: "h2a-lh05-off",
+      stdout: stdoutOff as unknown as NodeJS.WriteStream,
+      now: () => 1_000,
+      tty: "/dev/pts/1",
+      remoteObserver: false,
+      statusBar: noopStatusBar(stdoutOff),
+    });
+    expect(viewOff.controllerChanged({ ...running("h2a-lh05-off", true), holderKind: "remote", controllerEpoch: 2 }, lease1)).toBe(true);
+    expect(viewOff.terminalEnded).toBe(true);
+    viewOff.dispose();
+  });
 });

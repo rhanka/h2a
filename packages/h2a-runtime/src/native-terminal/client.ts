@@ -8,6 +8,7 @@ import type {
   NativeTerminalControllerState,
   NativeTerminalCreateOptions,
   NativeTerminalObserverAttachment,
+  NativeTerminalRemoteAcquireResult,
   NativeTerminalReplay,
   NativeTerminalSessionState,
 } from "./host.js";
@@ -193,6 +194,17 @@ export class NativeTerminalClient {
       "acquire-controller-if-no-recent-human",
       { id, controllerId, activityWindowMs },
     ) as Promise<NativeTerminalControllerLease>;
+  }
+
+  acquireRemoteControllerIfNoRecentHuman(
+    id: string,
+    controllerId: string,
+    activityWindowMs: number,
+  ): Promise<NativeTerminalRemoteAcquireResult> {
+    return this.#request(
+      "acquire-remote-controller-if-no-recent-human",
+      { id, controllerId, activityWindowMs },
+    ) as Promise<NativeTerminalRemoteAcquireResult>;
   }
 
   releaseController(lease: NativeTerminalControllerLease): Promise<NativeTerminalControllerState> {

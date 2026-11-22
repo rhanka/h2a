@@ -161,4 +161,25 @@ describe("NativeTerminalClient connection loss", () => {
     expect(state.holderKind).toBeUndefined();
     expect(state.controller?.controllerId).toBeUndefined();
   });
+
+  it("LH-05 rejects with invalid-request when talking to an older host without the remote acquire op", async () => {
+    const { client, hostSide } = await connectedPair();
+    hostSide.setEncoding("utf8");
+    let buffer = "";
+    hostSide.on("data", (chunk: string) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const request = JSON.parse(buffer.slice(0, newline)) as { id: string };
+      hostSide.write(`${JSON.stringify({
+        version: 1,
+        id: request.id,
+        ok: false,
+        error: { code: "invalid-request", message: "unknown terminal operation" },
+      })}\n`);
+    });
+    await expect(
+      client.acquireRemoteControllerIfNoRecentHuman("alpha", "h2a-remote:1", 30_000),
+    ).rejects.toMatchObject({ name: "NativeTerminalRemoteError", code: "invalid-request" });
+  });
 });
