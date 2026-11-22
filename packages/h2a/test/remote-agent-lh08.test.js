@@ -963,10 +963,10 @@ test("LH-08 credit independence, term.exit signal number vs omitted on stopSigna
 
     // Active commands on observe view -> refused, view stays alive
     peer.sendTermOpen(conn, { ch: 4, sid, mode: "control", afterSeq: null, receivedSegBytes: 0 });
-    peer.sendRecord(conn, { t: "term.in", ch: 3, sid, generation: "gen-1", incarnation: "inc-1", epoch: 1, inSeq: 1, origin: "user", dataB64: Buffer.from("ls\n").toString("base64") });
-    peer.sendRecord(conn, { t: "term.ctl", ch: 3, sid, action: "acquire" });
+    peer.sendRecord(conn, { t: "term.in", ch: 3, sid, generation: "gen-1", incarnation: "inc-1", epoch: 1, inSeq: 1, ackThrough: 0, origin: "user", dataB64: Buffer.from("ls\n").toString("base64") });
+    peer.sendRecord(conn, { t: "term.ctl", ch: 3, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
     peer.sendRecord(conn, { t: "term.resize", ch: 3, sid, cols: 100, rows: 50 });
-    peer.sendRecord(conn, { t: "term.stop", ch: 3, sid, incarnation: "inc-1" });
+    peer.sendRecord(conn, { t: "term.stop", ch: 3, sid, generation: "gen-1", incarnation: "inc-1" });
     await clock.flushMicrotasks();
     const rx4 = new TestTerminalReceiver();
     drainClientRecords(conn, 4, rx4);
