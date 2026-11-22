@@ -12,7 +12,7 @@
     "evidence-download",
     "evidence-annexes"
   ],
-  "rendererVersion": "0.98.10",
+  "rendererVersion": "0.98.11",
   "validatorVersion": "0.6.0",
   "sources": {
     "package.json": "44370ac0d5490c30445d1300854f0c42ba5832f6b1630ea740b52a0c8651aeb1",
@@ -27,7 +27,7 @@
     "../../focus/src/validation/evidence.ts": "4ed0466516ff36fa237fefcd93a3d3612b34da512ecd8d0761571991646c69ab",
     "../../focus/src/render/evidence.ts": "c6a7aed19c0f2db66381eb29665f8fbc0492d1b6ab47e02d878395651a541535",
     "../../focus/schemas/report-document.v1.schema.json": "32546e7d14b6f39b25993f1706198193007caf2ac87df7ad28706dd5c02b4557",
-    "../../../scripts/build-focus-dossier.mjs": "b408a4117d00e2c1062b2caf6a1877d67f08dc8d2ace2558c8e9a3336fe18b56",
+    "../../../scripts/build-focus-dossier.mjs": "7311f73c9ac30abeaf9de166a18b5cf960a92a41a3796de45789da2464d85166",
     "../../focus/schemas/decision-dossier-document.v1.schema.json": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c",
     "../../focus/src/validation/index.ts": "3123a5390bf6d0b4b8279323460355abd9f65e079e320ae110626e84317c07d1",
     "../../focus/src/validation/readability.ts": "361f683c081a19ac3ca87f6fd5f24f95b33a1bbd4bbf4c75e8911e3fc4b5ddba",
@@ -36,20 +36,22 @@
     "../../focus/src/render/markdown-table.ts": "e3b9f4a297b3218279710ce2f85ec347b39bf8be40a13e6fa6f90e19d06e8286",
     "../../focus-interactive/src/response-line.ts": "755cc740610905d260d34ccfcd03650bbc914fad410b2da2b1eb96a69ece7e9b",
     "../../focus/LICENSE": "cbed2af93b9617fadad7651b98326b96a789a6059126966459230d89742f6c0d",
-    "src/App.svelte": "9a1811d75de63857e27997898116b25d76f36c1717b2f1e5c4ab51b2b3fe1948",
-    "src/Canvas.svelte": "e2302e6beb082bb30cb53c9a88307e85c7a11f7e1f8d775621d55c817714e152",
+    "src/App.svelte": "c940f566f1a2ac89b6ba84386471f18945b1f9a3d10a63d1884e733313c16e3f",
+    "src/Canvas.svelte": "7ed3913395e614472d4287909babc10d7b2143f68b2bdde9a9ab8fd584882a59",
     "src/Citation.svelte": "862668c7f22766aadb144f2613ac4f71b180cf174eae85ada97300562848c1f1",
     "src/EcosystemNode.svelte": "ec62f9ee6b61ee28580963ef45fe5c1d5bb17955c035a8d76e9140a9fcab6fbd",
     "src/Evidence.svelte": "147f78b6c5b4d334dbadf3082cbaf7bc5caecf46e084c126d260b528cb847151",
     "src/ReportProse.svelte": "65f9f9f865f27adafa43cbef883defb281c11f36586d0e1297009d3aa296aab0",
     "src/SourceViewer.svelte": "f090108a3752c3520ef56e7fba2fff32bc3ac3993c3fa7fdc5a9fdc380d3f60a",
-    "src/diagram-model.js": "198a8427f9bab54e240ce8c412781caf133a48feeaec595347715f3c8a34a0df",
+    "src/diagram-model.js": "09d8bd2470c371e574ad8a467afd2168a68c9f31ff56c8a4b2546e6e86794287",
     "src/evidence-search.js": "ba531b0680e85c2fcac108de34ccce8d1638bf3a89650804fd716cda9e31f2ff",
     "src/main.js": "063a974c2976843388d221e6a539f229a16426f34dc298ab1f2a9e6f2cb2542a",
-    "src/style.css": "0d0d370cd5b1b528230d133ed2a8e8007d6777b640db1701b11af7c7e60eae38",
+    "src/r7-diagram-kit.js": "2a035b59ad9b76898d36158f94579d3fb85f1b51aa017a06ea12dbbe05216f00",
+    "src/r7-scene-renderer.js": "5854abd7ef10ae9a7b95a230e405aa8d0650cd32025f42bb9429a0c374212474",
+    "src/style.css": "d1d1b45ebd1bc429ec496eef60d3c957472b4b112c99f724249e11cc086aa0f5",
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
-  "html": "9cdd32f011b3d0fece7b8376e8e2d5222b9e96a724e2c924606c888186efc73d",
+  "html": "602473fbc67989776c34f368690a406403f1b631d035e47528184a37bb59724f",
   "validator": "f1d8e406d04bc75095556e5650c397f319c936a12020778c2d1e3b34c7968fb4",
-  "diagramViews": "7fa19d02e614ecfd86786af0d379917c2386123bcf4930c0b1d6175093123108"
+  "diagramViews": "145d491aa868e16317811199883aa071b723d83b0005dcc29a3ac18284a86f23"
 }
