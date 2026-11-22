@@ -92,6 +92,25 @@ test("effectiveOrgInstances ignores grants to unregistered instances (keyed-only
   assert.equal(eff.length, 1);
 });
 
+test("effectiveOrgInstances normalizes legacy scalar rows instead of throwing", () => {
+  // rows persisted by older store formats: singular keys, or scalar strings
+  // where the contract now expects arrays. Diff must normalize defensively —
+  // never crash with `TypeError: r.roles is not iterable`.
+  const eff = effectiveOrgInstances(
+    [
+      { instance: "AGENTS:legacy-1", role: "AGENTS", scope: "org:acme" }, // singular keys
+      { instance: "AGENTS:legacy-2", roles: "AGENTS", scopes: "org:acme" } // scalar strings
+    ],
+    []
+  );
+  const l1 = eff.find((e) => e.instance === "AGENTS:legacy-1");
+  const l2 = eff.find((e) => e.instance === "AGENTS:legacy-2");
+  assert.deepEqual(l1.roles, ["AGENTS"]);
+  assert.deepEqual(l1.scopes, ["org:acme"]);
+  assert.deepEqual(l2.roles, ["AGENTS"]);
+  assert.deepEqual(l2.scopes, ["org:acme"]);
+});
+
 test("a grant makes a scopeGap reconcile to inSync via the effective view", () => {
   const registrations = [
     { instance: "claude:lead", roles: ["PRINCIPAL"], scopes: ["org:acme"] },

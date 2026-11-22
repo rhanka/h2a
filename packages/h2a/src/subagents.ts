@@ -135,3 +135,60 @@ export function subagentActorRef(
     ...(options.mandate ? { mandate: options.mandate } : {})
   };
 }
+
+// ---------------------------------------------------------------------------
+// Memory purpose is never inherited (r2 §2.4 sub-agents, R4-08)
+// ---------------------------------------------------------------------------
+
+/** The two engram memory scope kinds (r2 §2.5). */
+export type AgentSessionMemoryScopeKind = "role" | "repo";
+
+/**
+ * One purpose grant as carried by an opened L2 `AgentSession` (R4-08): the
+ * grant is bound to its owning memorial agent and names whether sub-agent
+ * execution may use it. `allowSubagentExec` is the explicit opt-in
+ * (`subAgentMemory: "inherit"` in `org.h2a.yaml`); absent means sub-agent
+ * memory calls refuse `purpose_not_granted` while parent calls proceed.
+ */
+export interface SessionPurposeGrantV1 {
+  readonly memorialAgentId: string;
+  readonly scopeKind: AgentSessionMemoryScopeKind;
+  readonly purposeRef: string;
+  readonly allowSubagentExec: boolean;
+}
+
+export interface SessionMemoryPurposeCall {
+  /** The memorial agent making the call — a copied grant never matches. */
+  readonly memorialAgentId: string;
+  readonly scopeKind: AgentSessionMemoryScopeKind;
+  /** true when the call comes from a sub-agent address (`<parent>~<name>`). */
+  readonly subagent: boolean;
+}
+
+export type SessionMemoryPurposeDecision =
+  | { readonly ok: true; readonly purposeRef: string }
+  | { readonly ok: false; readonly reason: "purpose_not_granted" };
+
+/**
+ * Sub-agent memory-purpose ceiling (r2 §2.4): memory purpose is NOT inherited
+ * automatically. A call is allowed iff a grant bound to the CALLING memorial
+ * agent and scope exists, and — for a sub-agent call — that grant explicitly
+ * allows sub-agent execution. Everything else (no grant, no purpose_ref,
+ * absent opt-in, a cross-agent copy) refuses `purpose_not_granted`.
+ */
+export function authorizeSessionMemoryPurpose(
+  grants: readonly SessionPurposeGrantV1[],
+  call: SessionMemoryPurposeCall
+): SessionMemoryPurposeDecision {
+  const grant = grants.find(
+    (candidate) =>
+      candidate.memorialAgentId === call.memorialAgentId && candidate.scopeKind === call.scopeKind
+  );
+  if (!grant || typeof grant.purposeRef !== "string" || grant.purposeRef.length === 0) {
+    return { ok: false, reason: "purpose_not_granted" };
+  }
+  if (call.subagent && grant.allowSubagentExec !== true) {
+    return { ok: false, reason: "purpose_not_granted" };
+  }
+  return { ok: true, purposeRef: grant.purposeRef };
+}

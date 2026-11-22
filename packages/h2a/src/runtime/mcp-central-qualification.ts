@@ -2,7 +2,7 @@
 /** Native CLIs with a central admission adapter. H1 mechanism only: the
  * shipped manifest stays empty and H6 populates it from measured evidence.
  * Hosts outside this set (hermes, gemini, opencode, ...) stay on stdio. */
-export const SUPPORTED_CENTRAL_HOSTS = Object.freeze(["claude", "codex", "agy", "Muse", "vibe"] as const);
+export const SUPPORTED_CENTRAL_HOSTS = Object.freeze(["claude", "codex", "agy", "muse", "vibe"] as const);
 export type SupportedCentralHost = (typeof SUPPORTED_CENTRAL_HOSTS)[number];
 
 export function isSupportedCentralHost(host: unknown): host is SupportedCentralHost {
