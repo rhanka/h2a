@@ -645,11 +645,13 @@ test('T2.5c: full central attachment under lock contention does 0 child_process.
     assert.equal(openRes.status, 200);
 
     // Proof that subsequent touchAsync tick still goes through flock (no ALS lockOwnership leak):
-    // hold .presence.lock and confirm heartbeatAt does NOT advance while locked!
-    const presenceBefore = presenceModule.readPresence(f.root, statusObj.sessionId);
-    assert.ok(presenceBefore, 'auto-opened presence file must exist');
+    // acquire .presence.lock FIRST, then snapshot heartbeatAt so no tick racing with holder startup
+    // can advance it; verify heartbeatAt stays frozen for > 2 intervals while locked.
     const presVerifyHolder = f.trackHolder(await holdFlockInChild(join(wdir, '.presence.lock')));
+    let presenceBefore;
     try {
+      presenceBefore = presenceModule.readPresence(f.root, statusObj.sessionId);
+      assert.ok(presenceBefore, 'auto-opened presence file must exist');
       await delay(350); // > 2 heartbeat intervals
       const presenceDuringLock = presenceModule.readPresence(f.root, statusObj.sessionId);
       assert.equal(

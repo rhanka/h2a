@@ -388,9 +388,14 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
 
   const executor = options.runExecutor ?? executeH2aRun;
   const launch = createH2aRunLauncher(options.participant
-    ? request => options.participant!.executeLaunchAsync(request, executor) : executor, 49_000, (request, result) =>
+    ? request => (typeof options.participant!.executeLaunchAsync === "function"
+        ? options.participant!.executeLaunchAsync(request, executor)
+        : options.participant!.executeLaunch(request, executor))
+    : executor, 49_000, (request, result) =>
     options.participant
-      ? options.participant.completeLaunchAsync(request, result, (eventId: string) => recordMcpRunDelegationAsync(store.paths.root, result, request.delegation, eventId))
+      ? (typeof options.participant.completeLaunchAsync === "function"
+          ? options.participant.completeLaunchAsync(request, result, (eventId: string) => recordMcpRunDelegationAsync(store.paths.root, result, request.delegation, eventId))
+          : options.participant.completeLaunch(request, result, (eventId: string) => recordMcpRunDelegation(store.paths.root, result, request.delegation, eventId)))
       : recordMcpRunDelegation(store.paths.root, result, request.delegation));
 
   const CENTRAL_SYNC_MUTATING_TOOLS = new Set<string>([
@@ -589,7 +594,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
 
   function callTool(name: string, args: Record<string, unknown> | undefined, context?: McpCallContext): ReturnType<McpServer['callTool']> {
     if (!options.participant || name === 'h2a_identity_status') return callToolUnfenced(name, args, context);
-    return options.participant.callAsync(async () => {
+    const invoke = typeof options.participant.callAsync === "function"
+      ? (fn: () => Promise<McpToolResult | McpErrorResult | McpTransportResult>) => options.participant!.callAsync(fn)
+      : (fn: () => Promise<McpToolResult | McpErrorResult | McpTransportResult>) => options.participant!.call(fn);
+    return invoke(async () => {
       if (IDENTITY_INDEPENDENT_TOOLS.has(name) || TRACK_READ_TOOL_NAMES.has(name) ||
           (name === "h2a_inbox" && args?.action === "read")) options.identity?.retry();
       const guard = guardIdentity(name, args);

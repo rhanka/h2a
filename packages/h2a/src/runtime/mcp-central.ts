@@ -181,7 +181,10 @@ export function createCentralProtocolServer(mcp: McpServer, participant: import(
     CallToolRequestSchema,
     async (request): Promise<CallToolResult> => {
       try {
-        return await participant.callAsync(async () => {
+        const invoke = typeof participant.callAsync === "function"
+          ? (fn: () => Promise<CallToolResult>) => participant.callAsync(fn)
+          : (fn: () => Promise<CallToolResult>) => participant.call(fn);
+        return await invoke(async () => {
           for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
           return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
         });
