@@ -37,6 +37,7 @@ import {
   isInternalCompanionNativeId,
   nativeCatalogueSid,
   presenceCatalogueSid,
+  wireInstanceId,
   readExclusions,
   setSessionExcluded,
   clearSessionExcluded,
@@ -462,12 +463,12 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     assert.equal(snap1.t, "cat.snapshot");
     assert.equal(snap1.truncatedRows, 0);
 
-    const sidN = `n-${sha256Hex("N")}`;
-    const sidS = `n-${sha256Hex("S")}`;
-    const sidTmux = `p-${sha256Hex("P-tmux")}`;
-    const sidUnk = `p-${sha256Hex("P-unk")}`;
-    assert.equal(nativeCatalogueSid("N"), sidN);
-    assert.equal(presenceCatalogueSid("P-tmux"), sidTmux);
+    const sidN = nativeCatalogueSid("N");
+    const sidS = nativeCatalogueSid("S");
+    const sidTmux = presenceCatalogueSid("P-tmux");
+    const sidUnk = presenceCatalogueSid("P-unk");
+    assert.match(sidN, /^n-[0-9a-f]{32}$/);
+    assert.match(sidTmux, /^p-[0-9a-f]{32}$/);
 
     const byId = (rows) => new Map(rows.map((r) => [r.sessionId, r]));
     const rows1 = byId(snap1.rows);
@@ -496,17 +497,17 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     assert.equal(rowUnk.operable, false);
     assert.equal(rowUnk.operabilityReason, "open-with-h2a-to-operate");
 
-    assert.equal(rows1.has(`p-${sha256Hex("P-mirrored")}`), false, "mirrored presence must be ignored");
-    assert.equal(rows1.has(`p-${sha256Hex("P-future")}`), false, "future heartbeat must not extend freshness");
-    assert.equal(rows1.has(`p-${sha256Hex("P-invalid")}`), false, "invalid heartbeat must not be fresh");
+    assert.equal(rows1.has(presenceCatalogueSid("P-mirrored")), false, "mirrored presence must be ignored");
+    assert.equal(rows1.has(presenceCatalogueSid("P-future")), false, "future heartbeat must not extend freshness");
+    assert.equal(rows1.has(presenceCatalogueSid("P-invalid")), false, "invalid heartbeat must not be fresh");
 
     // State 3: live PTY N + fresh presence P -> ONE row
     const rowN = rows1.get(sidN);
     assert.ok(rowN, "joined PTY N + presence P must produce one row under n-<hash>");
-    assert.equal(rows1.has(`p-${sha256Hex("P")}`), false, "presence naming nativePty must not produce duplicate p- row");
+    assert.equal(rows1.has(presenceCatalogueSid("P")), false, "presence naming nativePty must not produce duplicate p- row");
     assert.equal(rowN.hostKind, "native");
     assert.equal(rowN.operable, true);
-    assert.equal(rowN.instanceId, "inst-P");
+    assert.equal(rowN.instanceId, wireInstanceId("inst-P"));
     assert.equal(rowN.instanceStatus, "live");
     assert.equal(rowN.host, "claude");
     assert.equal(rowN.name, "alpha-agent");
@@ -597,7 +598,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     for (const m of messages.slice(1)) {
       view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
     }
-    assert.equal(byId(view).get(sidN).instanceId, "inst-reborn");
+    assert.equal(byId(view).get(sidN).instanceId, wireInstanceId("inst-reborn"));
 
     // Ambiguous owner: two sockets claim N -> NOT operable, resolveOpen refuses not-operable
     currentInventory = {
@@ -704,7 +705,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     for (const m of messages.slice(1)) {
       view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
     }
-    const sidEarly = `n-${sha256Hex("N-future")}`;
+    const sidEarly = nativeCatalogueSid("N-future");
     assert.ok(byId(view).has(sidEarly), "presence naming nativePty must already use n-<hash> before host discovery");
     assert.equal(byId(view).get(sidEarly).operable, false, "unconfirmed native target must be inoperable");
 
@@ -723,8 +724,8 @@ test("LH-06 MCP companion *.h2a is invisible in catalogue and refused with unkno
   try {
     const T0 = Date.parse("2026-11-21T11:00:00.000Z");
     const clock = new FakeClock(T0);
-    const parentSid = `n-${sha256Hex("h2a-x")}`;
-    const companionSid = `n-${sha256Hex("h2a-x.h2a")}`;
+    const parentSid = nativeCatalogueSid("h2a-x");
+    const companionSid = nativeCatalogueSid("h2a-x.h2a");
 
     assert.equal(isInternalCompanionNativeId("h2a-x.h2a"), true);
     assert.equal(isInternalCompanionNativeId("h2a-x"), false);
@@ -951,20 +952,20 @@ test("LH-06 privacy: strips sentinels, paths, file:// URIs, controls, coordinate
     }
     assert.equal(containsForbiddenLocalField(snap), false);
 
-    const row1 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-1")}`);
+    const row1 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-1"));
     assert.equal(row1.workspaceLabel, "safe-ws-label");
     assert.equal(row1.name, "clean-display-name");
     assert.equal("workspace" in row1, false);
 
-    const row2 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-2")}`);
+    const row2 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-2"));
     assert.equal(row2.name, undefined, "Unix path in name must be omitted");
     assert.equal(row2.workspaceLabel, undefined, "file:// URI in workspaceLabel must be omitted");
 
-    const row3 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-3")}`);
+    const row3 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-3"));
     assert.equal(row3.name, undefined, "Windows path in name must be omitted");
     assert.equal(row3.workspaceLabel, undefined, "UNC path in workspaceLabel must be omitted");
 
-    const row4 = snap.rows.find((r) => r.sessionId === `n-${sha256Hex("h2a-priv-4")}`);
+    const row4 = snap.rows.find((r) => r.sessionId === nativeCatalogueSid("h2a-priv-4"));
     assert.equal(row4.name, undefined, "exact copy of launch command must be omitted");
     assert.equal(row4.workspaceLabel, undefined, "control char in workspaceLabel must be omitted");
 
@@ -1027,8 +1028,8 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
       launchContext: { cwd: "/x", command: "claude", nativePty: { session: "h2a-two" } }
     }));
 
-    const sidOne = `n-${sha256Hex("h2a-one")}`;
-    const sidTwo = `n-${sha256Hex("h2a-two")}`;
+    const sidOne = nativeCatalogueSid("h2a-one");
+    const sidTwo = nativeCatalogueSid("h2a-two");
 
     // 1. CLI `off <session>` on sess-one (positional, --root after)
     const cliOff = captureStreams();
@@ -1202,7 +1203,7 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     assert.equal(offBySid.status, 0, `off by canonical sid via catalogue-ids.json failed: ${offBySid.stderr}`);
     assert.equal(JSON.parse(offBySid.stdout).sessionId, sidOne);
 
-    const unknownHash = `n-${sha256Hex("never-existed-anywhere")}`;
+    const unknownHash = nativeCatalogueSid("never-existed-anywhere");
     const offUnknownHash = runRemoteControlVerb("off", { root: fx.root, env: fx.env, isInteractive: false, session: unknownHash });
     assert.equal(offUnknownHash.ok, false);
     assert.equal(offUnknownHash.reason, "unknown-session");
@@ -1230,8 +1231,8 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     const afterConc = readExclusions({ env: fx.env });
     assert.equal(afterConc.ok, true);
     const concSids = new Set(afterConc.file.entries.map((e) => e.sid));
-    assert.ok(concSids.has(`n-${sha256Hex("h2a-conc-a")}`));
-    assert.ok(concSids.has(`n-${sha256Hex("h2a-conc-b")}`));
+    assert.ok(concSids.has(nativeCatalogueSid("h2a-conc-a")));
+    assert.ok(concSids.has(nativeCatalogueSid("h2a-conc-b")));
 
     // 12. p- exclusion promoted with alias when presence acquires n- target, then `on` removes entry + alias
     writePresenceFile(fx.root, makePresence("P-promote", {
@@ -1241,7 +1242,7 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     }));
     const offProm = setSessionExcluded("P-promote", { root: fx.root, configDir: fx.explicitConfigDir, env: fx.env });
     assert.equal(offProm.ok, true);
-    assert.equal(offProm.sessionId, `p-${sha256Hex("P-promote")}`);
+    assert.equal(offProm.sessionId, presenceCatalogueSid("P-promote"));
 
     // Now P-promote acquires native target h2a-promoted
     writePresenceFile(fx.root, makePresence("P-promote", {
@@ -1262,7 +1263,7 @@ test("LH-06 owner choice: CLI/MCP off, real PTY on, syntax guards, persistence, 
     });
     promProj.startWatch((m) => promMsgs.push(m));
     await clock.flushMicrotasks();
-    const promSid = `n-${sha256Hex("h2a-promoted")}`;
+    const promSid = nativeCatalogueSid("h2a-promoted");
     const promRow = promMsgs[0].rows.find((r) => r.sessionId === promSid);
     assert.equal(promRow.excluded, true, "p- exclusion must carry over when presence acquires n- target");
     assert.equal(promRow.operable, false);
@@ -1323,8 +1324,8 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
       launchContext: { cwd: "/x", command: "codex", tmux: { session: "t1", pane: "%1" } }
     }));
 
-    const sidOpen = `n-${sha256Hex("h2a-open")}`;
-    const sidTmux = `p-${sha256Hex("P-tmux-open")}`;
+    const sidOpen = nativeCatalogueSid("h2a-open");
+    const sidTmux = presenceCatalogueSid("P-tmux-open");
 
     let inventoryCalls = 0;
     let openSpyCalls = 0;
@@ -1386,7 +1387,7 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
     assert.ok(unavailable.some((ev) => ev.sid === sidOpen && ev.reason === "excluded"), "open view must be notified of local exclusion");
 
     // Unknown session & tmux session
-    const unkOpen = await guardedOpen(`n-${sha256Hex("does-not-exist")}`);
+    const unkOpen = await guardedOpen(nativeCatalogueSid("does-not-exist"));
     assert.equal(unkOpen.ok, false);
     assert.equal(unkOpen.reason, "unknown-session");
 
@@ -1407,22 +1408,23 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
     // setInstanceStatus emits status-only partial delta { sessionId, instanceId, instanceStatus }
     await clock.advance(2_250);
     const msgBeforeRevoke = messages.length;
-    projector.setInstanceStatus("inst-A", "revoked");
+    const wireInstA = wireInstanceId("inst-A");
+    projector.setInstanceStatus(wireInstA, "revoked");
     await clock.advance(249);
     assert.equal(messages.length, msgBeforeRevoke);
     await clock.advance(1);
     assert.equal(messages.length, msgBeforeRevoke + 1);
     const delta = messages[messages.length - 1];
     assert.equal(delta.t, "cat.delta");
-    assert.deepEqual(delta.updates, [{ sessionId: sidOpen, instanceId: "inst-A", instanceStatus: "revoked" }]);
+    assert.deepEqual(delta.updates, [{ sessionId: sidOpen, instanceId: wireInstA, instanceStatus: "revoked" }]);
 
     // applyCatalogueDelta only applies partial update to matching existing row of same instanceId
-    const baseRows = [{ sessionId: sidOpen, instanceId: "inst-A", instanceStatus: "live", state: "live", hostKind: "native", operable: true }];
+    const baseRows = [{ sessionId: sidOpen, instanceId: wireInstA, instanceStatus: "live", state: "live", hostKind: "native", operable: true }];
     const applied = applyCatalogueDelta(baseRows, delta);
     assert.equal(applied[0].instanceStatus, "revoked");
     const wrongOriginDelta = {
       ...delta,
-      updates: [{ sessionId: sidOpen, instanceId: "inst-OTHER", instanceStatus: "live" }]
+      updates: [{ sessionId: sidOpen, instanceId: wireInstanceId("inst-OTHER"), instanceStatus: "live" }]
     };
     assert.equal(applyCatalogueDelta(applied, wrongOriginDelta)[0].instanceStatus, "revoked", "partial update with mismatched instanceId must be ignored");
 
@@ -1530,7 +1532,7 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     await clock.advance(500);
     assert.equal(messages.length, countBeforeLate, "late response from cancelled cycle must never publish into new watch");
     assert.equal(
-      messages[messages.length - 1].rows.some((r) => r.sessionId === `n-${sha256Hex("h2a-LATE-STALE")}`),
+      messages[messages.length - 1].rows.some((r) => r.sessionId === nativeCatalogueSid("h2a-LATE-STALE")),
       false
     );
     projector.stopWatch();
@@ -1718,6 +1720,116 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     assert.throws(() => parseCatalogueSnapshot(JSON.stringify(hugeRow)), TypeError, "must reject row > 512 bytes");
 
     boundProj.stopWatch();
+  } finally {
+    cleanupFixture(fx);
+  }
+});
+
+test("R11 inc-2: 34-byte sids, v1->v2 exclusions migration, and 66-byte CLI/API target normalization", async () => {
+  const fx = makeFixtureEnv();
+  try {
+    const T0 = Date.parse("2026-11-21T10:00:00.000Z");
+    const clock = new FakeClock(T0);
+    const oldNativeSid = `n-${sha256Hex("h2a-x")}`;
+    const oldPresenceSid = `p-${sha256Hex("pres-only")}`;
+    const oldAliasSid = `p-${sha256Hex("pres-alias-x")}`;
+    assert.equal(oldNativeSid.length, 66);
+
+    // 1. Short sid projection (34 bytes = first 34 chars of old 66-byte sid)
+    writePresenceFile(fx.root, makePresence("pres-only", {
+      instance: "claude:inst:1",
+      heartbeatAt: new Date(T0).toISOString(),
+      launchContext: { cwd: "/secret", command: "claude", tmux: { session: "t", pane: "%1" } }
+    }));
+    const proj = createCatalogueProjector({
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env,
+      clock,
+      readNativeInventory: async () => ({
+        complete: true,
+        sessions: [makeNativeSession("h2a-x")]
+      })
+    });
+    const emitted = [];
+    proj.startWatch((m) => emitted.push(m));
+    await clock.flushMicrotasks();
+    const snap = emitted[0];
+    const rowNative = snap.rows.find((r) => r.sessionId.startsWith("n-"));
+    const rowPres = snap.rows.find((r) => r.sessionId.startsWith("p-"));
+    assert.ok(rowNative && rowPres);
+    assert.match(rowNative.sessionId, /^n-[0-9a-f]{32}$/);
+    assert.match(rowPres.sessionId, /^p-[0-9a-f]{32}$/);
+    assert.equal(rowNative.sessionId, oldNativeSid.slice(0, 34));
+    assert.equal(rowPres.sessionId, oldPresenceSid.slice(0, 34));
+    proj.stopWatch();
+
+    // 2. Hand-crafted v1 exclusions.json with old 66-byte sid and alias + duplicate entries merging
+    const exclPath = resolveExclusionsFilePath({ configDir: fx.explicitConfigDir, env: fx.env });
+    mkdirSync(dirname(exclPath), { recursive: true, mode: 0o700 });
+    writeFileSync(exclPath, JSON.stringify({
+      version: 1,
+      entries: [
+        { sid: oldNativeSid, aliases: [oldAliasSid], updatedAt: "2026-11-21T09:00:00.000Z" },
+        { sid: oldNativeSid, aliases: [`p-${sha256Hex("pres-extra")}`], updatedAt: "2026-11-21T09:30:00.000Z" }
+      ]
+    }, null, 2) + "\n", { mode: 0o600 });
+
+    const readV1 = readExclusions({ configDir: fx.explicitConfigDir, env: fx.env });
+    assert.equal(readV1.ok, true);
+    assert.equal(readV1.file.version, 2);
+    assert.equal(readV1.file.entries.length, 1);
+    assert.equal(readV1.file.entries[0].sid, oldNativeSid.slice(0, 34));
+    assert.equal(readV1.file.entries[0].updatedAt, "2026-11-21T09:30:00.000Z");
+    assert.deepEqual(readV1.file.entries[0].aliases, [oldAliasSid.slice(0, 34), `p-${sha256Hex("pres-extra")}`.slice(0, 34)].sort());
+
+    const proj2 = createCatalogueProjector({
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env,
+      clock,
+      readNativeInventory: async () => ({
+        complete: true,
+        sessions: [makeNativeSession("h2a-x")]
+      })
+    });
+    const emitted2 = [];
+    proj2.startWatch((m) => emitted2.push(m));
+    await clock.flushMicrotasks();
+    const rowExcl = emitted2[0].rows.find((r) => r.sessionId === oldNativeSid.slice(0, 34));
+    assert.equal(rowExcl?.excluded, true);
+    let socketOpened = false;
+    const openRes = await proj2.resolveOpen(oldNativeSid.slice(0, 34));
+    assert.equal(openRes.ok, false);
+    assert.equal(openRes.reason, "excluded");
+    assert.equal(socketOpened, false);
+    proj2.stopWatch();
+
+    // Lift via CLI `on h2a-x --confirm on` -> rewrites v2 file with 34-byte sids
+    const onCli = runRemoteControlVerb("on", {
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env,
+      session: "h2a-x",
+      confirm: "on",
+      isInteractive: true
+    });
+    assert.equal(onCli.ok, true);
+    const writtenAfterOn = JSON.parse(readFileSync(exclPath, "utf8"));
+    assert.equal(writtenAfterOn.version, 2);
+    assert.equal(writtenAfterOn.entries.length, 0);
+
+    // 3. `off` given old 66-byte sid -> returns 34-byte sid and writes v2
+    const offOld = setSessionExcluded(oldNativeSid, {
+      root: fx.root,
+      configDir: fx.explicitConfigDir,
+      env: fx.env
+    });
+    assert.equal(offOld.ok, true);
+    assert.equal(offOld.sessionId, oldNativeSid.slice(0, 34));
+    const writtenAfterOff = JSON.parse(readFileSync(exclPath, "utf8"));
+    assert.equal(writtenAfterOff.version, 2);
+    assert.equal(writtenAfterOff.entries[0].sid, oldNativeSid.slice(0, 34));
   } finally {
     cleanupFixture(fx);
   }

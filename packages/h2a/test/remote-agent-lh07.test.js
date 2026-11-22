@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -22,6 +22,7 @@ import {
   loadNodeKey,
   isRemoteControlKilledByEnv,
   isTrunkRecord,
+  runRemoteControlVerb,
   setRemoteControlKillFlag,
   readRemoteControlKillFlag,
   signTrunkAuthPayload,
@@ -32,7 +33,9 @@ import {
   readRevokedInstancesRegistry,
   persistRevokedInstancesRegistry,
   extractRawEd25519PublicKeyBase64,
-  formatWET2Fingerprint
+  formatWET2Fingerprint,
+  isWireInstanceId,
+  wireInstanceId
 } from "../dist/runtime/remote-agent/index.js";
 import * as trunkFakes from "./helpers/remote-trunk-fakes.js";
 import {
@@ -109,10 +112,11 @@ function createRegisteredInstance(root, instanceId, { idOverride, writeKeys = tr
 }
 
 function sampleRow(sessionId, instanceId, instanceStatus = "live") {
+  const wireId = isWireInstanceId(instanceId) ? instanceId : wireInstanceId(instanceId);
   return {
     sessionId,
     instance: instanceId,
-    instanceId,
+    instanceId: wireId,
     instanceStatus,
     host: "claude",
     name: `sess-${sessionId}`,
@@ -1421,12 +1425,14 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       assert.equal(conn.decodedClientRecords.filter((r) => r.t === "instance.bind").length, bindsBeforeNeg);
 
       // Bind A and B
+      const wireA = wireInstanceId("inst-A");
+      const wireB = wireInstanceId("inst-B");
       assert.equal(fx.client.bindInstance("inst-A").ok, true);
       assert.equal(fx.client.bindInstance("inst-B").ok, true);
       const bindRecs = conn.decodedClientRecords.filter((r) => r.t === "instance.bind");
       assert.equal(bindRecs.length, 2);
-      assert.equal(bindRecs[0].instanceId, "inst-A");
-      assert.equal(bindRecs[1].instanceId, "inst-B");
+      assert.equal(bindRecs[0].instanceId, wireA);
+      assert.equal(bindRecs[1].instanceId, wireB);
       assert.notEqual(bindRecs[0].bindNonce, bindRecs[1].bindNonce, "bindNonce must rotate");
       assert.equal(fx.client.admitInstanceAct("inst-A").ok, true);
       assert.equal(fx.client.admitInstanceAct("inst-B").ok, true);
@@ -1454,10 +1460,10 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
         // Sign with NODE key instead of instance key
         const nodeSig = signTrunkAuthPayload({
           meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-badbind",
-          nodeId: fx.key.nodeId, instanceId: "inst-A", instancePublicKey: rawPubA, bindNonce: curNonce
+          nodeId: fx.key.nodeId, instanceId: wireA, instancePublicKey: rawPubA, bindNonce: curNonce
         }, fx.key.privateKeyPem);
         cBad.sendControl(0, {
-          t: "instance.bind", instanceId: "inst-A", instancePublicKey: rawPubA,
+          t: "instance.bind", instanceId: wireA, instancePublicKey: rawPubA,
           instanceFingerprint: fpA, bindNonce: curNonce, sig: nodeSig
         });
         const boundResp = badConn.decodedServerRecords.find((r) => r.t === "instance.bound");
@@ -1479,7 +1485,7 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
         cOldNonce.start();
         const oldNonceConn = peerBad.allConnections()[peerBad.allConnections().length - 1];
         cOldNonce.sendControl(0, {
-          t: "instance.bind", instanceId: "inst-A", instancePublicKey: bindRecs[0].instancePublicKey,
+          t: "instance.bind", instanceId: wireA, instancePublicKey: bindRecs[0].instancePublicKey,
           instanceFingerprint: bindRecs[0].instanceFingerprint, bindNonce: initialBindNonce, sig: bindRecs[0].sig
         });
         const replayResp = oldNonceConn.decodedServerRecords.find((r) => r.t === "instance.bound");
@@ -1535,13 +1541,13 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
 
       // Push instance.revoked for A on live link!
       const catCountBefore = conn.receivedCatalogue.length;
-      fx.peer.sendInstanceRevoked(conn, "inst-A", "tenant-admin");
+      fx.peer.sendInstanceRevoked(conn, wireA, "tenant-admin");
 
       // Next act of A returns instance-revoked & writes audit naming A
       const actA = fx.client.admitInstanceAct("inst-A");
       assert.equal(actA.ok, false);
       assert.equal(actA.reason, "instance-revoked");
-      const auditA = fx.audits.find((e) => e.instanceId === "inst-A" && e.reason === "instance-revoked");
+      const auditA = fx.audits.find((e) => e.instanceId === wireA && e.reason === "instance-revoked");
       assert.ok(auditA, "audit must name revoked instance A");
       assert.equal(auditA.meshId, MESH);
       assert.equal(auditA.tenantId, TENANT);
@@ -1553,7 +1559,7 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       assert.equal(statusDelta.t, "cat.delta");
       assert.deepEqual(statusDelta.adds, []);
       assert.deepEqual(statusDelta.removes, []);
-      assert.deepEqual(statusDelta.updates, [{ sessionId: "n-a", instanceId: "inst-A", instanceStatus: "revoked" }]);
+      assert.deepEqual(statusDelta.updates, [{ sessionId: "n-a", instanceId: wireA, instanceStatus: "revoked" }]);
 
       // Same generation: B's act AND second terminal output on ch 2 (attached to A) BOTH succeed!
       assert.equal(fx.client.getLinkGeneration(), initialGen);
@@ -1589,7 +1595,10 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       assert.equal(persistRevokedInstancesRegistry(dirsA.root, scope, ["inst-2"]).ok, true);
       const reg = readRevokedInstancesRegistry(dirsA.root);
       assert.equal(reg.ok, true);
-      assert.deepEqual([...reg.entries[scope]].sort(), ["inst-1", "inst-2"]);
+      assert.deepEqual(reg.entries[scope], {
+        stateRevision: 0,
+        revoked: [wireInstanceId("inst-1"), wireInstanceId("inst-2")].sort()
+      });
 
       assert.equal(writeLinkStatusFile(dirsA.root, { state: "ready", linkGeneration: 3, updatedAt: 100 }).ok, true);
       assert.equal(writeLinkStatusFile(dirsA.root, { lastRefusal: { code: "bad-signature", instanceId: "inst-X", at: 200 }, updatedAt: 200 }).ok, true);
@@ -1834,6 +1843,159 @@ test("additional LH-07 acceptance edges: handshake_busy, 20s/40s outages, mid-se
         }, 5),
         "sent"
       );
+      fx.client.stop();
+    } finally {
+      cleanup(fx.dirs);
+    }
+  }
+});
+
+test("R11 inc-2: wireInstanceId <= 36B, queued multi-bind preserves localHandle, revocation & v1->v2 migration", () => {
+  const expectedWireId = (handle) => `i-${createHash("sha256").update(handle, "utf8").digest("hex").slice(0, 32)}`;
+  const longHandle = "claude:sentropic-harness:abcdef123456"; // 37 bytes
+  const longHandle2 = "codex:sentropic-harness:fedcba654321";
+  assert.equal(longHandle.length, 37);
+
+  // 1. Instance bind for >36-byte local handle emits 34-byte wire id and verifies signature
+  {
+    const fx = makeClientFixture({
+      initialRows: [sampleRow("n-long", expectedWireId(longHandle))]
+    });
+    try {
+      const reg = createRegisteredInstance(fx.dirs.root, longHandle);
+      assert.ok(reg.publicKeyPem);
+      assert.equal(fx.client.start().ok, true);
+      const conn = fx.peer.allConnections()[0];
+      assert.equal(fx.client.bindInstance(longHandle).ok, true);
+      const bindRec = conn.decodedClientRecords.find((r) => r.t === "instance.bind");
+      assert.ok(bindRec);
+      assert.match(bindRec.instanceId, /^i-[0-9a-f]{32}$/);
+      assert.equal(bindRec.instanceId, expectedWireId(longHandle));
+      for (const rawFrame of conn.observedClientFrames) {
+        const len = Buffer.from(rawFrame).readUInt32BE(0);
+        const obj = JSON.parse(Buffer.from(rawFrame).subarray(4, 4 + len).toString("utf8"));
+        for (const field of ["nodeId", "instanceId", "sid"]) {
+          if (typeof obj[field] === "string") {
+            assert.ok(Buffer.byteLength(obj[field], "utf8") <= 36, `wire ${field} exceeds 36B: ${obj[field]}`);
+            assert.match(obj[field], /^[a-z0-9-]+$/, `wire ${field} out of [a-z0-9-]: ${obj[field]}`);
+          }
+        }
+      }
+      const boundRec = conn.decodedServerRecords.find((r) => r.t === "instance.bound");
+      assert.equal(boundRec?.status, "live");
+      assert.equal(boundRec?.instanceId, expectedWireId(longHandle));
+      assert.equal(fx.client.admitInstanceAct(longHandle).ok, true);
+      fx.client.stop();
+    } finally {
+      cleanup(fx.dirs);
+    }
+  }
+
+  // 2. Queued back-to-back binds while first is in-flight preserve localHandle -> second binds with its own wireId/key/fp
+  {
+    const dirs = makeIsolation();
+    try {
+      const clock = new FakeClock(1_700_000_000_000);
+      const key = generateNodeKey({ configDir: dirs.configDir });
+      const contract = createSimulatedTrunkContractProvider();
+      const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, contract });
+      peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-q", publicKeyPem: key.publicKeyPem, fingerprint: key.fingerprint });
+      const inst1 = createRegisteredInstance(dirs.root, longHandle);
+      const inst2 = createRegisteredInstance(dirs.root, longHandle2);
+      const baseConnector = peer.createConnector("queue-test");
+      const deferredBoundFrames = [];
+      let deferNextBound = true;
+      const wrappedConnector = {
+        open(endpoint, handlers) {
+          const wrappedHandlers = {
+            ...handlers,
+            onMessage(frame) {
+              const dec = contract.decodeFrame(frame);
+              if (dec.ok && dec.record.t === "instance.bound" && deferNextBound) {
+                deferNextBound = false;
+                deferredBoundFrames.push(() => handlers.onMessage(frame));
+                return;
+              }
+              handlers.onMessage(frame);
+            }
+          };
+          return baseConnector.open(endpoint, wrappedHandlers);
+        }
+      };
+      const audits = [];
+      const client = new TrunkClient({
+        root: dirs.root,
+        env: TEST_ENV,
+        enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-q", nodeId: key.nodeId },
+        nodeKeyOptions: { configDir: dirs.configDir },
+        connector: wrappedConnector,
+        contract,
+        clock,
+        catalogue: new FakeCatalogueDouble({ clock }),
+        onAudit: (ev) => audits.push(ev)
+      });
+      assert.equal(client.start().ok, true);
+      const conn = peer.allConnections()[0];
+      assert.equal(client.bindInstance(longHandle).ok, true);
+      assert.equal(client.bindInstance(longHandle2).ok, true);
+      assert.equal(deferredBoundFrames.length, 1);
+      // Release first instance.bound -> drains queue for longHandle2
+      deferredBoundFrames[0]();
+      const bindRecs = conn.decodedClientRecords.filter((r) => r.t === "instance.bind");
+      assert.equal(bindRecs.length, 2);
+      assert.equal(bindRecs[0].instanceId, expectedWireId(longHandle));
+      assert.equal(bindRecs[1].instanceId, expectedWireId(longHandle2));
+      assert.equal(bindRecs[1].instancePublicKey, extractRawEd25519PublicKeyBase64(inst2.publicKeyPem));
+      assert.equal(bindRecs[1].instanceFingerprint, formatWET2Fingerprint(Buffer.from(bindRecs[1].instancePublicKey, "base64")));
+      assert.equal(audits.some((a) => a.reason === "unknown-instance"), false);
+      assert.equal(client.admitInstanceAct(longHandle).ok, true);
+      assert.equal(client.admitInstanceAct(longHandle2).ok, true);
+      assert.ok(inst1.publicKeyPem);
+      client.stop();
+    } finally {
+      cleanup(dirs);
+    }
+  }
+
+  // 3. Revocation by wireId + v1 registry containing local handle -> enforced & rewritten in v2
+  {
+    const fx = makeClientFixture({
+      initialRows: [sampleRow("n-long", expectedWireId(longHandle))]
+    });
+    try {
+      createRegisteredInstance(fx.dirs.root, longHandle);
+      const revDir = join(fx.dirs.root, "remote-control");
+      mkdirSync(revDir, { recursive: true, mode: 0o700 });
+      const scope = `${MESH}|${TENANT}|${fx.enrolment.enrolmentRef}|${fx.key.nodeId}`;
+      writeFileSync(join(revDir, "revoked-instances.json"), JSON.stringify({
+        version: 1,
+        entries: { [scope]: [longHandle] }
+      }, null, 2) + "\n", { mode: 0o600 });
+
+      assert.equal(fx.client.start().ok, true);
+      const actAfterV1 = fx.client.admitInstanceAct(longHandle);
+      assert.equal(actAfterV1.ok, false);
+      assert.equal(actAfterV1.reason, "instance-revoked");
+
+      const revDisk = JSON.parse(readFileSync(join(revDir, "revoked-instances.json"), "utf8"));
+      assert.equal(revDisk.version, 2);
+      assert.deepEqual(revDisk.entries[scope], { stateRevision: 0, revoked: [expectedWireId(longHandle)] });
+
+      // Live revoke of a second handle by wireId -> audit & catalogue carry wireId, admitInstanceAct refuses local handle
+      createRegisteredInstance(fx.dirs.root, longHandle2);
+      assert.equal(fx.client.bindInstance(longHandle2).ok, true);
+      const conn = fx.peer.allConnections()[0];
+      fx.peer.sendInstanceRevoked(conn, expectedWireId(longHandle2), "user");
+      const act2 = fx.client.admitInstanceAct(longHandle2);
+      assert.equal(act2.ok, false);
+      assert.equal(act2.reason, "instance-revoked");
+      const auditRev2 = fx.audits.find((e) => e.kind === "instance-revoked" && e.instanceId === expectedWireId(longHandle2));
+      assert.ok(auditRev2);
+      assert.equal(auditRev2.instanceHandle, longHandle2);
+      const statusRes = runRemoteControlVerb("status", { root: fx.dirs.root, env: TEST_ENV });
+      assert.equal(statusRes.ok, true);
+      assert.equal(statusRes.lastRefusal?.instanceId, expectedWireId(longHandle2));
+      assert.equal(statusRes.lastRefusal?.instanceHandle, longHandle2);
       fx.client.stop();
     } finally {
       cleanup(fx.dirs);
