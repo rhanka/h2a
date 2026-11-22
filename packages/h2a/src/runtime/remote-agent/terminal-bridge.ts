@@ -17,7 +17,7 @@ import {
   TERMINAL_OUTPUT_POLL_INTERVAL_MS,
   TerminalOutputAssembler
 } from "./terminal-output.js";
-import type { TerminalInputModule } from "./terminal-input.js";
+import type { TerminalChannelCloseReason, TerminalInputModule } from "./terminal-input.js";
 import type {
   TrunkChannelContext,
   TrunkLinkTerminationCause,
@@ -32,6 +32,7 @@ import type {
 } from "./types.js";
 
 export const TERMINAL_BRIDGE_DEFAULT_READ_TIMEOUT_MS = 30_000 as const;
+export const TERMINAL_BRIDGE_SHARE_CHECK_INTERVAL_MS = 250 as const;
 
 export interface NativeObserverSessionState {
   readonly id: string;
@@ -214,6 +215,7 @@ interface ChannelState {
   assembler: TerminalOutputAssembler | null;
   pollTimer: unknown;
   coalesceTimer: unknown;
+  lastShareCheckAtMs: number;
 }
 
 export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBridge {
@@ -279,7 +281,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     }
   }
 
-  function teardownChannelLocal(chState: ChannelState, reason = "local"): void {
+  function teardownChannelLocal(chState: ChannelState, reason: TerminalChannelCloseReason): void {
     if (chState.closed) return;
     chState.closed = true;
     if (chState.attachedToInput) {
@@ -336,7 +338,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
     exit: { readonly exitCode: number; readonly signal?: number } | null
   ): void {
     if (chState.closed || chState.exitSent) {
-      teardownChannelLocal(chState);
+      teardownChannelLocal(chState, "exit");
       chState.ctx.close();
       return;
     }
@@ -471,7 +473,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return false;
       }
       if (sendStatus === "closed") {
-        teardownChannelLocal(chState);
+        teardownChannelLocal(chState, "link");
         return false;
       }
       if (sendStatus === "no-credit") {
@@ -524,6 +526,15 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
   async function performReadAndEmit(chState: ChannelState): Promise<void> {
     if (chState.closed || chState.readInFlight || !chState.client || !chState.nativeId || !chState.assembler) {
       return;
+    }
+    const nowMs = clock.now();
+    if (chState.openedSent && nowMs - chState.lastShareCheckAtMs >= TERMINAL_BRIDGE_SHARE_CHECK_INTERVAL_MS) {
+      chState.lastShareCheckAtMs = nowMs;
+      const shareRes = catalogue.withShareAllowed(chState.sid, () => {});
+      if (!shareRes.allowed) {
+        abortChannelWithErr(chState, shareRes.reason, false, chState.openedSent);
+        return;
+      }
     }
     if (!hasUsableCredit(chState.ctx.availableOutput())) {
       pauseForCredit(chState);
@@ -614,6 +625,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return;
       }
       chState.openedSent = true;
+      chState.lastShareCheckAtMs = clock.now();
       chState.awaitingInitialReplay = false;
       attachChannelToInput(chState);
     } else if (replay.gap !== null) {
@@ -774,6 +786,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         return;
       }
       chState.openedSent = true;
+      chState.lastShareCheckAtMs = clock.now();
       attachChannelToInput(chState);
       if (hasUsableCredit(chState.ctx.availableOutput())) {
         schedulePoll(chState);
@@ -798,10 +811,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       if (disposed) {
         return { ok: false, code: "host-unavailable", retryable: false };
       }
-      if (open.mode === "control") {
-        return { ok: false, code: "control-unavailable", retryable: false };
-      }
-      if (open.mode !== "observe") {
+      if (open.mode !== "observe" && open.mode !== "control") {
         return { ok: false, code: "invalid-open", retryable: false };
       }
       if (open.afterSeq !== null && !isSafeNonNegInt(open.afterSeq)) {
@@ -834,7 +844,8 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
         client: null,
         assembler: null,
         pollTimer: null,
-        coalesceTimer: null
+        coalesceTimer: null,
+        lastShareCheckAtMs: clock.now()
       };
       channels.set(open.ch, chState);
       void openAsync(chState);
@@ -933,7 +944,7 @@ export function createTerminalBridge(options: TerminalBridgeOptions): TerminalBr
       }
     },
 
-    onClose(ch: number, reason = "local"): void {
+    onClose(ch: number, reason: "peer-close" | "link"): void {
       const chState = channels.get(ch);
       if (chState) {
         teardownChannelLocal(chState, reason);

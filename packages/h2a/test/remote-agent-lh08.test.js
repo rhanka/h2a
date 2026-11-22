@@ -963,14 +963,16 @@ test("LH-08 credit independence, term.exit signal number vs omitted on stopSigna
 
     // Active commands on observe view -> refused, view stays alive
     peer.sendTermOpen(conn, { ch: 4, sid, mode: "control", afterSeq: null, receivedSegBytes: 0 });
+    grantChannelCredit(peer, conn, 4, 0, 0);
     peer.sendRecord(conn, { t: "term.in", ch: 3, sid, generation: "gen-1", incarnation: "inc-1", epoch: 1, inSeq: 1, ackThrough: 0, origin: "user", dataB64: Buffer.from("ls\n").toString("base64") });
     peer.sendRecord(conn, { t: "term.ctl", ch: 3, sid, generation: "gen-1", incarnation: "inc-1", action: "acquire" });
     peer.sendRecord(conn, { t: "term.resize", ch: 3, sid, cols: 100, rows: 50 });
     peer.sendRecord(conn, { t: "term.stop", ch: 3, sid, generation: "gen-1", incarnation: "inc-1" });
-    await clock.flushMicrotasks();
+    await clock.advance(32);
     const rx4 = new TestTerminalReceiver();
     drainClientRecords(conn, 4, rx4);
-    assert.equal(rx4.errRecords[0]?.code, "control-unavailable");
+    assert.equal(rx4.errRecords.length, 0);
+    assert.equal(rx4.openedRecords.length, 1);
     drainClientRecords(conn, 3, rx3);
     assert.equal(rx3.ackRecords.some((a) => a.inSeq === 1 && a.result === "refused"), true);
     assert.ok(rx3.errRecords.length > 0 || rx3.ctlStateRecords.length > 0);
