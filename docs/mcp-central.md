@@ -35,12 +35,39 @@ binds an ephemeral numeric loopback port and publishes it with its credential
 and generation in a `0600` marker. No credential appears in a host config.
 
 `h2a central status` reports the authenticated generation, root, attachment
-count, and `ledgerMigrationComplete`. `h2a central stop` writes an operator inhibition and asks that generation
-to stop over its authenticated endpoint; it never signals an unverified PID.
-Automatic launchers honor the inhibition. Resume explicitly with
-`h2a mcp-central-serve` (foreground). An idle daemon exits after 60 seconds
-(once `ledgerMigrationComplete` is `true` and drain is complete);
+count, and `ledgerMigrationComplete`. Unauthenticated loopback
+`GET /_h2a-central/health` exposes `{ ok, generation, state, pid, ledgerMigrationComplete }`
+immediately on listen (no secrets), and `initialize` is admitted before
+background migration completes. `h2a central stop` writes an operator inhibition
+and asks that generation to stop over its authenticated endpoint; it never
+signals an unverified PID. Automatic launchers honor the inhibition. Resume
+explicitly with `h2a mcp-central-serve` (foreground). An idle daemon exits after
+60 seconds (once `ledgerMigrationComplete` is `true` and drain is complete);
 orphaned HTTP sessions expire after 90 seconds without a shim lease.
+
+Election combines `/proc/<pid>/stat` identity (`ownerLiveness`) with bounded
+loopback `centralMcpPing` probes (`3 × 800 ms`, `150 ms` backoff, `5 s` startup
+grace). Eviction of an unresponsive owner runs exclusively under
+`acquirePreclaim` (`evictUnresponsiveOwnerLocked`), enforces O(1) active
+transaction and writer-gate guards without reading `operation-*.json`, verifies
+`processIdentity.pid` and `startTime`, escalates `SIGTERM` (`1 s`) → `SIGKILL`
+(`500 ms`), and lets the successor settle orphaned prior-generation `pending`
+operations to `unknown` (`execution_owner_dead`) on `drain()` once
+`ledgerMigrationComplete` is `true`. On a stalled initial handshake (`1.5 s`),
+the shim verifies `/_h2a-central/ping` (`500 ms`) and triggers `ensure()`
+outside active `live-transfer` `PUBLISHED`/`RETIRED` states.
+
+For always-on local operation, use `h2a mcp-central-serve --supervised` with the
+official user unit `contrib/systemd/h2a-mcp-central.service` (`Restart=on-failure`,
+`RestartPreventExitStatus=2 3`, `TimeoutStopSec=15`, `MemoryMax=512M`,
+`EnvironmentFile=-%h/.config/sentropic/h2a/central.env`). Supervised mode disables
+idle auto-exit (`idleTimeoutMs = 0`), resolves the default root via
+`canonicalCentralRoot(env)`, passively monitors an existing healthy daemon in
+`STANDBY` (0 restart loops), runs an independent `node:worker_threads` watchdog
+probing `/_h2a-central/ping` in `SERVING`, and maps exits to `0` (normal/paused),
+`1` (transient/watchdog), `2` (config/qualification), and `3` (disk/permissions).
+Prefix trust (`handover/upg-trust.js`) accepts `0775` owned by an exclusive User
+Private Group (UPG) while rejecting shared groups and world-writable modes (`0777`).
 
 Handover state in `<stateDirectory>` is indexed in memory and synchronized in
 O(1) via `participant-revision.json` and per-file stamps (`dev:ino:size:mtimeNs:ctimeNs`),

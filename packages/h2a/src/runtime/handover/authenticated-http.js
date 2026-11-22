@@ -9,14 +9,32 @@ import { StringDecoder } from 'node:string_decoder';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const headersOf = headers => Object.fromEntries(headers.entries());
-async function bytesOf(stream) {
-  const chunks = []; let bytes = 0;
-  for await (const chunk of stream) {
-    bytes += chunk.length;
-    if (bytes > MAX_BYTES) throw new Error('http_frame_budget');
-    chunks.push(Buffer.from(chunk));
+async function bytesOf(stream, signal) {
+  if (signal?.aborted) {
+    stream.destroy?.();
+    throw signal.reason ?? Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
   }
-  return Buffer.concat(chunks).toString('utf8');
+  const onAbort = () => {
+    const err = signal.reason ?? Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+    stream.destroy?.(err instanceof Error ? err : new Error(String(err)));
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const chunks = []; let bytes = 0;
+  try {
+    for await (const chunk of stream) {
+      bytes += chunk.length;
+      if (bytes > MAX_BYTES) throw new Error('http_frame_budget');
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+    }
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+  }
 }
 export function readAuthenticationKey(markerPath, marker) {
   validate('marker', marker);
@@ -70,7 +88,7 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
     const wireBody = { method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body ?? null };
     const challengePath = isControlRequest(endpoint.pathname, wireBody) ? 'control-challenge' : 'challenge';
     const response = await exchange(new URL(`/_h2a-central/${challengePath}/${clientNonce}`, marker.endpoint), 'GET', {}, undefined);
-    const proof = JSON.parse(await bytesOf(response));
+    const proof = JSON.parse(await bytesOf(response, options.signal));
     if (response.statusCode !== 200 || !auth.verifyChallenge(proof, clientNonce)) throw new Error('readiness_invalid');
     const challengedSocket = socket;
     const path = endpoint.pathname;
@@ -82,7 +100,7 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
     const expected = { attachmentId, transportEpoch, requestUid: signed.requestUid };
     const type = String(incoming.headers['content-type'] ?? '');
     if (!type.includes('text/event-stream')) {
-      const frame = JSON.parse(await bytesOf(incoming));
+      const frame = JSON.parse(await bytesOf(incoming, options.signal));
       const payload = verifier.accept(frame, expected);
       agent.destroy();
       const serialized = payload.body === null ? '' : JSON.stringify(payload.body);
@@ -126,13 +144,25 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
   }
 }
 
-export function createAuthenticatedServer(auth, fetch) {
+export function createAuthenticatedServer(auth, fetch, getHealth) {
   const server = createServer(async (incoming, outgoing) => {
     const sendPlain = (status, body) => { outgoing.writeHead(status, { 'content-type': 'application/json' }); outgoing.end(JSON.stringify(body)); };
     let admitted;
     try {
       const path = new URL(incoming.url, auth.marker.endpoint).pathname;
       if (incoming.method === 'GET' && path === '/_h2a-central/ping') { sendPlain(200, { generation: auth.marker.generation }); return; }
+      if (incoming.method === 'GET' && path === '/_h2a-central/health') {
+        const health = typeof getHealth === 'function' ? getHealth() : {};
+        sendPlain(200, {
+          ok: true,
+          generation: auth.marker.generation,
+          state: auth.ready ? 'ready' : 'starting',
+          pid: auth.marker.pid,
+          ledgerMigrationComplete: true,
+          ...health
+        });
+        return;
+      }
       if (incoming.method === 'GET' && (path.startsWith('/_h2a-central/challenge/') || path.startsWith('/_h2a-central/control-challenge/'))) {
         if (auth.ready === false) throw new Error('readiness_unavailable');
         const pool = path.startsWith('/_h2a-central/control-challenge/') ? 'control' : 'data';

@@ -2,7 +2,16 @@ import fs from 'node:fs';
 import { join, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import { digest } from './wire.js';
-import { prepareAuthority, currentIdentity, ownerLiveness, observeProcess, readMarkerObservation } from './admission.js';
+import {
+  prepareAuthority,
+  currentIdentity,
+  ownerLiveness,
+  observeProcess,
+  readMarkerObservation,
+  probeOwnerHealth,
+  evictUnresponsiveOwnerLocked,
+  centralMcpPing
+} from './admission.js';
 import { acquirePreclaim } from './authority.js';
 import { classifyDurableProcFrame } from './proc-identity.js';
 import { starterPlan } from './selection.js';
@@ -10,7 +19,7 @@ import { readState, publishState, replaceState } from './state.js';
 import { reserveSuccessorAttempt, recordSuccessor, failSuccessor, markSuccessorFailed } from './successor.js';
 
 /** @param {*} options */
-export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath }) {
+export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath, probeOptions, evictionOptions }) {
   const identity = currentIdentity();
   const authority = await prepareAuthority({ directory, root, physicalPrefix: installation?.canonicalPrefix ?? physicalPrefix, frame: identity });
   let plan, child, ticket;
@@ -21,9 +30,26 @@ export async function launchCentral({ directory, root, installation, physicalPre
     plan = starterPlan({ installation, directory: stateDirectory, kind, fallbackEntry });
     const marker = readMarkerObservation(authority.domain.canonicalMarkerLocation);
     if (marker) {
-      const liveness = ownerLiveness(marker.value, identity);
-      if (liveness === 'alive') return { reused: true, marker: marker.value };
-      if (liveness !== 'dead') throw new Error('owner_liveness_unknown');
+      if (marker.value.prefixId && marker.value.prefixId !== authority.domain.prefixId) {
+        throw new Error('foreign_installation_authority');
+      }
+      const probe = await probeOwnerHealth(authority.domain.canonicalMarkerLocation, marker, authority, probeOptions);
+      if (probe.status === 'healthy') return { reused: true, marker: probe.marker };
+      if (probe.status === 'starting') throw new Error('startup_reserved');
+      if (probe.status === 'unknown') throw new Error('owner_liveness_unknown');
+      if (probe.status === 'unresponsive') {
+        const evicted = await evictUnresponsiveOwnerLocked(authority, marker, { ...evictionOptions, alreadyProbed: true });
+        if (!evicted.evicted && evicted.reason === 'healthy' && evicted.marker) {
+          return { reused: true, marker: evicted.marker };
+        }
+        if (!evicted.evicted && evicted.reason === 'generation_changed' && evicted.marker) {
+          const fresh = readMarkerObservation(authority.domain.canonicalMarkerLocation);
+          if (fresh) {
+            const recheck = await probeOwnerHealth(authority.domain.canonicalMarkerLocation, fresh, authority, probeOptions);
+            if (recheck.status === 'healthy') return { reused: true, marker: recheck.marker };
+          }
+        }
+      }
     }
     const owner = readState(join(stateDirectory, 'component-control.json'), 'componentControl');
     if (owner?.value.ownerState === 'ACTIVE') {
@@ -74,10 +100,14 @@ export async function launchCentral({ directory, root, installation, physicalPre
     const marker = readMarkerObservation(authority.domain.canonicalMarkerLocation);
     const slot = readState(slotPath, 'startupReservation');
     const transactionReady = !ticket || readState(plan.transactionPath, 'componentTransaction')?.value.state === 'READY';
-    if (marker?.value.pid === child.pid && marker.value.state === 'ready' && slot?.value.state === 'READY' && transactionReady)
-      return { reused: false, marker: marker.value, spawnedPid: child.pid };
+    if (marker?.value.pid === child.pid && marker.value.state === 'ready' && slot?.value.state === 'READY' && transactionReady) {
+      const ping = await centralMcpPing(marker.value.endpoint, 800);
+      if (ping.kind === 'generation' && ping.generation === marker.value.generation) {
+        return { reused: false, marker: marker.value, spawnedPid: child.pid };
+      }
+    }
     if (ownerLiveness({ processIdentity: readState(slotPath, 'startupReservation').value.candidateIdentity }, identity) === 'dead') break;
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => setTimeout(resolve, 25));
   }
   if (ticket) {
     const again = await acquirePreclaim(authority.domain, identity, authority.lockKey, classifyDurableProcFrame);

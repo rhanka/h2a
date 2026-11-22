@@ -1,9 +1,10 @@
 # h2a durable daemons — systemd `--user` units
 
-Two units live here, both **opt-in** and both **off until you enable them**:
+Three units live here, all **opt-in** and **off until you enable them**:
 
 | Unit | Runs | What it is for |
 |---|---|---|
+| `h2a-mcp-central.service` | `h2a mcp-central-serve --supervised` | machine-local MCP central server with Worker watchdog and `Restart=on-failure` |
 | `h2a-supervisor.service` | `h2a loop supervise` | auto-relaunch opted-in objective loops |
 | `h2a-mirror-push.service` | `h2a remote mirror --interval-ms 20000` | keep a hosted read-only feed warm (see the last section) |
 
@@ -241,3 +242,49 @@ h2a remote mirror --url <endpoint> --instance <id> --private-key <pem>   # one-s
 h2a remote mirror --url <endpoint> --instance <id> --private-key <pem> \
   --interval-ms 20000 --max 3                                            # 3 cycles, then stop
 ```
+
+---
+
+# h2a machine-local MCP central — `h2a-mcp-central.service`
+
+`h2a-mcp-central.service` supervises `h2a mcp-central-serve --supervised` under
+`systemd --user` with `Restart=on-failure`, `RestartPreventExitStatus=2 3`,
+`TimeoutStopSec=15`, `MemoryMax=512M`, and an internal `node:worker_threads`
+loopback watchdog probing `/_h2a-central/ping` every 2 s.
+
+## Pre-install check (prefix and `H2A_ROOT`)
+
+Before enabling the unit, verify the installed `h2a` prefix and `H2A_ROOT`:
+
+```sh
+command -v h2a
+# Default ExecStart uses %h/.npm-global/bin/h2a.
+# Mode 0775 under your exclusive User Private Group (UPG) is accepted;
+# shared groups or world-writable prefixes (0777) fail closed with exit 2.
+
+# Check which root canonicalCentralRoot(env) resolves (default: ~/h2a-workspace/.h2a).
+# To override H2A_ROOT or prefix settings without editing the unit file, write:
+mkdir -p ~/.config/sentropic/h2a
+printf 'H2A_ROOT=%s\n' "$HOME/h2a-workspace/.h2a" > ~/.config/sentropic/h2a/central.env
+```
+
+## Install and operate
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp contrib/systemd/h2a-mcp-central.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now h2a-mcp-central
+systemctl --user status h2a-mcp-central
+journalctl --user -u h2a-mcp-central -f
+```
+
+## Exit-code table (`Restart=on-failure`, `RestartPreventExitStatus=2 3`)
+
+| Exit code | Meaning | `systemd` behavior |
+|---:|---|---|
+| `0` | Normal stop (`SIGTERM`, `/_h2a-central/stop`), or operator pause (`operator-stop.json` `paused: true`, `deferred_paused`) | Stays stopped (no restart) |
+| `1` | Transient lock contention, watchdog freeze detection (`event_loop_unresponsive`), or unexpected crash | Restarted after `RestartSec=2` (bounded by `StartLimitBurst=5` / `60s`) |
+| `2` | Permanent configuration or qualification error (`prefix_owner_mismatch`, `foreign_installation_authority`, relative root, invalid `H2A_MCP_CENTRAL_ENDPOINT`, `successor_failed`) | Held stopped (`RestartPreventExitStatus=2 3`) |
+| `3` | Permanent disk or permissions error (`EACCES`, `EPERM`, `EROFS`, `ENOSPC`, `EDQUOT`, `EIO`, `private_*_required`) | Held stopped (`RestartPreventExitStatus=2 3`) |
+

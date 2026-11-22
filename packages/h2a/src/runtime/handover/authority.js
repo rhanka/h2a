@@ -5,29 +5,16 @@ import { createServer } from 'node:net';
 import { canonicalBytes, digest } from './wire.js';
 import { validate } from './formats.js';
 import { publishState, readState, replaceState } from './state.js';
+import { assertTrustedPrefixDirectory } from './upg-trust.js';
 
 // Inputs must come from verified physical installation metadata, never npm prefix alone.
-export function prefixLayout(physicalPrefix, legacyPrefix, uid) {
+export function prefixLayout(physicalPrefix, legacyPrefix, uid, upgOptions = undefined) {
   const canonicalPrefix = realpathSync(physicalPrefix);
   const actual = statSync(canonicalPrefix); const legacy = statSync(realpathSync(legacyPrefix));
   if (!actual.isDirectory() || actual.dev !== legacy.dev || actual.ino !== legacy.ino) {
     throw new Error('legacy_prefix_mismatch');
   }
-  if (uid !== process.getuid() || actual.uid !== uid || (actual.mode & 0o022)) {
-    const octalMode = (actual.mode & 0o777).toString(8).padStart(4, '0');
-    const expectedUid = process.getuid();
-    const quotedPrefix = /[^A-Za-z0-9_./:@=-]/.test(canonicalPrefix) ? `'${canonicalPrefix.replace(/'/g, "'\\''")}'` : canonicalPrefix;
-    const ownerMismatch = uid !== expectedUid || actual.uid !== expectedUid;
-    const modeMismatch = (actual.mode & 0o022) !== 0;
-    const remedy = ownerMismatch && modeMismatch
-      ? `chown ${expectedUid} ${quotedPrefix} && chmod go-w ${quotedPrefix}`
-      : ownerMismatch
-        ? `chown ${expectedUid} ${quotedPrefix}`
-        : `chmod go-w ${quotedPrefix}`;
-    throw new Error(
-      `prefix_owner_mismatch: ${canonicalPrefix} has mode ${octalMode} uid=${actual.uid} (expected uid=${expectedUid} without group/other write); run: ${remedy}`
-    );
-  }
+  assertTrustedPrefixDirectory(canonicalPrefix, uid, upgOptions);
   return { canonicalPrefix, uid, prefixId: digest({ canonicalPrefix, uid }),
     managedRoot: join(canonicalPrefix, 'h2a-managed', String(uid)),
     legacyLock: join(canonicalPrefix, '.h2a-upgrade.lock') };

@@ -163,18 +163,53 @@ test('real central should register the retained shim catalogue as inventory with
   }
 });
 
-test('authority should reject group or world writable physical prefixes including umask 0002 worktrees', async () => {
+test('authority should admit 0775 UPG physical prefixes while rejecting shared groups and 0777', async () => {
+  const { isExclusiveUserPrivateGroup } = await import('../src/runtime/handover/upg-trust.js');
   const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l3-argon-prefix-')), mask = process.umask(0o002);
   try {
     const physicalPrefix = join(dir, 'worktree'), directory = join(dir, 'runtime'), root = join(dir, 'store');
     fs.mkdirSync(physicalPrefix, { mode: 0o777 }); process.umask(mask);
-    assert.equal(fs.statSync(physicalPrefix).mode & 0o777, 0o775, 'reproduce a Git worktree created under umask 0002');
-    await assert.rejects(prepareAuthority({ directory, root, physicalPrefix }), /prefix_owner_mismatch/);
-    assert.deepEqual(fs.readdirSync(directory), [], 'unsafe prefix cannot acquire an authority anchor or keys');
+    const st = fs.statSync(physicalPrefix);
+    assert.equal(st.mode & 0o777, 0o775, 'reproduce a Git worktree created under umask 0002');
+    const uid = process.getuid();
+    const gid = st.gid;
+    const exclusiveUpg = {
+      uid,
+      gid,
+      passwdContent: `owner:x:${uid}:${gid}:Owner:/home/owner:/bin/bash\n`,
+      groupContent: `owner:x:${gid}:\n`
+    };
+    const sharedGroup = {
+      uid,
+      gid,
+      passwdContent: `owner:x:${uid}:${gid}:Owner:/home/owner:/bin/bash\nother:x:${uid + 1}:${gid}:Other:/home/other:/bin/bash\n`,
+      groupContent: `owner:x:${gid}:other\n`
+    };
+    // Shared group on 0775 must fail closed without publishing authority state.
+    await assert.rejects(
+      prepareAuthority({ directory, root, physicalPrefix, upgOptions: sharedGroup }),
+      /prefix_owner_mismatch/
+    );
+    assert.deepEqual(fs.readdirSync(directory), [], 'shared-group 0775 prefix cannot acquire an authority anchor or keys');
+    // World-writable 0777 must always be rejected even under exclusive UPG.
     fs.chmodSync(physicalPrefix, 0o777);
-    await assert.rejects(prepareAuthority({ directory, root, physicalPrefix }), /prefix_owner_mismatch/);
+    await assert.rejects(
+      prepareAuthority({ directory, root, physicalPrefix, upgOptions: exclusiveUpg }),
+      /prefix_owner_mismatch/
+    );
+    assert.deepEqual(fs.readdirSync(directory), [], '0777 prefix cannot acquire an authority anchor or keys');
+    // Exclusive UPG 0775 is admitted without rewriting permissions.
+    fs.chmodSync(physicalPrefix, 0o775);
+    assert.ok((await prepareAuthority({ directory, root, physicalPrefix, upgOptions: exclusiveUpg })).rootKey);
+    assert.equal(fs.statSync(physicalPrefix).mode & 0o777, 0o775, 'admission does not rewrite UPG prefix permissions');
+    // Host-default check agrees with isExclusiveUserPrivateGroup(st).
+    const defaultDir = join(dir, 'runtime-default');
+    if (isExclusiveUserPrivateGroup(st)) {
+      assert.ok((await prepareAuthority({ directory: defaultDir, root, physicalPrefix })).rootKey);
+    } else {
+      await assert.rejects(prepareAuthority({ directory: defaultDir, root, physicalPrefix }), /prefix_owner_mismatch/);
+    }
     fs.chmodSync(physicalPrefix, 0o755);
-    assert.ok((await prepareAuthority({ directory, root, physicalPrefix })).rootKey);
-    assert.equal(fs.statSync(physicalPrefix).mode & 0o777, 0o755, 'admission does not rewrite prefix permissions');
+    assert.ok((await prepareAuthority({ directory: join(dir, 'runtime-755'), root, physicalPrefix })).rootKey);
   } finally { process.umask(mask); fs.rmSync(dir, { recursive: true, force: true }); }
 });

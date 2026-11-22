@@ -158,7 +158,7 @@ if (argv[0] === "__operator-break") {
   const onSignal = (sig: NodeJS.Signals): void => {
     process.stderr.write(`h2a mcp-central-serve: received ${sig}, shutting down gracefully\n`);
     ac.abort();
-    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 12_000).unref();
   };
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
     process.once(sig, () => onSignal(sig));

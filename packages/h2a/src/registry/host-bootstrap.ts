@@ -1138,6 +1138,8 @@ function quoteShellPathForBootstrap(p: string): string {
   return /[^A-Za-z0-9_./:@=-]/.test(p) ? `'${p.replace(/'/g, "'\\''")}'` : p;
 }
 
+import { isExclusiveUserPrivateGroup as isExclusiveUserPrivateGroupCore } from "../runtime/handover/upg-trust.js";
+
 export interface UserPrivateGroupOptions {
   uid?: number;
   gid?: number;
@@ -1157,52 +1159,7 @@ export function isExclusiveUserPrivateGroup(
   st: { uid: number; gid?: number },
   options: UserPrivateGroupOptions = {}
 ): boolean {
-  const uid = options.uid ?? (typeof process.getuid === "function" ? process.getuid() : -1);
-  const gid = options.gid ?? (typeof process.getgid === "function" ? process.getgid() : -1);
-  if (uid < 0 || gid < 0 || typeof st.gid !== "number") return false;
-  if (st.uid !== uid || st.gid !== gid) return false;
-  let passwdRaw: string;
-  let groupRaw: string;
-  try {
-    passwdRaw = options.passwdContent ?? readFileSync("/etc/passwd", "utf8");
-    groupRaw = options.groupContent ?? readFileSync("/etc/group", "utf8");
-  } catch {
-    return false;
-  }
-  let username: string | null = null;
-  let matchingUserCount = 0;
-  for (const rawLine of passwdRaw.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const fields = line.split(":");
-    if (fields.length < 4) return false;
-    const [name, , uidStr, gidStr] = fields;
-    if (!name || !/^\d+$/.test(uidStr ?? "") || !/^\d+$/.test(gidStr ?? "")) return false;
-    const entryUid = Number(uidStr);
-    const entryGid = Number(gidStr);
-    if (entryUid === uid) {
-      matchingUserCount++;
-      if (entryGid !== gid) return false;
-      username = name;
-    } else if (entryGid === gid) {
-      return false;
-    }
-  }
-  if (matchingUserCount !== 1 || !username) return false;
-  let matchingGroupCount = 0;
-  for (const rawLine of groupRaw.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const fields = line.split(":");
-    if (fields.length < 4) return false;
-    const [, , gidStr, membersStr] = fields;
-    if (!/^\d+$/.test(gidStr ?? "")) return false;
-    if (Number(gidStr) !== gid) continue;
-    matchingGroupCount++;
-    const members = (membersStr ?? "").split(",").map((m) => m.trim()).filter(Boolean);
-    if (members.some((member) => member !== username)) return false;
-  }
-  return matchingGroupCount === 1;
+  return isExclusiveUserPrivateGroupCore(st, options);
 }
 
 function isTrustedStat(st: { uid: number; gid?: number; mode: number }): boolean {

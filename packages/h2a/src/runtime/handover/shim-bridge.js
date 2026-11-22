@@ -4,7 +4,7 @@ import { embeddedTools } from '../mcp-central-descriptor.js';
 import { centralMcpMarkerPath, readCentralClientMarker, parseCentralMcpEndpoint } from '../mcp-central-discovery.js';
 import { authenticatedHttpRequest, readAuthenticationKey } from './authenticated-http.js';
 import { FrameVerifier } from './authentication.js';
-import { currentIdentity, ownerLiveness } from './admission.js';
+import { currentIdentity, ownerLiveness, centralMcpPing } from './admission.js';
 import { RequestMappings, nonAdmissionMatches } from './request-mappings.js';
 import { CatalogueView, describeCatalogue, checkCatalogue } from './catalogue.js';
 import { generationEnded } from './generation-end.js';
@@ -19,6 +19,18 @@ import { shimBuildInfo } from './shim-build.js';
 import { requestWithRetry, transientFetchError } from './request-retry.js';
 
 const PROTOCOLS = ['2025-06-18', '2024-11-05'];
+export const SHIM_HANDSHAKE_TIMEOUT_MS = 1_500;
+const isHandshakeFailoverError = error => {
+  if (!error) return false;
+  if (error.name === 'AbortError' || error.name === 'TimeoutError') return true;
+  if (['challenge_connection_lost', 'socket hang up'].includes(error.message)) return true;
+  let cur = error;
+  for (let depth = 0; depth < 4 && cur && typeof cur === 'object'; depth++) {
+    if (typeof cur.code === 'string' && ['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(cur.code)) return true;
+    cur = cur.cause;
+  }
+  return false;
+};
 const rpc = value => value && value.jsonrpc === '2.0' && !Array.isArray(value);
 function messages(text, type) {
   if (!text.trim()) return [];
@@ -253,7 +265,7 @@ export async function bridgeCentralMcpStdio(options) {
         if (![...mappings.requests.values()].some(e => e.owner === previous)) { owners.delete(previous); previous.events?.abort(); }
         if (result.notificationGap) write({ jsonrpc: '2.0', method: 'notifications/h2a/session_state_gap', params: { reason: 'notification_gap' } });
       } else {
-        const owner = pendingOwner?.generation === marker.generation ? pendingOwner : { marker, generation: marker.generation, sessionId: undefined, attachmentId, transportEpoch: 1,
+        let owner = pendingOwner?.generation === marker.generation ? pendingOwner : { marker, generation: marker.generation, sessionId: undefined, attachmentId, transportEpoch: 1,
           verifier: new FrameVerifier(marker, readAuthenticationKey(markerPath, marker)) };
         if (options.attachment && (current || (pendingOwner && pendingOwner.generation !== marker.generation))) options.attachment.resume = true;
         pendingOwner = owner;
@@ -261,26 +273,81 @@ export async function bridgeCentralMcpStdio(options) {
         const initializeMessage = { jsonrpc: '2.0', id, method: 'initialize', params: {
           protocolVersion: initialized.protocolVersion, capabilities: {}, clientInfo: { name: 'h2a-central-shim', version: '3' } } };
         let handshake, handshakeId = id;
-        try { handshake = await post(owner, initializeMessage); }
-        catch {
-          // A lost initialize reply may already own a logical activation. Ask
-          // for that attachment before retrying this idempotent handshake.
-          if (options.attachment) {
-            try { await probeExpectedInstance(owner); } catch { /* Unsupported status does not grant a resume or a new activation. */ }
-            const resumed = await request(owner, '/_h2a-central/resume', { method: 'POST', headers: headers(owner), body: JSON.stringify({ schemaVersion: 1,
-              attachmentId, expectedGeneration: marker.generation, expectedTransportEpoch: owner.transportEpoch,
-              resumeAttemptId: owner.resumeAttemptId ??= randomUUID(), expectedInstance: options.attachment.expectedInstance ?? 'identity_disabled', lastAcceptedNotificationSequence: 0 }) });
-            if (resumed.ok) {
-              const result = await resumed.json();
-              if (result.attachmentId === attachmentId && result.generation === marker.generation && result.transportEpoch === owner.transportEpoch + 1 &&
-                  result.sessionId && PROTOCOLS.includes(result.protocolVersion)) {
-                owner.transportEpoch = result.transportEpoch;
-                handshake = { response: { headers: { get: name => name === 'mcp-session-id' ? result.sessionId : null } },
-                  frames: [{ jsonrpc: '2.0', id: handshakeId, result: { protocolVersion: result.protocolVersion } }] };
+        try {
+          handshake = await post(
+            owner,
+            initializeMessage,
+            AbortSignal.any([controller.signal, AbortSignal.timeout(SHIM_HANDSHAKE_TIMEOUT_MS)])
+          );
+        } catch (handshakeError) {
+          if (controller.signal.aborted) throw handshakeError;
+          let centralHealthy = !isHandshakeFailoverError(handshakeError);
+          if (!centralHealthy) {
+            const ping = await centralMcpPing(owner.marker.endpoint, 500).catch(() => ({ kind: 'ambiguous' }));
+            centralHealthy = ping.kind === 'generation' && ping.generation === owner.generation;
+          }
+          if (centralHealthy) {
+            // A lost initialize reply may already own a logical activation. Ask
+            // for that attachment before retrying this idempotent handshake.
+            if (options.attachment) {
+              try { await probeExpectedInstance(owner); } catch { /* Unsupported status does not grant a resume or a new activation. */ }
+              const resumed = await request(owner, '/_h2a-central/resume', { method: 'POST', headers: headers(owner), body: JSON.stringify({ schemaVersion: 1,
+                attachmentId, expectedGeneration: marker.generation, expectedTransportEpoch: owner.transportEpoch,
+                resumeAttemptId: owner.resumeAttemptId ??= randomUUID(), expectedInstance: options.attachment.expectedInstance ?? 'identity_disabled', lastAcceptedNotificationSequence: 0 }) });
+              if (resumed.ok) {
+                const result = await resumed.json();
+                if (result.attachmentId === attachmentId && result.generation === marker.generation && result.transportEpoch === owner.transportEpoch + 1 &&
+                    result.sessionId && PROTOCOLS.includes(result.protocolVersion)) {
+                  owner.transportEpoch = result.transportEpoch;
+                  handshake = { response: { headers: { get: name => name === 'mcp-session-id' ? result.sessionId : null } },
+                    frames: [{ jsonrpc: '2.0', id: handshakeId, result: { protocolVersion: result.protocolVersion } }] };
+                }
               }
             }
+            if (!handshake) {
+              handshakeId = mappings.nextId();
+              handshake = await post(
+                owner,
+                { ...initializeMessage, id: handshakeId },
+                AbortSignal.any([controller.signal, AbortSignal.timeout(SHIM_HANDSHAKE_TIMEOUT_MS)])
+              );
+            }
+          } else if (typeof options.ensure === 'function') {
+            // Central is unresponsive or dead. Outside live-transfer PUBLISHED/RETIRED,
+            // invoke ensure() (which runs preclaim probe + eviction + successor launch),
+            // re-read marker.json, and retry initialize against the new generation.
+            let liveTransferPublishedOrRetired = false;
+            try {
+              const control = readState(join(owner.marker.stateDirectory, 'component-control.json'), 'componentControl')?.value;
+              const tx = control?.activeTransaction
+                ? readState(join(owner.marker.stateDirectory, control.activeTransaction), 'componentTransaction')?.value
+                : undefined;
+              if (tx && tx.mode === 'live-transfer' && ['PUBLISHED', 'RETIRED'].includes(tx.state)) {
+                liveTransferPublishedOrRetired = true;
+              }
+            } catch { /* ignore unreadable control */ }
+            if (liveTransferPublishedOrRetired) throw handshakeError;
+            await options.ensure();
+            marker = readCentralClientMarker(markerPath);
+            if (marker.schemaVersion !== 2 || marker.protocol !== 2) throw new Error('legacy_requires_cold_upgrade');
+            owner = {
+              marker,
+              generation: marker.generation,
+              sessionId: undefined,
+              attachmentId,
+              transportEpoch: 1,
+              verifier: new FrameVerifier(marker, readAuthenticationKey(markerPath, marker))
+            };
+            pendingOwner = owner;
+            handshakeId = mappings.nextId();
+            handshake = await post(
+              owner,
+              { ...initializeMessage, id: handshakeId },
+              AbortSignal.any([controller.signal, AbortSignal.timeout(SHIM_HANDSHAKE_TIMEOUT_MS)])
+            );
+          } else {
+            throw handshakeError;
           }
-          if (!handshake) { handshakeId = mappings.nextId(); handshake = await post(owner, { ...initializeMessage, id: handshakeId }); }
         }
         const reply = handshake.frames.find(m => m.id === handshakeId);
         if (!reply?.result || !PROTOCOLS.includes(reply.result.protocolVersion)) throw new Error('initialize_invalid');
