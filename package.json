@@ -28,6 +28,7 @@
     "smoke:artifact": "node scripts/smoke-artifact.mjs",
     "test": "node scripts/run-test-gates.mjs",
     "build:ui-render-inline": "node scripts/build-ui-render-inline.mjs",
+    "crap": "node packages/h2a/scripts/change-risk.mjs --exclude docs/plan",
     "pack:h2a-runtime": "node scripts/package-release.mjs --package @sentropic/h2a-runtime",
     "publish:h2a-runtime": "node scripts/package-release.mjs --package @sentropic/h2a-runtime --publish"
   },
