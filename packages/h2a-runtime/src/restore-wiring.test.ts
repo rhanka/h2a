@@ -399,7 +399,8 @@ describe("INJ L1a r5 (D2 & D4) — dedup, ledger, observed totals, and exit code
     expect(Reflect.get(result, "exitCode")).toBe(1);
     const out = stderrLines.join("");
     expect(out).not.toContain("controller visibility UNKNOWN");
-    expect(out.match(/stale/gi)?.length ?? 0).toBe(1);
+    expect(out.split("\n").filter((line) => /stale|ancien/i.test(line))).toHaveLength(1);
+    expect(out).toContain("h2a doctor");
   });
 
   it("should exit zero with an empty ledger when there are no candidates", () => {
