@@ -620,7 +620,7 @@ test("sequence and framing: rejects duplicate s, gap s, wrong ch, truncated fram
     },
     {
       name: "gap in s",
-      inject: (peer, conn) => peer.sendRecord(conn, { t: "ping", ch: 0, s: 5, at: 100 })
+      inject: (peer, conn) => peer.sendRecord(conn, { t: "ping", ch: 0, s: conn.serverSeq + 2, at: 100 })
     },
     {
       name: "wrong channel for watch.start",
@@ -633,15 +633,15 @@ test("sequence and framing: rejects duplicate s, gap s, wrong ch, truncated fram
     {
       name: "truncated record",
       inject: (peer, conn) => {
-        const frame = peer.contract.encodeFrame({ v: 1, t: "ping", ch: 0, s: 3, at: 100 });
+        const frame = peer.contract.encodeFrame({ v: 1, t: "ping", ch: 0, s: conn.serverSeq + 1, at: 100 });
         peer.sendRawBytes(conn, frame.subarray(0, frame.length - 3));
       }
     },
     {
       name: "two records in one message",
       inject: (peer, conn) => {
-        const f1 = peer.contract.encodeFrame({ v: 1, t: "ping", ch: 0, s: 3, at: 100 });
-        const f2 = peer.contract.encodeFrame({ v: 1, t: "ping", ch: 0, s: 4, at: 200 });
+        const f1 = peer.contract.encodeFrame({ v: 1, t: "ping", ch: 0, s: conn.serverSeq + 1, at: 100 });
+        const f2 = peer.contract.encodeFrame({ v: 1, t: "ping", ch: 0, s: conn.serverSeq + 2, at: 200 });
         peer.sendRawBytes(conn, Buffer.concat([f1, f2]));
       }
     },
@@ -651,7 +651,7 @@ test("sequence and framing: rejects duplicate s, gap s, wrong ch, truncated fram
     },
     {
       name: "text frame",
-      inject: (peer, conn) => peer.sendTextFrame(conn, JSON.stringify({ v: 1, t: "ping", ch: 0, s: 3, at: 100 }))
+      inject: (peer, conn) => peer.sendTextFrame(conn, JSON.stringify({ v: 1, t: "ping", ch: 0, s: conn.serverSeq + 1, at: 100 }))
     }
   ];
 
@@ -2000,5 +2000,827 @@ test("R11 inc-2: wireInstanceId <= 36B, queued multi-bind preserves localHandle,
     } finally {
       cleanup(fx.dirs);
     }
+  }
+});
+
+// ============================================================================
+// 9. R11 Increment 6: bounded ready + authority synchronization (gates 1..19)
+// ============================================================================
+
+test("R11 inc-6 gate 1: empty image rev=7 transitions to ready, calls onLinkReady once, persists rev 7 without revocations", () => {
+  const fx = makeClientFixture({ enrolmentMeta: { stateRevision: 7, revokedInstances: [] } });
+  try {
+    assert.equal(fx.client.start().ok, true);
+    assert.equal(fx.client.getState(), "ready");
+    assert.equal(fx.linkEvents.filter((e) => e.kind === "link-ready").length, 1);
+    const conn = fx.peer.allConnections()[0];
+    const beginRec = conn.decodedServerRecords.find((r) => r.t === "state.begin");
+    assert.ok(beginRec, "state.begin must be sent");
+    assert.equal(beginRec.stateRevision, 7);
+    assert.equal(beginRec.revocationCount, 0);
+    assert.equal(beginRec.partCount, 0);
+    const appliedRec = conn.decodedClientRecords.find((r) => r.t === "state.applied");
+    const endRec = conn.decodedServerRecords.find((r) => r.t === "state.end");
+    const activeRec = conn.decodedServerRecords.find((r) => r.t === "state.active");
+    assert.ok(appliedRec && endRec && activeRec);
+    assert.equal(appliedRec.syncGeneration, beginRec.syncGeneration);
+    assert.equal(appliedRec.stateRevision, 7);
+    assert.equal(appliedRec.imageSha256, endRec.imageSha256);
+
+    fx.client.stop();
+    const reg = readRevokedInstancesRegistry(fx.dirs.root);
+    assert.equal(reg.ok, true);
+    const scope = `${MESH}|${TENANT}|${fx.enrolment.enrolmentRef}|${fx.key.nodeId}`;
+    assert.equal(reg.entries[scope]?.stateRevision, 7);
+    assert.deepEqual(reg.entries[scope]?.revoked ?? [], []);
+  } finally {
+    cleanup(fx.dirs);
+  }
+});
+
+test("R11 inc-6 gate 2: synchronous state.active in send stack activates on start(); duplicate state.active closes sync-state-invalid", () => {
+  const fx = makeClientFixture();
+  try {
+    let onReadyCalls = 0;
+    const dirs = makeIsolation();
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-sync-2", publicKeyPem: key.publicKeyPem, fingerprint: key.fingerprint });
+    const client = new TrunkClient({
+      root: dirs.root,
+      env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-sync-2", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir },
+      connector: peer.createConnector("sync-2"),
+      contract: peer.contract,
+      clock,
+      catalogue: new FakeCatalogueDouble({ clock }),
+      terminalConsumer: {
+        onLinkReady: () => { onReadyCalls += 1; },
+        onOpen: () => ({ ok: true })
+      }
+    });
+    assert.equal(client.start().ok, true);
+    assert.equal(client.getState(), "ready");
+    assert.equal(onReadyCalls, 1);
+    const conn = peer.allConnections()[0];
+    assert.equal(conn.decodedClientRecords.some((r) => r.t === "err"), false);
+
+    // Duplicate state.active with same triplet must close on sync-state-invalid!
+    const active1 = conn.decodedServerRecords.find((r) => r.t === "state.active");
+    peer.sendRecord(conn, {
+      t: "state.active",
+      ch: 0,
+      syncGeneration: active1.syncGeneration,
+      stateRevision: active1.stateRevision,
+      imageSha256: active1.imageSha256
+    });
+    assert.equal(conn.closed, true);
+    assert.ok(conn.decodedClientRecords.some((r) => r.t === "err" && r.ch === 0 && r.code === "sync-state-invalid"));
+    client.stop();
+    cleanup(dirs);
+  } finally {
+    cleanup(fx.dirs);
+  }
+});
+
+test("R11 inc-6 gate 3: before state.active zero x-liveness/bind/cat and unexpected control closes unexpected-record-before-active; ping works", () => {
+  const manualPeerCases = [
+    { name: "watch.start", fn: (p, c) => p.sendWatchStart(c) },
+    { name: "term.open", fn: (p, c) => p.sendTermOpen(c, { ch: 2, sid: "n-a", mode: "observe" }) },
+    { name: "instance.bound", fn: (p, c) => p.sendRecord(c, { t: "instance.bound", ch: 0, instanceId: "i-1", status: "live", bindNonce: "a".repeat(22) }) },
+    { name: "credit", fn: (p, c) => p.sendCredit(c, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 }) }
+  ];
+  for (const tc of manualPeerCases) {
+    const dirs = makeIsolation();
+    try {
+      const clock = new FakeClock(1_700_000_000_000);
+      const key = generateNodeKey({ configDir: dirs.configDir });
+      const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+      peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-preact", publicKeyPem: key.publicKeyPem });
+      const client = new TrunkClient({
+        root: dirs.root,
+        env: TEST_ENV,
+        enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-preact", nodeId: key.nodeId },
+        nodeKeyOptions: { configDir: dirs.configDir },
+        connector: peer.createConnector("preact"),
+        contract: peer.contract,
+        clock,
+        catalogue: new FakeCatalogueDouble({ clock })
+      });
+      assert.equal(client.start().ok, true);
+      assert.equal(client.getState(), "syncing");
+      const conn = peer.allConnections()[0];
+      // Ping / pong work during syncing
+      peer.sendPing(conn);
+      assert.equal(conn.decodedClientRecords.some((r) => r.t === "pong"), true);
+      // Advance 10s without active -> zero x-liveness
+      clock.advance(10_000);
+      assert.equal(conn.decodedClientRecords.some((r) => r.t === "x-liveness"), false);
+      assert.equal(conn.decodedClientRecords.some((r) => r.t === "instance.bind"), false);
+      assert.equal(conn.receivedCatalogue.length, 0);
+
+      tc.fn(peer, conn);
+      assert.equal(conn.closed, true, `${tc.name} before active must close link`);
+      assert.equal(client.readLinkStatus()?.reason, "unexpected-record-before-active");
+      client.stop();
+    } finally {
+      cleanup(dirs);
+    }
+  }
+});
+
+test("R11 inc-6 gate 4: multi-page 20 revocations + 3 grants applies revocations before first snapshot", () => {
+  const revokedList = Array.from({ length: 20 }, (_, i) => wireInstanceId(`inst-mp-${String(i).padStart(2, "0")}`));
+  const grants = Array.from({ length: 3 }, (_, i) => ({ fromMeshId: `m-${i}`, fromTenantId: `t-${i}`, resourceKinds: ["terminal"] }));
+  const fx = makeClientFixture({
+    enrolmentMeta: { revokedInstances: revokedList, grants, stateRevision: 3 },
+    initialRows: [sampleRow("n-a", wireInstanceId("inst-mp-00")), sampleRow("n-b", "inst-B")]
+  });
+  try {
+    assert.equal(fx.client.start().ok, true);
+    const conn = fx.peer.allConnections()[0];
+    const parts = conn.decodedServerRecords.filter((r) => r.t === "state.part");
+    assert.equal(parts.length, 3);
+    assert.equal(parts[0].kind, "revocations");
+    assert.equal(parts[1].kind, "revocations");
+    assert.equal(parts[2].kind, "grants");
+
+    fx.peer.sendCredit(conn, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
+    fx.peer.sendWatchStart(conn);
+    assert.equal(conn.catalogueView?.rows.find((r) => r.sid === "n-a")?.instanceStatus, "revoked");
+    fx.client.stop();
+  } finally {
+    cleanup(fx.dirs);
+  }
+});
+
+test("R11 inc-6 gate 5: admitInstanceAct returns instance-revoked right after applied (before active) and after state.active", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    createRegisteredInstance(dirs.root, "inst-A");
+    const wireA = wireInstanceId("inst-A");
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-act-rev", publicKeyPem: key.publicKeyPem });
+    const client = new TrunkClient({
+      root: dirs.root,
+      env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-act-rev", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir },
+      connector: peer.createConnector("act-rev"),
+      contract: peer.contract,
+      clock,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client.start().ok, true);
+    const conn = peer.allConnections()[0];
+    const entry = { instanceId: wireA, revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" };
+    const begin = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 2, revocationCount: 1, grantCount: 0, partCount: 1 });
+    const p0 = peer.sendStatePart(conn, { syncGeneration: 1, part: 0, kind: "revocations", entries: [entry] });
+    const end = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 2, partCount: 1, records: [begin, p0] });
+    assert.equal(conn.decodedClientRecords.some((r) => r.t === "state.applied"), true);
+    // Before state.active: already refused as instance-revoked!
+    assert.deepEqual(client.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+    peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 2, imageSha256: end.imageSha256 });
+    assert.equal(client.getState(), "ready");
+    assert.deepEqual(client.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 6: drop after one page leaves revision untouched and reconnect requires full sync", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const wireA = wireInstanceId("inst-drop1");
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-drop1", publicKeyPem: key.publicKeyPem });
+    const client = new TrunkClient({
+      root: dirs.root,
+      env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-drop1", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir },
+      connector: peer.createConnector("drop1"),
+      contract: peer.contract,
+      clock,
+      random: () => 0.5,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client.start().ok, true);
+    const conn1 = peer.allConnections()[0];
+    peer.sendStateBegin(conn1, { syncGeneration: 1, stateRevision: 5, revocationCount: 17, grantCount: 0, partCount: 2 });
+    const revs = Array.from({ length: 16 }, (_, i) => ({ instanceId: `${wireA}-${i}`, revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" })).sort((a, b) => (a.instanceId < b.instanceId ? -1 : 1));
+    peer.sendStatePart(conn1, { syncGeneration: 1, part: 0, kind: "revocations", entries: revs });
+    peer.dropConnection(conn1, "mid-sync-drop");
+
+    const reg = readRevokedInstancesRegistry(dirs.root);
+    const scope = `${MESH}|${TENANT}|enr-drop1|${key.nodeId}`;
+    assert.equal(reg.entries[scope]?.stateRevision ?? 0, 0);
+
+    clock.advance(1_000);
+    const conn2 = peer.allConnections()[1];
+    assert.ok(conn2);
+    assert.equal(client.getState(), "syncing");
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 7: drop after state.applied before state.active does not activate; reconnect restarts full sync", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-drop-app", publicKeyPem: key.publicKeyPem });
+    const client = new TrunkClient({
+      root: dirs.root,
+      env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-drop-app", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir },
+      connector: peer.createConnector("drop-app"),
+      contract: peer.contract,
+      clock,
+      random: () => 0.5,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client.start().ok, true);
+    const conn1 = peer.allConnections()[0];
+    const b1 = peer.sendStateBegin(conn1, { syncGeneration: 1, stateRevision: 4, revocationCount: 0, grantCount: 0, partCount: 0 });
+    peer.sendStateEnd(conn1, { syncGeneration: 1, stateRevision: 4, partCount: 0, records: [b1] });
+    assert.equal(conn1.decodedClientRecords.some((r) => r.t === "state.applied"), true);
+    assert.equal(client.getState(), "syncing");
+    assert.equal(client.getAuthority(), null);
+    peer.dropConnection(conn1, "drop-before-active");
+    clock.advance(1_000);
+    const conn2 = peer.allConnections()[1];
+    assert.ok(conn2);
+    assert.equal(client.getState(), "syncing");
+    assert.equal(client.getAuthority(), null);
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 8: sync faults send err sync-state-invalid before closing and apply nothing", () => {
+  const faults = [
+    "bad-sha",
+    "skipped-part",
+    "unsorted-entry",
+    "bad-char-space"
+  ];
+  for (const fault of faults) {
+    const dirs = makeIsolation();
+    try {
+      const clock = new FakeClock(1_700_000_000_000);
+      const key = generateNodeKey({ configDir: dirs.configDir });
+      const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+      peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: `enr-f-${fault}`, publicKeyPem: key.publicKeyPem });
+      const client = new TrunkClient({
+        root: dirs.root,
+        env: TEST_ENV,
+        enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: `enr-f-${fault}`, nodeId: key.nodeId },
+        nodeKeyOptions: { configDir: dirs.configDir },
+        connector: peer.createConnector(`f-${fault}`),
+        contract: peer.contract,
+        clock,
+        catalogue: new FakeCatalogueDouble({ clock })
+      });
+      assert.equal(client.start().ok, true);
+      const conn = peer.allConnections()[0];
+      if (fault === "bad-sha") {
+        peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 2, revocationCount: 0, grantCount: 0, partCount: 0 });
+        peer.sendRecord(conn, { t: "state.end", ch: 0, syncGeneration: 1, stateRevision: 2, partCount: 0, imageSha256: "f".repeat(64) });
+      } else if (fault === "skipped-part") {
+        peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 2, revocationCount: 2, grantCount: 0, partCount: 1 });
+        peer.sendStatePart(conn, { syncGeneration: 1, part: 1, kind: "revocations", entries: [{ instanceId: "i-1", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }] });
+      } else if (fault === "unsorted-entry") {
+        peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 2, revocationCount: 2, grantCount: 0, partCount: 1 });
+        peer.sendStatePart(conn, {
+          syncGeneration: 1, part: 0, kind: "revocations",
+          entries: [
+            { instanceId: "z-1", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" },
+            { instanceId: "a-1", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }
+          ]
+        });
+      } else {
+        peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 2, revocationCount: 1, grantCount: 0, partCount: 1 });
+        peer.sendStatePart(conn, { syncGeneration: 1, part: 0, kind: "revocations", entries: [{ instanceId: "bad id", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }] });
+      }
+      assert.equal(conn.closed, true, `${fault} must close link`);
+      assert.ok(
+        conn.decodedClientRecords.some((r) => r.t === "err" && r.ch === 0 && r.code === "sync-state-invalid" && r.retryable === false),
+        `${fault} must send err sync-state-invalid before close`
+      );
+      const reg = readRevokedInstancesRegistry(dirs.root);
+      const scope = `${MESH}|${TENANT}|enr-f-${fault}|${key.nodeId}`;
+      assert.equal(reg.entries[scope]?.stateRevision ?? 0, 0);
+      client.stop();
+    } finally {
+      cleanup(dirs);
+    }
+  }
+});
+
+test("R11 inc-6 gate 9: max 4096 revocations and 256 grants in 272 pages accepted end-to-end", () => {
+  const revsMax = Array.from({ length: 4096 }, (_, i) => ({
+    instanceId: `mrev-${String(i).padStart(4, "0")}-${"x".repeat(25)}`,
+    revokedAt: "2026-11-21T10:00:00.000Z",
+    revokedBy: "org-admin"
+  }));
+  const grantsMax = Array.from({ length: 256 }, (_, i) => ({
+    fromMeshId: `mesh-${String(i).padStart(3, "0")}-${"a".repeat(54)}`,
+    fromTenantId: `ten-${String(i).padStart(3, "0")}-${"b".repeat(55)}`,
+    resourceKinds: Array.from({ length: 8 }, (_, k) => `kind-${k}-${"c".repeat(9)}`).sort()
+  }));
+  const fx = makeClientFixture({ enrolmentMeta: { revokedInstances: revsMax, grants: grantsMax, stateRevision: 99 } });
+  try {
+    assert.equal(fx.client.start().ok, true);
+    assert.equal(fx.client.getState(), "ready");
+    const conn = fx.peer.allConnections()[0];
+    const parts = conn.decodedServerRecords.filter((r) => r.t === "state.part");
+    assert.equal(parts.length, 272);
+    for (const p of parts) {
+      assert.ok(Buffer.byteLength(JSON.stringify(p), "utf8") <= 6656);
+    }
+    assert.equal(fx.client.getAuthority()?.grants.length, 256);
+    assert.equal(fx.client.getAuthority()?.stateRevision, 99);
+    fx.client.stop();
+  } finally {
+    cleanup(fx.dirs);
+  }
+});
+
+test("R11 inc-6 gate 10: stale revision below persisted floor rejected sync-state-invalid across restart", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer1 = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer1.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-floor", publicKeyPem: key.publicKeyPem, stateRevision: 10 });
+    const c1 = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-floor", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer1.createConnector("f1"), contract: peer1.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(c1.start().ok, true);
+    c1.stop();
+
+    const peer2 = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer2.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-floor", publicKeyPem: key.publicKeyPem, stateRevision: 9 });
+    const c2 = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-floor", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer2.createConnector("f2"), contract: peer2.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(c2.start().ok, true);
+    const conn2 = peer2.allConnections()[0];
+    assert.equal(conn2.closed, true);
+    assert.ok(conn2.decodedClientRecords.some((r) => r.t === "err" && r.code === "sync-state-invalid"));
+    c2.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 11: relaunch gen=2 rev=6 after gen=1 rev=5 state.applied activates gen=2; stale gen=1 active closes sync-state-invalid", () => {
+  for (const mode of ["activate-gen2", "stale-active-gen1", "timeout-after-relaunch"]) {
+    const dirs = makeIsolation();
+    try {
+      let readyCount = 0;
+      const clock = new FakeClock(1_700_000_000_000);
+      const key = generateNodeKey({ configDir: dirs.configDir });
+      const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+      peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-relaunch", publicKeyPem: key.publicKeyPem });
+      const client = new TrunkClient({
+        root: dirs.root, env: TEST_ENV,
+        enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-relaunch", nodeId: key.nodeId },
+        nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("relaunch"), contract: peer.contract, clock,
+        catalogue: new FakeCatalogueDouble({ clock }),
+        terminalConsumer: { onLinkReady: () => { readyCount += 1; }, onOpen: () => ({ ok: true }) }
+      });
+      assert.equal(client.start().ok, true);
+      const conn = peer.allConnections()[0];
+      const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 5, revocationCount: 0, grantCount: 0, partCount: 0 });
+      const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 5, partCount: 0, records: [b1] });
+
+      clock.advance(5_000);
+      const grantB = { fromMeshId: "m-2", fromTenantId: "t-2", resourceKinds: ["terminal"] };
+      const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 6, revocationCount: 0, grantCount: 1, partCount: 1 });
+      if (mode === "stale-active-gen1") {
+        peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 5, imageSha256: e1.imageSha256 });
+        assert.equal(conn.closed, true);
+        assert.ok(conn.decodedClientRecords.some((r) => r.t === "err" && r.code === "sync-state-invalid"));
+        client.stop();
+        continue;
+      }
+      const p2 = peer.sendStatePart(conn, { syncGeneration: 2, part: 0, kind: "grants", entries: [grantB] });
+      const e2 = peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 6, partCount: 1, records: [b2, p2] });
+      if (mode === "timeout-after-relaunch") {
+        // Relaunch did NOT reset 15s deadline counted from ready (5s elapsed -> 10s left)
+        clock.advance(10_000);
+        assert.equal(conn.closed, true);
+        assert.equal(client.readLinkStatus()?.reason, "sync-timeout");
+        client.stop();
+        continue;
+      }
+      peer.sendStateActive(conn, { syncGeneration: 2, stateRevision: 6, imageSha256: e2.imageSha256 });
+      assert.equal(client.getState(), "ready");
+      assert.equal(readyCount, 1);
+      assert.equal(client.getAuthority()?.stateRevision, 6);
+      assert.deepEqual(client.getAuthority()?.grants, [grantB]);
+      client.stop();
+    } finally {
+      cleanup(dirs);
+    }
+  }
+});
+
+test("R11 inc-6 gate 12: prop.grant floor=8 sets propagationFenced=true, persists floor 8, clears on sync rev 8, rejects rev 7", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-pg", publicKeyPem: key.publicKeyPem, stateRevision: 5 });
+    const client = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-pg", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("pg"), contract: peer.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client.start().ok, true);
+    const conn = peer.allConnections()[0];
+    assert.equal(client.getAuthority()?.propagationFenced, false);
+
+    peer.sendPropGrant(conn, 8);
+    assert.equal(client.getAuthority()?.propagationFenced, true);
+    assert.equal(client.getAuthority()?.stateRevision, 5);
+    const scope = `${MESH}|${TENANT}|enr-pg|${key.nodeId}`;
+    assert.equal(readRevokedInstancesRegistry(dirs.root).entries[scope]?.stateRevision, 8);
+
+    // Sync gen 2 rev 8 -> un-fences!
+    const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 8, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e2 = peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 8, partCount: 0, records: [b2] });
+    peer.sendStateActive(conn, { syncGeneration: 2, stateRevision: 8, imageSha256: e2.imageSha256 });
+    assert.equal(client.getAuthority()?.propagationFenced, false);
+    assert.equal(client.getAuthority()?.stateRevision, 8);
+    client.stop();
+
+    // New link with stateRevision 7 < persisted floor 8 must close with sync-state-invalid
+    const peer2 = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer2.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-pg", publicKeyPem: key.publicKeyPem, stateRevision: 7 });
+    const client2 = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-pg", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer2.createConnector("pg2"), contract: peer2.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client2.start().ok, true);
+    const conn2 = peer2.allConnections()[0];
+    assert.equal(conn2.closed, true);
+    assert.ok(conn2.decodedClientRecords.some((r) => r.t === "err" && r.code === "sync-state-invalid"));
+    client2.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 13: stale staging invalidated to discarded by prop.grant rev 8 while terminal/link stay open", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-disc-stage", publicKeyPem: key.publicKeyPem });
+    const closedCh = [];
+    const client = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-disc-stage", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("ds"), contract: peer.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock }),
+      terminalConsumer: { onOpen: () => ({ ok: true }), onClose: (ch) => closedCh.push(ch) }
+    });
+    assert.equal(client.start().ok, true);
+    const conn = peer.allConnections()[0];
+    // Activate gen 1 rev 5 + open terminal ch 2
+    const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 5, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 5, partCount: 0, records: [b1] });
+    peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 5, imageSha256: e1.imageSha256 });
+    peer.sendTermOpen(conn, { ch: 2, sid: "n-a" });
+
+    // Start staging gen 2 rev 6 -> prop.grant rev 8 arrives mid-staging!
+    const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 6, revocationCount: 0, grantCount: 1, partCount: 1 });
+    peer.sendPropGrant(conn, 8);
+    // Remaining part + end for gen 2 are ignored without state.applied; link & ch 2 stay open!
+    const p2 = peer.sendStatePart(conn, { syncGeneration: 2, part: 0, kind: "grants", entries: [{ fromMeshId: "m-1", fromTenantId: "t-1", resourceKinds: ["session"] }] });
+    peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 6, partCount: 1, records: [b2, p2] });
+    assert.equal(conn.closed, false);
+    assert.deepEqual(closedCh, []);
+    assert.equal(conn.decodedClientRecords.filter((r) => r.t === "state.applied").length, 1);
+
+    // Gen 3 rev 8 accepted within deadline!
+    const b3 = peer.sendStateBegin(conn, { syncGeneration: 3, stateRevision: 8, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e3 = peer.sendStateEnd(conn, { syncGeneration: 3, stateRevision: 8, partCount: 0, records: [b3] });
+    peer.sendStateActive(conn, { syncGeneration: 3, stateRevision: 8, imageSha256: e3.imageSha256 });
+    assert.equal(client.getAuthority()?.stateRevision, 8);
+    assert.equal(client.getAuthority()?.propagationFenced, false);
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 14: stale applied gen=2 rev=6 invalidated to discarded by prop.grant rev 8 or instance.revoked rev 7; late state.active fails", () => {
+  for (const invalidator of ["prop.grant", "instance.revoked"]) {
+    // Part A: late state.active closes on sync-state-invalid
+    {
+      const dirs = makeIsolation();
+      try {
+        const clock = new FakeClock(1_700_000_000_000);
+        const key = generateNodeKey({ configDir: dirs.configDir });
+        createRegisteredInstance(dirs.root, "inst-A");
+        const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+        peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: `enr-da-${invalidator}`, publicKeyPem: key.publicKeyPem });
+        const client = new TrunkClient({
+          root: dirs.root, env: TEST_ENV,
+          enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: `enr-da-${invalidator}`, nodeId: key.nodeId },
+          nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("da"), contract: peer.contract, clock,
+          catalogue: new FakeCatalogueDouble({ clock })
+        });
+        assert.equal(client.start().ok, true);
+        const conn = peer.allConnections()[0];
+        const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 5, revocationCount: 0, grantCount: 1, partCount: 1 });
+        const gA = { fromMeshId: "m-a", fromTenantId: "t-a", resourceKinds: ["session"] };
+        const p1 = peer.sendStatePart(conn, { syncGeneration: 1, part: 0, kind: "grants", entries: [gA] });
+        const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 5, partCount: 1, records: [b1, p1] });
+        peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 5, imageSha256: e1.imageSha256 });
+
+        const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 6, revocationCount: 0, grantCount: 0, partCount: 0 });
+        const e2 = peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 6, partCount: 0, records: [b2] });
+
+        if (invalidator === "prop.grant") {
+          peer.sendPropGrant(conn, 8);
+        } else {
+          peer.sendInstanceRevoked(conn, wireInstanceId("inst-A"), "user", 7);
+          assert.deepEqual(client.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+        }
+        assert.equal(client.getAuthority()?.stateRevision, 5);
+        assert.deepEqual(client.getAuthority()?.grants, [gA]);
+
+        peer.sendStateActive(conn, { syncGeneration: 2, stateRevision: 6, imageSha256: e2.imageSha256 });
+        assert.equal(conn.closed, true);
+        assert.ok(conn.decodedClientRecords.some((r) => r.t === "err" && r.code === "sync-state-invalid"));
+        client.stop();
+      } finally {
+        cleanup(dirs);
+      }
+    }
+
+    // Part B: same start, then gen 3 rev 8 activates cleanly without closing link or terminal
+    {
+      const dirs = makeIsolation();
+      try {
+        const clock = new FakeClock(1_700_000_000_000);
+        const key = generateNodeKey({ configDir: dirs.configDir });
+        createRegisteredInstance(dirs.root, "inst-A");
+        const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+        peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: `enr-db-${invalidator}`, publicKeyPem: key.publicKeyPem });
+        const closedCh = [];
+        const client = new TrunkClient({
+          root: dirs.root, env: TEST_ENV,
+          enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: `enr-db-${invalidator}`, nodeId: key.nodeId },
+          nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("db"), contract: peer.contract, clock,
+          catalogue: new FakeCatalogueDouble({ clock }),
+          terminalConsumer: { onOpen: () => ({ ok: true }), onClose: (ch) => closedCh.push(ch) }
+        });
+        assert.equal(client.start().ok, true);
+        const conn = peer.allConnections()[0];
+        const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 5, revocationCount: 0, grantCount: 0, partCount: 0 });
+        const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 5, partCount: 0, records: [b1] });
+        peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 5, imageSha256: e1.imageSha256 });
+        peer.sendTermOpen(conn, { ch: 2, sid: "n-a" });
+
+        const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 6, revocationCount: 0, grantCount: 0, partCount: 0 });
+        peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 6, partCount: 0, records: [b2] });
+        if (invalidator === "prop.grant") peer.sendPropGrant(conn, 8);
+        else peer.sendInstanceRevoked(conn, wireInstanceId("inst-A"), "user", 7);
+
+        const b3 = peer.sendStateBegin(conn, { syncGeneration: 3, stateRevision: 8, revocationCount: 0, grantCount: 0, partCount: 0 });
+        const e3 = peer.sendStateEnd(conn, { syncGeneration: 3, stateRevision: 8, partCount: 0, records: [b3] });
+        peer.sendStateActive(conn, { syncGeneration: 3, stateRevision: 8, imageSha256: e3.imageSha256 });
+        assert.equal(conn.closed, false);
+        assert.deepEqual(closedCh, []);
+        assert.equal(client.getAuthority()?.stateRevision, 8);
+        client.stop();
+      } finally {
+        cleanup(dirs);
+      }
+    }
+  }
+});
+
+test("R11 inc-6 gate 15: 15s sync-timeout closes without resetting reconnect backoff (1s, 2s, 4s)", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-to", publicKeyPem: key.publicKeyPem });
+    const client = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-to", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("to"), contract: peer.contract, clock,
+      random: () => 0.5, catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client.start().ok, true);
+    assert.equal(peer.attemptsFor("to"), 1);
+
+    clock.advance(14_999);
+    assert.equal(peer.allConnections()[0].closed, false);
+    clock.advance(1);
+    assert.equal(peer.allConnections()[0].closed, true);
+    assert.equal(client.readLinkStatus()?.reason, "sync-timeout");
+
+    // Backoff 1s -> attempt 2, timeout 15s -> backoff 2s -> attempt 3, timeout 15s -> backoff 4s -> attempt 4
+    clock.advance(1_000);
+    assert.equal(peer.attemptsFor("to"), 2);
+    clock.advance(15_000 + 2_000);
+    assert.equal(peer.attemptsFor("to"), 3);
+    clock.advance(15_000 + 3_999);
+    assert.equal(peer.attemptsFor("to"), 3);
+    clock.advance(1);
+    assert.equal(peer.attemptsFor("to"), 4);
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 16: live refresh preserves open terminal channel and watched catalogue", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-live-ref", publicKeyPem: key.publicKeyPem });
+    const cat = new FakeCatalogueDouble({ clock, initialRows: [sampleRow("n-a", "inst-A")] });
+    const closedCh = [];
+    const client = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-live-ref", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("lr"), contract: peer.contract, clock,
+      catalogue: cat,
+      terminalConsumer: { onOpen: () => ({ ok: true }), onClose: (ch) => closedCh.push(ch) }
+    });
+    assert.equal(client.start().ok, true);
+    const conn = peer.allConnections()[0];
+    const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 1, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 1, partCount: 0, records: [b1] });
+    peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 1, imageSha256: e1.imageSha256 });
+    peer.sendCredit(conn, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
+    peer.sendWatchStart(conn);
+    peer.sendTermOpen(conn, { ch: 2, sid: "n-a" });
+    peer.sendCredit(conn, 2, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
+
+    peer.sendPropGrant(conn, 2);
+    assert.equal(client.getAuthority()?.propagationFenced, true);
+    const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 2, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e2 = peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 2, partCount: 0, records: [b2] });
+    peer.sendStateActive(conn, { syncGeneration: 2, stateRevision: 2, imageSha256: e2.imageSha256 });
+    assert.equal(client.getAuthority()?.propagationFenced, false);
+    assert.deepEqual(closedCh, []);
+    assert.equal(cat.watching, true);
+    assert.equal(client.trySendOutput(2, { t: "term.out", sid: "n-a", incarnation: "i1", firstSeq: 1, lastSeq: 1, dataB64: Buffer.from("ok").toString("base64") }, 2), "sent");
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 17: initial getAuthority() is null until active; pending grant B stays hidden behind active A until state.active", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-pend-g", publicKeyPem: key.publicKeyPem });
+    const client = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-pend-g", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("pgw"), contract: peer.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock })
+    });
+    assert.equal(client.getAuthority(), null);
+    assert.equal(client.start().ok, true);
+    const conn = peer.allConnections()[0];
+    assert.equal(client.getAuthority(), null, "initial sync must return null before state.active");
+
+    const grantA = { fromMeshId: "m-a", fromTenantId: "t-a", resourceKinds: ["session"] };
+    const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 5, revocationCount: 0, grantCount: 1, partCount: 1 });
+    const p1 = peer.sendStatePart(conn, { syncGeneration: 1, part: 0, kind: "grants", entries: [grantA] });
+    const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 5, partCount: 1, records: [b1, p1] });
+    assert.equal(client.getAuthority(), null, "initial applied must still return null before state.active");
+    peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 5, imageSha256: e1.imageSha256 });
+    assert.deepEqual(client.getAuthority(), { stateRevision: 5, grants: [grantA], propagationFenced: false });
+
+    peer.sendPropGrant(conn, 6);
+    const grantB = { fromMeshId: "m-b", fromTenantId: "t-b", resourceKinds: ["terminal"] };
+    const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 6, revocationCount: 0, grantCount: 1, partCount: 1 });
+    const p2 = peer.sendStatePart(conn, { syncGeneration: 2, part: 0, kind: "grants", entries: [grantB] });
+    const e2 = peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 6, partCount: 1, records: [b2, p2] });
+    assert.deepEqual(client.getAuthority(), { stateRevision: 5, grants: [grantA], propagationFenced: true });
+
+    peer.sendStateActive(conn, { syncGeneration: 2, stateRevision: 6, imageSha256: e2.imageSha256 });
+    assert.deepEqual(client.getAuthority(), { stateRevision: 6, grants: [grantB], propagationFenced: false });
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 18: instance.revoked during refresh staging refuses immediately, discards staging without state.applied, keeps link open", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    createRegisteredInstance(dirs.root, "inst-A");
+    const wireA = wireInstanceId("inst-A");
+    const peer = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV, manualAuthoritySync: true });
+    peer.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-rev-stg", publicKeyPem: key.publicKeyPem });
+    const cat = new FakeCatalogueDouble({ clock, initialRows: [sampleRow("n-a", "inst-A")] });
+    const client = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-rev-stg", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer.createConnector("rs"), contract: peer.contract, clock,
+      catalogue: cat
+    });
+    assert.equal(client.start().ok, true);
+    const conn = peer.allConnections()[0];
+    const b1 = peer.sendStateBegin(conn, { syncGeneration: 1, stateRevision: 2, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e1 = peer.sendStateEnd(conn, { syncGeneration: 1, stateRevision: 2, partCount: 0, records: [b1] });
+    peer.sendStateActive(conn, { syncGeneration: 1, stateRevision: 2, imageSha256: e1.imageSha256 });
+    assert.equal(client.bindInstance("inst-A").ok, true);
+
+    const appliedBefore = conn.decodedClientRecords.filter((r) => r.t === "state.applied").length;
+    const b2 = peer.sendStateBegin(conn, { syncGeneration: 2, stateRevision: 3, revocationCount: 0, grantCount: 1, partCount: 1 });
+    peer.sendInstanceRevoked(conn, wireA, "user", 5);
+    assert.deepEqual(client.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+    const p2 = peer.sendStatePart(conn, { syncGeneration: 2, part: 0, kind: "grants", entries: [{ fromMeshId: "m-1", fromTenantId: "t-1", resourceKinds: ["session"] }] });
+    peer.sendStateEnd(conn, { syncGeneration: 2, stateRevision: 3, partCount: 1, records: [b2, p2] });
+    assert.equal(conn.closed, false);
+    assert.equal(conn.decodedClientRecords.filter((r) => r.t === "state.applied").length, appliedBefore);
+
+    // Next gen rev 5 carrying no explicit inst-A (or even empty) STILL keeps inst-A revoked in local tombstones!
+    const b3 = peer.sendStateBegin(conn, { syncGeneration: 3, stateRevision: 5, revocationCount: 0, grantCount: 0, partCount: 0 });
+    const e3 = peer.sendStateEnd(conn, { syncGeneration: 3, stateRevision: 5, partCount: 0, records: [b3] });
+    peer.sendStateActive(conn, { syncGeneration: 3, stateRevision: 5, imageSha256: e3.imageSha256 });
+    assert.deepEqual(client.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+    client.stop();
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-6 gate 19: empty image preserves previously persisted revocation tombstones", () => {
+  const dirs = makeIsolation();
+  try {
+    const clock = new FakeClock(1_700_000_000_000);
+    const key = generateNodeKey({ configDir: dirs.configDir });
+    const peer1 = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer1.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-tomb", publicKeyPem: key.publicKeyPem, revokedInstances: ["inst-A"], stateRevision: 1 });
+    const c1 = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-tomb", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer1.createConnector("t1"), contract: peer1.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock, initialRows: [sampleRow("n-a", "inst-A")] })
+    });
+    assert.equal(c1.start().ok, true);
+    assert.deepEqual(c1.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+    c1.stop();
+
+    const peer2 = new FakeBinaryTrunkPeer({ meshId: MESH, tenantId: TENANT, endpoint: ENDPOINT, clock, env: TEST_ENV });
+    peer2.registerEnrolment({ nodeId: key.nodeId, enrolmentRef: "enr-tomb", publicKeyPem: key.publicKeyPem, revokedInstances: [], stateRevision: 2 });
+    const c2 = new TrunkClient({
+      root: dirs.root, env: TEST_ENV,
+      enrolment: { meshId: MESH, endpoint: ENDPOINT, tenantId: TENANT, enrolmentRef: "enr-tomb", nodeId: key.nodeId },
+      nodeKeyOptions: { configDir: dirs.configDir }, connector: peer2.createConnector("t2"), contract: peer2.contract, clock,
+      catalogue: new FakeCatalogueDouble({ clock, initialRows: [sampleRow("n-a", "inst-A")] })
+    });
+    assert.equal(c2.start().ok, true);
+    assert.deepEqual(c2.admitInstanceAct("inst-A"), { ok: false, reason: "instance-revoked" });
+    c2.stop();
+  } finally {
+    cleanup(dirs);
   }
 });

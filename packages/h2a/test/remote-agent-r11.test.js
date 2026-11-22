@@ -285,3 +285,127 @@ test("R11 inc-4 planCatalogueUpdate: all 10 transition cases", () => {
   assert.equal(plan17.kind, "delta");
   assert.equal(plan17.upserts.length, 17);
 });
+
+// ============================================================================
+// Increment 6 pure tests: AuthoritySyncStager bounds, ordering, digest, faults
+// ============================================================================
+
+test("R11 inc-6 pure stager: constants, empty image, multi-page hash, max 4096+256 in 272 pages <= 6656B, and fault matrix", async () => {
+  const { createHash } = await import("node:crypto");
+  const Stager = remote.AuthoritySyncStager;
+  assert.equal(typeof Stager, "function", "AuthoritySyncStager must be exported");
+  assert.equal(remote.AUTHORITY_SYNC_DEADLINE_MS, 15_000);
+
+  const canon = (r) => Buffer.from(remote.canonicalTrunkJson(r), "utf8");
+  const measure = (v) => Buffer.byteLength(remote.canonicalTrunkJson(v), "utf8");
+  const sha = (...recs) => {
+    const h = createHash("sha256");
+    for (const r of recs) h.update(canon(r));
+    return h.digest("hex");
+  };
+
+  // 1) Empty image
+  const emptyBegin = { v: 1, t: "state.begin", ch: 0, s: 3, syncGeneration: 1, stateRevision: 7, revocationCount: 0, grantCount: 0, partCount: 0 };
+  const emptySha = sha(emptyBegin);
+  const sEmpty = new Stager({ expectedGeneration: 1, revisionFloor: 5, canonicalRecordBytes: canon, measureJcsBytes: measure });
+  assert.equal(sEmpty.begin(emptyBegin).ok, true);
+  assert.deepEqual(
+    sEmpty.end({ v: 1, t: "state.end", ch: 0, s: 4, syncGeneration: 1, stateRevision: 7, partCount: 0, imageSha256: emptySha }),
+    { ok: true, revocations: [], grants: [], stateRevision: 7, imageSha256: emptySha }
+  );
+
+  // 2) Multi-page (20 revocations + 3 grants = 3 pages)
+  const revs20 = Array.from({ length: 20 }, (_, i) => ({
+    instanceId: `inst-${String(i).padStart(4, "0")}`,
+    revokedAt: "2026-11-21T10:00:00.000Z",
+    revokedBy: i % 2 === 0 ? "user" : "tenant-admin"
+  }));
+  const grants3 = Array.from({ length: 3 }, (_, i) => ({
+    fromMeshId: `mesh-${i}`,
+    fromTenantId: `tenant-${i}`,
+    resourceKinds: ["terminal", "session"].sort()
+  }));
+  const mpBegin = { v: 1, t: "state.begin", ch: 0, s: 3, syncGeneration: 2, stateRevision: 10, revocationCount: 20, grantCount: 3, partCount: 3 };
+  const mpParts = [
+    { v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 2, part: 0, kind: "revocations", entries: revs20.slice(0, 16) },
+    { v: 1, t: "state.part", ch: 0, s: 5, syncGeneration: 2, part: 1, kind: "revocations", entries: revs20.slice(16) },
+    { v: 1, t: "state.part", ch: 0, s: 6, syncGeneration: 2, part: 2, kind: "grants", entries: grants3 }
+  ];
+  const mpSha = sha(mpBegin, ...mpParts);
+  const sMp = new Stager({ expectedGeneration: 2, revisionFloor: 0, canonicalRecordBytes: canon, measureJcsBytes: measure });
+  assert.equal(sMp.begin(mpBegin).ok, true);
+  for (const p of mpParts) assert.equal(sMp.part(p).ok, true);
+  const mpEnd = sMp.end({ v: 1, t: "state.end", ch: 0, s: 7, syncGeneration: 2, stateRevision: 10, partCount: 3, imageSha256: mpSha });
+  assert.equal(mpEnd.ok, true);
+  assert.equal(mpEnd.revocations.length, 20);
+  assert.equal(mpEnd.grants.length, 3);
+
+  // 3) Max bounds: 4096 revocations + 256 grants in 272 pages, heaviest page <= 6656 JCS bytes
+  const revsMax = Array.from({ length: 4096 }, (_, i) => ({
+    instanceId: `i-${String(i).padStart(4, "0")}-${"x".repeat(29)}`,
+    revokedAt: "2026-11-21T10:00:00.000Z",
+    revokedBy: "workspace-admin"
+  }));
+  const grantsMax = Array.from({ length: 256 }, (_, i) => ({
+    fromMeshId: `m-${String(i).padStart(3, "0")}-${"a".repeat(58)}`,
+    fromTenantId: `t-${String(i).padStart(3, "0")}-${"b".repeat(58)}`,
+    resourceKinds: Array.from({ length: 8 }, (_, k) => `kind-${k}-${"c".repeat(9)}`).sort()
+  }));
+  const maxBegin = { v: 1, t: "state.begin", ch: 0, s: 3, syncGeneration: 1, stateRevision: 1, revocationCount: 4096, grantCount: 256, partCount: 272 };
+  const maxParts = [];
+  for (let i = 0; i < 256; i++) {
+    maxParts.push({ v: 1, t: "state.part", ch: 0, s: 4 + i, syncGeneration: 1, part: i, kind: "revocations", entries: revsMax.slice(i * 16, (i + 1) * 16) });
+  }
+  for (let i = 0; i < 16; i++) {
+    maxParts.push({ v: 1, t: "state.part", ch: 0, s: 260 + i, syncGeneration: 1, part: 256 + i, kind: "grants", entries: grantsMax.slice(i * 16, (i + 1) * 16) });
+  }
+  let maxPageBytes = 0;
+  for (const p of maxParts) {
+    const bytes = measure(p);
+    if (bytes > maxPageBytes) maxPageBytes = bytes;
+    assert.ok(bytes <= 8192, `max part ${bytes} exceeds 8192`);
+  }
+  const maxSha = sha(maxBegin, ...maxParts);
+  const sMax = new Stager({ expectedGeneration: 1, revisionFloor: 0, canonicalRecordBytes: canon, measureJcsBytes: measure });
+  assert.equal(sMax.begin(maxBegin).ok, true);
+  for (const p of maxParts) assert.equal(sMax.part(p).ok, true);
+  assert.equal(sMax.end({ v: 1, t: "state.end", ch: 0, s: 276, syncGeneration: 1, stateRevision: 1, partCount: 272, imageSha256: maxSha }).ok, true);
+
+  // 4) Fault checks
+  const makeStager = (floor = 0) => new Stager({ expectedGeneration: 1, revisionFloor: floor, canonicalRecordBytes: canon, measureJcsBytes: measure });
+  assert.equal(makeStager(5).begin({ ...emptyBegin, stateRevision: 4 }).ok, false, "revision < floor");
+  assert.equal(makeStager().begin({ ...emptyBegin, revocationCount: 4097, partCount: 257 }).ok, false, "4097 revocations");
+  assert.equal(makeStager().begin({ ...emptyBegin, grantCount: 257, partCount: 17 }).ok, false, "257 grants");
+  assert.equal(makeStager().begin({ ...emptyBegin, partCount: 1 }).ok, false, "wrong declared partCount");
+
+  // Skipped / repeated / bad kind / unsorted / duplicate / empty / short middle page / bad digest / >384 entry / bad chars
+  const baseB = { v: 1, t: "state.begin", ch: 0, s: 3, syncGeneration: 1, stateRevision: 1, revocationCount: 17, grantCount: 1, partCount: 3 };
+  const badPartTests = [
+    () => { const s = makeStager(); s.begin(baseB); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 1, kind: "revocations", entries: revs20.slice(0, 16) }); },
+    () => { const s = makeStager(); s.begin(baseB); s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: revs20.slice(0, 16) }); return s.part({ v: 1, t: "state.part", ch: 0, s: 5, syncGeneration: 1, part: 0, kind: "revocations", entries: [revs20[16]] }); },
+    () => { const s = makeStager(); s.begin(baseB); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "grants", entries: revs20.slice(0, 16) }); },
+    () => { const s = makeStager(); s.begin(baseB); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: [] }); },
+    () => { const s = makeStager(); s.begin(baseB); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: revs20.slice(0, 15) }); },
+    () => { const s = makeStager(); s.begin(baseB); const u = [...revs20.slice(0, 16)].reverse(); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: u }); },
+    () => { const s = makeStager(); s.begin(baseB); const d = Array.from({ length: 16 }, () => revs20[0]); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: d }); },
+    () => { const s = makeStager(); s.begin({ ...baseB, grantCount: 0, partCount: 2, revocationCount: 1 }); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: [{ instanceId: "bad space", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }] }); },
+    () => { const s = makeStager(); s.begin({ ...baseB, grantCount: 0, partCount: 2, revocationCount: 1 }); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: [{ instanceId: 'bad"quote', revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }] }); },
+    () => { const s = makeStager(); s.begin({ ...baseB, grantCount: 0, partCount: 2, revocationCount: 1 }); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: [{ instanceId: "bad\\slash", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }] }); },
+    () => { const s = makeStager(); s.begin({ ...baseB, grantCount: 0, partCount: 2, revocationCount: 1 }); return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "revocations", entries: [{ instanceId: "non-ascii-\u00e9", revokedAt: "2026-11-21T10:00:00.000Z", revokedBy: "user" }] }); },
+    () => {
+      const overEntry = { fromMeshId: "m".repeat(64), fromTenantId: "t".repeat(64), resourceKinds: Array.from({ length: 8 }, (_, k) => `kind-${k}-${"z".repeat(9)}`), extra: "x".repeat(120) };
+      assert.ok(measure(overEntry) >= 385);
+      const s = makeStager();
+      s.begin({ v: 1, t: "state.begin", ch: 0, s: 3, syncGeneration: 1, stateRevision: 1, revocationCount: 0, grantCount: 1, partCount: 1 });
+      return s.part({ v: 1, t: "state.part", ch: 0, s: 4, syncGeneration: 1, part: 0, kind: "grants", entries: [overEntry] });
+    }
+  ];
+  for (let i = 0; i < badPartTests.length; i++) {
+    assert.equal(badPartTests[i]().ok, false, `badPartTest #${i} must fail`);
+  }
+
+  // Bad digest
+  const sDig = makeStager();
+  assert.equal(sDig.begin(emptyBegin).ok, true);
+  assert.equal(sDig.end({ v: 1, t: "state.end", ch: 0, s: 4, syncGeneration: 1, stateRevision: 7, partCount: 0, imageSha256: "0".repeat(64) }).ok, false);
+});

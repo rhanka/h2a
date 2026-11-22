@@ -319,6 +319,9 @@ export class TrunkInstanceManager {
   readonly #queue: Array<{ readonly localHandle: string; readonly wireId: string }> = [];
   #inFlight: { readonly localHandle: string; readonly wireId: string; readonly fingerprint: string } | null = null;
   #bindNonce: string | null = null;
+  #linksActive = false;
+  #revisionFloor = 0;
+  #pendingRevision: number | null = null;
   #registryCorrupt = false;
   #needsRewrite = false;
   #persistRetryTimer: unknown = null;
@@ -336,11 +339,16 @@ export class TrunkInstanceManager {
     return this.#registryCorrupt;
   }
 
+  currentRevisionFloor(): number {
+    return this.#revisionFloor;
+  }
+
   revokedIds(): ReadonlySet<string> {
     return this.#revoked;
   }
 
   resetConnectionState(): void {
+    this.#linksActive = false;
     this.#bindNonce = null;
     this.#inFlight = null;
     this.#queue.length = 0;
@@ -355,42 +363,64 @@ export class TrunkInstanceManager {
     this.resetConnectionState();
   }
 
-  onReady(bindNonce: string, serverRevokedInstances: readonly string[]): readonly string[] {
-    this.resetConnectionState();
-    this.#bindNonce = bindNonce;
-
+  #loadRegistryIntoMemory(): void {
     const loaded = readRevokedInstancesRegistry(this.#opts.root, { timeoutMs: 0 });
-    if (!loaded.ok) {
-      // Distinguish lock contention vs corruption by reading unlocked check
-      const unlocked = readRevokedRegistryUnlocked(this.#opts.root);
-      if (!unlocked.ok) {
-        this.#registryCorrupt = true;
-      } else {
-        this.#registryCorrupt = false;
-        if (unlocked.migratedFromV1) this.#needsRewrite = true;
-        for (const id of unlocked.entries[this.#scopeKey]?.revoked ?? []) {
-          this.#revoked.add(id);
-        }
-      }
-    } else {
-      this.#registryCorrupt = false;
-      if (loaded.migratedFromV1) this.#needsRewrite = true;
-      for (const id of loaded.entries[this.#scopeKey]?.revoked ?? []) {
+    const result = loaded.ok ? loaded : readRevokedRegistryUnlocked(this.#opts.root);
+    if (!result.ok) {
+      this.#registryCorrupt = true;
+      return;
+    }
+    this.#registryCorrupt = false;
+    if (result.migratedFromV1) this.#needsRewrite = true;
+    const entry = result.entries[this.#scopeKey];
+    if (entry) {
+      this.#revisionFloor = Math.max(this.#revisionFloor, entry.stateRevision);
+      for (const id of entry.revoked) {
         this.#revoked.add(id);
       }
     }
+  }
 
-    for (const rawId of serverRevokedInstances) {
-      if (rawId) {
-        const wireId = toWireInstanceId(rawId);
-        this.#revoked.add(wireId);
-        this.#pendingPersist.add(wireId);
+  onLinkOpened(bindNonce: string): void {
+    this.resetConnectionState();
+    this.#bindNonce = bindNonce;
+    this.#loadRegistryIntoMemory();
+  }
+
+  applyAuthorityRevocations(ids: Iterable<string>, stateRevision: number): readonly string[] {
+    this.#loadRegistryIntoMemory();
+    this.#revisionFloor = Math.max(this.#revisionFloor, stateRevision);
+    this.#pendingRevision = Math.max(this.#pendingRevision ?? 0, this.#revisionFloor);
+
+    for (const rawId of ids) {
+      if (!rawId) continue;
+      const wireId = toWireInstanceId(rawId);
+      this.#revoked.add(wireId);
+      this.#pendingPersist.add(wireId);
+      if (this.#bound.has(wireId)) {
+        this.#bound.set(wireId, {
+          status: "refused",
+          reason: "instance-revoked",
+          fingerprint: this.#fingerprints.get(wireId)
+        });
+      }
+      for (let i = this.#queue.length - 1; i >= 0; i -= 1) {
+        if (this.#queue[i]!.wireId === wireId) this.#queue.splice(i, 1);
       }
     }
-    if (this.#pendingPersist.size > 0 || serverRevokedInstances.length > 0 || this.#needsRewrite) {
-      this.#flushPendingRevocations();
-    }
+    this.#flushPendingRevocations();
     return [...this.#revoked].sort();
+  }
+
+  raiseRevisionFloor(stateRevision: number): void {
+    this.#revisionFloor = Math.max(this.#revisionFloor, stateRevision);
+    this.#pendingRevision = Math.max(this.#pendingRevision ?? 0, this.#revisionFloor);
+    this.#flushPendingRevocations();
+  }
+
+  activate(): void {
+    this.#linksActive = true;
+    this.#drainQueue();
   }
 
   requestBind(localHandle: string): { readonly ok: boolean; readonly reason?: string } {
@@ -400,8 +430,8 @@ export class TrunkInstanceManager {
     if (this.#registryCorrupt) {
       return { ok: false, reason: "instance-registry-unavailable" };
     }
-    if (!this.#bindNonce) {
-      return { ok: false, reason: "link-not-ready" };
+    if (!this.#linksActive || !this.#bindNonce) {
+      return { ok: false, reason: "link-not-active" };
     }
     if (this.#revoked.has(wireId)) {
       this.#emitAudit("instance-bind-refused", wireId, "instance-revoked");
@@ -469,7 +499,9 @@ export class TrunkInstanceManager {
   }
 
   onInstanceRevoked(record: InstanceRevokedRecord): void {
-    const wireId = record.instanceId;
+    const wireId = toWireInstanceId(record.instanceId);
+    this.#revisionFloor = Math.max(this.#revisionFloor, record.stateRevision);
+    this.#pendingRevision = Math.max(this.#pendingRevision ?? 0, this.#revisionFloor);
     this.#revoked.add(wireId);
     this.#pendingPersist.add(wireId);
     this.#bound.set(wireId, { status: "refused", reason: "instance-revoked", fingerprint: this.#fingerprints.get(wireId) });
@@ -523,25 +555,36 @@ export class TrunkInstanceManager {
       this.#registryCorrupt = true;
       return;
     }
+    const entry = check.entries[this.#scopeKey];
     if (this.#registryCorrupt) {
       this.#registryCorrupt = false;
       if (check.migratedFromV1) this.#needsRewrite = true;
-      for (const id of check.entries[this.#scopeKey]?.revoked ?? []) {
-        this.#revoked.add(id);
+      if (entry) {
+        this.#revisionFloor = Math.max(this.#revisionFloor, entry.stateRevision);
+        for (const id of entry.revoked) {
+          this.#revoked.add(id);
+        }
       }
-      if (this.#pendingPersist.size > 0 || this.#needsRewrite) {
+      if (this.#pendingPersist.size > 0 || this.#pendingRevision !== null || this.#needsRewrite) {
         this.#flushPendingRevocations();
       }
     }
   }
 
   #flushPendingRevocations(): void {
-    if (this.#pendingPersist.size === 0 && !this.#needsRewrite) return;
+    if (this.#pendingPersist.size === 0 && this.#pendingRevision === null && !this.#needsRewrite) return;
     const ids = [...this.#pendingPersist];
-    const res = persistRevokedInstancesRegistry(this.#opts.root, this.#scopeKey, ids, { timeoutMs: 0 });
+    const targetRev = Math.max(this.#revisionFloor, this.#pendingRevision ?? 0);
+    const res = persistRevokedInstancesRegistry(this.#opts.root, this.#scopeKey, ids, {
+      timeoutMs: 0,
+      stateRevision: targetRev
+    });
     if (res.ok) {
       this.#registryCorrupt = false;
       this.#needsRewrite = false;
+      if (this.#pendingRevision !== null && this.#pendingRevision <= targetRev) {
+        this.#pendingRevision = null;
+      }
       for (const id of ids) this.#pendingPersist.delete(id);
       if (this.#persistRetryTimer !== null) {
         this.#opts.clock.clearTimeout(this.#persistRetryTimer);

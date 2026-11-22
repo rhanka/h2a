@@ -562,7 +562,7 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
     const wireA = wireInstanceId(instA);
     const framesBeforePush = conn.receivedCatalogue.length;
     const pushAt = clock.now();
-    peer.sendInstanceRevoked(conn, wireA, "owner-ui");
+    peer.sendInstanceRevoked(conn, wireA, "user");
 
     // Immediate refusal for A + audit naming A; B still authorized
     const actA = client.admitInstanceAct(instA);
@@ -628,7 +628,8 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
       enrolmentRef: "enr-cat-2",
       publicKeyPem: nodeKey.publicKeyPem,
       fingerprint: nodeKey.fingerprint,
-      revokedInstances: [] // explicitly empty in ready
+      revokedInstances: [], // explicitly empty image
+      stateRevision: 1
     });
 
     const projector2 = createCatalogueProjector({
@@ -659,7 +660,10 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
     assert.equal(client2.start().ok, true);
     const conn2 = peer2.allConnections()[0];
     const ready2 = conn2.decodedServerRecords.find((r) => r.t === "ready");
-    assert.deepEqual(ready2.revokedInstances, []);
+    assert.equal(ready2.stateSync, "full");
+    assert.equal("revokedInstances" in ready2, false);
+    const begin2 = conn2.decodedServerRecords.find((r) => r.t === "state.begin");
+    assert.equal(begin2?.revocationCount, 0);
 
     peer2.sendWatchStart(conn2);
     peer2.sendCredit(conn2, 1, {
@@ -674,7 +678,7 @@ test("LH-07 + LH-06 integration: live instance.revoked push emits status-only de
     assert.equal(
       restartedSnap.rows.find((r) => r.sid === sidA)?.instanceStatus,
       "revoked",
-      "persisted revocation of A must appear on first snapshot even when ready.revokedInstances is empty"
+      "persisted revocation of A must appear on first snapshot even when authority image is empty"
     );
     assert.equal(restartedSnap.rows.find((r) => r.sid === sidB)?.instanceStatus, "live");
 
