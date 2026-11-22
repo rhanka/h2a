@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -158,6 +159,61 @@ test("no token-shaped field is written beside the key", () => {
       for (const k of keys) {
         assert.equal(allowlist.has(k), true, `unexpected field ${k} in ${f}`);
       }
+    }
+  } finally {
+    cleanup(dirs);
+  }
+});
+
+test("R11 inc-2 nodeId: fresh key uses 32 hex chars, legacy node:<uuid> reads 36-char UUID unchanged, other forms invalid", () => {
+  const dirs = makeConfigDir();
+  try {
+    const fresh = generateNodeKey({ configDir: dirs.configDir });
+    assert.equal(fresh.state, "present");
+    assert.match(fresh.nodeId, /^[0-9a-f]{32}$/);
+    const reloaded = loadNodeKey({ configDir: dirs.configDir });
+    assert.equal(reloaded.state, "present");
+    assert.equal(reloaded.nodeId, fresh.nodeId);
+
+    // Legacy file with node:<uuid> -> returns 36-char UUID, file bytes untouched
+    const legacyDirs = makeConfigDir();
+    try {
+      const pair = generateKeyPairSync("ed25519", {
+        privateKeyEncoding: { type: "pkcs8", format: "pem" },
+        publicKeyEncoding: { type: "spki", format: "pem" }
+      });
+      const uuid = "12345678-1234-4123-8123-123456789abc";
+      const keyFile = join(legacyDirs.configDir, "remote", "node-key.json");
+      mkdirSync(join(legacyDirs.configDir, "remote"), { recursive: true, mode: 0o700 });
+      const legacyPayload = JSON.stringify({
+        nodeId: `node:${uuid}`,
+        publicKeyPem: pair.publicKey,
+        privateKeyPem: pair.privateKey,
+        fingerprint: nodeKeyFingerprint(pair.publicKey),
+        createdAt: "2026-11-21T00:00:00.000Z",
+        algorithm: "ed25519",
+        version: 1
+      }, null, 2) + "\n";
+      writeFileSync(keyFile, legacyPayload, { mode: 0o600 });
+      const legacyLoaded = loadNodeKey({ configDir: legacyDirs.configDir });
+      assert.equal(legacyLoaded.state, "present");
+      assert.equal(legacyLoaded.nodeId, uuid);
+      assert.equal(readFileSync(keyFile, "utf8"), legacyPayload);
+
+      // Invalid nodeId shape -> invalid
+      const badPayload = JSON.stringify({
+        nodeId: "node:not-a-valid-uuid",
+        publicKeyPem: pair.publicKey,
+        privateKeyPem: pair.privateKey,
+        fingerprint: nodeKeyFingerprint(pair.publicKey),
+        createdAt: "2026-11-21T00:00:00.000Z",
+        algorithm: "ed25519",
+        version: 1
+      }, null, 2) + "\n";
+      writeFileSync(keyFile, badPayload, { mode: 0o600 });
+      assert.equal(loadNodeKey({ configDir: legacyDirs.configDir }).state, "invalid");
+    } finally {
+      cleanup(legacyDirs);
     }
   } finally {
     cleanup(dirs);

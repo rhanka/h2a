@@ -154,7 +154,7 @@ function makeHostFixture(t, prefix = "lh08h-") {
 
 class HostReceiver {
   appliedSeq = 0;
-  afterSeqBytes = 0;
+  receivedSegBytes = 0;
   paintCount = 0;
   text = "";
   screenText = "";
@@ -178,7 +178,7 @@ class HostReceiver {
   discardPartialSegment() {
     this.#segBuffers = [];
     this.#segStreamOffset = 0;
-    this.afterSeqBytes = 0;
+    this.receivedSegBytes = 0;
   }
 
   drain(conn, ch) {
@@ -217,7 +217,7 @@ class HostReceiver {
           this.#segBuffers.push(bytes.subarray(skip));
         }
         this.#segStreamOffset += bytes.byteLength;
-        this.afterSeqBytes = this.#segBuffers.reduce((s, b) => s + b.byteLength, 0);
+        this.receivedSegBytes = this.#segBuffers.reduce((s, b) => s + b.byteLength, 0);
         if (rec.segLast === true) {
           const decoded = this.#decoder.decode(Buffer.concat(this.#segBuffers));
           this.text += decoded;
@@ -401,21 +401,21 @@ test("LH-08 host e2e: real PTY authority, coalescing cut, agent restart, zero in
 
   const stack = setupRealBridge(fx, () => [socketPath]);
   stack.peer.sendWatchStart(stack.conn);
-  await eventually(() => stack.projector.getSnapshot(), (s) => s !== null, "initial snapshot");
+  await eventually(() => stack.projector.getProjection(), (s) => s !== null, "initial snapshot");
 
   const sid = nativeCatalogueSid(id);
   const compSid = nativeCatalogueSid(compId);
 
   // Companion *.h2a refused before connect
   const rxComp = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 2, sid: compSid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 2, sid: compSid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   await eventually(() => { rxComp.drain(stack.conn, 2); return rxComp.errRecords.length > 0; }, Boolean, "companion err");
   assert.equal(rxComp.errRecords[0].code, "unknown-session");
 
   // Open parent in observe with 200x80 while zero credit -> produce 3 lines with barrier
   const rx3 = new HostReceiver();
   rx3.setCutBeforeApply((rec) => rec.t === "term.out" && rec.firstSeq === 1 && rec.lastSeq >= 3);
-  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0, cols: 200, rows: 80 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0, cols: 200, rows: 80 });
 
   let prevLatest = (await witness.state(id)).latestSeq;
   for (let i = 1; i <= 3; i++) {
@@ -435,7 +435,7 @@ test("LH-08 host e2e: real PTY authority, coalescing cut, agent restart, zero in
 
   // Reopen on ch=4 with appliedSeq=0 -> exact same coalesced range + bytes
   rx3.setCutBeforeApply(null);
-  stack.peer.sendTermOpen(stack.conn, { ch: 4, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 4, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 4, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rx3.drain(stack.conn, 4); return rx3.appliedSeq >= 3; }, Boolean, "reopen coalesced [1..3]");
   const firstOut = rx3.rawTermOut[0];
@@ -466,11 +466,11 @@ test("LH-08 host e2e: real PTY authority, coalescing cut, agent restart, zero in
 
   const stack2 = setupRealBridge(fx, () => [socketPath]);
   stack2.peer.sendWatchStart(stack2.conn);
-  await eventually(() => stack2.projector.getSnapshot(), (s) => s !== null, "restarted snapshot");
+  await eventually(() => stack2.projector.getProjection(), (s) => s !== null, "restarted snapshot");
 
   const rxRestart = new HostReceiver();
   rxRestart.appliedSeq = savedApplied;
-  stack2.peer.sendTermOpen(stack2.conn, { ch: 2, sid, mode: "observe", afterSeq: savedApplied, afterSeqBytes: 0 });
+  stack2.peer.sendTermOpen(stack2.conn, { ch: 2, sid, mode: "observe", afterSeq: savedApplied, receivedSegBytes: 0 });
   stack2.peer.sendCredit(stack2.conn, 2, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rxRestart.drain(stack2.conn, 2); return rxRestart.text.includes("AFTER-RESTART"); }, Boolean, "restarted suffix");
   assert.equal(rxRestart.openedRecords[0].incarnation, savedInc);
@@ -498,7 +498,7 @@ test("LH-08 host e2e: >=60s real monotonic pause on ch=2 while ch=3 continues, t
 
   const stack = setupRealBridge(fx, () => [socketPath]);
   stack.peer.sendWatchStart(stack.conn);
-  await eventually(() => stack.projector.getSnapshot(), (s) => s !== null, "snapshot");
+  await eventually(() => stack.projector.getProjection(), (s) => s !== null, "snapshot");
 
   const sid = nativeCatalogueSid(id);
   sendChildCommand(child.cmdFile, 1, "line", { text: "INIT-LINE\n" });
@@ -507,8 +507,8 @@ test("LH-08 host e2e: >=60s real monotonic pause on ch=2 while ch=3 continues, t
   // Open ch=2 with 1-record credit (exhausts immediately after INIT-LINE), ch=3 with rolling credit
   const rx2 = new HostReceiver();
   const rx3 = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 2, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
-  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 2, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 2, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 1, sendLimitBytes: 131_072 });
   stack.peer.sendCredit(stack.conn, 3, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
 
@@ -579,7 +579,7 @@ test("LH-08 host e2e: >=60s real monotonic pause on ch=2 while ch=3 continues, t
   // Close ch=2, reopen ch=4 with exhausted credit, enable DEC mode and write > 4 MiB to cause ring eviction
   stack.peer.sendTermClose(stack.conn, 2, sid);
   const rx4 = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 4, sid, mode: "observe", afterSeq: rx2.appliedSeq, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 4, sid, mode: "observe", afterSeq: rx2.appliedSeq, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 4, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 1, sendLimitBytes: 131_072 });
   await eventually(() => { rx4.drain(stack.conn, 4); return rx4.openedRecords.length === 1; }, Boolean, "ch=4 opened");
 
@@ -645,11 +645,11 @@ test("LH-08 host e2e: child exit, same-name respawn, host replacement, off, and 
   let activeSockets = [sock1];
   const stack = setupRealBridge(fx, () => activeSockets);
   stack.peer.sendWatchStart(stack.conn);
-  await eventually(() => stack.projector.getSnapshot(), (s) => s !== null, "snapshot");
+  await eventually(() => stack.projector.getProjection(), (s) => s !== null, "snapshot");
 
   const sid = nativeCatalogueSid(id);
   const rx = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 2, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 2, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 2, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rx.drain(stack.conn, 2); return rx.openedRecords.length === 1; }, Boolean, "ch=2 opened");
   const inc1 = rx.openedRecords[0].incarnation;
@@ -670,7 +670,7 @@ test("LH-08 host e2e: child exit, same-name respawn, host replacement, off, and 
     return r.ok && r.incarnation !== inc1;
   }, Boolean, "projector discovers respawned incarnation");
   const rxNew = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 3, sid, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 3, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rxNew.drain(stack.conn, 3); return rxNew.openedRecords.length === 1; }, Boolean, "ch=3 opened");
   assert.notEqual(rxNew.openedRecords[0].incarnation, inc1);
@@ -695,7 +695,7 @@ test("LH-08 host e2e: child exit, same-name respawn, host replacement, off, and 
   await witness2.create({ id: idSig, command: process.execPath, args: ["-e", "setInterval(() => {}, 1000)"], cwd: fx.root, env: fx.env, cols: 80, rows: 24 });
   await eventually(async () => (await stack.projector.resolveOpen(sidSig)).ok, Boolean, "projector discovers h2a-sigkill");
   const rxSig = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 4, sid: sidSig, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 4, sid: sidSig, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 4, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rxSig.drain(stack.conn, 4); return rxSig.openedRecords.length === 1; }, Boolean, "ch=4 opened on host2");
   const stSig = await witness2.state(idSig);
@@ -709,7 +709,7 @@ test("LH-08 host e2e: child exit, same-name respawn, host replacement, off, and 
   await witness2.create({ id: idClose, command: process.execPath, args: [child.scriptPath], cwd: fx.root, env: fx.env, cols: 80, rows: 24 });
   await eventually(async () => (await stack.projector.resolveOpen(sidClose)).ok, Boolean, "projector discovers h2a-close-off");
   const rxClose = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 5, sid: sidClose, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 5, sid: sidClose, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 5, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rxClose.drain(stack.conn, 5); return rxClose.openedRecords.length === 1; }, Boolean, "ch=5 opened");
   stack.peer.sendTermClose(stack.conn, 5, sidClose);
@@ -719,7 +719,7 @@ test("LH-08 host e2e: child exit, same-name respawn, host replacement, off, and 
 
   // Reopen on ch=6, then exclude via CLI `off` -> err(excluded) + term.close while PTY stays alive
   const rxOff = new HostReceiver();
-  stack.peer.sendTermOpen(stack.conn, { ch: 6, sid: sidClose, mode: "observe", afterSeq: null, afterSeqBytes: 0 });
+  stack.peer.sendTermOpen(stack.conn, { ch: 6, sid: sidClose, mode: "observe", afterSeq: null, receivedSegBytes: 0 });
   stack.peer.sendCredit(stack.conn, 6, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131_072 });
   await eventually(() => { rxOff.drain(stack.conn, 6); return rxOff.openedRecords.length === 1; }, Boolean, "ch=6 opened");
   const offRes = spawnSync(process.execPath, [H2A_BIN, "remote", "off", sidClose, "--root", fx.storeDir], { env: fx.env, encoding: "utf8" });

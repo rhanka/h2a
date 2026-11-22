@@ -27,10 +27,11 @@ import { listPresenceWithDiagnostics } from "../local-files/presence.js";
 import { resolveNodeKeyDir } from "./node-key.js";
 import {
   isCanonicalCatalogueSid,
-  isInternalCompanionNativeId,
   nativeCatalogueSid,
+  normalizeCatalogueSid,
   presenceCatalogueSid
-} from "./catalogue.js";
+} from "./wire-ids.js";
+import { isInternalCompanionNativeId } from "./catalogue.js";
 
 const REMOTE_CONTROL_SUBDIR = "remote-control";
 const EXCLUSIONS_FILENAME = "exclusions.json";
@@ -45,12 +46,12 @@ export interface StoredExclusionEntry {
 }
 
 export interface StoredExclusionsFile {
-  readonly version: 1;
+  readonly version: 2;
   readonly entries: readonly StoredExclusionEntry[];
 }
 
 interface StoredCatalogueIdsFile {
-  readonly version: 1;
+  readonly version: 2;
   readonly sids: readonly string[];
 }
 
@@ -127,6 +128,15 @@ function atomicWriteJson0600(dir: string, targetPath: string, payload: unknown):
   }
 }
 
+function pickMostRecentTimestamp(a: string, b: string): string {
+  const ta = Date.parse(a);
+  const tb = Date.parse(b);
+  if (Number.isFinite(ta) && Number.isFinite(tb)) {
+    return tb >= ta ? b : a;
+  }
+  return b >= a ? b : a;
+}
+
 function parseExclusionsFile(raw: string): StoredExclusionsFile | null {
   let parsed: unknown;
   try {
@@ -140,8 +150,10 @@ function parseExclusionsFile(raw: string): StoredExclusionsFile | null {
   for (const key of topKeys) {
     if (key !== "version" && key !== "entries") return null;
   }
-  if (obj["version"] !== 1 || !Array.isArray(obj["entries"])) return null;
+  const version = obj["version"];
+  if ((version !== 1 && version !== 2) || !Array.isArray(obj["entries"])) return null;
 
+  const bySid = new Map<string, { aliases: Set<string>; updatedAt: string }>();
   const entries: StoredExclusionEntry[] = [];
   for (const item of obj["entries"] as unknown[]) {
     if (!item || typeof item !== "object" || Array.isArray(item)) return null;
@@ -149,29 +161,57 @@ function parseExclusionsFile(raw: string): StoredExclusionsFile | null {
     for (const k of Object.keys(rec)) {
       if (k !== "sid" && k !== "aliases" && k !== "updatedAt") return null;
     }
-    if (typeof rec["sid"] !== "string" || !isCanonicalCatalogueSid(rec["sid"])) return null;
+    if (typeof rec["sid"] !== "string") return null;
+    const sid = version === 1 ? normalizeCatalogueSid(rec["sid"]) : (isCanonicalCatalogueSid(rec["sid"]) ? rec["sid"] : null);
+    if (sid === null) return null;
     if (typeof rec["updatedAt"] !== "string" || rec["updatedAt"].length === 0) return null;
+    const updatedAt = rec["updatedAt"];
     let aliases: string[] | undefined;
     if (rec["aliases"] !== undefined) {
       if (!Array.isArray(rec["aliases"])) return null;
       aliases = [];
       for (const a of rec["aliases"] as unknown[]) {
-        if (typeof a !== "string" || !isCanonicalCatalogueSid(a)) return null;
-        aliases.push(a);
+        if (typeof a !== "string") return null;
+        const normAlias = version === 1 ? normalizeCatalogueSid(a) : (isCanonicalCatalogueSid(a) ? a : null);
+        if (normAlias === null) return null;
+        if (normAlias !== sid) aliases.push(normAlias);
       }
     }
-    entries.push({
-      sid: rec["sid"],
-      ...(aliases !== undefined && aliases.length > 0 ? { aliases } : {}),
-      updatedAt: rec["updatedAt"]
-    });
+    if (version === 1) {
+      const existing = bySid.get(sid);
+      if (existing) {
+        existing.updatedAt = pickMostRecentTimestamp(existing.updatedAt, updatedAt);
+        for (const a of aliases ?? []) existing.aliases.add(a);
+      } else {
+        bySid.set(sid, { aliases: new Set(aliases ?? []), updatedAt });
+      }
+    } else {
+      entries.push({
+        sid,
+        ...(aliases !== undefined && aliases.length > 0 ? { aliases } : {}),
+        updatedAt
+      });
+    }
   }
-  return { version: 1, entries };
+  if (version === 1) {
+    const mergedEntries: StoredExclusionEntry[] = [];
+    for (const [sid, data] of bySid.entries()) {
+      const sortedAliases = [...data.aliases].filter((a) => a !== sid).sort();
+      mergedEntries.push({
+        sid,
+        ...(sortedAliases.length > 0 ? { aliases: sortedAliases } : {}),
+        updatedAt: data.updatedAt
+      });
+    }
+    mergedEntries.sort((a, b) => (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
+    return { version: 2, entries: mergedEntries };
+  }
+  return { version: 2, entries };
 }
 
 function readExclusionsUnlocked(filePath: string): ExclusionReadResult {
   if (!existsSync(filePath)) {
-    return { ok: true, file: { version: 1, entries: [] } };
+    return { ok: true, file: { version: 2, entries: [] } };
   }
   let raw: string;
   try {
@@ -204,11 +244,17 @@ function readCatalogueIdsSet(options: ExclusionsLocationOptions = {}): Set<strin
   if (!existsSync(filePath)) return new Set();
   try {
     const raw = readFileSync(filePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<StoredCatalogueIdsFile>;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.sids)) return new Set();
+    const parsed = JSON.parse(raw) as { version?: unknown; sids?: unknown };
+    if (!parsed || (parsed.version !== 1 && parsed.version !== 2) || !Array.isArray(parsed.sids)) {
+      return new Set();
+    }
     const out = new Set<string>();
     for (const sid of parsed.sids) {
-      if (typeof sid === "string" && isCanonicalCatalogueSid(sid)) {
+      if (typeof sid !== "string") continue;
+      if (parsed.version === 1) {
+        const norm = normalizeCatalogueSid(sid);
+        if (norm !== null) out.add(norm);
+      } else if (isCanonicalCatalogueSid(sid)) {
         out.add(sid);
       }
     }
@@ -235,7 +281,7 @@ export function writeCatalogueIdsIndex(
     ) {
       return;
     }
-    const payload: StoredCatalogueIdsFile = { version: 1, sids: normalized };
+    const payload: StoredCatalogueIdsFile = { version: 2, sids: normalized };
     atomicWriteJson0600(dir, filePath, payload);
   });
 }
@@ -324,7 +370,9 @@ function resolveTarget(
     admissiblePresences.push(p);
   }
 
-  if (companionPresenceIds.has(target) || companionSids.has(target)) {
+  const normalizedTarget = normalizeCatalogueSid(target) ?? target;
+
+  if (companionPresenceIds.has(target) || companionSids.has(normalizedTarget)) {
     return {
       ok: false,
       reason: "unknown-session",
@@ -332,22 +380,22 @@ function resolveTarget(
     };
   }
 
-  if (isCanonicalCatalogueSid(target)) {
+  if (isCanonicalCatalogueSid(normalizedTarget)) {
     // 1. Check admissible local presences
     for (const p of admissiblePresences) {
       const pSid = presenceCatalogueSid(p.sessionId);
       const nativeId = p.launchContext?.nativePty?.session;
       const nSid = nativeId ? nativeCatalogueSid(nativeId) : undefined;
-      if (nSid && (target === nSid || target === pSid)) {
+      if (nSid && (normalizedTarget === nSid || normalizedTarget === pSid)) {
         return { ok: true, sid: nSid, aliases: [pSid] };
       }
-      if (!nSid && target === pSid) {
+      if (!nSid && normalizedTarget === pSid) {
         return { ok: true, sid: pSid, aliases: [] };
       }
     }
     // 2. Check existing exclusions (entry.sid or alias)
     for (const entry of existingExclusions.entries) {
-      if (entry.sid === target || entry.aliases?.includes(target)) {
+      if (entry.sid === normalizedTarget || entry.aliases?.includes(normalizedTarget)) {
         return {
           ok: true,
           sid: entry.sid,
@@ -356,8 +404,8 @@ function resolveTarget(
       }
     }
     // 3. Check persisted admissible catalogue-ids index
-    if (catalogueIds.has(target)) {
-      return { ok: true, sid: target, aliases: [] };
+    if (catalogueIds.has(normalizedTarget)) {
+      return { ok: true, sid: normalizedTarget, aliases: [] };
     }
     // Never fall through to raw name hashing for an unknown canonical hash.
     return {
@@ -479,7 +527,7 @@ function mutateExclusion(
       }
 
       const nextFile: StoredExclusionsFile = {
-        version: 1,
+        version: 2,
         entries: remaining
       };
       atomicWriteJson0600(dir, filePath, nextFile);
@@ -557,7 +605,7 @@ export function linkExclusionAlias(
         updatedAt: nowIso
       });
       remaining.sort((a, b) => (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
-      const nextFile: StoredExclusionsFile = { version: 1, entries: remaining };
+      const nextFile: StoredExclusionsFile = { version: 2, entries: remaining };
       atomicWriteJson0600(dir, filePath, nextFile);
       return { ok: true, file: nextFile };
     });

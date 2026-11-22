@@ -174,7 +174,7 @@ export interface TerminalOutputAssemblerOptions {
   readonly generation: string;
   readonly incarnation: string;
   readonly afterSeq: number;
-  readonly afterSeqBytes: number;
+  readonly receivedSegBytes: number;
   readonly rangeIndex: CoalescedRangeIndex;
   readonly maxChunkBytes?: number;
   readonly coalesceMs?: number;
@@ -199,7 +199,7 @@ export class TerminalOutputAssembler {
   #lastQueuedSeq: number;
   #lastSentSeq: number;
   #nextReadAfterSeq: number;
-  #pendingAfterSeqBytes: number;
+  #pendingReceivedSegBytes: number;
   #activeSegmented: {
     readonly seq: number;
     readonly proposals: readonly TermOutProposal[];
@@ -217,7 +217,7 @@ export class TerminalOutputAssembler {
     this.#lastQueuedSeq = options.afterSeq;
     this.#lastSentSeq = options.afterSeq;
     this.#nextReadAfterSeq = options.afterSeq;
-    this.#pendingAfterSeqBytes = options.afterSeqBytes;
+    this.#pendingReceivedSegBytes = options.receivedSegBytes;
   }
 
   get nextReadAfterSeq(): number {
@@ -257,10 +257,10 @@ export class TerminalOutputAssembler {
   }
 
   validateResumeFirstChunk(chunk: NativeOutputChunk | undefined): boolean {
-    if (this.#pendingAfterSeqBytes === 0) return true;
+    if (this.#pendingReceivedSegBytes === 0) return true;
     if (!chunk || chunk.seq !== this.#lastSentSeq + 1) return false;
     const rawBytes = Buffer.byteLength(chunk.data, "utf8");
-    return rawBytes > this.#maxChunkBytes && this.#pendingAfterSeqBytes < rawBytes;
+    return rawBytes > this.#maxChunkBytes && this.#pendingReceivedSegBytes < rawBytes;
   }
 
   pushChunks(chunks: readonly NativeOutputChunk[], nowMs: number): void {
@@ -370,7 +370,7 @@ export class TerminalOutputAssembler {
   }
 
   consumeNextProposal(proposal: TermOutProposal): void {
-    this.#pendingAfterSeqBytes = 0;
+    this.#pendingReceivedSegBytes = 0;
     if (proposal.isSegmented) {
       this.#pausedSegmented = null;
       if (this.#pendingChunks[0]?.seq === proposal.firstSeq) {
@@ -418,7 +418,7 @@ export class TerminalOutputAssembler {
     this.#pendingChunks = [];
     this.#activeSegmented = null;
     this.#pausedSegmented = null;
-    this.#pendingAfterSeqBytes = 0;
+    this.#pendingReceivedSegBytes = 0;
     this.#lastQueuedSeq = toSeq;
     this.#lastSentSeq = toSeq;
     this.#nextReadAfterSeq = toSeq;

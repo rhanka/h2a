@@ -13,8 +13,15 @@ export const TRUNK_PROTOCOL_VERSION = 1 as const;
 export const TRUNK_RECORD_MAX_BYTES = 32768 as const;
 export const TRUNK_TERMINAL_TEXT_MAX_BYTES = 16384 as const;
 export const CATALOGUE_MAX_ROWS = 512 as const;
-export const CATALOGUE_ROW_MAX_BYTES = 512 as const;
+export const CATALOGUE_ROW_MAX_BYTES = 480 as const;
 export const CATALOGUE_SNAPSHOT_MAX_BYTES = 262144 as const;
+export const CATALOGUE_LABEL_MAX_BYTES = 64 as const;
+export const CATALOGUE_LABEL_PREFIX_MAX_BYTES = 61 as const;
+export const CATALOGUE_ID_MAX_BYTES = 36 as const;
+export const CATALOGUE_PART_MAX_ROWS = 16 as const;
+export const CATALOGUE_SNAPSHOT_MAX_PARTS = 32 as const;
+export const CATALOGUE_DELTA_MAX_ENTRIES = 16 as const;
+export const CATALOGUE_RECORD_MAX_BYTES = 8192 as const;
 export const TERMINAL_INPUT_MAX_BYTES = 4096 as const;
 export const TERMINAL_OUTPUT_COALESCE_BYTES = 16384 as const;
 
@@ -50,12 +57,6 @@ export interface TrunkAuthPayload {
   readonly clientTime: number;
 }
 
-export interface TrunkNegotiatedLimits {
-  readonly maxCreditRecords?: number;
-  readonly maxCreditBytes?: number;
-  readonly maxCatalogueRecordBytes?: number;
-}
-
 export interface TrunkHelloRecord extends TrunkEnvelope {
   readonly t: "hello";
   readonly protocolVersions: readonly number[];
@@ -78,10 +79,54 @@ export interface TrunkAuthRecord extends TrunkEnvelope {
 export interface TrunkReadyRecord extends TrunkEnvelope {
   readonly t: "ready";
   readonly linkGeneration: number;
-  readonly serverTime: number;
+  readonly serverTime: string;
   readonly bindNonce: string;
-  readonly revokedInstances: readonly string[];
-  readonly limits?: TrunkNegotiatedLimits;
+  readonly syncGeneration: number;
+  readonly stateSync: "full";
+}
+
+export interface StateBeginRecord extends TrunkEnvelope {
+  readonly t: "state.begin";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly revocationCount: number;
+  readonly grantCount: number;
+  readonly partCount: number;
+}
+
+export interface StatePartRecord extends TrunkEnvelope {
+  readonly t: "state.part";
+  readonly syncGeneration: number;
+  readonly part: number;
+  readonly kind: "revocations" | "grants";
+  readonly entries: readonly unknown[];
+}
+
+export interface StateEndRecord extends TrunkEnvelope {
+  readonly t: "state.end";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly partCount: number;
+  readonly imageSha256: string;
+}
+
+export interface StateAppliedRecord extends TrunkEnvelope {
+  readonly t: "state.applied";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly imageSha256: string;
+}
+
+export interface StateActiveRecord extends TrunkEnvelope {
+  readonly t: "state.active";
+  readonly syncGeneration: number;
+  readonly stateRevision: number;
+  readonly imageSha256: string;
+}
+
+export interface PropGrantRecord extends TrunkEnvelope {
+  readonly t: "prop.grant";
+  readonly stateRevision: number;
 }
 
 export interface InstanceBindRecord extends TrunkEnvelope {
@@ -104,14 +149,24 @@ export interface InstanceBoundRecord extends TrunkEnvelope {
 export interface InstanceRevokedRecord extends TrunkEnvelope {
   readonly t: "instance.revoked";
   readonly instanceId: string;
-  readonly revokedAt: number;
+  readonly revokedAt: string;
   readonly revokedBy: string;
+  readonly stateRevision: number;
 }
+
+export type TrunkStateRecord =
+  | StateBeginRecord
+  | StatePartRecord
+  | StateEndRecord
+  | StateAppliedRecord
+  | StateActiveRecord
+  | PropGrantRecord;
 
 export type TrunkInstanceRecord =
   | InstanceBindRecord
   | InstanceBoundRecord
-  | InstanceRevokedRecord;
+  | InstanceRevokedRecord
+  | TrunkStateRecord;
 
 export type TrunkLinkRecord =
   | TrunkHelloRecord
@@ -150,24 +205,31 @@ export interface CatalogueSessionRow {
   readonly operabilityReason?: CatalogueOperabilityReason;
 }
 
-export interface CatalogueInstanceStatusUpdate {
-  readonly sessionId: string;
-  readonly instanceId: string;
-  readonly instanceStatus: CatalogueInstanceStatus;
-}
+export type CatalogueWireRow = Readonly<Record<string, unknown>>;
 
-export type CatalogueRowStatusUpdate = CatalogueInstanceStatusUpdate;
-
-export type CatalogueRowUpdate = CatalogueSessionRow | CatalogueInstanceStatusUpdate;
-
-export interface CatalogueSnapshot {
+export interface CatalogueSnapshotPart {
   readonly v: typeof TRUNK_PROTOCOL_VERSION;
-  readonly t: "cat.snapshot";
+  readonly t: "cat.snapshot.part";
   readonly ch: number;
   readonly s: number;
-  readonly at: number;
-  readonly rows: readonly CatalogueSessionRow[];
-  readonly truncatedRows?: number;
+  readonly catSeq: number;
+  readonly nodeId: string;
+  readonly snapId: string;
+  readonly part: number;
+  readonly rows: readonly CatalogueWireRow[];
+}
+
+export interface CatalogueSnapshotEnd {
+  readonly v: typeof TRUNK_PROTOCOL_VERSION;
+  readonly t: "cat.snapshot.end";
+  readonly ch: number;
+  readonly s: number;
+  readonly catSeq: number;
+  readonly nodeId: string;
+  readonly snapId: string;
+  readonly partCount: number;
+  readonly totalRows: number;
+  readonly truncatedRows: number;
 }
 
 export interface CatalogueDelta {
@@ -175,9 +237,9 @@ export interface CatalogueDelta {
   readonly t: "cat.delta";
   readonly ch: number;
   readonly s: number;
-  readonly at: number;
-  readonly adds: readonly CatalogueSessionRow[];
-  readonly updates: readonly CatalogueRowUpdate[];
+  readonly catSeq: number;
+  readonly nodeId: string;
+  readonly upserts: readonly CatalogueWireRow[];
   readonly removes: readonly string[];
 }
 
@@ -195,7 +257,12 @@ export interface CatalogueWatchStop {
   readonly s: number;
 }
 
-export type TrunkCatalogueRecord = CatalogueSnapshot | CatalogueDelta | CatalogueWatchStart | CatalogueWatchStop;
+export type TrunkCatalogueRecord =
+  | CatalogueSnapshotPart
+  | CatalogueSnapshotEnd
+  | CatalogueDelta
+  | CatalogueWatchStart
+  | CatalogueWatchStop;
 
 export type TerminalMode = "observe" | "control";
 export type TerminalStatus = "running" | "stopping" | "exited" | string;
@@ -209,7 +276,7 @@ export interface TermOpen {
   readonly sid: string;
   readonly mode: TerminalMode;
   readonly afterSeq: number | null;
-  readonly afterSeqBytes: number;
+  readonly receivedSegBytes: number;
   readonly cols?: number;
   readonly rows?: number;
 }
@@ -407,6 +474,39 @@ function isStringArray(v: unknown): v is readonly string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
+function isAsciiId(v: unknown, maxBytes = CATALOGUE_ID_MAX_BYTES): v is string {
+  if (typeof v !== "string" || v.length < 1 || v.length > maxBytes) return false;
+  for (let i = 0; i < v.length; i += 1) {
+    const code = v.charCodeAt(i);
+    if (code < 0x20 || code > 0x7e) return false;
+  }
+  return true;
+}
+
+function isPlainRowArray(v: unknown): v is readonly CatalogueWireRow[] {
+  return (
+    Array.isArray(v) &&
+    v.every((r) => r !== null && typeof r === "object" && !Array.isArray(r))
+  );
+}
+
+function isBase64Url22(v: unknown): v is string {
+  return typeof v === "string" && /^[A-Za-z0-9_-]{22}$/.test(v);
+}
+
+function isIsoUtc24(v: unknown): v is string {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v)) {
+    return false;
+  }
+  return Number.isFinite(Date.parse(v));
+}
+
+function isSha256Hex(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+}
+
+const REVOKED_BY_ACTORS = new Set(["user", "workspace-admin", "org-admin", "tenant-admin", "node"]);
+
 function isPosIntArray(v: unknown): v is readonly number[] {
   return Array.isArray(v) && v.length > 0 && v.every((x) => isSafePosInt(x));
 }
@@ -450,11 +550,46 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
       return (
         ch === 0 &&
         isSafePosInt(rec["linkGeneration"]) &&
-        isFiniteNumber(rec["serverTime"]) &&
-        isNonEmptyString(rec["bindNonce"]) &&
-        isStringArray(rec["revokedInstances"]) &&
-        (rec["limits"] === undefined || (typeof rec["limits"] === "object" && rec["limits"] !== null && !Array.isArray(rec["limits"])))
+        isIsoUtc24(rec["serverTime"]) &&
+        isBase64Url22(rec["bindNonce"]) &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        rec["stateSync"] === "full"
       );
+    case "state.begin":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["stateRevision"]) &&
+        isSafeNonNegInt(rec["revocationCount"]) &&
+        isSafeNonNegInt(rec["grantCount"]) &&
+        isSafeNonNegInt(rec["partCount"])
+      );
+    case "state.part":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["part"]) &&
+        (rec["kind"] === "revocations" || rec["kind"] === "grants") &&
+        Array.isArray(rec["entries"])
+      );
+    case "state.end":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["stateRevision"]) &&
+        isSafeNonNegInt(rec["partCount"]) &&
+        isSha256Hex(rec["imageSha256"])
+      );
+    case "state.applied":
+    case "state.active":
+      return (
+        ch === 0 &&
+        isSafePosInt(rec["syncGeneration"]) &&
+        isSafeNonNegInt(rec["stateRevision"]) &&
+        isSha256Hex(rec["imageSha256"])
+      );
+    case "prop.grant":
+      return ch === 0 && isSafeNonNegInt(rec["stateRevision"]);
     case "ping":
     case "pong":
       return ch === 0 && isFiniteNumber(rec["at"]);
@@ -485,33 +620,58 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
         isNonEmptyString(rec["instanceId"]) &&
         (rec["status"] === "live" || rec["status"] === "refused") &&
         (rec["reason"] === undefined || typeof rec["reason"] === "string") &&
-        isNonEmptyString(rec["bindNonce"])
+        isBase64Url22(rec["bindNonce"])
       );
     case "instance.revoked":
       return (
         ch === 0 &&
         isNonEmptyString(rec["instanceId"]) &&
-        isFiniteNumber(rec["revokedAt"]) &&
-        isNonEmptyString(rec["revokedBy"])
+        isIsoUtc24(rec["revokedAt"]) &&
+        typeof rec["revokedBy"] === "string" &&
+        REVOKED_BY_ACTORS.has(rec["revokedBy"]) &&
+        isSafeNonNegInt(rec["stateRevision"])
       );
     case "watch.start":
     case "watch.stop":
       return ch === 1;
-    case "cat.snapshot":
+    case "cat.snapshot.part":
       return (
         ch === 1 &&
-        isFiniteNumber(rec["at"]) &&
-        Array.isArray(rec["rows"]) &&
-        (rec["truncatedRows"] === undefined || isSafeNonNegInt(rec["truncatedRows"]))
+        isSafePosInt(rec["catSeq"]) &&
+        isAsciiId(rec["nodeId"]) &&
+        isAsciiId(rec["snapId"]) &&
+        isSafeNonNegInt(rec["part"]) &&
+        rec["part"] < CATALOGUE_SNAPSHOT_MAX_PARTS &&
+        isPlainRowArray(rec["rows"]) &&
+        rec["rows"].length >= 1 &&
+        rec["rows"].length <= CATALOGUE_PART_MAX_ROWS
       );
-    case "cat.delta":
+    case "cat.snapshot.end":
       return (
         ch === 1 &&
-        isFiniteNumber(rec["at"]) &&
-        Array.isArray(rec["adds"]) &&
-        Array.isArray(rec["updates"]) &&
-        isStringArray(rec["removes"])
+        isSafePosInt(rec["catSeq"]) &&
+        isAsciiId(rec["nodeId"]) &&
+        isAsciiId(rec["snapId"]) &&
+        isSafeNonNegInt(rec["partCount"]) &&
+        rec["partCount"] <= CATALOGUE_SNAPSHOT_MAX_PARTS &&
+        isSafeNonNegInt(rec["totalRows"]) &&
+        rec["totalRows"] <= CATALOGUE_MAX_ROWS &&
+        isSafeNonNegInt(rec["truncatedRows"])
       );
+    case "cat.delta": {
+      if (
+        ch !== 1 ||
+        !isSafePosInt(rec["catSeq"]) ||
+        !isAsciiId(rec["nodeId"]) ||
+        !isPlainRowArray(rec["upserts"]) ||
+        !Array.isArray(rec["removes"])
+      ) {
+        return false;
+      }
+      const total = rec["upserts"].length + rec["removes"].length;
+      if (total < 1 || total > CATALOGUE_DELTA_MAX_ENTRIES) return false;
+      return rec["removes"].every((sid) => isAsciiId(sid));
+    }
     case "credit":
       return (
         ch >= 1 &&
@@ -526,7 +686,7 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
         isNonEmptyString(rec["sid"]) &&
         (rec["mode"] === "observe" || rec["mode"] === "control") &&
         (rec["afterSeq"] === null || isSafeNonNegInt(rec["afterSeq"])) &&
-        isSafeNonNegInt(rec["afterSeqBytes"]) &&
+        isSafeNonNegInt(rec["receivedSegBytes"]) &&
         (rec["cols"] === undefined || isSafePosInt(rec["cols"])) &&
         (rec["rows"] === undefined || isSafePosInt(rec["rows"]))
       );

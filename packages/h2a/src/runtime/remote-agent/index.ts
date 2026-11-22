@@ -22,6 +22,13 @@ export {
   CATALOGUE_MAX_ROWS,
   CATALOGUE_ROW_MAX_BYTES,
   CATALOGUE_SNAPSHOT_MAX_BYTES,
+  CATALOGUE_LABEL_MAX_BYTES,
+  CATALOGUE_LABEL_PREFIX_MAX_BYTES,
+  CATALOGUE_ID_MAX_BYTES,
+  CATALOGUE_PART_MAX_ROWS,
+  CATALOGUE_SNAPSHOT_MAX_PARTS,
+  CATALOGUE_DELTA_MAX_ENTRIES,
+  CATALOGUE_RECORD_MAX_BYTES,
   TERMINAL_INPUT_MAX_BYTES,
   TERMINAL_OUTPUT_COALESCE_BYTES,
   canonicalTrunkJson,
@@ -33,10 +40,16 @@ export {
   type TrunkEnvelope,
   type TrunkChallenge,
   type TrunkAuthPayload,
-  type TrunkNegotiatedLimits,
   type TrunkHelloRecord,
   type TrunkAuthRecord,
   type TrunkReadyRecord,
+  type StateBeginRecord,
+  type StatePartRecord,
+  type StateEndRecord,
+  type StateAppliedRecord,
+  type StateActiveRecord,
+  type PropGrantRecord,
+  type TrunkStateRecord,
   type InstanceBindRecord,
   type InstanceBoundRecord,
   type InstanceRevokedRecord,
@@ -46,10 +59,9 @@ export {
   type CatalogueInstanceStatus,
   type CatalogueOperabilityReason,
   type CatalogueSessionRow,
-  type CatalogueInstanceStatusUpdate,
-  type CatalogueRowStatusUpdate,
-  type CatalogueRowUpdate,
-  type CatalogueSnapshot,
+  type CatalogueWireRow,
+  type CatalogueSnapshotPart,
+  type CatalogueSnapshotEnd,
   type CatalogueDelta,
   type TrunkCatalogueRecord,
   type TrunkTerminalRecord,
@@ -59,15 +71,10 @@ export {
 export {
   projectCatalogueRow,
   projectJoinedCatalogueRow,
-  buildCatalogueSnapshot,
-  buildBoundedCatalogueSnapshot,
-  fitCatalogueRowToBound,
-  serializeCatalogueSnapshot,
-  parseCatalogueSnapshot,
-  serializeCatalogueDelta,
-  parseCatalogueDelta,
-  applyCatalogueDelta,
-  isInstanceStatusUpdate,
+  projectBoundedCatalogue,
+  stripCatalogueLabel,
+  jcsEscapedLength,
+  boundCatalogueLabel,
   sanitizeDisplayScalar,
   containsForbiddenLocalField,
   isInternalCompanionNativeId,
@@ -76,6 +83,12 @@ export {
   presenceCatalogueSid,
   type ProjectJoinedRowInput
 } from "./catalogue.js";
+export {
+  catalogueRowsEqual,
+  planCatalogueUpdate,
+  type CatalogueProjection,
+  type CataloguePlan
+} from "./catalogue-plan.js";
 export {
   resolveExclusionsDir,
   resolveExclusionsFilePath,
@@ -163,6 +176,13 @@ export {
   type CreditUpdateResult
 } from "./trunk-credit.js";
 export {
+  normalizeCatalogueSid,
+  wireInstanceId,
+  isWireInstanceId,
+  wireNodeId,
+  isWireNodeId
+} from "./wire-ids.js";
+export {
   extractRawEd25519PublicKeyBase64,
   formatWET2Fingerprint,
   loadLocalInstancePossession,
@@ -170,7 +190,9 @@ export {
   persistRevokedInstancesRegistry,
   TrunkInstanceManager,
   type LocalInstancePossession,
-  type InstanceActResult
+  type InstanceActResult,
+  type RevokedInstancesScopeEntry,
+  type RevokedInstancesRegistryRead
 } from "./trunk-instance.js";
 export {
   TrunkClient,
@@ -181,7 +203,6 @@ export {
   type TrunkConnectionHandlers,
   type TrunkConnection,
   type TrunkConnector,
-  type CatalogueStatusUpdate,
   type CatalogueEmitEvent,
   type TrunkCatalogueSource,
   type TrunkChannelContext,
@@ -193,6 +214,31 @@ export {
   type TrunkLinkStatus,
   type TrunkClientOptions
 } from "./trunk-client.js";
+export {
+  AUTHORITY_SYNC_DEADLINE_MS,
+  AUTHORITY_MAX_REVOCATIONS,
+  AUTHORITY_MAX_GRANTS,
+  AUTHORITY_MAX_PARTS,
+  AUTHORITY_PART_MAX_ENTRIES,
+  AUTHORITY_ENTRY_MAX_BYTES,
+  AUTHORITY_PART_MAX_BYTES,
+  AUTHORITY_RECORD_MAX_BYTES,
+  AUTHORITY_ID_MAX_BYTES,
+  AUTHORITY_MESH_TENANT_MAX_BYTES,
+  AUTHORITY_GRANT_MAX_KINDS,
+  AUTHORITY_KIND_MAX_BYTES,
+  AUTHORITY_REVOKED_ACTORS,
+  isUnescapedAsciiToken,
+  isIsoUtc24Timestamp,
+  AuthoritySyncStager,
+  type AuthorityRevokedActor,
+  type AuthorityRevocationEntry,
+  type AuthorityGrantEntry,
+  type TrunkAuthorityState,
+  type AuthoritySyncStagerOptions,
+  type AuthorityStagerStepResult,
+  type AuthorityStagerEndResult
+} from "./trunk-authority.js";
 export {
   TERMINAL_OUTPUT_COALESCE_MS,
   TERMINAL_OUTPUT_POLL_INTERVAL_MS,

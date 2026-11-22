@@ -18,11 +18,12 @@ import {
   createHash,
   createPublicKey,
   generateKeyPairSync,
-  randomUUID
+  randomBytes
 } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { wireNodeId } from "./wire-ids.js";
 
 export const NODE_KEY_FILE = "node-key.json";
 export const NODE_KEY_DIR = "remote";
@@ -84,6 +85,8 @@ function parseStored(raw: string): StoredNodeKey | null {
   if (obj === null || typeof obj !== "object") return null;
   const r = obj as Record<string, unknown>;
   if (typeof r["nodeId"] !== "string" || r["nodeId"] === "") return null;
+  const normalizedNodeId = wireNodeId(r["nodeId"]);
+  if (normalizedNodeId === null) return null;
   if (typeof r["publicKeyPem"] !== "string") return null;
   if (typeof r["privateKeyPem"] !== "string") return null;
   if (typeof r["fingerprint"] !== "string") return null;
@@ -109,7 +112,7 @@ function parseStored(raw: string): StoredNodeKey | null {
     return null;
   }
   return {
-    nodeId: r["nodeId"],
+    nodeId: normalizedNodeId,
     publicKeyPem: r["publicKeyPem"],
     privateKeyPem: r["privateKeyPem"],
     fingerprint: r["fingerprint"],
@@ -158,7 +161,7 @@ export function generateNodeKey(options: NodeKeyOptions = {}): NodeKeyLoadResult
     publicKeyEncoding: { type: "spki", format: "pem" }
   });
   const stored: StoredNodeKey = {
-    nodeId: `node:${randomUUID()}`,
+    nodeId: randomBytes(16).toString("hex"),
     publicKeyPem: pair.publicKey,
     privateKeyPem: pair.privateKey,
     fingerprint: nodeKeyFingerprint(pair.publicKey),

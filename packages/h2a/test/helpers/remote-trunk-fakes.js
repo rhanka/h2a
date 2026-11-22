@@ -25,14 +25,16 @@ const REMOTE_CLIENT = "remote";
 const AUTH_TIME_MAX_AGE_MS = 10 * 60 * 1000;
 
 /**
- * SHA-256 of the UTF-8 bytes of SPEC_EVOL_REMOTE_FASTLANE.md (r7) from the
- * section 6 heading inclusive through the section 7 heading exclusive.
+ * SHA-256 of the LF-normalized UTF-8 bytes of SPEC_EVOL_REMOTE_FASTLANE.md (r11)
+ * from the section 6 heading (`## 6. `) inclusive through the section 7 heading
+ * (`## 7. `) exclusive.
  */
+export const WET2_CONTRACT_VERSION = "WET-2.1";
 export const WET2_TEXT_HASH =
-  "0c0069544d0efbc115f142b9435d14a780c401a43b1b77aa49066048516ac050";
+  "b3c8a8fa7f3eff0c7066d0618c6d4fae1ce7f018e4ce58439e0598f23975035c";
 
 export const FIXTURE_CONTRACT_METADATA = Object.freeze({
-  contractVersion: "WET-2",
+  contractVersion: WET2_CONTRACT_VERSION,
   wet2TextHash: WET2_TEXT_HASH
 });
 
@@ -88,7 +90,7 @@ export class FakeTrunkEndpoint {
 
   metadata() {
     return Object.freeze({
-      contractVersion: "WET-2",
+      contractVersion: WET2_CONTRACT_VERSION,
       wet2TextHash: this.#wet2TextHash
     });
   }
@@ -228,7 +230,7 @@ export class FakeEnrolmentVerifier {
 
   metadata() {
     return Object.freeze({
-      contractVersion: "WET-2",
+      contractVersion: WET2_CONTRACT_VERSION,
       wet2TextHash: this.#wet2TextHash
     });
   }
@@ -325,105 +327,4 @@ export class FakeEnrolmentVerifier {
   meshId() {
     return this.#meshId;
   }
-}
-
-/**
- * Simulated trunk contract provider for catalogue framing (LH-06 / LH-07).
- * Encodes a logical snapshot (<= 256 KiB) into a prefix `cat.snapshot` plus
- * trailing `cat.delta` (`adds`) records, each <= `maxCatalogueRecordBytes`
- * (8192 by default in the test provider).
- */
-export function createFakeCatalogueTrunkProvider(options = {}) {
-  const env = options.env ?? process.env;
-  const wet2TextHash = options.wet2TextHash ?? WET2_TEXT_HASH;
-  const maxCatalogueRecordBytes = options.maxCatalogueRecordBytes ?? 8192;
-  const metadata = Object.freeze({ contractVersion: "WET-2", wet2TextHash });
-
-  function encodeLogicalSnapshot(snapshot, { startS = 1, ch = snapshot.ch ?? 1 } = {}) {
-    const sealed = assertSealed(env, wet2TextHash);
-    if (!sealed.ok) return { ...sealed, records: [], nextS: startS };
-
-    const allRows = [...snapshot.rows];
-    const truncatedRows = snapshot.truncatedRows ?? 0;
-    const records = [];
-    let s = startS;
-
-    // 1. Largest prefix fitting in `cat.snapshot`
-    const firstRows = [];
-    let cursor = 0;
-    while (cursor < allRows.length) {
-      const candidate = {
-        v: TRUNK_PROTOCOL_VERSION,
-        t: "cat.snapshot",
-        ch,
-        s,
-        at: snapshot.at,
-        rows: [...firstRows, allRows[cursor]],
-        truncatedRows
-      };
-      if (Buffer.byteLength(canonicalTrunkJson(candidate), "utf8") > maxCatalogueRecordBytes) {
-        break;
-      }
-      firstRows.push(allRows[cursor]);
-      cursor += 1;
-    }
-    const snapRecord = {
-      v: TRUNK_PROTOCOL_VERSION,
-      t: "cat.snapshot",
-      ch,
-      s,
-      at: snapshot.at,
-      rows: firstRows,
-      truncatedRows
-    };
-    if (Buffer.byteLength(canonicalTrunkJson(snapRecord), "utf8") > maxCatalogueRecordBytes) {
-      return { ok: false, reason: "record-too-large", records: [], nextS: startS };
-    }
-    records.push(snapRecord);
-    s += 1;
-
-    // 2. Remaining rows as `cat.delta` with `adds`
-    while (cursor < allRows.length) {
-      const batch = [];
-      while (cursor < allRows.length) {
-        const candidate = {
-          v: TRUNK_PROTOCOL_VERSION,
-          t: "cat.delta",
-          ch,
-          s,
-          at: snapshot.at,
-          adds: [...batch, allRows[cursor]],
-          updates: [],
-          removes: []
-        };
-        if (Buffer.byteLength(canonicalTrunkJson(candidate), "utf8") > maxCatalogueRecordBytes) {
-          break;
-        }
-        batch.push(allRows[cursor]);
-        cursor += 1;
-      }
-      if (batch.length === 0) {
-        return { ok: false, reason: "record-too-large", records: [], nextS: startS };
-      }
-      records.push({
-        v: TRUNK_PROTOCOL_VERSION,
-        t: "cat.delta",
-        ch,
-        s,
-        at: snapshot.at,
-        adds: batch,
-        updates: [],
-        removes: []
-      });
-      s += 1;
-    }
-
-    return { ok: true, records, nextS: s };
-  }
-
-  return {
-    maxCatalogueRecordBytes,
-    metadata,
-    encodeLogicalSnapshot
-  };
 }
