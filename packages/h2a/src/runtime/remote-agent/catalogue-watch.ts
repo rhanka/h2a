@@ -32,6 +32,7 @@ import {
   projectJoinedCatalogueRow
 } from "./catalogue.js";
 import { wireInstanceId } from "./wire-ids.js";
+import { catalogueRowsEqual } from "./catalogue-plan.js";
 import {
   isSidExcluded,
   linkExclusionAlias,
@@ -221,10 +222,6 @@ interface LiveNativeRecord {
   readonly status: "running" | "stopping";
 }
 
-function rowsEqual(a: CatalogueSessionRow, b: CatalogueSessionRow): boolean {
-  return canonicalTrunkJson(a) === canonicalTrunkJson(b);
-}
-
 function isOnlyInstanceStatusChange(
   prev: CatalogueSessionRow,
   next: CatalogueSessionRow
@@ -239,7 +236,7 @@ function isOnlyInstanceStatusChange(
     return null;
   }
   const normalizedPrev: CatalogueSessionRow = { ...prev, instanceStatus: next.instanceStatus };
-  if (!rowsEqual(normalizedPrev, next)) return null;
+  if (!catalogueRowsEqual(normalizedPrev, next)) return null;
   return {
     sessionId: next.sessionId,
     instanceId: next.instanceId,
@@ -334,7 +331,7 @@ export function createCatalogueProjector(
       const prev = prevMap.get(row.sessionId);
       if (!prev) {
         adds.push(row);
-      } else if (!rowsEqual(prev, row)) {
+      } else if (!catalogueRowsEqual(prev, row)) {
         const statusOnly = isOnlyInstanceStatusChange(prev, row);
         updates.push(statusOnly ?? row);
       }
