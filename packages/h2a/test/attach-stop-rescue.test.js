@@ -14,8 +14,14 @@ const { NativeTerminalClient } = await import("../../h2a-runtime/dist/native-ter
 const runtime = join(import.meta.dirname, "../../h2a-runtime/dist");
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Bounds for waits on loaded runners, sized on measured p99: a cold CLI
+// spawn plus host RPCs takes ~2.7s (stop exit) and ~2.9s (takeover detach)
+// on a saturated core, so the historical 3s budget flaked with no margin
+// while the product behaved correctly. The waits stay event-driven on the
+// real signals (lease state / echoed bytes / child exit) and fail closed.
+const WAIT_BUDGET_MS = 30_000;
 async function eventually(read, accept, label) {
-  const deadline = Date.now() + 3_000;
+  const deadline = Date.now() + WAIT_BUDGET_MS;
   for (;;) {
     const value = await read();
     if (accept(value)) return value;
@@ -30,8 +36,11 @@ function output(child) {
   return child;
 }
 async function exited(child) {
-  await eventually(() => ({ code: child.exitCode, signal: child.signalCode, text: child.text }),
-    value => value.code !== null || value.signal !== null, "client must exit");
+  // Event-driven: the real child exit event, bounded so a genuinely stuck
+  // client still fails instead of hanging the file.
+  const finished = await Promise.race([child.done, delay(WAIT_BUDGET_MS).then(() => null)]);
+  assert.ok(finished !== null,
+    `client must exit within ${WAIT_BUDGET_MS}ms: ${JSON.stringify({ code: child.exitCode, signal: child.signalCode, text: child.text })}`);
   return child.done;
 }
 async function fixture(t) {

@@ -545,12 +545,26 @@ describe.skipIf(process.platform !== "linux")(
           { id: "h2a-m4", label: "m4", mtime: 1_700_000_100_000, script: big("M4", 4 * 1024 * 1024) },
         ],
       });
-      // Both histories are fully retained before anything is measured.
+      // Both histories are fully retained before anything is measured. The wait
+      // follows the live tail (afterSeq tracks latestSeq): re-reading the whole
+      // retained buffer from seq 0 on every poll moves up to 4 MiB per call, so
+      // under a loaded runner the host spends its loop serializing giant frames
+      // instead of draining the fixture PTYs, and the READY marker starves past
+      // the deadline while the fixtures are healthy.
       for (const [id, tag] of [["h2a-k256", "K256"], ["h2a-m4", "M4"]] as const) {
         const deadline = Date.now() + 60_000;
+        let afterSeq = 0;
+        let printed = "";
         for (;;) {
-          const replay = await f.client.readOutput(id, 0, 30_000);
-          if (replay.chunks.some((chunk) => chunk.data.includes(`${tag}_READY`))) break;
+          const replay = await f.client.readOutput(id, afterSeq, 30_000);
+          for (const chunk of replay.chunks) {
+            if (chunk.seq > afterSeq) {
+              printed += chunk.data;
+              afterSeq = chunk.seq;
+            }
+          }
+          if (replay.latestSeq > afterSeq) afterSeq = replay.latestSeq;
+          if (printed.includes(`${tag}_READY`)) break;
           if (Date.now() > deadline) throw new Error(`fixture ${id} never finished printing`);
           await sleep(100);
         }
