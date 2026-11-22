@@ -21,7 +21,7 @@
  * spawn-policy decision and remote-trigger support.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { conductorFor } from "./conductor.js";
 
 // ---------------------------------------------------------------------------
@@ -156,6 +156,62 @@ function defaultRunTrackActivity(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Non-blocking counterpart to `defaultRunTrackActivity` for the central MCP
+ * event loop: runs `track workspace-activity` via async `execFile` so a slow
+ * or contended subprocess never stalls foreground `/_h2a-central/ping` or
+ * holds store/inbox locks across a synchronous child wait.
+ */
+export function runTrackActivityAsync(
+  workspaceId: string,
+  idleMs: number
+): Promise<{ pending: number; stalled: StalledItem[]; latestEventAt?: string } | undefined> {
+  return new Promise((resolve) => {
+    execFile(
+      "track",
+      [
+        "workspace-activity",
+        "--workspace",
+        workspaceId,
+        "--idle-ms",
+        String(idleMs),
+        "--format",
+        "json"
+      ],
+      { encoding: "utf8", timeout: 10_000 },
+      (err, stdout) => {
+        if (err) {
+          resolve(undefined);
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout) as { pending: number; stalled: StalledItem[]; latestEventAt?: string });
+        } catch {
+          resolve(undefined);
+        }
+      }
+    );
+  });
+}
+
+/**
+ * Async counterpart to `conductorLaunchCheck`: gathers `track workspace-activity`
+ * without blocking the Node.js event loop.
+ */
+export async function conductorLaunchCheckAsync(
+  opts: ConductorLaunchCheckOpts
+): Promise<ConductorLaunchCheckResult> {
+  const idleMs = opts.idleMs ?? 86_400_000;
+  const activity = opts.runTrackActivity
+    ? opts.runTrackActivity(opts.workspaceId, idleMs)
+    : await runTrackActivityAsync(opts.workspaceId, idleMs);
+  return conductorLaunchCheck({
+    ...opts,
+    idleMs,
+    runTrackActivity: () => activity
+  });
 }
 
 /**

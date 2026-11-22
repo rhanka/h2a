@@ -1562,14 +1562,21 @@ test('T2.11 (B-2): h2a_conductor_launch with confirm=true uses sharedStore and a
     subscribedTopics: []
   });
 
-  // Spy on child_process.spawnSync for any flock invocation.
+  // Spy on child_process.spawnSync and child_process.execFileSync: neither flock nor track
+  // may block the central event loop synchronously during h2a_conductor_launch.
   const origSpawnSync = childProcess.spawnSync;
+  const origExecFileSync = childProcess.execFileSync;
   const flockSyncCalls = [];
+  const execFileSyncCalls = [];
   t.mock.method(childProcess, 'spawnSync', (cmd, args, ...rest) => {
     if (String(cmd).includes('flock')) {
       flockSyncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
     }
     return origSpawnSync(cmd, args, ...rest);
+  });
+  t.mock.method(childProcess, 'execFileSync', (cmd, args, ...rest) => {
+    execFileSyncCalls.push(`${cmd} ${Array.isArray(args) ? args.join(' ') : ''}`);
+    return origExecFileSync(cmd, args, ...rest);
   });
   syncBuiltinESMExports();
 
@@ -1636,6 +1643,7 @@ test('T2.11 (B-2): h2a_conductor_launch with confirm=true uses sharedStore and a
     assert.equal(payload.action, 'emitted', JSON.stringify(payload));
     assert.equal(payload.to, remoteInstance);
     assert.deepEqual(flockSyncCalls, [], `expected 0 flock spawnSync calls in h2a_conductor_launch, saw: ${flockSyncCalls.join('; ')}`);
+    assert.deepEqual(execFileSyncCalls, [], `expected 0 execFileSync calls in h2a_conductor_launch, saw: ${execFileSyncCalls.join('; ')}`);
   } finally {
     probe.stop();
     clearTimeout(releaseTimer);
