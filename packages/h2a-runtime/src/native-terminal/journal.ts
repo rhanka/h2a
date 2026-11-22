@@ -10,12 +10,23 @@ import { guardTestStateMove, guardTestStateWrite } from "../test-state-guard.js"
 export const MAX_HOST_JOURNAL_BYTES = 1024 * 1024;
 export const HOST_JOURNAL_DRAIN_MS = 100;
 /**
+ * Bound for the detached journal writer process to drain already-queued
+ * entries after parent IPC disconnect (graceful settle or fatal host crash).
+ * When the queue is already empty (normal graceful shutdown after `flush()`),
+ * the writer exits immediately via `finish()`; on a fatal crash (where the
+ * dying host cannot `await flush()` before exit), both the crash record and
+ * the `exit` entry must drain after EOF. 1500 ms absorbs CI/I/O contention
+ * while still self-terminating a truly wedged filesystem writer well within
+ * test reap bounds.
+ */
+export const WRITER_DISCONNECT_DRAIN_MS = 1_500;
+/**
  * Bound for the host to outlive its writer after a graceful shutdown.
- * The writer exits on its own no later than HOST_JOURNAL_DRAIN_MS after the
- * disconnect (its own timer, `disconnect` below), so this backstop only covers
- * disconnect delivery plus scheduling jitter. It matches the 500 ms shutdown
- * phases in process.ts and keeps the strictest shutdown budget (the blocked
- * writer test's 1500 ms race) green even if the backstop ever fires.
+ * A healthy writer has already drained via `flush()` before `settle()` closes
+ * IPC and exits immediately; for a wedged writer, this backstop caps the host
+ * wait (matching the 500 ms shutdown phases in process.ts and keeping the
+ * blocked-writer 1500 ms host-shutdown budget green), while the writer's own
+ * `WRITER_DISCONNECT_DRAIN_MS` timer terminates the detached process.
  */
 export const WRITER_SETTLE_MS = 500;
 type Identity = { pid: number; startTime: number | "unknown"; generation: string };
@@ -295,8 +306,8 @@ if (isMainThread && process.argv[2] === "--native-host-journal-writer" && proces
   const disconnect = () => {
     if (disconnected) return;
     disconnected = true;
-    setTimeout(() => process.exit(0), HOST_JOURNAL_DRAIN_MS);
     finish();
+    setTimeout(() => process.exit(0), WRITER_DISCONNECT_DRAIN_MS);
   };
   process.once("disconnect", disconnect);
   // Node can deliver parent EOF before this module loads. In Node 20,
