@@ -332,6 +332,7 @@ export interface TermIn {
   readonly incarnation: string;
   readonly epoch: number;
   readonly inSeq: number;
+  readonly ackThrough: number;
   readonly origin: "user" | "terminal-reply";
   readonly dataB64: string;
 }
@@ -341,10 +342,32 @@ export interface TermInAck {
   readonly t: "term.in.ack";
   readonly ch: number;
   readonly s: number;
-  readonly sid: string;
   readonly inSeq: number;
   readonly result: "applied" | "refused" | "uncertain";
   readonly reason?: string;
+}
+
+export interface TermInSync {
+  readonly v: typeof TRUNK_PROTOCOL_VERSION;
+  readonly t: "term.in.sync";
+  readonly ch: number;
+  readonly s: number;
+  readonly sid: string;
+  readonly generation: string;
+  readonly incarnation: string;
+  readonly epoch: number;
+  readonly lastAckedInSeq: number;
+}
+
+export interface TermInSynced {
+  readonly v: typeof TRUNK_PROTOCOL_VERSION;
+  readonly t: "term.in.synced";
+  readonly ch: number;
+  readonly s: number;
+  readonly sid: string;
+  readonly epoch: number;
+  readonly syncedThroughInSeq: number;
+  readonly evicted: boolean;
 }
 
 export interface TermCtl {
@@ -353,7 +376,10 @@ export interface TermCtl {
   readonly ch: number;
   readonly s: number;
   readonly sid: string;
+  readonly generation: string;
+  readonly incarnation: string;
   readonly action: "acquire" | "release";
+  readonly epoch?: number;
 }
 
 export interface TermCtlState {
@@ -364,6 +390,8 @@ export interface TermCtlState {
   readonly sid: string;
   readonly state: ControlState;
   readonly epoch?: number;
+  readonly generation?: string;
+  readonly incarnation?: string;
 }
 
 export interface TermResize {
@@ -382,6 +410,7 @@ export interface TermStop {
   readonly ch: number;
   readonly s: number;
   readonly sid: string;
+  readonly generation: string;
   readonly incarnation: string;
 }
 
@@ -438,6 +467,8 @@ export type TrunkTerminalRecord =
   | TermGap
   | TermIn
   | TermInAck
+  | TermInSync
+  | TermInSynced
   | TermCtl
   | TermCtlState
   | TermResize
@@ -718,26 +749,69 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
         isNonEmptyString(rec["sid"]) &&
         isNonEmptyString(rec["generation"]) &&
         isNonEmptyString(rec["incarnation"]) &&
-        isSafeNonNegInt(rec["epoch"]) &&
+        isSafePosInt(rec["epoch"]) &&
         isSafePosInt(rec["inSeq"]) &&
+        isSafeNonNegInt(rec["ackThrough"]) &&
         (rec["origin"] === "user" || rec["origin"] === "terminal-reply") &&
         typeof rec["dataB64"] === "string"
       );
     case "term.in.ack":
       return (
         ch >= 2 &&
-        isNonEmptyString(rec["sid"]) &&
         isSafePosInt(rec["inSeq"]) &&
-        (rec["result"] === "applied" || rec["result"] === "refused" || rec["result"] === "uncertain")
+        (rec["result"] === "applied" || rec["result"] === "refused" || rec["result"] === "uncertain") &&
+        (rec["reason"] === undefined || isNonEmptyString(rec["reason"]))
+      );
+    case "term.in.sync":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["generation"]) &&
+        isNonEmptyString(rec["incarnation"]) &&
+        isSafePosInt(rec["epoch"]) &&
+        isSafeNonNegInt(rec["lastAckedInSeq"])
+      );
+    case "term.in.synced":
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isSafePosInt(rec["epoch"]) &&
+        isSafeNonNegInt(rec["syncedThroughInSeq"]) &&
+        typeof rec["evicted"] === "boolean"
       );
     case "term.ctl":
-      return ch >= 2 && isNonEmptyString(rec["sid"]) && (rec["action"] === "acquire" || rec["action"] === "release");
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["generation"]) &&
+        isNonEmptyString(rec["incarnation"]) &&
+        (rec["action"] === "acquire" || rec["action"] === "release") &&
+        (rec["action"] === "release"
+          ? isSafePosInt(rec["epoch"])
+          : rec["epoch"] === undefined || isSafePosInt(rec["epoch"]))
+      );
     case "term.ctl.state":
-      return ch >= 2 && isNonEmptyString(rec["sid"]) && isNonEmptyString(rec["state"]);
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["state"]) &&
+        (rec["epoch"] === undefined || isSafePosInt(rec["epoch"])) &&
+        (rec["state"] === "granted"
+          ? isSafePosInt(rec["epoch"]) &&
+            isNonEmptyString(rec["generation"]) &&
+            isNonEmptyString(rec["incarnation"])
+          : (rec["generation"] === undefined || isNonEmptyString(rec["generation"])) &&
+            (rec["incarnation"] === undefined || isNonEmptyString(rec["incarnation"])))
+      );
     case "term.resize":
       return ch >= 2 && isNonEmptyString(rec["sid"]) && isSafePosInt(rec["cols"]) && isSafePosInt(rec["rows"]);
     case "term.stop":
-      return ch >= 2 && isNonEmptyString(rec["sid"]) && isNonEmptyString(rec["incarnation"]);
+      return (
+        ch >= 2 &&
+        isNonEmptyString(rec["sid"]) &&
+        isNonEmptyString(rec["generation"]) &&
+        isNonEmptyString(rec["incarnation"])
+      );
     case "term.exit":
       return (
         ch >= 2 &&
