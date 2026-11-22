@@ -19,7 +19,6 @@ export class LaunchJournal {
   }
   launch(request, execute) {
     const reserved = this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(request.name)) throw new Error('launch_name_invalid');
       const path = this.path(request.name), old = readState(path, 'launchMemo');
       const initialArgumentsDigest = this.argumentsDigest(request);
@@ -54,7 +53,6 @@ export class LaunchJournal {
     });
     if (reserved.existing) return this.result(reserved.existing);
     const onSpawn = childProcessIdentity => this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       const old = readState(reserved.path, 'launchMemo');
       const updated = { ...old.value, childProcessIdentity };
       replaceState(reserved.path, updated, 'launchMemo', old);
@@ -62,7 +60,6 @@ export class LaunchJournal {
       this.registry.bump();
     });
     const finish = result => this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       const old = readState(reserved.path, 'launchMemo');
       const terminal = result && typeof result === 'object' ? result : { state: 'unknown', retrySafe: false };
       const complete = ['started', 'stopped', 'not-started'].includes(terminal.state);
@@ -89,7 +86,6 @@ export class LaunchJournal {
   }
   reconcile(request) {
     return this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       const path = this.path(request.name), old = readState(path, 'launchMemo');
       if (!old || old.value.initialArgumentsDigest !== this.argumentsDigest(request)) throw new Error('launch_arguments_conflict');
       return this.result(this.reconcileMemo(old));
@@ -136,7 +132,6 @@ export class LaunchJournal {
     }
   }
   publishDelegation(memo, result) {
-    this.registry.syncIfExternalChange();
     const location = this.registry.launchLocationsById.get(memo.launchId)
       ?? readState(join(this.registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
     if (!location || location.attachmentId !== memo.attachmentId) throw new Error('launch_location_missing');

@@ -21,7 +21,6 @@ export class WakeJournal {
   }
   async execute(ids, instructionLine, inject) {
     const ticket = this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       this.registry.assertOwner(this.token);
       const eligible = this.eligibleEnvelopeIds([...new Set(ids)].sort());
       if (!eligible.length) return null;
@@ -52,7 +51,6 @@ export class WakeJournal {
       this.ledger.finish(ticket.operation, { state: 'unknown' }, true); return false;
     }
     this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       const updated = replaceState(ticket.path, { ...ticket.started.value, revision: ticket.started.value.revision + 1,
         state: result ? 'delivered' : 'deferred', result }, 'wakeIntent', ticket.started);
       this.registry.recordWakeIntent(ticket.path, updated.value);

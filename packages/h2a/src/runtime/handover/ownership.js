@@ -309,10 +309,19 @@ export class OwnershipRegistry {
     });
   }
 
+  isRevisionClean() {
+    const stamp = tryFileStamp(this.revisionPath);
+    return stamp !== null && stamp === this.lastRevisionStamp;
+  }
+
   bump() {
+    const prevStamp = tryFileStamp(this.revisionPath);
+    const wasClean = prevStamp !== null && prevStamp === this.lastRevisionStamp;
     const old = readState(this.revisionPath, 'participantRevision');
     replaceState(this.revisionPath, { ...old.value, revision: old.value.revision + 1 }, 'participantRevision', old);
-    this.lastRevisionStamp = tryFileStamp(this.revisionPath);
+    if (wasClean) {
+      this.lastRevisionStamp = tryFileStamp(this.revisionPath);
+    }
   }
 
   revision() {
@@ -328,7 +337,6 @@ export class OwnershipRegistry {
 
   claim(input) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       if (readState(this.ownerPath(input.attachmentId), 'ownership')) throw new Error('ownership_exists');
       const value = { schemaVersion: 1, ...input, ownerGeneration: this.generation, ownershipEpoch: 1,
         ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
@@ -346,7 +354,6 @@ export class OwnershipRegistry {
 
   rebaseline(input, proveEnded) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const path = this.ownerPath(input.attachmentId), old = readState(path, 'ownership');
       if (!old || old.value.ownerGeneration === this.generation || !proveEnded(old.value)) throw new Error('ownership_exists');
       const value = { ...old.value, ...input, ownerGeneration: this.generation, ownershipEpoch: old.value.ownershipEpoch + 1,
@@ -369,7 +376,6 @@ export class OwnershipRegistry {
 
   updateIdentity(token, presenceSessionId, expectedInstance) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token);
       if (old.value.presenceSessionId === presenceSessionId && old.value.expectedInstance === expectedInstance) return;
       const next = { ...old.value, presenceSessionId, expectedInstance };
@@ -381,7 +387,6 @@ export class OwnershipRegistry {
 
   releasePresence(token, sessionId) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token);
       if (old.value.presenceSessionId !== sessionId) throw new Error('presence_ownership_mismatch');
       const next = { ...old.value, presenceSessionId: `pending:${token.attachmentId}` };
@@ -393,7 +398,6 @@ export class OwnershipRegistry {
 
   freeze(token, handoverId) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token, ['ACTIVE', 'FROZEN']);
       if (old.value.state === 'FROZEN') {
         if (old.value.handoverId !== handoverId) throw new Error('handover_conflict');
@@ -409,7 +413,6 @@ export class OwnershipRegistry {
 
   checkpoint(token, snapshot) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token, ['FROZEN']);
       validate('checkpoint', snapshot);
       if (snapshot.attachmentId !== token.attachmentId || snapshot.ownershipEpoch !== token.ownershipEpoch || snapshot.deliveredSequence > snapshot.producedSequence) throw new Error('checkpoint_binding_mismatch');
@@ -437,7 +440,6 @@ export class OwnershipRegistry {
 
   abort(token, handoverId) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token, ['FROZEN']);
       if (old.value.handoverId !== handoverId) throw new Error('handover_conflict');
       const next = { ...old.value, state: 'ACTIVE', handoverId: null, checkpointHash: null };
@@ -449,7 +451,6 @@ export class OwnershipRegistry {
 
   close(token) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token, ['ACTIVE', 'FROZEN', 'TRANSFERRING']);
       const next = { ...old.value, state: 'CLOSED' };
       replaceState(this.ownerPath(token.attachmentId), next, 'ownership', old);
@@ -460,7 +461,6 @@ export class OwnershipRegistry {
 
   fence(token, handoverId, checkpointHash) {
     return this.withLock(() => {
-      this.syncIfExternalChange();
       const old = this.assertOwner(token, ['FROZEN', 'TRANSFERRING']);
       if (old.value.handoverId !== handoverId || !checkpointHash || old.value.checkpointHash !== checkpointHash) throw new Error('checkpoint_binding_mismatch');
       this.loadCheckpoint(`checkpoint-${checkpointHash.slice(7)}.json`, checkpointHash);
@@ -486,7 +486,8 @@ export class OperationLedger {
     this.retainedCompleted = new Map();
     this.archivedOperationCache = new Map();
     this.effectsByAttachment = new Map();
-    this._effectFileToMeta = new Map(); // filename -> { attachmentId, event, order }
+    this._effectFileToMeta = new Map(); // filename -> { attachmentId, isDelegation }
+    this._effectsByAttBuckets = new Map(); // attachmentId -> { delegations: Map<filename, event>, regular: Map<filename, event> }
     this._opFileToId = new Map(); // filename -> operationId
     this._opOrder = new Map(); // filename -> monotonic seq
     this._effectOrder = new Map(); // filename -> monotonic seq
@@ -691,34 +692,41 @@ export class OperationLedger {
     }
   }
 
-  _rebuildEffectsListForAttachment(attachmentId) {
-    const entries = [];
-    for (const [fname, meta] of this._effectFileToMeta.entries()) {
-      if (meta.attachmentId === attachmentId) entries.push({ fname, ...meta });
+  _syncEffectsArray(attachmentId) {
+    const bucket = this._effectsByAttBuckets.get(attachmentId);
+    if (!bucket || (bucket.delegations.size === 0 && bucket.regular.size === 0)) {
+      this._effectsByAttBuckets.delete(attachmentId);
+      this.effectsByAttachment.delete(attachmentId);
+      return;
     }
-    entries.sort((a, b) => a.order - b.order);
-    const delegations = [];
-    const regular = [];
-    for (const e of entries) {
-      if (e.event.result?.type === 'launch-delegation') delegations.push(e.event);
-      else regular.push(e.event);
-    }
-    const boundedRegular = regular.length > MAX_EFFECTS_PER_ACTIVE_ATTACHMENT
-      ? regular.slice(regular.length - MAX_EFFECTS_PER_ACTIVE_ATTACHMENT)
-      : regular;
-    const combined = [...delegations, ...boundedRegular];
-    if (combined.length === 0) this.effectsByAttachment.delete(attachmentId);
-    else this.effectsByAttachment.set(attachmentId, combined);
+    this.effectsByAttachment.set(attachmentId, [...bucket.delegations.values(), ...bucket.regular.values()]);
   }
 
   _recordRootEffect(name, event, stamp) {
     const order = this._effectOrder.get(name) ?? ++this._seq;
     this._effectOrder.set(name, order);
-    this._effectFileToMeta.set(name, { attachmentId: event.attachmentId, event, order });
+    const isDelegation = event.result?.type === 'launch-delegation';
+    this._effectFileToMeta.set(name, { attachmentId: event.attachmentId, isDelegation });
+    let bucket = this._effectsByAttBuckets.get(event.attachmentId);
+    if (!bucket) {
+      bucket = { delegations: new Map(), regular: new Map() };
+      this._effectsByAttBuckets.set(event.attachmentId, bucket);
+    }
+    if (isDelegation) {
+      bucket.delegations.delete(name);
+      bucket.delegations.set(name, event);
+    } else {
+      bucket.regular.delete(name);
+      bucket.regular.set(name, event);
+      while (bucket.regular.size > MAX_EFFECTS_PER_ACTIVE_ATTACHMENT) {
+        const oldest = bucket.regular.keys().next().value;
+        bucket.regular.delete(oldest);
+      }
+    }
     if (stamp !== null && stamp !== undefined) {
       this.registry.rootFileStamps.set(name, stamp);
     }
-    this._rebuildEffectsListForAttachment(event.attachmentId);
+    this._syncEffectsArray(event.attachmentId);
   }
 
   _ingestLedgerRootFile(name, stamp) {
@@ -748,7 +756,12 @@ export class OperationLedger {
     const effMeta = this._effectFileToMeta.get(name);
     if (effMeta !== undefined) {
       this._effectFileToMeta.delete(name);
-      this._rebuildEffectsListForAttachment(effMeta.attachmentId);
+      const bucket = this._effectsByAttBuckets.get(effMeta.attachmentId);
+      if (bucket) {
+        if (effMeta.isDelegation) bucket.delegations.delete(name);
+        else bucket.regular.delete(name);
+        this._syncEffectsArray(effMeta.attachmentId);
+      }
     }
   }
 
@@ -764,18 +777,20 @@ export class OperationLedger {
   path(id) { return join(this.directory, leaf('operation', id)); }
 
   getOperation(operationId) {
-    this.registry.syncIfExternalChange();
-    const active = this.activeById.get(operationId);
-    if (active) return active;
-    const retained = this.retainedCompleted.get(operationId);
-    if (retained) return retained;
-    const cached = this.archivedOperationCache.get(operationId);
-    if (cached) {
-      this._cacheArchivedOperation(cached);
-      return cached;
+    const clean = this.registry.isRevisionClean();
+    if (clean) {
+      const active = this.activeById.get(operationId);
+      if (active) return active;
+      const retained = this.retainedCompleted.get(operationId);
+      if (retained) return retained;
+      const cached = this.archivedOperationCache.get(operationId);
+      if (cached) {
+        this._cacheArchivedOperation(cached);
+        return cached;
+      }
     }
     const filename = leaf('operation', operationId);
-    if (!this.ledgerMigrationComplete || this.registry.rootFileStamps.has(filename)) {
+    if (!clean || !this.ledgerMigrationComplete || this.registry.rootFileStamps.has(filename)) {
       const rootPath = join(this.directory, filename);
       const obs = readState(rootPath, 'admittedOperation');
       if (obs) {
@@ -783,6 +798,14 @@ export class OperationLedger {
           this._recordOperationInMemory(filename, obs.value, tryFileStamp(rootPath));
         }
         return obs.value;
+      }
+    }
+    if (!clean) {
+      this.syncManifestTail();
+      const cached = this.archivedOperationCache.get(operationId);
+      if (cached) {
+        this._cacheArchivedOperation(cached);
+        return cached;
       }
     }
     const batchDir = this.archivedOperations.get(filename);
@@ -829,7 +852,6 @@ export class OperationLedger {
 
   begin(token, operationId, kind) {
     return this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       this.registry.assertOwner(token);
       const gate = readWriterGate(this.registry.lockDirectory);
       const parent = currentExecution()?.operation;
@@ -860,7 +882,6 @@ export class OperationLedger {
 
   finish(operation, result, unknown = false) {
     return this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       const opFilename = leaf('operation', operation.operationId);
       const opPath = join(this.directory, opFilename);
       const old = readState(opPath, 'admittedOperation');
@@ -912,7 +933,6 @@ export class OperationLedger {
 
   publishEffect(operation, result) {
     return this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       const saved = this.getOperation(operation.operationId);
       if (!saved || saved.attachmentId !== operation.attachmentId || digest(saved.executionOwner) !== digest(operation.executionOwner)) {
         throw new Error('operation_fenced');
@@ -923,8 +943,13 @@ export class OperationLedger {
         return digest(event);
       }
       const path = join(this.directory, effectName);
-      if (this.registry.rootFileStamps.has(effectName) || readState(path, 'ownerEffect')) {
+      const clean = this.registry.isRevisionClean();
+      if ((clean && this.registry.rootFileStamps.has(effectName)) || readState(path, 'ownerEffect')) {
         return digest(event);
+      }
+      if (!clean) {
+        this.syncManifestTail();
+        if (this.archivedEffects.has(effectName)) return digest(event);
       }
       publishState(path, event, 'ownerEffect');
       this._recordRootEffect(effectName, event, tryFileStamp(path));
@@ -1252,7 +1277,6 @@ export class OperationLedger {
 
     let movedCount = 0;
     this.registry.withLock(() => {
-      this.registry.syncIfExternalChange();
       // 1. Revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
       for (const cand of subLot) {
         const srcPath = join(this.directory, cand.name);
