@@ -7,11 +7,15 @@ import { readState, publishState, replaceState } from './state.js';
 export class LaunchJournal {
   constructor({ registry, token, ledger, root }) { Object.assign(this, { registry, token, ledger, root }); }
   path(name) { return join(this.registry.directory, `launch-${digest({ attachmentId: this.token.attachmentId, launchName: name }).slice(7)}.json`); }
-  memos() { return fs.readdirSync(this.registry.directory).filter(p => /^launch-[a-f0-9]+\.json$/.test(p)).map(p => readState(join(this.registry.directory, p), 'launchMemo').value).filter(v => v.attachmentId === this.token.attachmentId); }
+  memos() {
+    this.registry.syncIfExternalChange();
+    const map = this.registry.launchesByAttachment.get(this.token.attachmentId);
+    return map ? [...map.values()] : [];
+  }
   argumentsDigest(request) { const { launchAuthority: _authority, ...args } = request; return digest(args); }
   result(memo) { return memo.terminalResult ?? { state: memo.state === 'unknown' || memo.state === 'reserved' ? 'unknown' : 'launching', launchId: memo.launchId, retrySafe: false }; }
   operation(memo, kind) {
-    return this.ledger.operations().find(v => v.operationId === `${memo.launchId}:${kind}`);
+    return this.ledger.getOperation(`${memo.launchId}:${kind}`);
   }
   launch(request, execute) {
     const reserved = this.registry.withLock(() => {
@@ -30,19 +34,30 @@ export class LaunchJournal {
       const memo = { schemaVersion: 1, attachmentId: this.token.attachmentId, launchName: request.name, launchId,
         initialArgumentsDigest, state: 'reserved', executionOwner: this.token.ownerProcessIdentity,
         childProcessIdentity: null, launchReceiptReference, launchTokenBinding: digest(secret), briefReceipt: null, terminalResult: null, retrySafe: false };
-      publishState(join(this.registry.directory, `launch-location-${launchId}.json`), { schemaVersion: 1, launchId,
-        attachmentId: this.token.attachmentId, workspaceRoot: resolve(this.root), delegation: request.delegation ?? null }, 'launchLocation');
-      publishState(path, memo, 'launchMemo'); this.registry.bump();
+      const locPath = join(this.registry.directory, `launch-location-${launchId}.json`);
+      const location = { schemaVersion: 1, launchId,
+        attachmentId: this.token.attachmentId, workspaceRoot: resolve(this.root), delegation: request.delegation ?? null };
+      publishState(locPath, location, 'launchLocation');
+      this.registry.recordLaunchLocation(locPath, location);
+      publishState(path, memo, 'launchMemo');
+      this.registry.recordLaunchMemo(path, memo);
+      this.registry.bump();
       const child = this.ledger.begin(this.token, `${launchId}:child`, 'child');
       const brief = this.ledger.begin(this.token, `${launchId}:brief`, 'brief');
       const observed = readState(path, 'launchMemo');
-      replaceState(path, { ...memo, state: 'launching' }, 'launchMemo', observed); this.registry.bump();
+      const launchingMemo = { ...memo, state: 'launching' };
+      replaceState(path, launchingMemo, 'launchMemo', observed);
+      this.registry.recordLaunchMemo(path, launchingMemo);
+      this.registry.bump();
       return { path, memo, secret, child, brief };
     });
     if (reserved.existing) return this.result(reserved.existing);
     const onSpawn = childProcessIdentity => this.registry.withLock(() => {
       const old = readState(reserved.path, 'launchMemo');
-      replaceState(reserved.path, { ...old.value, childProcessIdentity }, 'launchMemo', old); this.registry.bump();
+      const updated = { ...old.value, childProcessIdentity };
+      replaceState(reserved.path, updated, 'launchMemo', old);
+      this.registry.recordLaunchMemo(reserved.path, updated);
+      this.registry.bump();
     });
     const finish = result => this.registry.withLock(() => {
       const old = readState(reserved.path, 'launchMemo');
@@ -53,7 +68,9 @@ export class LaunchJournal {
         terminalResult: terminal, briefReceipt: terminal.prompt?.delivered === true ? { delivered: true, launchId: old.value.launchId } : null,
         retrySafe: terminal.state === 'not-started' && terminal.retrySafe === true };
       // Persist the final reply before the HTTP/MCP response can be lost.
-      replaceState(reserved.path, memo, 'launchMemo', old); this.registry.bump();
+      replaceState(reserved.path, memo, 'launchMemo', old);
+      this.registry.recordLaunchMemo(reserved.path, memo);
+      this.registry.bump();
       this.publishDelegation(memo, terminal);
       this.ledger.finish(reserved.child, terminal, !complete);
       this.ledger.finish(reserved.brief, memo.briefReceipt ?? terminal, !complete || !briefKnown);
@@ -96,12 +113,15 @@ export class LaunchJournal {
         return old.value; // Existing guard does not attest brief delivery.
       }
       const result = { state: 'stopped', launchId: old.value.launchId, retrySafe: false };
-      replaceState(path, { ...old.value, state: 'completed', terminalResult: result, retrySafe: false }, 'launchMemo', old); this.registry.bump();
-      this.publishDelegation(old.value, result);
+      const completed = { ...old.value, state: 'completed', terminalResult: result, retrySafe: false };
+      replaceState(path, completed, 'launchMemo', old);
+      this.registry.recordLaunchMemo(path, completed);
+      this.registry.bump();
+      this.publishDelegation(completed, result);
       if (child && child.state !== 'completed') this.ledger.finish(child, result);
-      const brief = this.operation(old.value, 'brief');
+      const brief = this.operation(completed, 'brief');
       if (brief && brief.state !== 'completed') this.ledger.finish(brief, result);
-      return { ...old.value, state: 'completed', terminalResult: result, retrySafe: false };
+      return completed;
   }
   settleCompleted(memo) {
     this.publishDelegation(memo, memo.terminalResult);
@@ -112,7 +132,8 @@ export class LaunchJournal {
     }
   }
   publishDelegation(memo, result) {
-    const location = readState(join(this.registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
+    const location = this.registry.launchLocationsById.get(memo.launchId)
+      ?? readState(join(this.registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
     if (!location || location.attachmentId !== memo.attachmentId) throw new Error('launch_location_missing');
     if (location.delegation === null) return undefined;
     const operation = this.operation(memo, 'child');
@@ -122,14 +143,19 @@ export class LaunchJournal {
   }
   /** @param {{generation: string, processIdentity: object} | undefined} [scope] */
   static reconcileAll(registry, ledger, scope = undefined) {
-    for (const name of fs.readdirSync(registry.directory).filter(p => /^launch-[a-f0-9]+\.json$/.test(p))) {
-      const observed = readState(join(registry.directory, name), 'launchMemo');
-      const memo = observed.value;
+    registry.syncIfExternalChange();
+    for (const memo of registry.allLaunchMemos()) {
       if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;
-      const location = readState(join(registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
+      const location = registry.launchLocationsById.get(memo.launchId)
+        ?? readState(join(registry.directory, `launch-location-${memo.launchId}.json`), 'launchLocation')?.value;
       if (!location || location.attachmentId !== memo.attachmentId) continue;
       const journal = new LaunchJournal({ registry, ledger, token: { attachmentId: memo.attachmentId }, root: location.workspaceRoot });
-      journal.reconcileMemo(observed);
+      if (memo.state === 'completed') {
+        journal.settleCompleted(memo);
+      } else {
+        const observed = readState(journal.path(memo.launchName), 'launchMemo');
+        if (observed) journal.reconcileMemo(observed);
+      }
     }
   }
 }

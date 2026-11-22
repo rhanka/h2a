@@ -81,6 +81,49 @@ export type H2AJournalVerification =
   | { ok: true }
   | { ok: false; index: number; reason: string };
 
+export function verifyJournalEntryStep(
+  entry: H2AJournalEntry<unknown>,
+  index: number,
+  prevSequence: number | undefined,
+  prevContentHash: string | undefined
+): H2AJournalVerification {
+  if (entry.protocol !== H2A_PROTOCOL) {
+    return { ok: false, index, reason: `bad protocol: ${entry.protocol}` };
+  }
+  if (entry.version !== H2A_VERSION) {
+    return { ok: false, index, reason: `bad version: ${entry.version}` };
+  }
+
+  const expectedSequence = prevSequence !== undefined ? prevSequence + 1 : 0;
+  if (entry.sequence !== expectedSequence) {
+    return {
+      ok: false,
+      index,
+      reason: `bad sequence: expected ${expectedSequence}, got ${entry.sequence}`
+    };
+  }
+
+  const expectedPrev = prevContentHash;
+  if (entry.prevHash !== expectedPrev) {
+    return {
+      ok: false,
+      index,
+      reason: `bad prevHash: expected ${expectedPrev ?? "<none>"}, got ${entry.prevHash ?? "<none>"}`
+    };
+  }
+
+  const expectedHash = computeHash(stripFrame(entry));
+  if (entry.contentHash !== expectedHash) {
+    return {
+      ok: false,
+      index,
+      reason: `bad contentHash: expected ${expectedHash}, got ${entry.contentHash}`
+    };
+  }
+
+  return { ok: true };
+}
+
 export function verifyJournalChain(
   entries: ReadonlyArray<H2AJournalEntry<unknown>>
 ): H2AJournalVerification {
@@ -88,41 +131,8 @@ export function verifyJournalChain(
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-
-    if (entry.protocol !== H2A_PROTOCOL) {
-      return { ok: false, index: i, reason: `bad protocol: ${entry.protocol}` };
-    }
-    if (entry.version !== H2A_VERSION) {
-      return { ok: false, index: i, reason: `bad version: ${entry.version}` };
-    }
-
-    const expectedSequence = prev ? prev.sequence + 1 : 0;
-    if (entry.sequence !== expectedSequence) {
-      return {
-        ok: false,
-        index: i,
-        reason: `bad sequence: expected ${expectedSequence}, got ${entry.sequence}`
-      };
-    }
-
-    const expectedPrev = prev ? prev.contentHash : undefined;
-    if (entry.prevHash !== expectedPrev) {
-      return {
-        ok: false,
-        index: i,
-        reason: `bad prevHash: expected ${expectedPrev ?? "<none>"}, got ${entry.prevHash ?? "<none>"}`
-      };
-    }
-
-    const expectedHash = computeHash(stripFrame(entry));
-    if (entry.contentHash !== expectedHash) {
-      return {
-        ok: false,
-        index: i,
-        reason: `bad contentHash: expected ${expectedHash}, got ${entry.contentHash}`
-      };
-    }
-
+    const step = verifyJournalEntryStep(entry, i, prev?.sequence, prev?.contentHash);
+    if (!step.ok) return step;
     prev = entry;
   }
 

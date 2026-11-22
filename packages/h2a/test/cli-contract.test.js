@@ -335,6 +335,8 @@ function ensureDrivePair(root) {
 function buildHappyArgv(verb, ctx) {
   const { root, privateKeyPath, publicKeyPath } = ctx;
   switch (verb) {
+    case "central compact":
+      return ["central", "compact", "--root", root, "--runtime-base", dirname(root), "--dry-run"];
     case "central status":
     case "central stop":
       return [...verb.split(" "), "--runtime-base", dirname(root)];
@@ -1627,6 +1629,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
   const declared = H2A_CLI_VERB_CONTRACTS.map((c) => c.verb);
   // Hand-rolled list of verbs we know `runCli` will dispatch.
   const expected = [
+    "central compact",
     "central status",
     "central stop",
     "--help",

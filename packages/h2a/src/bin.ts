@@ -88,10 +88,12 @@ try {
         }
       }
     }
-  } else if (argv[0] === "central" && ["status", "stop", "residues"].includes(argv[1])) {
+  } else if (argv[0] === "central" && ["status", "stop", "residues", "compact"].includes(argv[1])) {
     if (argv[1] === "stop" && flags.force !== undefined) throw new Error("central stop has no force mode");
-    const { centralOperator, centralOperatorExitCode, centralResidueReport } = await import("./runtime/mcp-central-operator.js");
-    const result = argv[1] === "residues"
+    const { centralCompact, centralOperator, centralOperatorExitCode, centralResidueReport, parseCentralCompactArgs } = await import("./runtime/mcp-central-operator.js");
+    const result = argv[1] === "compact"
+      ? centralCompact({ ...parseCentralCompactArgs(argv.slice(2)), env: process.env })
+      : argv[1] === "residues"
       ? centralResidueReport(flags.workspace ?? process.cwd(), flags["agy-config"], { repair: flags.repair === "true", allowTracked: flags["allow-tracked"] === "true" })
       : await centralOperator(argv[1] as "status" | "stop", flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {});
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");

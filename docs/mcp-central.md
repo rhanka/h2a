@@ -34,12 +34,48 @@ and permissions are checked; an insecure existing path is refused. The daemon
 binds an ephemeral numeric loopback port and publishes it with its credential
 and generation in a `0600` marker. No credential appears in a host config.
 
-`h2a central status` reports the authenticated generation, root and attachment
-count. `h2a central stop` writes an operator inhibition and asks that generation
+`h2a central status` reports the authenticated generation, root, attachment
+count, and `ledgerMigrationComplete`. `h2a central stop` writes an operator inhibition and asks that generation
 to stop over its authenticated endpoint; it never signals an unverified PID.
 Automatic launchers honor the inhibition. Resume explicitly with
-`h2a mcp-central-serve` (foreground). An idle daemon exits after 60 seconds;
+`h2a mcp-central-serve` (foreground). An idle daemon exits after 60 seconds
+(once `ledgerMigrationComplete` is `true` and drain is complete);
 orphaned HTTP sessions expire after 90 seconds without a shim lease.
+
+Handover state in `<stateDirectory>` is indexed in memory and synchronized in
+O(1) via `participant-revision.json` and per-file stamps (`dev:ino:size:mtimeNs:ctimeNs`),
+with bounded root retention per family:
+- `operation-*.json`: `pending` and `unknown` are never archived; completed
+  operations from previous generations (outside an active transaction) are
+  archived; current-generation completed operations are FIFO-bounded to `64`
+  (excluding `FROZEN`/`TRANSFERRING` attachments).
+- `effect-*.json`: archived once their operation is terminal and their
+  attachment is absent, `CLOSED`, or owned by a dead generation; active
+  attachments keep 100% of `launch-delegation` effects and up to `256` recent
+  `call`/`callback` effects.
+- `generation-end-*.json`: retains the `64` most recent plus all generations
+  referenced by non-`CLOSED` ownerships; archived proofs resolve in O(1) via
+  `archivedGenerationEnds`.
+- `ownership-*.json` (`CLOSED` without active operations), `launch-*.json` +
+  `launch-location-*.json` (`completed`), `wake-*.json` (`delivered`/`deferred`),
+  and unreferenced `checkpoint-*.json`: bounded to `64` terminal entries at root.
+
+Archival moves files reversibly (never deleting) into
+`<stateDirectory>/archive/batch-<YYYYMMDD>/` with an append-only
+`archive/manifest.jsonl`, scanning candidates outside the lock and committing
+in sub-lots of at most `32` files under `<canonicalRoot>/.h2a-writer-control/.mutation.lock`
+with `(dev, ino)` revalidation, directory + manifest `fsync`, and a
+`participant-revision.json` bump. When root contains more than `128` JSON files
+at startup, historical migration runs asynchronously in `<= 8 ms` slices while
+`ledgerMigrationComplete` transitions from `false` to `true`.
+
+`h2a central compact [--root <path>] [--runtime-base <dir>] [--dry-run] [--restore] [--json]`
+invokes the same locked compaction/restoration protocol locally without HTTP.
+`--dry-run` reports eligible counts without modifying disk. `--restore` refuses
+with exit code `2` (`central_running_or_liveness_unknown`) unless central owner
+liveness is proven `dead`, restores files in sub-lots of at most `32`, skips
+identical root files, and never overwrites divergent root files (exiting `2`
+with `conflictCount > 0` and `conflicts`).
 
 A restarted daemon does not close a live shim's host stdio. The shim rereads the
 private marker and reinitializes its transport with the captured conversation

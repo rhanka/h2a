@@ -62,6 +62,11 @@ export interface H2ACliVerbContract {
 
 export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   {
+    verb: "central compact", outputShape: "resource", exitCodes: [0, 1, 2, 3],
+    requiredFlags: [], optionalFlags: ["root", "runtime-base", "dry-run", "restore", "json"],
+    description: "Reversibly archive or restore terminal central handover state under the mutation lock."
+  },
+  {
     verb: "central status", outputShape: "resource", exitCodes: [0, 1, 2, 3],
     requiredFlags: [], optionalFlags: ["runtime-base", "json"],
     description: "Read authenticated central status and durable MCP pause."

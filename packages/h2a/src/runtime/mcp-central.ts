@@ -269,15 +269,16 @@ function createCentralApp(
     if (!ready) return;
     const now = clock.now();
     const liveTransaction = administration()?.transaction()?.value;
-    const pendingAttachments = new Set(participants()?.ledger.operations().filter((op: any) => op.state !== 'completed').map((op: any) => op.attachmentId));
     for (const [id, attachment] of sessions) {
       if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
           (attachment.disconnected || now - attachment.touched > options.sessionLeaseMs)) {
         const liveness = attachment.disconnected ? 'dead' : ownerLiveness({ processIdentity: attachment.logical?.context.shimProcessIdentity }, currentIdentity());
         if (attachment.logical) transports.detach(attachment.logical.id, liveness);
         attachment.transport.detachNotifications();
-        const pending = pendingAttachments.has(attachment.participant.token.attachmentId);
-        if (liveness === 'dead' && !pending) void closeAttachment(id, attachment);
+        if (liveness === 'dead') {
+          const pending = participants()?.ledger.hasPendingForAttachment(attachment.participant.token.attachmentId) ?? false;
+          if (!pending) void closeAttachment(id, attachment);
+        }
       }
     }
     try { administration()?.expire(); administration()?.poll(); }
@@ -293,8 +294,9 @@ function createCentralApp(
     // session has lived and gone, or the challenge lapses, consecutive quiet
     // ticks retire the server again.
     const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
+    const owner = participants();
     const quiet = !closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive;
+      owner?.ledger.ledgerMigrationComplete === true && owner.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive;
     if (quiet) {
       quietTicks += 1;
       if (quietTicks >= quietTicksForIdle) options.requestStop();
@@ -312,6 +314,7 @@ function createCentralApp(
   });
   app.get(CENTRAL_PING_PATH, context => context.json({ generation }));
   app.get("/_h2a-central/status", context => context.json({ generation, root, pid: process.pid, attachments: sessions.size, attachmentLimit: options.maxAttachments, protocol: 2,
+    ledgerMigrationComplete: options.precheck ? true : Boolean(participants()?.ledger.ledgerMigrationComplete),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state })),
     eventLoopLagMs: { p99: lag.percentile(99) / 1e6, max: lag.max / 1e6 }
   }));
@@ -539,7 +542,7 @@ function createCentralApp(
       attachment.disconnected = true;
       if (attachment.logical) transports.detach(attachment.logical.id, 'dead');
       attachment.transport.detachNotifications();
-      const pending = participants()?.ledger.operations().some((op: any) => op.attachmentId === attachment!.participant.token.attachmentId && op.state !== 'completed');
+      const pending = participants()?.ledger.hasPendingForAttachment(attachment!.participant.token.attachmentId) ?? false;
       if (!pending) await closeAttachment(requestedSessionId!, attachment);
       return context.body(null, 200);
     }
@@ -574,7 +577,7 @@ function createCentralApp(
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
-      retiredOperations: participants()?.ledger.operations().filter((o: any) => o.attachmentId === a.id && o.state !== 'completed').map((o: any) => o.operationId) ?? [] })),
+      retiredOperations: participants()?.ledger.pendingOperationIdsForAttachment(a.id) ?? [] })),
     quarantines: [...transports.attachments.values()].filter(a => a.state === 'quarantined').map(a => a.id), revision: transports.revision }),
     drain: () => {
       const durable = participants()?.drain() ?? { revision: 1, calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0 };
@@ -755,7 +758,10 @@ export async function startCentralMcpServer(
           updateWriterControl(root, { gate: 'OPEN', handoverId: null });
         }
       }
-      sharedStore = createLocalStore({ root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true });
+      sharedStore = createLocalStore({
+        root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true,
+        deferConsentHistoryVerification: true
+      });
       const catalogServer = createMcpServer({ root, store: sharedStore });
       if (registry) {
         const { configureMcpServerRegistry } = await import("../registry/sentropic-daemon.js");
@@ -818,6 +824,7 @@ export async function startCentralMcpServer(
   stopServer = () => {
     stopping ??= (async () => {
       try {
+        participants?.ledger.stopMigration?.();
         await application!.close(); httpServer!.closeAllConnections();
         await new Promise<void>((resolve, reject) => httpServer!.close(error => error ? reject(error) : resolve()));
         const drained = application!.drain();

@@ -39,7 +39,7 @@ export class Participants {
       const previous = readState(this.registry.ownerPath(attachmentId), 'ownership');
       const token = previous && context.attachment?.resume
         ? this.registry.rebaseline(input, owner => ownerLiveness({ processIdentity: owner.ownerProcessIdentity }, currentIdentity()) === 'dead' ||
-          Boolean(this.authenticationKey && endedOwner(owner, this.marker, this.authenticationKey)))
+          Boolean(this.authenticationKey && endedOwner(owner, this.marker, this.authenticationKey, this.ledger)))
         : this.registry.claim(input);
       const participant = new AttachmentParticipant(this, token, context);
       this.attachments.set(attachmentId, participant); this.inventoryRevision++;
@@ -47,12 +47,13 @@ export class Participants {
     });
   }
   inventory() {
+    this.registry.syncIfExternalChange();
     let restriction = 'store_writer_set_unknown';
     try { this.assertEligible(); restriction = 'qualified'; } catch (e) { restriction = e.message; }
     return { schemaVersion: 1, revision: this.inventoryRevision, shims: [],
       transports: [...this.attachments.values()].map(a => ({ attachmentId: a.token.attachmentId,
         ownershipEpoch: a.token.ownershipEpoch, ownerGeneration: a.token.ownerGeneration, attachmentProtocol: a.advertisement?.attachmentProtocol ?? 'direct-mcp' })),
-      operations: this.ledger.operations(), quarantines: [], launches: [...this.attachments.values()].flatMap(a => a.launches.memos().map(m => m.launchId)),
+      operations: this.ledger.inventoryOperations(), quarantines: [], launches: [...this.attachments.values()].flatMap(a => a.launches.memos().map(m => m.launchId)),
       endpointPinned: this.marker.endpointMode === 'fixed', writerRestrictions: restriction === 'qualified' ? [] : [restriction],
       managedImage: this.marker.handoverCapabilities.managedImage };
   }
@@ -68,9 +69,10 @@ export class Participants {
   }
   freeze(handoverId) {
     return this.registry.withLock(() => {
+      if (!this.ledger.ledgerMigrationComplete) throw new Error('ledger_migration_incomplete');
       this.assertEligible();
       if (this.writerControl().gate !== 'BARRIER' || this.writerControl().handoverId !== handoverId) throw new Error('barrier_required');
-      if (this.ledger.operations().some(op => op.kind === 'callback' && op.state === 'pending')) throw new Error('callbacks_pending');
+      if (this.ledger.hasPendingCallbacks()) throw new Error('callbacks_pending');
       for (const a of this.attachments.values()) {
         if (!a.mcp || !a.initialized) throw new Error('attachment_activation_pending');
         if (this.registry.assertOwner(a.token, ['ACTIVE', 'FROZEN']).value.state === 'ACTIVE') a.refreshIdentity();
@@ -176,23 +178,23 @@ export class Participants {
   }
   drain() {
     if (this.registry.indeterminate) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 1, complete: false };
+    if (!this.ledger.ledgerMigrationComplete) return { revision: this.registry.revision(), calls: 0, children: 0, briefs: 0, callbacks: 0, effects: 0, complete: false };
     return this.registry.withLock(() => {
+      this.registry.syncIfExternalChange();
       const control = readState(join(this.directory, 'component-control.json'), 'componentControl')?.value;
       const tx = control?.activeTransaction ? readState(join(this.directory, control.activeTransaction), 'componentTransaction')?.value : undefined;
       const scope = tx?.mode === 'live-transfer' && tx.source.generation === this.marker.generation && ['PUBLISHED', 'RETIRED'].includes(tx.state)
         ? { generation: this.marker.generation, processIdentity: this.marker.processIdentity } : undefined;
       LaunchJournal.reconcileAll(this.registry, this.ledger, scope);
       const drain = this.ledger.drain(scope);
-      for (const name of fs.readdirSync(this.directory).filter(p => /^launch-[a-f0-9]+\.json$/.test(p))) {
-        const memo = readState(join(this.directory, name), 'launchMemo').value;
+      for (const memo of this.registry.allLaunchMemos()) {
         if (scope && digest(memo.executionOwner) !== digest(scope.processIdentity)) continue;
         if (memo.state === 'completed') continue;
-        const operations = this.ledger.operations();
         for (const [kind, key] of [['child', 'children'], ['brief', 'briefs']]) {
-          if (!operations.some(o => o.operationId === `${memo.launchId}:${kind}`)) drain[key]++;
+          if (!this.ledger.getOperation(`${memo.launchId}:${kind}`)) drain[key]++;
         }
       }
-      drain.complete = ['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drain[k] === 0);
+      drain.complete = this.ledger.ledgerMigrationComplete && ['calls', 'children', 'briefs', 'callbacks', 'effects'].every(k => drain[k] === 0);
       return drain;
     });
   }
