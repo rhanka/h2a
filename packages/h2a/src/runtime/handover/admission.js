@@ -6,6 +6,282 @@ import { validate } from './formats.js';
 import { privateDirectory, readState, publishState, replaceState } from './state.js';
 import { acquirePreclaim, establishDomain } from './authority.js';
 import { readProcessFrame, classifyDurableProcFrame } from './proc-identity.js';
+import { readWriterGate, writerDirectory } from './mutation.js';
+import { assertTrustedPrefixDirectory } from './upg-trust.js';
+
+const CENTRAL_PING_PATH = '/_h2a-central/ping';
+const DEFAULT_PING_TIMEOUT_MS = 1_500;
+const TERMINAL_TX_STATES = new Set(['ABORTED', 'READY', 'STOPPED']);
+
+function isLoopbackHost(hostname) {
+  return hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+}
+
+function parseLoopbackEndpoint(value) {
+  if (!value || typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('H2A_MCP_CENTRAL_ENDPOINT must be a non-empty absolute http URL');
+  }
+  let endpoint;
+  try { endpoint = new URL(value); }
+  catch { throw new Error('H2A_MCP_CENTRAL_ENDPOINT must be a non-empty absolute http URL'); }
+  if (
+    endpoint.protocol !== 'http:' ||
+    !isLoopbackHost(endpoint.hostname) ||
+    !endpoint.port ||
+    Number(endpoint.port) < 1 ||
+    Number(endpoint.port) > 65_535 ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error('H2A_MCP_CENTRAL_ENDPOINT must be an absolute http URL with an explicit port');
+  }
+  return endpoint.href;
+}
+
+function errorHasCode(error, expectedCode) {
+  let current = error;
+  for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth += 1) {
+    if (current.code === expectedCode) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+export async function centralMcpPing(endpoint, timeoutMs = DEFAULT_PING_TIMEOUT_MS) {
+  const canonicalEndpoint = parseLoopbackEndpoint(endpoint);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  timeout.unref?.();
+  try {
+    const response = await fetch(new URL(CENTRAL_PING_PATH, canonicalEndpoint), { signal: controller.signal });
+    if (!response.ok) return { kind: 'ambiguous' };
+    try {
+      const body = await response.json();
+      return typeof body?.generation === 'string' && body.generation.length > 0
+        ? { kind: 'generation', generation: body.generation }
+        : { kind: 'ambiguous' };
+    } catch {
+      return { kind: 'ambiguous' };
+    }
+  } catch (error) {
+    return errorHasCode(error, 'ECONNREFUSED') ? { kind: 'dead' } : { kind: 'ambiguous' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function sleepMs(ms) {
+  return new Promise(resolve => {
+    const t = setTimeout(resolve, ms);
+    t.unref?.();
+  });
+}
+
+/**
+ * Probe health of an observed marker owner without sending any signal.
+ * Combines `/proc` liveness with bounded loopback HTTP pings.
+ */
+export async function probeOwnerHealth(markerPath, observedMarker, authority, options = {}) {
+  const {
+    pingTimeoutMs = 800,
+    pingAttempts = 3,
+    pingBackoffMs = 150,
+    startupGraceMs = 5_000,
+    ping = centralMcpPing,
+    now = () => Date.now()
+  } = options;
+  const marker = observedMarker.value;
+  const liveness = ownerLiveness(marker, authority.frame, authority.observe);
+  if (liveness === 'dead') return { status: 'dead', marker };
+  if (liveness === 'unknown') return { status: 'unknown', marker };
+
+  const expectedRoot = authority.domain?.canonicalRoot;
+  for (let attempt = 0; attempt < pingAttempts; attempt++) {
+    let result;
+    try {
+      result = await ping(marker.endpoint, pingTimeoutMs);
+    } catch {
+      result = { kind: 'ambiguous' };
+    }
+    if (result.kind === 'generation') {
+      if (result.generation === marker.generation) {
+        return { status: 'healthy', marker };
+      }
+      // Another healthy generation responded (B-08): re-read marker immediately
+      // and reuse if compatible — never signal a healthy successor.
+      try {
+        const fresh = readMarkerObservation(markerPath);
+        if (
+          fresh &&
+          fresh.value.generation === result.generation &&
+          fresh.value.protocol === 2 &&
+          (!expectedRoot || fresh.value.root === expectedRoot)
+        ) {
+          return { status: 'healthy', marker: fresh.value };
+        }
+      } catch { /* ignore transient marker read failure */ }
+    }
+    if (attempt + 1 < pingAttempts && pingBackoffMs > 0) {
+      await sleepMs(pingBackoffMs);
+    }
+  }
+
+  // Startup grace check: never kill a starting central within startupGraceMs or
+  // covered by an active STARTING startup-reservation.json.
+  const startedAtMs = Date.parse(marker.startedAt);
+  if (Number.isFinite(startedAtMs) && now() - startedAtMs < startupGraceMs) {
+    return { status: 'starting', marker };
+  }
+  const stateDir = authority.stateDirectory ?? marker.stateDirectory ?? dirname(markerPath);
+  try {
+    const slot = readState(join(stateDir, 'startup-reservation.json'), 'startupReservation')?.value;
+    if (slot && slot.state === 'STARTING' && slot.candidateIdentity?.pid === marker.pid) {
+      const slotLiveness = ownerLiveness({ processIdentity: slot.candidateIdentity }, authority.frame, authority.observe);
+      if (slotLiveness === 'alive') return { status: 'starting', marker };
+    }
+  } catch { /* ignore absent/unreadable reservation */ }
+
+  return { status: 'unresponsive', marker };
+}
+
+/**
+ * Unique eviction owner. Caller MUST already hold `acquirePreclaim`.
+ * Enforces O(1) transaction & writer-gate guards (0 reads of operation-*.json),
+ * strict processIdentity.pid + startTime verification, and bounded SIGTERM -> SIGKILL.
+ */
+export async function evictUnresponsiveOwnerLocked(authority, oldMarker, options = {}) {
+  const {
+    finalPingTimeoutMs = 300,
+    sigtermWaitMs = 1_000,
+    sigkillWaitMs = 500,
+    pollIntervalMs = 50,
+    ping = centralMcpPing,
+    killProcess = (pid, sig) => process.kill(pid, sig)
+  } = options;
+  const path = authority.domain.canonicalMarkerLocation;
+  const stateDir = authority.stateDirectory;
+
+  // 1. Re-read marker under already-held preclaim and run a final sanity ping
+  // (skipped only when the caller just finished probeOwnerHealth on the exact same
+  // marker inode under this same preclaim lock).
+  const freshMarker = readMarkerObservation(path);
+  if (!freshMarker) return { evicted: false, reason: 'marker_absent' };
+  if (freshMarker.value.generation !== oldMarker.value.generation) {
+    return { evicted: false, reason: 'generation_changed', marker: freshMarker.value };
+  }
+  const sameProbedInode =
+    options.alreadyProbed === true &&
+    freshMarker.dev === oldMarker.dev &&
+    freshMarker.ino === oldMarker.ino;
+  if (!sameProbedInode) {
+    try {
+      const finalPing = await ping(freshMarker.value.endpoint, finalPingTimeoutMs);
+      if (finalPing.kind === 'generation') {
+        if (finalPing.generation === freshMarker.value.generation) {
+          return { evicted: false, reason: 'healthy', marker: freshMarker.value };
+        }
+        const latest = readMarkerObservation(path);
+        if (
+          latest &&
+          latest.value.generation === finalPing.generation &&
+          latest.value.protocol === 2 &&
+          latest.value.root === authority.domain.canonicalRoot
+        ) {
+          return { evicted: false, reason: 'healthy', marker: latest.value };
+        }
+      }
+    } catch { /* proceed to eviction checks */ }
+  }
+
+  // 2. O(1) guards: active non-terminal transaction or non-OPEN writer gate (0 reads of operation-*.json).
+  const controlPath = join(stateDir, 'component-control.json');
+  const control = readState(controlPath, 'componentControl');
+  if (control?.value.activeTransaction) {
+    const tx = readState(join(stateDir, control.value.activeTransaction), 'componentTransaction')?.value;
+    if (!tx || !TERMINAL_TX_STATES.has(tx.state)) {
+      throw new Error('eviction_refused_active_transaction');
+    }
+  }
+  let gate;
+  try {
+    gate = readWriterGate(writerDirectory(authority.domain.canonicalRoot));
+  } catch {
+    gate = undefined;
+  }
+  if (gate !== undefined && gate !== 'OPEN') {
+    throw new Error('eviction_refused_writer_gate_closed');
+  }
+
+  // 3. Strict target PID identity verification (B-08).
+  const identity = freshMarker.value.processIdentity;
+  if (!identity || freshMarker.value.pid !== identity.pid) {
+    throw new Error('marker_corrupt');
+  }
+  const initialLiveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
+  if (initialLiveness === 'unknown') {
+    throw new Error('owner_liveness_unknown');
+  }
+  const targetPid = identity.pid;
+  // A process must never signal itself during eviction: matching pid + startTime
+  // proves this very process is the live owner.
+  if (targetPid === process.pid) {
+    throw new Error('owner_alive');
+  }
+
+  // 4. Bounded SIGTERM -> SIGKILL escalation (skip signaling if already dead).
+  if (initialLiveness === 'alive') {
+    try { killProcess(targetPid, 'SIGTERM'); }
+    catch (error) { if (error?.code !== 'ESRCH') throw error; }
+
+    const termDeadline = Date.now() + sigtermWaitMs;
+    let liveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
+    while (liveness === 'alive' && Date.now() < termDeadline) {
+      await sleepMs(pollIntervalMs);
+      liveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
+    }
+
+    if (liveness === 'alive') {
+      // Anti-PID-recycling re-verification right before SIGKILL.
+      if (ownerLiveness(freshMarker.value, authority.frame, authority.observe) === 'alive') {
+        try { killProcess(targetPid, 'SIGKILL'); }
+        catch (error) { if (error?.code !== 'ESRCH') throw error; }
+      }
+      const killDeadline = Date.now() + sigkillWaitMs;
+      liveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
+      while (liveness !== 'dead' && Date.now() < killDeadline) {
+        await sleepMs(pollIntervalMs);
+        liveness = ownerLiveness(freshMarker.value, authority.frame, authority.observe);
+      }
+      if (liveness !== 'dead') {
+        throw new Error('eviction_kill_unconfirmed');
+      }
+    } else if (liveness !== 'dead') {
+      throw new Error('eviction_kill_unconfirmed');
+    }
+  }
+
+  // 5. Remove marker, mark component-control.json CLOSED if matching generation, log to stderr.
+  removeMarker(path, freshMarker);
+  const latestControl = readState(controlPath, 'componentControl');
+  if (
+    latestControl &&
+    latestControl.value.ownerState === 'ACTIVE' &&
+    latestControl.value.sourceGeneration === freshMarker.value.generation
+  ) {
+    replaceState(
+      controlPath,
+      { ...latestControl.value, revision: latestControl.value.revision + 1, ownerState: 'CLOSED' },
+      'componentControl',
+      latestControl
+    );
+  }
+  process.stderr.write(
+    `h2a central: evicted unresponsive owner pid=${targetPid} generation=${freshMarker.value.generation}\n`
+  );
+  return { evicted: true, pid: targetPid, generation: freshMarker.value.generation };
+}
 
 export function currentIdentity() {
   const frame = readProcessFrame();
@@ -81,27 +357,12 @@ export function removeMarker(path, expected) {
   finally { fs.closeSync(fd); }
 }
 
-export async function prepareAuthority({ directory, root, physicalPrefix, frame = readProcessFrame(), observe = observeProcess }) {
+export async function prepareAuthority({ directory, root, physicalPrefix, frame = readProcessFrame(), observe = observeProcess, upgOptions = undefined }) {
   if (process.platform !== 'linux' || ![22, 24].includes(Number(process.versions.node.split('.')[0])) ||
     !process.report.getReport().header.glibcVersionRuntime) throw new Error('authority_profile_unqualified');
   fs.mkdirSync(directory, { mode: 0o700, recursive: true }); privateDirectory(directory);
   const canonicalPrefix = fs.realpathSync(physicalPrefix), canonicalRoot = canonicalRootPath(root);
-  const prefixInfo = fs.statSync(canonicalPrefix);
-  if (!prefixInfo.isDirectory() || prefixInfo.uid !== process.getuid() || (prefixInfo.mode & 0o022)) {
-    const octalMode = (prefixInfo.mode & 0o777).toString(8).padStart(4, '0');
-    const expectedUid = process.getuid();
-    const quotedPrefix = /[^A-Za-z0-9_./:@=-]/.test(canonicalPrefix) ? `'${canonicalPrefix.replace(/'/g, "'\\''")}'` : canonicalPrefix;
-    const ownerMismatch = prefixInfo.uid !== expectedUid;
-    const modeMismatch = (prefixInfo.mode & 0o022) !== 0;
-    const remedy = ownerMismatch && modeMismatch
-      ? `chown ${expectedUid} ${quotedPrefix} && chmod go-w ${quotedPrefix}`
-      : ownerMismatch
-        ? `chown ${expectedUid} ${quotedPrefix}`
-        : `chmod go-w ${quotedPrefix}`;
-    throw new Error(
-      `prefix_owner_mismatch: ${canonicalPrefix} has mode ${octalMode} uid=${prefixInfo.uid} (expected uid=${expectedUid} without group/other write); run: ${remedy}`
-    );
-  }
+  assertTrustedPrefixDirectory(canonicalPrefix, process.getuid(), upgOptions);
   const prefixId = digest({ canonicalPrefix, uid: process.getuid() });
   const canonicalMarkerLocation = join(directory, 'marker.json');
   const path = join(directory, 'authority-domain.json');
@@ -155,21 +416,47 @@ export async function prepareAuthority({ directory, root, physicalPrefix, frame 
   return { directory, stateDirectory, domain, frame, observe, rootKey: auth.key, lockKey: lock.key, authKeyReference: auth.ref };
 }
 
-export async function admitGeneration(authority, ready, afterPublish = (_publication) => {}) {
+export async function admitGeneration(authority, ready, afterPublish = (_publication) => {}, options = {}) {
   const lock = await acquirePreclaim(authority.domain, authority.frame, authority.lockKey, classifyDurableProcFrame);
   try {
-    const control = readState(join(authority.stateDirectory, 'component-control.json'), 'componentControl');
-    if (control?.value.ownerState === 'ACTIVE') {
-      const liveness = ownerLiveness({ processIdentity: control.value.ownerIdentity }, authority.frame, authority.observe);
-      if (liveness !== 'dead') throw new Error(liveness === 'alive' ? 'owner_alive' : 'owner_liveness_unknown');
-    }
     const path = authority.domain.canonicalMarkerLocation;
     const old = readMarkerObservation(path);
     if (old) {
       if (old.value.prefixId && old.value.prefixId !== authority.domain.prefixId) throw new Error('foreign_installation_authority');
-      const liveness = ownerLiveness(old.value, authority.frame, authority.observe);
+      if (options?.evictUnresponsive) {
+        const probe = await probeOwnerHealth(path, old, authority, options.probeOptions);
+        if (probe.status === 'healthy') throw new Error('owner_alive');
+        if (probe.status === 'starting') throw new Error('startup_reserved');
+        if (probe.status === 'unknown') throw new Error('owner_liveness_unknown');
+        if (probe.status === 'unresponsive') {
+          const evicted = await evictUnresponsiveOwnerLocked(authority, old, { ...options.evictionOptions, alreadyProbed: true });
+          if (!evicted.evicted) {
+            if (evicted.reason === 'healthy') throw new Error('owner_alive');
+            if (evicted.reason === 'generation_changed') {
+              const latest = readMarkerObservation(path);
+              if (latest) {
+                const recheck = await probeOwnerHealth(path, latest, authority, options.probeOptions);
+                if (recheck.status === 'healthy') throw new Error('owner_alive');
+                if (recheck.status === 'starting') throw new Error('startup_reserved');
+                if (recheck.status === 'unknown') throw new Error('owner_liveness_unknown');
+                if (recheck.status === 'dead') removeMarker(path, latest);
+                else throw new Error('owner_alive');
+              }
+            }
+          }
+        } else {
+          removeMarker(path, old);
+        }
+      } else {
+        const liveness = ownerLiveness(old.value, authority.frame, authority.observe);
+        if (liveness !== 'dead') throw new Error(liveness === 'alive' ? 'owner_alive' : 'owner_liveness_unknown');
+        removeMarker(path, old);
+      }
+    }
+    const control = readState(join(authority.stateDirectory, 'component-control.json'), 'componentControl');
+    if (control?.value.ownerState === 'ACTIVE') {
+      const liveness = ownerLiveness({ processIdentity: control.value.ownerIdentity }, authority.frame, authority.observe);
       if (liveness !== 'dead') throw new Error(liveness === 'alive' ? 'owner_alive' : 'owner_liveness_unknown');
-      removeMarker(path, old);
     }
     const epochsPath = join(authority.stateDirectory, 'epochs.json');
     const previous = readState(epochsPath, 'epochs');

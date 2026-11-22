@@ -699,30 +699,66 @@ export async function cmdRegistryBridge(
     // refusal and stay on stdio through the plain shim; the lane policy
     // admits them per connection, if at all.
     let centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
+    const allowAutoEnsure = flags["auto-open"] === "true" || flags["auto-upgrade"] === "true";
+    const runEnsureCentral = async (paths: { runtimeBase?: string }): Promise<void> => {
+      if (deps.ensureCentral) {
+        await deps.ensureCentral(paths);
+      } else {
+        const { ensureCentralForShim } = await import("../runtime/mcp-central-start.js");
+        await ensureCentralForShim(true, paths);
+      }
+    };
     if (
       !centralDiagnosis.admitted &&
       centralDiagnosis.condition === 4 &&
       centralDiagnosis.markerMissing &&
       !centralDiagnosis.paused &&
-      (flags["auto-open"] === "true" || flags["auto-upgrade"] === "true")
+      allowAutoEnsure
     ) {
       // An idle-stopped or mid-restart central leaves marker.json temporarily
       // absent. Auto-start (or reuse via preclaim) instead of closing stdio
       // with CONNECTION_CLOSED, while still refusing operator-paused centrals.
       const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
       try {
-        if (deps.ensureCentral) {
-          await deps.ensureCentral(paths);
-        } else {
-          const { ensureCentralForShim } = await import("../runtime/mcp-central-start.js");
-          await ensureCentralForShim(true, paths);
-        }
+        await runEnsureCentral(paths);
         centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
       } catch (autoStartError) {
         centralDiagnosis = {
           ...centralDiagnosis,
           reason: `${centralDiagnosis.reason ?? "central admission failed"}; auto-start failed: ${(autoStartError as Error).message}`
         };
+      }
+    } else if (centralDiagnosis.admitted && allowAutoEnsure) {
+      // If marker.json is present (protocol-2 schema) but fails HTTP ping
+      // (e.g. frozen or crashed owner), trigger ensureCentralForShim (unless
+      // operator-paused) so preclaim eviction/restart runs before delegation.
+      const paths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
+      const { centralStateDirectory, readCentralMcpMarker } = await import("../runtime/mcp-central-discovery.js");
+      const { centralMcpPing } = await import("../runtime/handover/admission.js");
+      const { readState } = await import("../runtime/handover/state.js");
+      let observedMarker: ReturnType<typeof readCentralMcpMarker>;
+      try { observedMarker = readCentralMcpMarker(paths); } catch { observedMarker = undefined; }
+      if (observedMarker && observedMarker.schemaVersion === 2) {
+        let operatorPaused = false;
+        try {
+          operatorPaused = readState(join(centralStateDirectory(paths), "operator-stop.json"), "pause")?.value.paused === true;
+        } catch { operatorPaused = false; }
+        if (!operatorPaused) {
+          const ping = await centralMcpPing(observedMarker.endpoint, 500);
+          if (ping.kind !== "generation" || ping.generation !== observedMarker.generation) {
+            try {
+              await runEnsureCentral(paths);
+              centralDiagnosis = diagnoseBridgeCentralAttachment({ host, ...flags });
+            } catch (autoStartError) {
+              centralDiagnosis = {
+                admitted: false,
+                condition: 4,
+                reason: `central marker at ${observedMarker.endpoint} failed ping (${ping.kind}); auto-start failed: ${(autoStartError as Error).message}`,
+                remediation: centralDiagnosis.remediation
+              };
+            }
+          }
+        }
       }
     }
     if (!centralDiagnosis.admitted) {

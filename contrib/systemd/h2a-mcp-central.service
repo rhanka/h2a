@@ -1,0 +1,21 @@
+[Unit]
+Description=h2a machine-local MCP central server
+Documentation=https://github.com/rhanka/h2a
+After=default.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=H2A_MCP_CENTRAL=1
+Environment=NODE_OPTIONS=--max-old-space-size=384
+EnvironmentFile=-%h/.config/sentropic/h2a/central.env
+ExecStart=%h/.npm-global/bin/h2a mcp-central-serve --supervised
+Restart=on-failure
+RestartSec=2
+RestartPreventExitStatus=2 3
+TimeoutStopSec=15
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

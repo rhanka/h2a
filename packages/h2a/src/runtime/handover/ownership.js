@@ -4,6 +4,7 @@ import { digest, canonicalBytes } from './wire.js';
 import { validate, safeRelative } from './formats.js';
 import { privateDirectory, readState, publishState, replaceState } from './state.js';
 import { mutationLock, mutationLockAsync, readWriterGate, currentExecution } from './mutation.js';
+import { ownerLiveness, currentIdentity } from './admission.js';
 
 export const MAX_RETAINED_TERMINAL_PER_FAMILY = 64;
 export const MAX_EFFECTS_PER_ACTIVE_ATTACHMENT = 256;
@@ -1040,11 +1041,38 @@ export class OperationLedger {
       return { ...value, complete: false };
     }
     const keys = { call: 'calls', child: 'children', brief: 'briefs', callback: 'callbacks', wake: 'effects' };
-    for (const op of this.activeById.values()) {
+    let currentId;
+    let currentIdResolved = false;
+    const getCurrentId = () => {
+      if (!currentIdResolved) {
+        currentIdResolved = true;
+        try { currentId = currentIdentity(); } catch { currentId = null; }
+      }
+      return currentId;
+    };
+    let settledAny = false;
+    for (const op of [...this.activeById.values()]) {
       if (scope && (op.ownerGeneration !== scope.generation || digest(op.executionOwner) !== digest(scope.processIdentity))) continue;
       if (op.state === 'completed') continue;
+      if (op.ownerGeneration !== this.registry.generation) {
+        const frame = getCurrentId();
+        const liveness = frame ? ownerLiveness({ processIdentity: op.executionOwner }, frame) : 'unknown';
+        if (liveness === 'dead') {
+          if (op.state === 'pending' && !this.registry.readOnly) {
+            this._finishLocked(op, { state: 'unknown', reason: 'execution_owner_dead' }, true);
+            settledAny = true;
+          }
+          // Dead prior-generation operations settled to 'unknown' exit activeById
+          // and must not block the successor's drain().complete (R2-02, PR-02).
+          this.activeById.delete(op.operationId);
+          continue;
+        }
+      }
       value[keys[op.kind]]++;
       if (op.state === 'unknown' && op.kind !== 'wake') value.effects++;
+    }
+    if (settledAny) {
+      value.revision = this.registry.revision();
     }
     return { ...value, complete: Object.entries(value).every(([k, v]) => k === 'revision' || v === 0) };
   }

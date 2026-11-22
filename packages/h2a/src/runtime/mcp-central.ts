@@ -7,7 +7,18 @@ import { LockTimeoutError } from "./local-files/locks.js";
  */
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { admitGeneration, prepareAuthority, currentIdentity, canonicalRootPath, readMarkerObservation, compareMarker, removeMarker, ownerLiveness } from "./handover/admission.js";
+import {
+  admitGeneration,
+  prepareAuthority,
+  currentIdentity,
+  canonicalRootPath,
+  readMarkerObservation,
+  compareMarker,
+  removeMarker,
+  ownerLiveness,
+  probeOwnerHealth,
+  centralMcpPing as handoverCentralMcpPing
+} from "./handover/admission.js";
 import { readState, replaceState, publishState } from "./handover/state.js";
 import { digest } from "./handover/wire.js";
 import { ConnectionAuthentication } from "./handover/authentication.js";
@@ -91,25 +102,7 @@ export async function centralMcpPing(
   timeoutMs = CENTRAL_LIVENESS_TIMEOUT_MS
 ): Promise<CentralMcpPingResult> {
   const canonicalEndpoint = parseCentralMcpEndpoint(endpoint);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(new URL(CENTRAL_PING_PATH, canonicalEndpoint), { signal: controller.signal });
-    if (!response.ok) return { kind: "ambiguous" };
-    try {
-      const body = await response.json() as { generation?: unknown };
-      return typeof body.generation === "string" && body.generation.length > 0
-        ? { kind: "generation", generation: body.generation }
-        : { kind: "ambiguous" };
-    } catch {
-      // An HTTP peer answered but did not provide a registration generation.
-      return { kind: "ambiguous" };
-    }
-  } catch (error) {
-    return { kind: "ambiguous" }; // HTTP never proves process death.
-  } finally {
-    clearTimeout(timeout);
-  }
+  return handoverCentralMcpPing(canonicalEndpoint, timeoutMs) as Promise<CentralMcpPingResult>;
 }
 
 function isLockUnavailableError(error: unknown): boolean {
@@ -318,12 +311,16 @@ function createCentralApp(
     })();
     return attachment.closing;
   };
-  const sweepPeriodMs = Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2);
+  const idleEnabled = options.idleTimeoutMs > 0;
+  const sweepPeriodMs = Math.max(
+    25,
+    Math.min(1000, ...(idleEnabled ? [options.idleTimeoutMs] : []), options.sessionLeaseMs) / 2
+  );
   // A connecting client needs a few loop turns before its challenge lands
   // (TCP handshake plus challenge roundtrip): never declare absence sooner,
   // so lockstep dilation cannot outrun first contact. Production bounds are
   // far above the floor and keep their wall-clock meaning.
-  const quietTicksForIdle = Math.max(5, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
+  const quietTicksForIdle = idleEnabled ? Math.max(5, Math.ceil(options.idleTimeoutMs / sweepPeriodMs)) : Number.POSITIVE_INFINITY;
   const runSweep = async (): Promise<void> => {
     if (!ready || sweeping) return;
     sweeping = true;
@@ -385,7 +382,7 @@ function createCentralApp(
       // ticks retire the server again.
       const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
       let quiet = false;
-      if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 &&
+      if (idleEnabled && !closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 &&
           sessions.size === 0 && pendingClosures.size === 0 && !pending && !handshakeAlive) {
         try {
           if (owner && !owner.registry.indeterminate && owner.ledger.ledgerMigrationComplete === true &&
@@ -404,7 +401,7 @@ function createCentralApp(
           quiet = false;
         }
       }
-      if (quiet) {
+      if (idleEnabled && quiet) {
         quietTicks += 1;
         if (quietTicks >= quietTicksForIdle) options.requestStop();
       } else {
@@ -805,6 +802,10 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   beforeExclusiveMarkerPublish?: () => Promise<void>;
   /** Test seam for deterministic idle-sweep and lease-expiry progression. */
   clock?: CentralSweepClock;
+  /** Optional probe tuning passed to probeOwnerHealth (L3 §3.1). */
+  probeOptions?: Record<string, unknown>;
+  /** Optional eviction tuning passed to evictUnresponsiveOwnerLocked (L3 §3.1). */
+  evictionOptions?: Record<string, unknown>;
 }
 
 export type StartedCentralMcpServer =
@@ -857,17 +858,45 @@ export async function startCentralMcpServer(
   const pausePath = join(stateDirectory, "operator-stop.json");
   const pause = readState(pausePath, "pause");
   if (pause?.value.paused && options.automatic) throw new Error("deferred_paused");
+  const reuseCompatibleMarker = (candidate: any): StartedCentralMcpServer => {
+    if (candidate.root !== root || candidate.protocol !== 2) throw new Error("owner_alive_incompatible");
+    if (explicitEndpoint && candidate.endpoint !== parseCentralMcpEndpoint(explicitEndpoint)) {
+      throw new Error(`LIVE central MCP server is registered on ${candidate.endpoint}; this launcher requests ${explicitEndpoint}`);
+    }
+    return { kind: "reused", endpoint: candidate.endpoint, generation: candidate.generation, markerPath };
+  };
   const current = readMarkerObservation(markerPath);
   if (current) {
-    const liveness = ownerLiveness(current.value, identity);
-    if (liveness === "alive") {
-      if (current.value.root !== root || current.value.protocol !== 2) throw new Error("owner_alive_incompatible");
-      if (explicitEndpoint && current.value.endpoint !== parseCentralMcpEndpoint(explicitEndpoint)) {
-        throw new Error(`LIVE central MCP server is registered on ${current.value.endpoint}; this launcher requests ${explicitEndpoint}`);
-      }
-      return { kind: "reused", endpoint: current.value.endpoint, generation: current.value.generation, markerPath };
+    // Site 1 (before preclaim, L3 §3.1 B-08): non-destructive health probe only;
+    // never signal and never acquirePreclaim here — delegate dead/unresponsive to admitGeneration.
+    const probe = await probeOwnerHealth(markerPath, current, authority, options.probeOptions);
+    if (probe.status === "healthy") {
+      return reuseCompatibleMarker(probe.marker);
     }
-    if (liveness !== "dead") throw new Error("owner_liveness_unknown");
+    if (probe.status === "starting") {
+      const graceMs = typeof options.probeOptions?.startupGraceMs === "number" ? options.probeOptions.startupGraceMs : 5_000;
+      const startedAtMs = Date.parse(current.value.startedAt);
+      const remainingMs = Number.isFinite(startedAtMs) ? Math.max(0, graceMs - (Date.now() - startedAtMs)) : 0;
+      const graceDeadline = Date.now() + Math.min(graceMs, remainingMs + 250);
+      while (Date.now() < graceDeadline) {
+        const ping = await centralMcpPing(current.value.endpoint, 400);
+        if (ping.kind === "generation") {
+          const latest = readMarkerObservation(markerPath);
+          if (latest && latest.value.generation === ping.generation) return reuseCompatibleMarker(latest.value);
+          if (ping.generation === current.value.generation) return reuseCompatibleMarker(current.value);
+        }
+        if (ownerLiveness(current.value, identity) === "dead") break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      const afterGrace = readMarkerObservation(markerPath);
+      if (afterGrace) {
+        const recheck = await probeOwnerHealth(markerPath, afterGrace, authority, { ...options.probeOptions, pingAttempts: 1, pingTimeoutMs: 400 });
+        if (recheck.status === "healthy") return reuseCompatibleMarker(recheck.marker);
+        if (recheck.status === "unknown") throw new Error("owner_liveness_unknown");
+      }
+    } else if (probe.status === "unknown") {
+      throw new Error("owner_liveness_unknown");
+    }
   }
   let sharedStore: ReturnType<typeof createLocalStore> | undefined;
   let administration: ColdAdministration | undefined;
@@ -932,7 +961,11 @@ export async function startCentralMcpServer(
       const auth = new ConnectionAuthentication(marker, authority.rootKey);
       authentication = auth;
       (auth as any).ready = false;
-      httpServer = createAuthenticatedServer(auth, application.app.fetch);
+      const getHealth = () => ({
+        state: (auth as any).ready ? "ready" : "starting",
+        ledgerMigrationComplete: options.precheck ? true : Boolean(participants?.ledger.ledgerMigrationComplete)
+      });
+      httpServer = createAuthenticatedServer(auth, application.app.fetch, getHealth);
       httpServer.listen(explicitEndpoint ? Number(endpointUrl.port) : 0, endpointUrl.hostname.replace(/^\[|\]$/g, ""));
       if (!httpServer.listening) await once(httpServer, "listening");
       const address = httpServer.address();
@@ -1006,11 +1039,21 @@ export async function startCentralMcpServer(
       markStartupReady(stateDirectory, identity);
       application!.ready(selectedCatalogue);
       (authentication as any).ready = true;
+    }, {
+      evictUnresponsive: true,
+      ...(options.probeOptions ? { probeOptions: options.probeOptions } : {}),
+      ...(options.evictionOptions ? { evictionOptions: options.evictionOptions } : {})
     });
   } catch (error) {
     if (httpServer) { httpServer.closeAllConnections(); await new Promise<void>(resolve => httpServer!.close(() => resolve())); }
     await application?.close();
     if (claim) removeMarker(markerPath, claim);
+    if ((error as Error)?.message === "owner_alive") {
+      const fresh = readMarkerObservation(markerPath);
+      if (fresh) {
+        return reuseCompatibleMarker(fresh.value);
+      }
+    }
     throw error;
   }
   let stopping: Promise<void> | undefined;

@@ -1421,12 +1421,29 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
       }
 
       // prefix_owner_mismatch in authority.js and admission.js distinguishes mode (chmod go-w) vs uid (chown)
+      // Under L3 UPG unification, 0775 is admitted for exclusive UPG and rejected for shared groups or 0777.
       const badPrefix = join(dir, "writable-prefix");
       mkdirSync(badPrefix, { recursive: true });
       chmodSync(badPrefix, 0o775);
+      const stBad = statSync(badPrefix);
+      const sharedUpg = {
+        uid: process.getuid(),
+        gid: stBad.gid,
+        passwdContent: `owner:x:${process.getuid()}:${stBad.gid}:Owner:/home/owner:/bin/bash\nother:x:${process.getuid() + 1}:${stBad.gid}:Other:/home/other:/bin/bash\n`,
+        groupContent: `owner:x:${stBad.gid}:other\n`
+      };
+      const exclusiveUpg = {
+        uid: process.getuid(),
+        gid: stBad.gid,
+        passwdContent: `owner:x:${process.getuid()}:${stBad.gid}:Owner:/home/owner:/bin/bash\n`,
+        groupContent: `owner:x:${stBad.gid}:\n`
+      };
+
+      assert.equal(prefixLayout(badPrefix, badPrefix, process.getuid(), exclusiveUpg).canonicalPrefix, realpathSync(badPrefix));
+      assert.ok((await prepareAuthority({ directory: join(dir, "auth-upg-ok"), root: join(dir, "root"), physicalPrefix: badPrefix, upgOptions: exclusiveUpg })).rootKey);
 
       assert.throws(
-        () => prefixLayout(badPrefix, badPrefix, process.getuid()),
+        () => prefixLayout(badPrefix, badPrefix, process.getuid(), sharedUpg),
         (err) => {
           assert.match(err.message, /prefix_owner_mismatch/);
           assert.ok(err.message.includes(badPrefix), `expected path in ${err.message}`);
@@ -1437,7 +1454,7 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
       );
 
       assert.throws(
-        () => prefixLayout(badPrefix, badPrefix, process.getuid() + 1),
+        () => prefixLayout(badPrefix, badPrefix, process.getuid() + 1, sharedUpg),
         (err) => {
           assert.match(err.message, /prefix_owner_mismatch/);
           assert.match(err.message, /chown/);
@@ -1446,11 +1463,22 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
       );
 
       await assert.rejects(
-        () => prepareAuthority({ directory: join(dir, "auth-dir"), root: join(dir, "root"), physicalPrefix: badPrefix }),
+        () => prepareAuthority({ directory: join(dir, "auth-dir"), root: join(dir, "root"), physicalPrefix: badPrefix, upgOptions: sharedUpg }),
         (err) => {
           assert.match(err.message, /prefix_owner_mismatch/);
           assert.ok(err.message.includes(badPrefix), `expected path in ${err.message}`);
           assert.match(err.message, /0775/);
+          assert.ok(err.message.includes("chmod go-w"), `expected chmod go-w in ${err.message}`);
+          return true;
+        }
+      );
+
+      chmodSync(badPrefix, 0o777);
+      assert.throws(
+        () => prefixLayout(badPrefix, badPrefix, process.getuid(), exclusiveUpg),
+        (err) => {
+          assert.match(err.message, /prefix_owner_mismatch/);
+          assert.match(err.message, /0777/);
           assert.ok(err.message.includes("chmod go-w"), `expected chmod go-w in ${err.message}`);
           return true;
         }
@@ -1460,6 +1488,7 @@ test("2d: central_unavailable and prefix_owner_mismatch report exact failing con
 });
 
 test("2e: isExclusiveUserPrivateGroup admits sole-member UPG and fails closed on shared groups, foreign uid/gid, or malformed tables", async () => {
+  const upgTrust = await import("../dist/runtime/handover/upg-trust.js");
   const hostBootstrap = await import("../dist/registry/host-bootstrap.js");
   const shimModule = await import("../scripts/h2a-bridge-shim.mjs");
 
@@ -1470,6 +1499,7 @@ test("2e: isExclusiveUserPrivateGroup admits sole-member UPG and fails closed on
   const passwdSharedPrimaryGid = "root:x:0:0:root:/root:/bin/bash\nalice:x:1000:1000:Alice:/home/alice:/bin/bash\nbob:x:1001:1000:Bob:/home/bob:/bin/bash\n";
 
   for (const [label, fn] of [
+    ["upg-trust", upgTrust.isExclusiveUserPrivateGroup],
     ["host-bootstrap", hostBootstrap.isExclusiveUserPrivateGroup],
     ["h2a-bridge-shim", shimModule.isExclusiveUserPrivateGroup]
   ]) {
