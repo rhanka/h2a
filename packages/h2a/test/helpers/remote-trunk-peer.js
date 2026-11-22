@@ -11,10 +11,16 @@
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import { isRemoteControlEnabled, REMOTE_CONTROL_DISABLED_REASON } from "../../dist/runtime/remote-agent/flag.js";
 import {
+  CATALOGUE_DELTA_MAX_ENTRIES,
+  CATALOGUE_MAX_ROWS,
+  CATALOGUE_PART_MAX_ROWS,
+  CATALOGUE_SNAPSHOT_MAX_BYTES,
+  CATALOGUE_SNAPSHOT_MAX_PARTS,
   TRUNK_PROTOCOL_VERSION,
   TRUNK_RECORD_MAX_BYTES,
   TRUNK_TERMINAL_TEXT_MAX_BYTES,
   canonicalTrunkJson,
+  isTrunkRecord,
   verifyTrunkAuthPayload
 } from "../../dist/runtime/remote-agent/types.js";
 import { FakeTrunkEndpoint, WET2_TEXT_HASH } from "./remote-trunk-fakes.js";
@@ -161,7 +167,17 @@ export function createSimulatedTrunkContractProvider(options = {}) {
     if (bodyByteLength < 1 || bodyByteLength > maxRecordBytes) {
       return { ok: false, code: "record-size-out-of-bounds" };
     }
-    if (record.t === "cat.snapshot" || record.t === "cat.delta") {
+    if (record.t === "cat.snapshot") {
+      if (bodyByteLength > maxCatalogueRecordBytes) {
+        return { ok: false, code: "catalogue-record-too-large" };
+      }
+      return { ok: false, code: "legacy-monolithic-snapshot" };
+    }
+    if (
+      record.t === "cat.snapshot.part" ||
+      record.t === "cat.snapshot.end" ||
+      record.t === "cat.delta"
+    ) {
       if (bodyByteLength > maxCatalogueRecordBytes) {
         return { ok: false, code: "catalogue-record-too-large" };
       }
@@ -258,161 +274,187 @@ export function createSimulatedTrunkContractProvider(options = {}) {
     return Buffer.from(canonicalTrunkJson(obj), "utf8");
   }
 
-  function prepareNextCatalogueRecord(request) {
-    const { mode, at, nextSeq, cursor, revokedInstanceIds } = request;
-    if (mode === "snapshot") {
-      if (!cursor) {
-        const allRows = (request.rows ?? []).map((r) => applyRevokedToRow(r, revokedInstanceIds));
-        const base = {
+  function buildSnapshotPages(wireRows) {
+    const pages = [];
+    let offset = 0;
+    while (offset < wireRows.length) {
+      const batch = [];
+      while (offset < wireRows.length && batch.length < CATALOGUE_PART_MAX_ROWS) {
+        const candidate = {
           v: TRUNK_PROTOCOL_VERSION,
-          t: "cat.snapshot",
+          t: "cat.snapshot.part",
+          ch: 1,
+          s: 1,
+          catSeq: 1,
+          nodeId: "node",
+          snapId: "snap",
+          part: pages.length,
+          rows: [...batch, wireRows[offset]]
+        };
+        if (batch.length > 0 && measureJcsBytes(candidate) > maxCatalogueRecordBytes) {
+          break;
+        }
+        batch.push(wireRows[offset]);
+        offset += 1;
+      }
+      pages.push(batch);
+    }
+    return pages;
+  }
+
+  function planCatalogueSnapshot(request) {
+    const wireRows = (request.rows ?? []).map((r) => provisionalWireRow(r));
+    const truncatedRows = request.truncatedRows ?? 0;
+    const pages = buildSnapshotPages(wireRows);
+    let totalEncodedBytes = 0;
+    for (let i = 0; i < pages.length; i += 1) {
+      const partRec = {
+        v: TRUNK_PROTOCOL_VERSION,
+        t: "cat.snapshot.part",
+        ch: 1,
+        s: i + 1,
+        catSeq: i + 1,
+        nodeId: request.nodeId,
+        snapId: request.snapId,
+        part: i,
+        rows: pages[i]
+      };
+      totalEncodedBytes += measureJcsBytes(partRec);
+    }
+    const endRec = {
+      v: TRUNK_PROTOCOL_VERSION,
+      t: "cat.snapshot.end",
+      ch: 1,
+      s: pages.length + 1,
+      catSeq: pages.length + 1,
+      nodeId: request.nodeId,
+      snapId: request.snapId,
+      partCount: pages.length,
+      totalRows: wireRows.length,
+      truncatedRows
+    };
+    totalEncodedBytes += measureJcsBytes(endRec);
+    return { partCount: pages.length, totalEncodedBytes };
+  }
+
+  function prepareNextCatalogueRecord(request) {
+    const { mode, nodeId, nextCatSeq, nextSeq, cursor } = request;
+    if (mode === "snapshot") {
+      if (cursor?.phase === "done") return null;
+      const wireRows = cursor?.wireRows ?? (request.rows ?? []).map((r) => provisionalWireRow(r));
+      const pages = cursor?.pages ?? buildSnapshotPages(wireRows);
+      const partIndex = cursor?.partIndex ?? 0;
+
+      if (partIndex < pages.length) {
+        const record = {
+          v: TRUNK_PROTOCOL_VERSION,
+          t: "cat.snapshot.part",
           ch: 1,
           s: nextSeq,
-          at,
-          ...(request.truncatedRows !== undefined ? { truncatedRows: request.truncatedRows } : {}),
-          rows: []
+          catSeq: nextCatSeq,
+          nodeId,
+          snapId: request.snapId,
+          part: partIndex,
+          rows: pages[partIndex]
         };
-        const fitted = [];
-        for (const row of allRows) {
-          const candidate = { ...base, rows: [...fitted, row] };
-          if (measureJcsBytes(candidate) <= maxCatalogueRecordBytes) {
-            fitted.push(row);
-          } else {
-            break;
-          }
-        }
-        const record = { ...base, rows: fitted };
         const encodedBytes = measureJcsBytes(record);
         if (encodedBytes > maxCatalogueRecordBytes) {
-          throw new Error("catalogue snapshot envelope exceeds maxCatalogueRecordBytes");
+          throw new Error(`catalogue-record-too-large: ${encodedBytes}`);
         }
-        const remainingRows = allRows.slice(fitted.length);
-        const nextCursor = remainingRows.length > 0 ? { kind: "snapshot-tail", at, remainingRows } : null;
         return {
           record,
           encodedBytes,
-          nextCursor,
-          deliveredAdds: fitted,
-          deliveredUpdates: [],
-          deliveredRemoves: []
-        };
-      }
-      if (cursor.kind === "snapshot-tail") {
-        const remaining = cursor.remainingRows.map((r) => applyRevokedToRow(r, revokedInstanceIds));
-        if (remaining.length === 0) return null;
-        const fitted = [];
-        for (const row of remaining) {
-          const candidate = {
-            v: TRUNK_PROTOCOL_VERSION,
-            t: "cat.delta",
-            ch: 1,
-            s: nextSeq,
-            at: cursor.at,
-            adds: [...fitted, row],
-            updates: [],
-            removes: []
-          };
-          if (measureJcsBytes(candidate) <= maxCatalogueRecordBytes) {
-            fitted.push(row);
-          } else {
-            break;
+          nextCursor: {
+            phase: partIndex + 1 < pages.length ? "part" : "end",
+            partIndex: partIndex + 1,
+            wireRows,
+            pages
           }
-        }
-        if (fitted.length === 0) {
-          throw new Error("single catalogue row exceeds maxCatalogueRecordBytes");
-        }
-        const record = {
-          v: TRUNK_PROTOCOL_VERSION,
-          t: "cat.delta",
-          ch: 1,
-          s: nextSeq,
-          at: cursor.at,
-          adds: fitted,
-          updates: [],
-          removes: []
-        };
-        const rest = remaining.slice(fitted.length);
-        return {
-          record,
-          encodedBytes: measureJcsBytes(record),
-          nextCursor: rest.length > 0 ? { kind: "snapshot-tail", at: cursor.at, remainingRows: rest } : null,
-          deliveredAdds: fitted,
-          deliveredUpdates: [],
-          deliveredRemoves: []
         };
       }
-      return null;
+
+      const endRecord = {
+        v: TRUNK_PROTOCOL_VERSION,
+        t: "cat.snapshot.end",
+        ch: 1,
+        s: nextSeq,
+        catSeq: nextCatSeq,
+        nodeId,
+        snapId: request.snapId,
+        partCount: pages.length,
+        totalRows: wireRows.length,
+        truncatedRows: request.truncatedRows ?? 0
+      };
+      const encodedBytes = measureJcsBytes(endRecord);
+      if (encodedBytes > maxCatalogueRecordBytes) {
+        throw new Error(`catalogue-record-too-large: ${encodedBytes}`);
+      }
+      return {
+        record: endRecord,
+        encodedBytes,
+        nextCursor: null
+      };
     }
 
-    // mode === "delta": process removes BEFORE updates BEFORE adds, splitting between complete row ops.
-    const removesLeft = cursor?.kind === "delta-tail" ? [...cursor.removes] : [...(request.removes ?? [])];
-    const updatesLeft = (cursor?.kind === "delta-tail" ? [...cursor.updates] : [...(request.updates ?? [])]).map((u) =>
-      "startedAt" in u || "hostKind" in u ? applyRevokedToRow(u, revokedInstanceIds) : u
-    );
-    const addsLeft = (cursor?.kind === "delta-tail" ? [...cursor.adds] : [...(request.adds ?? [])]).map((r) =>
-      applyRevokedToRow(r, revokedInstanceIds)
-    );
-    if (removesLeft.length === 0 && updatesLeft.length === 0 && addsLeft.length === 0) {
+    // mode === "delta": removes BEFORE upserts, <= 16 total entries and <= maxCatalogueRecordBytes
+    const removesLeft = cursor ? [...cursor.removesLeft] : [...(request.removes ?? [])];
+    const upsertsLeft = cursor
+      ? [...cursor.upsertsLeft]
+      : (request.upserts ?? []).map((r) => provisionalWireRow(r));
+    if (removesLeft.length === 0 && upsertsLeft.length === 0) {
       return null;
     }
 
     const chosenRemoves = [];
-    const chosenUpdates = [];
-    const chosenAdds = [];
-
-    const buildCandidate = (r, u, a) => ({
+    const chosenUpserts = [];
+    const buildDeltaCandidate = (r, u) => ({
       v: TRUNK_PROTOCOL_VERSION,
       t: "cat.delta",
       ch: 1,
       s: nextSeq,
-      at: cursor?.at ?? at,
-      adds: a,
-      updates: u,
+      catSeq: nextCatSeq,
+      nodeId,
+      upserts: u,
       removes: r
     });
 
-    while (removesLeft.length > 0) {
+    while (
+      removesLeft.length > 0 &&
+      chosenRemoves.length + chosenUpserts.length < CATALOGUE_DELTA_MAX_ENTRIES
+    ) {
       const next = removesLeft[0];
-      if (measureJcsBytes(buildCandidate([...chosenRemoves, next], chosenUpdates, chosenAdds)) <= maxCatalogueRecordBytes) {
+      if (measureJcsBytes(buildDeltaCandidate([...chosenRemoves, next], chosenUpserts)) <= maxCatalogueRecordBytes) {
         chosenRemoves.push(removesLeft.shift());
       } else {
         break;
       }
     }
     if (removesLeft.length === 0) {
-      while (updatesLeft.length > 0) {
-        const next = updatesLeft[0];
-        if (measureJcsBytes(buildCandidate(chosenRemoves, [...chosenUpdates, next], chosenAdds)) <= maxCatalogueRecordBytes) {
-          chosenUpdates.push(updatesLeft.shift());
+      while (
+        upsertsLeft.length > 0 &&
+        chosenRemoves.length + chosenUpserts.length < CATALOGUE_DELTA_MAX_ENTRIES
+      ) {
+        const next = upsertsLeft[0];
+        if (
+          (chosenRemoves.length === 0 && chosenUpserts.length === 0) ||
+          measureJcsBytes(buildDeltaCandidate(chosenRemoves, [...chosenUpserts, next])) <= maxCatalogueRecordBytes
+        ) {
+          chosenUpserts.push(upsertsLeft.shift());
         } else {
           break;
         }
       }
     }
-    if (removesLeft.length === 0 && updatesLeft.length === 0) {
-      while (addsLeft.length > 0) {
-        const next = addsLeft[0];
-        if (measureJcsBytes(buildCandidate(chosenRemoves, chosenUpdates, [...chosenAdds, next])) <= maxCatalogueRecordBytes) {
-          chosenAdds.push(addsLeft.shift());
-        } else {
-          break;
-        }
-      }
+    const record = buildDeltaCandidate(chosenRemoves, chosenUpserts);
+    const encodedBytes = measureJcsBytes(record);
+    if (encodedBytes > maxCatalogueRecordBytes) {
+      throw new Error(`catalogue-record-too-large: ${encodedBytes}`);
     }
-    if (chosenRemoves.length === 0 && chosenUpdates.length === 0 && chosenAdds.length === 0) {
-      throw new Error("single catalogue delta entry exceeds maxCatalogueRecordBytes");
-    }
-    const record = buildCandidate(chosenRemoves, chosenUpdates, chosenAdds);
-    const hasMore = removesLeft.length > 0 || updatesLeft.length > 0 || addsLeft.length > 0;
+    const hasMore = removesLeft.length > 0 || upsertsLeft.length > 0;
     return {
       record,
-      encodedBytes: measureJcsBytes(record),
-      nextCursor: hasMore
-        ? { kind: "delta-tail", at: cursor?.at ?? at, removes: removesLeft, updates: updatesLeft, adds: addsLeft }
-        : null,
-      deliveredAdds: chosenAdds,
-      deliveredUpdates: chosenUpdates,
-      deliveredRemoves: chosenRemoves
+      encodedBytes,
+      nextCursor: hasMore ? { removesLeft, upsertsLeft } : null
     };
   }
 
@@ -426,8 +468,165 @@ export function createSimulatedTrunkContractProvider(options = {}) {
     decodeFrame,
     canonicalAuthBytes,
     canonicalInstanceBindBytes,
+    measureJcsBytes,
+    planCatalogueSnapshot,
     prepareNextCatalogueRecord
   };
+}
+
+export class CatalogueSliceStager {
+  #expectedNodeId;
+  #expectedCatSeq = 1;
+  #committedSlice = null;
+  #staged = null;
+
+  constructor(options = {}) {
+    this.#expectedNodeId = options.expectedNodeId;
+  }
+
+  getSlice() {
+    return this.#committedSlice
+      ? { rows: [...this.#committedSlice.rows], truncatedRows: this.#committedSlice.truncatedRows }
+      : null;
+  }
+
+  hasPendingStage() {
+    return this.#staged !== null;
+  }
+
+  discardPending() {
+    this.#staged = null;
+  }
+
+  ingest(rec, encodedBytes) {
+    const fail = (code) => {
+      this.#staged = null;
+      return { ok: false, code };
+    };
+    if (!rec || typeof rec !== "object") return fail("invalid-catalogue-record");
+    if (rec.catSeq !== this.#expectedCatSeq) return fail("cat-seq-mismatch");
+    if (rec.nodeId !== this.#expectedNodeId) return fail("cat-node-mismatch");
+
+    if (rec.t === "cat.snapshot.part") {
+      if (!Array.isArray(rec.rows) || rec.rows.length < 1 || rec.rows.length > CATALOGUE_PART_MAX_ROWS) {
+        return fail("cat-invalid-part-rows");
+      }
+      if (!Number.isSafeInteger(rec.part) || rec.part < 0 || rec.part >= CATALOGUE_SNAPSHOT_MAX_PARTS) {
+        return fail("cat-part-index-out-of-bounds");
+      }
+      if (typeof rec.snapId !== "string" || rec.snapId.length === 0) {
+        return fail("cat-invalid-snap-id");
+      }
+      if (this.#staged === null) {
+        if (rec.part !== 0) return fail("cat-part-out-of-order");
+        this.#staged = {
+          snapId: rec.snapId,
+          nextPart: 0,
+          totalBytes: 0,
+          rows: [],
+          seenSids: new Set()
+        };
+      } else if (this.#staged.snapId !== rec.snapId) {
+        return fail("cat-concurrent-snapshot");
+      }
+      if (rec.part !== this.#staged.nextPart) {
+        return fail("cat-part-out-of-order");
+      }
+      if (this.#staged.totalBytes + encodedBytes > CATALOGUE_SNAPSHOT_MAX_BYTES) {
+        return fail("cat-snapshot-too-large");
+      }
+      for (const row of rec.rows) {
+        if (!row || typeof row !== "object" || typeof row.sid !== "string" || row.sid.length === 0) {
+          return fail("cat-invalid-wire-row");
+        }
+        if (this.#staged.seenSids.has(row.sid)) {
+          return fail("cat-duplicate-sid");
+        }
+        this.#staged.seenSids.add(row.sid);
+        this.#staged.rows.push(row);
+      }
+      this.#staged.nextPart += 1;
+      this.#staged.totalBytes += encodedBytes;
+      this.#expectedCatSeq += 1;
+      return { ok: true, committed: false };
+    }
+
+    if (rec.t === "cat.snapshot.end") {
+      if (
+        !Number.isSafeInteger(rec.partCount) ||
+        rec.partCount < 0 ||
+        rec.partCount > CATALOGUE_SNAPSHOT_MAX_PARTS ||
+        !Number.isSafeInteger(rec.totalRows) ||
+        rec.totalRows < 0 ||
+        rec.totalRows > CATALOGUE_MAX_ROWS ||
+        !Number.isSafeInteger(rec.truncatedRows) ||
+        rec.truncatedRows < 0
+      ) {
+        return fail("cat-invalid-end");
+      }
+      if (rec.partCount === 0) {
+        if (this.#staged !== null) return fail("cat-end-part-count-mismatch");
+        if (rec.totalRows !== 0) return fail("cat-end-total-rows-mismatch");
+        if (encodedBytes > CATALOGUE_SNAPSHOT_MAX_BYTES) return fail("cat-snapshot-too-large");
+        this.#committedSlice = { rows: [], truncatedRows: rec.truncatedRows };
+        this.#expectedCatSeq += 1;
+        return { ok: true, committed: true };
+      }
+      if (
+        this.#staged === null ||
+        this.#staged.snapId !== rec.snapId ||
+        this.#staged.nextPart !== rec.partCount
+      ) {
+        return fail("cat-end-part-count-mismatch");
+      }
+      if (this.#staged.rows.length !== rec.totalRows) {
+        return fail("cat-end-total-rows-mismatch");
+      }
+      if (this.#staged.totalBytes + encodedBytes > CATALOGUE_SNAPSHOT_MAX_BYTES) {
+        return fail("cat-snapshot-too-large");
+      }
+      this.#committedSlice = {
+        rows: [...this.#staged.rows],
+        truncatedRows: rec.truncatedRows
+      };
+      this.#staged = null;
+      this.#expectedCatSeq += 1;
+      return { ok: true, committed: true };
+    }
+
+    if (rec.t === "cat.delta") {
+      if (this.#staged !== null) return fail("cat-delta-during-snapshot");
+      if (this.#committedSlice === null) return fail("cat-delta-before-snapshot");
+      if (!Array.isArray(rec.upserts) || !Array.isArray(rec.removes)) {
+        return fail("cat-invalid-delta");
+      }
+      const total = rec.upserts.length + rec.removes.length;
+      if (total < 1 || total > CATALOGUE_DELTA_MAX_ENTRIES) {
+        return fail("cat-delta-size-out-of-bounds");
+      }
+      const bySid = new Map(this.#committedSlice.rows.map((r) => [r.sid, r]));
+      for (const sid of rec.removes) {
+        if (typeof sid !== "string" || sid.length === 0) return fail("cat-invalid-remove-sid");
+        bySid.delete(sid);
+      }
+      for (const row of rec.upserts) {
+        if (!row || typeof row !== "object" || typeof row.sid !== "string" || row.sid.length === 0) {
+          return fail("cat-invalid-upsert-row");
+        }
+        bySid.set(row.sid, row);
+      }
+      const sorted = [...bySid.values()].sort((a, b) => (a.sid < b.sid ? -1 : a.sid > b.sid ? 1 : 0));
+      if (sorted.length > CATALOGUE_MAX_ROWS) return fail("cat-delta-exceeds-max-rows");
+      this.#committedSlice = {
+        rows: sorted,
+        truncatedRows: this.#committedSlice.truncatedRows
+      };
+      this.#expectedCatSeq += 1;
+      return { ok: true, committed: true };
+    }
+
+    return fail("cat-unknown-record");
+  }
 }
 
 export class FakeCatalogueDouble {
@@ -445,6 +644,22 @@ export class FakeCatalogueDouble {
       this.#rows.set(row.sessionId, { ...row });
     }
     this.#truncatedRows = options.truncatedRows ?? 0;
+  }
+
+  #buildProjection() {
+    const sorted = [...this.#rows.values()]
+      .map((row) => {
+        const origin = row.instanceId ?? row.instance;
+        if (origin && this.#revokedInstances.has(origin)) {
+          return { ...row, instanceId: origin, instanceStatus: "revoked" };
+        }
+        return { ...row };
+      })
+      .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0));
+    return {
+      rows: sorted,
+      truncatedRows: this.#truncatedRows
+    };
   }
 
   setInitialRows(rows, truncatedRows = 0) {
@@ -471,15 +686,15 @@ export class FakeCatalogueDouble {
     this.calls.push({ op: "setInstanceStatus", instanceId, status, at: this.#clock.now() });
     if (status === "revoked") this.#revokedInstances.add(instanceId);
     else this.#revokedInstances.delete(instanceId);
-    const updates = [];
+    let changed = false;
     for (const [sid, row] of this.#rows.entries()) {
       if ((row.instanceId ?? row.instance) === instanceId) {
         this.#rows.set(sid, { ...row, instanceId, instanceStatus: status });
-        updates.push({ sessionId: sid, instanceId, instanceStatus: status });
+        changed = true;
       }
     }
-    if (this.watching && this.#emit && updates.length > 0) {
-      this.#emit({ kind: "delta", at: this.#clock.now(), updates });
+    if (this.watching && this.#emit && changed) {
+      this.#emit(this.#buildProjection());
     }
   }
 
@@ -487,19 +702,7 @@ export class FakeCatalogueDouble {
     this.calls.push({ op: "startWatch", at: this.#clock.now() });
     this.watching = true;
     this.#emit = emit;
-    const rows = [...this.#rows.values()].map((row) => {
-      const origin = row.instanceId ?? row.instance;
-      if (origin && this.#revokedInstances.has(origin)) {
-        return { ...row, instanceId: origin, instanceStatus: "revoked" };
-      }
-      return { ...row };
-    });
-    emit({
-      kind: "snapshot",
-      at: this.#clock.now(),
-      rows,
-      ...(this.#truncatedRows > 0 ? { truncatedRows: this.#truncatedRows } : {})
-    });
+    emit(this.#buildProjection());
   }
 
   stopWatch() {
@@ -513,32 +716,16 @@ export class FakeCatalogueDouble {
     const adjusted = origin && this.#revokedInstances.has(origin)
       ? { ...row, instanceId: origin, instanceStatus: "revoked" }
       : { ...row };
-    const existed = this.#rows.has(adjusted.sessionId);
     this.#rows.set(adjusted.sessionId, adjusted);
     if (this.watching && this.#emit) {
-      this.#emit({
-        kind: "delta",
-        at: this.#clock.now(),
-        ...(existed ? { updates: [adjusted] } : { adds: [adjusted] })
-      });
-    }
-  }
-
-  emitDelta(delta) {
-    if (this.watching && this.#emit) {
-      this.#emit({ kind: "delta", at: this.#clock.now(), ...delta });
+      this.#emit(this.#buildProjection());
     }
   }
 
   emitSnapshot(rows, truncatedRows = 0) {
     this.setInitialRows(rows, truncatedRows);
     if (this.watching && this.#emit) {
-      this.#emit({
-        kind: "snapshot",
-        at: this.#clock.now(),
-        rows: [...this.#rows.values()],
-        ...(truncatedRows > 0 ? { truncatedRows } : {})
-      });
+      this.#emit(this.#buildProjection());
     }
   }
 }
@@ -903,8 +1090,24 @@ export class FakeBinaryTrunkPeer {
     if (rec.t === "x-liveness" && rec.ch === 0) {
       return;
     }
-    if (rec.t === "cat.snapshot" || rec.t === "cat.delta") {
+    if (
+      rec.t === "cat.snapshot.part" ||
+      rec.t === "cat.snapshot.end" ||
+      rec.t === "cat.delta"
+    ) {
       conn.receivedCatalogue.push({ record: rec, encodedBytes: decoded.encodedBodyBytes });
+      if (!isTrunkRecord(rec)) {
+        conn.catalogueFault = "invalid-catalogue-record";
+        this.#closePeerWithErr(conn, "invalid-catalogue-record", false);
+        return;
+      }
+      const res = conn.catalogueStager.ingest(rec, decoded.encodedBodyBytes);
+      if (!res.ok) {
+        conn.catalogueFault = res.code;
+        this.#closePeerWithErr(conn, res.code, false);
+        return;
+      }
+      conn.catalogueView = conn.catalogueStager.getSlice();
       return;
     }
     if (rec.t === "term.out") {
@@ -1020,6 +1223,9 @@ export class FakeBinaryTrunkPeer {
     conn.scopeKey = enrolment.scopeKey;
     conn.enrolmentRef = enrolment.enrolmentRef;
     conn.nodeId = enrolment.nodeId;
+    conn.catalogueStager = new CatalogueSliceStager({ expectedNodeId: conn.nodeId });
+    conn.catalogueView = null;
+    conn.catalogueFault = null;
     conn.currentBindNonce = `bn-${conn.id}-${this.#nextBindNonceCounter++}-${randomBytes(12).toString("base64url")}`;
     this.#liveConnections.set(enrolment.scopeKey, conn);
 

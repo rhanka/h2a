@@ -921,11 +921,12 @@ test("idle, watch, ping/pong, backoff with jitter, revoked, kill, bye and 512-ro
       const pings = conn.decodedClientRecords.filter((r) => r.t === "ping" && r.ch === 0);
       assert.equal(pings.length, 1, "single ping at 15s");
 
-      // Start watch -> snapshot emitted
+      // Start watch -> paginated snapshot emitted
       fx.peer.sendWatchStart(conn);
-      assert.equal(conn.receivedCatalogue.length, 1);
-      assert.equal(conn.receivedCatalogue[0].record.t, "cat.snapshot");
-      assert.equal(conn.receivedCatalogue[0].record.rows.length, 2);
+      assert.equal(conn.receivedCatalogue.length, 2);
+      assert.equal(conn.receivedCatalogue[0].record.t, "cat.snapshot.part");
+      assert.equal(conn.receivedCatalogue[1].record.t, "cat.snapshot.end");
+      assert.equal(conn.catalogueView?.rows.length, 2);
 
       // Stop watch -> zero cat.* afterwards
       fx.peer.sendWatchStop(conn);
@@ -1015,7 +1016,7 @@ test("idle, watch, ping/pong, backoff with jitter, revoked, kill, bye and 512-ro
       const nonce1 = conn1.nonce;
       fx.peer.sendCredit(conn1, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
       fx.peer.sendWatchStart(conn1);
-      assert.equal(conn1.receivedCatalogue.length, 1);
+      assert.equal(conn1.receivedCatalogue.length, 2);
 
       fx.peer.deliverErrorAndClose(conn1, "net-reset");
       fx.clock.advance(1_000);
@@ -1025,8 +1026,9 @@ test("idle, watch, ping/pong, backoff with jitter, revoked, kill, bye and 512-ro
       assert.notEqual(conn2.nonce, nonce1, "reconnect must use a fresh challenge");
       fx.peer.sendCredit(conn2, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
       fx.peer.sendWatchStart(conn2);
-      assert.equal(conn2.receivedCatalogue.length, 1);
-      assert.equal(conn2.receivedCatalogue[0].record.t, "cat.snapshot");
+      assert.equal(conn2.receivedCatalogue.length, 2);
+      assert.equal(conn2.receivedCatalogue[0].record.t, "cat.snapshot.part");
+      assert.equal(conn2.receivedCatalogue[1].record.t, "cat.snapshot.end");
       fx.client.stop();
     } finally {
       cleanup(fx.dirs);
@@ -1107,14 +1109,14 @@ test("idle, watch, ping/pong, backoff with jitter, revoked, kill, bye and 512-ro
     }
   }
 
-  // 5g. 512-row catalogue framing with 8192 and 4096 providers + mid-series cut restarts with snapshot
+  // 5g. 512-row catalogue framing at 8192 B and 256-row framing at 4096 B + mid-series cut restarts with snapshot
   {
     const rows512 = Array.from({ length: 512 }, (_, i) =>
       sampleRow(`n-${String(i).padStart(4, "0")}`, i % 2 === 0 ? "inst-A" : "inst-B")
     );
-    for (const cap of [8192, 4096]) {
+    for (const [cap, inputRows] of [[8192, rows512], [4096, rows512.slice(0, 256)]]) {
       const provider = createSimulatedTrunkContractProvider({ maxCatalogueRecordBytes: cap });
-      const fx = makeClientFixture({ contract: provider, initialRows: rows512 });
+      const fx = makeClientFixture({ contract: provider, initialRows: inputRows });
       try {
         fx.client.start();
         const conn = fx.peer.allConnections()[0];
@@ -1137,15 +1139,11 @@ test("idle, watch, ping/pong, backoff with jitter, revoked, kill, bye and 512-ro
             sendLimitBytes: ackBytes + 131072
           });
         }
-        // Reconstruct catalogue from received snapshot + delta adds
-        assert.equal(conn.receivedCatalogue[0].record.t, "cat.snapshot");
-        assert.ok(conn.receivedCatalogue.length > 4, `512 rows must split across multiple <= ${cap} frames`);
-        const reconstructed = [];
-        for (const item of conn.receivedCatalogue) {
-          if (item.record.t === "cat.snapshot") reconstructed.push(...item.record.rows);
-          else reconstructed.push(...item.record.adds);
-        }
-        assert.equal(reconstructed.length, 512);
+        // Reconstruct catalogue from received parts + end via peer CatalogueSliceStager
+        assert.equal(conn.receivedCatalogue[0].record.t, "cat.snapshot.part");
+        assert.equal(conn.receivedCatalogue[conn.receivedCatalogue.length - 1].record.t, "cat.snapshot.end");
+        assert.ok(conn.receivedCatalogue.length > 4, `${inputRows.length} rows must split across multiple <= ${cap} frames`);
+        assert.equal(conn.catalogueView?.rows.length, inputRows.length);
         fx.client.stop();
       } finally {
         cleanup(fx.dirs);
@@ -1345,9 +1343,9 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       const watchIdx = fx.catalogue.calls.findIndex((c) => c.op === "startWatch");
       assert.ok(applyIdx >= 0, "applyRevokedInstances must be called");
       assert.ok(watchIdx > applyIdx, "applyRevokedInstances must happen before startWatch");
-      const snap = conn.receivedCatalogue[0].record;
-      assert.equal(snap.t, "cat.snapshot");
-      const rowA = snap.rows.find((r) => r.sessionId === "n-a");
+      const part = conn.receivedCatalogue[0].record;
+      assert.equal(part.t, "cat.snapshot.part");
+      const rowA = conn.catalogueView?.rows.find((r) => r.sid === "n-a");
       assert.equal(rowA.instanceStatus, "revoked", "first snapshot must already show A revoked");
       fx.client.stop();
 
@@ -1377,8 +1375,7 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       const conn2 = peer2.allConnections()[0];
       peer2.sendCredit(conn2, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
       peer2.sendWatchStart(conn2);
-      const snap2 = conn2.receivedCatalogue[0].record;
-      assert.equal(snap2.rows.find((r) => r.sessionId === "n-a").instanceStatus, "revoked");
+      assert.equal(conn2.catalogueView?.rows.find((r) => r.sid === "n-a")?.instanceStatus, "revoked");
       c2.stop();
     } finally {
       cleanup(fx.dirs);
@@ -1412,7 +1409,7 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       // Start watch & grant credit on ch 1
       fx.peer.sendCredit(conn, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 8, sendLimitBytes: 131072 });
       fx.peer.sendWatchStart(conn);
-      assert.equal(conn.receivedCatalogue.length, 1);
+      assert.equal(conn.receivedCatalogue.length, 2);
 
       // Open terminal channel 2 attached to session n-a (origin inst-A) and grant credit
       fx.peer.sendTermOpen(conn, { ch: 2, sid: "n-a" });
@@ -1553,13 +1550,15 @@ test("instance lifecycle on live link: ready.revokedInstances before snapshot, i
       assert.equal(auditA.tenantId, TENANT);
       assert.equal(auditA.enrolmentRef, fx.enrolment.enrolmentRef);
 
-      // Next delta modifies ONLY A's status
+      // Next delta carries complete wire row for A with revoked status
       assert.equal(conn.receivedCatalogue.length, catCountBefore + 1);
       const statusDelta = conn.receivedCatalogue[conn.receivedCatalogue.length - 1].record;
       assert.equal(statusDelta.t, "cat.delta");
-      assert.deepEqual(statusDelta.adds, []);
       assert.deepEqual(statusDelta.removes, []);
-      assert.deepEqual(statusDelta.updates, [{ sessionId: "n-a", instanceId: wireA, instanceStatus: "revoked" }]);
+      assert.equal(statusDelta.upserts.length, 1);
+      assert.equal(statusDelta.upserts[0].sid, "n-a");
+      assert.equal(statusDelta.upserts[0].instanceId, wireA);
+      assert.equal(statusDelta.upserts[0].instanceStatus, "revoked");
 
       // Same generation: B's act AND second terminal output on ch 2 (attached to A) BOTH succeed!
       assert.equal(fx.client.getLinkGeneration(), initialGen);
@@ -1737,7 +1736,7 @@ test("additional LH-07 acceptance edges: handshake_busy, 20s/40s outages, mid-se
     }
   }
 
-  // 8d. Mid-series 512-row cut: new generation restarts with cat.snapshot and abandons old adds
+  // 8d. Mid-series 512-row cut: new generation restarts with cat.snapshot.part (catSeq=1) and abandons old staging
   {
     const rows512 = Array.from({ length: 512 }, (_, i) =>
       sampleRow(`n-${String(i).padStart(4, "0")}`, "inst-A")
@@ -1750,8 +1749,8 @@ test("additional LH-07 acceptance edges: handshake_busy, 20s/40s outages, mid-se
       fx.peer.sendCredit(conn1, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 2, sendLimitBytes: 131072 });
       fx.peer.sendWatchStart(conn1);
       assert.equal(conn1.receivedCatalogue.length, 2);
-      assert.equal(conn1.receivedCatalogue[0].record.t, "cat.snapshot");
-      assert.equal(conn1.receivedCatalogue[1].record.t, "cat.delta");
+      assert.equal(conn1.receivedCatalogue[0].record.t, "cat.snapshot.part");
+      assert.equal(conn1.receivedCatalogue[1].record.t, "cat.snapshot.part");
 
       // Cut link mid-series!
       fx.peer.dropConnection(conn1, "mid-series-cut");
@@ -1760,7 +1759,8 @@ test("additional LH-07 acceptance edges: handshake_busy, 20s/40s outages, mid-se
       const conn2 = fx.peer.allConnections()[1];
       fx.peer.sendCredit(conn2, 1, { receivedThroughSeq: 0, receivedThroughBytes: 0, sendLimitSeq: 2, sendLimitBytes: 131072 });
       fx.peer.sendWatchStart(conn2);
-      assert.equal(conn2.receivedCatalogue[0].record.t, "cat.snapshot", "new generation must restart with cat.snapshot");
+      assert.equal(conn2.receivedCatalogue[0].record.t, "cat.snapshot.part", "new generation must restart with cat.snapshot.part");
+      assert.equal(conn2.receivedCatalogue[0].record.catSeq, 1);
       fx.client.stop();
     } finally {
       cleanup(fx.dirs);

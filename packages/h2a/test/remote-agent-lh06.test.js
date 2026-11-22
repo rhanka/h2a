@@ -27,12 +27,9 @@ import {
   runRemoteControlVerb,
   signTrunkAuthPayload,
   projectCatalogueRow,
-  buildCatalogueSnapshot,
-  serializeCatalogueSnapshot,
-  parseCatalogueSnapshot,
-  serializeCatalogueDelta,
-  parseCatalogueDelta,
-  applyCatalogueDelta,
+  projectBoundedCatalogue,
+  planCatalogueUpdate,
+  isTrunkRecord,
   containsForbiddenLocalField,
   isInternalCompanionNativeId,
   nativeCatalogueSid,
@@ -53,10 +50,13 @@ import {
   FakeEnrolmentVerifier,
   WET2_TEXT_HASH,
   FIXTURE_CONTRACT_METADATA,
-  assertFixtureContractVersion,
-  createFakeCatalogueTrunkProvider
+  assertFixtureContractVersion
 } from "./helpers/remote-trunk-fakes.js";
-import { provisionalWireRow } from "./helpers/remote-trunk-peer.js";
+import {
+  CatalogueSliceStager,
+  createSimulatedTrunkContractProvider,
+  provisionalWireRow
+} from "./helpers/remote-trunk-peer.js";
 
 import {
   listNativeInventoryForRemote,
@@ -463,7 +463,6 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
 
     assert.equal(messages.length, 1, "first watch.start must emit initial snapshot immediately");
     const snap1 = messages[0];
-    assert.equal(snap1.t, "cat.snapshot");
     assert.equal(snap1.truncatedRows, 0);
 
     const sidN = nativeCatalogueSid("N");
@@ -533,10 +532,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       launchContext: { cwd: "/secret", command: "claude", nativePty: { session: "N" } }
     }));
     await clock.advance(2_250);
-    let view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    let view = messages[messages.length - 1].rows;
     assert.equal(byId(view).get(sidN).name, "tie-a", "most recent valid heartbeat tie must pick lexicographically smallest sessionId");
 
     // Clean up tie presences so N uses original P with T0 heartbeat for boundary check
@@ -546,10 +542,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
 
     // Freshness boundary: at T0 + 14_999 ms, P-tmux & P-unk are STILL visible; N still has workStatus=working
     await clock.advance(T0 + 14_999 - clock.now());
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.ok(byId(view).has(sidTmux), "presence-only row must still be visible at 14999 ms");
     assert.ok(byId(view).has(sidUnk), "unknown presence-only row must still be visible at 14999 ms");
     assert.equal(byId(view).get(sidN).workStatus, "working", "joined presence must still be fresh at 14999 ms");
@@ -557,15 +550,12 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     // Advance 1 ms -> T0 + 15_000 ms (exact expiry!)
     const countBeforeExpiry = messages.length;
     await clock.advance(1); // T0 + 15_000
-    await clock.advance(249); // T0 + 15_249 -> NO delta yet inside 250 ms window
-    assert.equal(messages.length, countBeforeExpiry, "removal/degrade delta must NOT emit at 249 ms");
+    await clock.advance(249); // T0 + 15_249 -> NO projection yet inside 250 ms window
+    assert.equal(messages.length, countBeforeExpiry, "removal/degrade projection must NOT emit at 249 ms");
 
-    await clock.advance(1); // T0 + 15_250 -> delta emits!
-    assert.equal(messages.length, countBeforeExpiry + 1, "removal/degrade delta must emit at 250 ms");
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    await clock.advance(1); // T0 + 15_250 -> projection emits!
+    assert.equal(messages.length, countBeforeExpiry + 1, "removal/degrade projection must emit at 250 ms");
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).has(sidTmux), false, "tmux presence-only row must expire at 15000 ms");
     assert.equal(byId(view).has(sidUnk), false, "unknown presence-only row must expire at 15000 ms");
 
@@ -580,10 +570,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
     // Presence disappears completely while PTY N lives -> sid stays identical
     removePresenceFile(fx.root, "P");
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     const bareN = byId(view).get(sidN);
     assert.ok(bareN, "live PTY N must stay under same sid after presence disappears");
     assert.equal(bareN.operable, true);
@@ -597,10 +584,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       launchContext: { cwd: "/secret", command: "claude", nativePty: { session: "N" } }
     }));
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).get(sidN).instanceId, wireInstanceId("inst-reborn"));
 
     // Ambiguous owner: two sockets claim N -> NOT operable, resolveOpen refuses not-operable
@@ -613,10 +597,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       ]
     };
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).get(sidN).operable, false, "ambiguous native owner must not be operable");
     const openAmbig = await projector.resolveOpen(sidN);
     assert.equal(openAmbig.ok, false);
@@ -658,10 +639,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       ]
     };
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.equal(byId(view).has(sidN), false, "exited PTY must be removed and residual presence must not resurrect it");
     assert.equal(unavailableEvents.length, 1, "must emit exactly one exit notification for (g1, i1)");
     assert.equal(unavailableEvents[0].sid, sidN);
@@ -688,10 +666,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       ]
     };
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     assert.ok(byId(view).has(sidN), "new live incarnation must reappear");
     const openReborn = await projector.resolveOpen(sidN);
     assert.equal(openReborn.ok, true);
@@ -704,10 +679,7 @@ test("LH-06 join & identity: 5 states, sid stability, freshness boundary 14999/1
       launchContext: { cwd: "/secret", command: "claude", nativePty: { session: "N-future" } }
     }));
     await clock.advance(2_250);
-    view = snap1.rows;
-    for (const m of messages.slice(1)) {
-      view = m.t === "cat.snapshot" ? m.rows : applyCatalogueDelta(view, m);
-    }
+    view = messages[messages.length - 1].rows;
     const sidEarly = nativeCatalogueSid("N-future");
     assert.ok(byId(view).has(sidEarly), "presence naming nativePty must already use n-<hash> before host discovery");
     assert.equal(byId(view).get(sidEarly).operable, false, "unconfirmed native target must be inoperable");
@@ -946,7 +918,35 @@ test("LH-06 privacy: strips sentinels, paths, file:// URIs, controls, coordinate
 
     assert.equal(messages.length, 1);
     const snap = messages[0];
-    const wire = serializeCatalogueSnapshot(snap);
+    const provider = createSimulatedTrunkContractProvider();
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-lh06-sec" });
+    const wireRecords = [];
+    let cursor = null;
+    let catSeq = 1;
+    let seq = 1;
+    for (;;) {
+      const prepared = provider.prepareNextCatalogueRecord({
+        mode: "snapshot",
+        nodeId: "node-lh06-sec",
+        snapId: "snap-lh06-sec",
+        rows: snap.rows,
+        truncatedRows: snap.truncatedRows,
+        cursor,
+        nextCatSeq: catSeq,
+        nextSeq: seq
+      });
+      if (!prepared) break;
+      const decoded = provider.decodeFrame(provider.encodeFrame(prepared.record));
+      assert.equal(decoded.ok, true);
+      assert.equal(isTrunkRecord(decoded.record), true);
+      assert.equal(stager.ingest(decoded.record, decoded.encodedBodyBytes).ok, true);
+      wireRecords.push(canonicalTrunkJson(decoded.record));
+      catSeq += 1;
+      seq += 1;
+      if (!prepared.nextCursor) break;
+      cursor = prepared.nextCursor;
+    }
+    const wire = wireRecords.join("\n");
     const diagText = JSON.stringify(audits);
 
     for (const sentinel of SENTINELS) {
@@ -972,37 +972,22 @@ test("LH-06 privacy: strips sentinels, paths, file:// URIs, controls, coordinate
     assert.equal(row4.name, undefined, "exact copy of launch command must be omitted");
     assert.equal(row4.workspaceLabel, "badlabel", "C0 control char in workspaceLabel must be stripped");
 
-    // Round-trip & foreign property rejection on row, snapshot, and delta (one at a time)
-    assert.deepEqual(parseCatalogueSnapshot(wire), snap);
-
-    const tamperedRow = JSON.parse(wire);
-    tamperedRow.rows[0].foreignProp = "x";
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tamperedRow)), TypeError);
-
-    const tamperedSnap = JSON.parse(wire);
-    tamperedSnap.foreignSnapProp = "x";
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tamperedSnap)), TypeError);
-
-    const validDelta = {
+    // Round-trip & foreign node/sequence/size checks on paginated records and stager
+    assert.equal(stager.getSlice().rows.length, snap.rows.length);
+    const badDelta = {
       v: 1,
       t: "cat.delta",
       ch: 1,
-      s: 2,
-      at: T0 + 250,
-      adds: [],
-      updates: [{ sessionId: row1.sessionId, instanceId: "inst-priv-1", instanceStatus: "revoked" }],
+      s: seq,
+      catSeq,
+      nodeId: "node-lh06-sec",
+      upserts: [provisionalWireRow({ ...row1, instanceStatus: "revoked" })],
       removes: []
     };
-    const deltaWire = serializeCatalogueDelta(validDelta);
-    assert.deepEqual(parseCatalogueDelta(deltaWire), validDelta);
-
-    const tamperedDeltaEnv = JSON.parse(deltaWire);
-    tamperedDeltaEnv.foreignDeltaProp = "x";
-    assert.throws(() => parseCatalogueDelta(JSON.stringify(tamperedDeltaEnv)), TypeError);
-
-    const tamperedDeltaPartial = JSON.parse(deltaWire);
-    tamperedDeltaPartial.updates[0].extra = "x";
-    assert.throws(() => parseCatalogueDelta(JSON.stringify(tamperedDeltaPartial)), TypeError);
+    assert.equal(isTrunkRecord(badDelta), true);
+    assert.equal(isTrunkRecord({ ...badDelta, t: "cat.snapshot" }), false);
+    assert.equal(isTrunkRecord({ ...badDelta, removes: ["x".repeat(37)] }), false);
+    assert.equal(stager.ingest({ ...badDelta, nodeId: "wrong-node" }, 100).ok, false);
 
     projector.stopWatch();
   } finally {
@@ -1417,19 +1402,30 @@ test("LH-06 open decision: excluded refuses before socket, view closes on off, r
     assert.equal(messages.length, msgBeforeRevoke);
     await clock.advance(1);
     assert.equal(messages.length, msgBeforeRevoke + 1);
-    const delta = messages[messages.length - 1];
-    assert.equal(delta.t, "cat.delta");
-    assert.deepEqual(delta.updates, [{ sessionId: sidOpen, instanceId: wireInstA, instanceStatus: "revoked" }]);
+    const updatedProj = messages[messages.length - 1];
+    const revokedRow = updatedProj.rows.find((r) => r.sessionId === sidOpen);
+    assert.equal(revokedRow.instanceId, wireInstA);
+    assert.equal(revokedRow.instanceStatus, "revoked");
 
-    // applyCatalogueDelta only applies partial update to matching existing row of same instanceId
-    const baseRows = [{ sessionId: sidOpen, instanceId: wireInstA, instanceStatus: "live", state: "live", hostKind: "native", operable: true }];
-    const applied = applyCatalogueDelta(baseRows, delta);
-    assert.equal(applied[0].instanceStatus, "revoked");
-    const wrongOriginDelta = {
-      ...delta,
-      updates: [{ sessionId: sidOpen, instanceId: wireInstanceId("inst-OTHER"), instanceStatus: "live" }]
-    };
-    assert.equal(applyCatalogueDelta(applied, wrongOriginDelta)[0].instanceStatus, "revoked", "partial update with mismatched instanceId must be ignored");
+    // Plan produces a complete wire row upsert and stager applies it atomically
+    const prevProj = messages[msgBeforeRevoke - 1];
+    const plan = planCatalogueUpdate(prevProj, updatedProj);
+    assert.equal(plan.kind, "delta");
+    assert.equal(plan.upserts.length, 1);
+    assert.equal(plan.upserts[0].instanceStatus, "revoked");
+
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-rev-check" });
+    assert.equal(stager.ingest({
+      v: 1, t: "cat.snapshot.part", ch: 1, s: 1, catSeq: 1, nodeId: "node-rev-check", snapId: "s1", part: 0,
+      rows: [provisionalWireRow({ sessionId: sidOpen, instanceId: wireInstA, instanceStatus: "live", state: "live", hostKind: "native", operable: true })]
+    }, 150).ok, true);
+    assert.equal(stager.ingest({
+      v: 1, t: "cat.snapshot.end", ch: 1, s: 2, catSeq: 2, nodeId: "node-rev-check", snapId: "s1", partCount: 1, totalRows: 1, truncatedRows: 0
+    }, 90).ok, true);
+    assert.equal(stager.ingest({
+      v: 1, t: "cat.delta", ch: 1, s: 3, catSeq: 3, nodeId: "node-rev-check", upserts: [provisionalWireRow(revokedRow)], removes: []
+    }, 180).ok, true);
+    assert.equal(stager.getSlice().rows[0].instanceStatus, "revoked");
 
     projector.stopWatch();
   } finally {
@@ -1522,12 +1518,12 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     projector.stopWatch();
     assert.equal(activeMockClients, 0, "stopWatch must immediately abort & close acquired clients");
 
-    // Restart watch -> emits fresh snapshot for readCount=3
+    // Restart watch -> emits fresh projection for readCount=3
     const beforeRestart = messages.length;
     projector.startWatch((m) => messages.push(m));
     await clock.flushMicrotasks();
     assert.equal(messages.length, beforeRestart + 1);
-    assert.equal(messages[messages.length - 1].t, "cat.snapshot");
+    assert.ok(Array.isArray(messages[messages.length - 1].rows));
 
     // Release late response from cancelled cycle -> MUST NOT publish anything!
     const countBeforeLate = messages.length;
@@ -1625,7 +1621,6 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
 
     assert.equal(boundMsgs.length, 1);
     const snap512 = boundMsgs[0];
-    assert.equal(snap512.t, "cat.snapshot");
     assert.equal(snap512.rows.length, 512, "513 rows must cap to 512 rows");
     assert.equal(snap512.truncatedRows, 1, "513 rows must report truncatedRows=1");
     assert.equal(audits.length, 1);
@@ -1633,19 +1628,45 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     assert.equal(audits[0].truncatedRows, 1);
 
     // Trunk provider passage (8 192-byte record cap) reconstructs all 512 rows
-    const provider = createFakeCatalogueTrunkProvider({ env: fx.env, maxCatalogueRecordBytes: 8192 });
-    const encoded = provider.encodeLogicalSnapshot(snap512, { startS: 1 });
-    assert.equal(encoded.ok, true);
-    assert.ok(encoded.records.length > 1, "512-row snapshot must split across >1 8192-byte records");
-    let reconstructed = [];
-    for (const rec of encoded.records) {
-      const bytes = Buffer.byteLength(rec.t === "cat.snapshot" ? serializeCatalogueSnapshot(rec) : serializeCatalogueDelta(rec), "utf8");
-      assert.ok(bytes <= 8192, `trunk record exceeded 8192 bytes: ${bytes}`);
-      reconstructed = rec.t === "cat.snapshot" ? [...rec.rows] : [...applyCatalogueDelta(reconstructed, rec)];
+    const provider = createSimulatedTrunkContractProvider({ maxCatalogueRecordBytes: 8192 });
+    const plan512 = provider.planCatalogueSnapshot({
+      nodeId: "node-bound-1",
+      snapId: "snap-bound-1",
+      rows: snap512.rows,
+      truncatedRows: snap512.truncatedRows
+    });
+    assert.equal(plan512.partCount, 32);
+    assert.ok(plan512.totalEncodedBytes <= 262_144);
+    const stager = new CatalogueSliceStager({ expectedNodeId: "node-bound-1" });
+    let cursor = null;
+    let catSeq = 1;
+    let seq = 1;
+    let frameCount = 0;
+    for (;;) {
+      const prep = provider.prepareNextCatalogueRecord({
+        mode: "snapshot",
+        nodeId: "node-bound-1",
+        snapId: "snap-bound-1",
+        rows: snap512.rows,
+        truncatedRows: snap512.truncatedRows,
+        cursor,
+        nextCatSeq: catSeq,
+        nextSeq: seq
+      });
+      if (!prep) break;
+      assert.ok(prep.encodedBytes <= 8192, `trunk record exceeded 8192 bytes: ${prep.encodedBytes}`);
+      assert.equal(stager.ingest(prep.record, prep.encodedBytes).ok, true);
+      frameCount += 1;
+      catSeq += 1;
+      seq += 1;
+      if (!prep.nextCursor) break;
+      cursor = prep.nextCursor;
     }
-    assert.deepEqual(reconstructed, snap512.rows, "reconstructed rows must match logical snapshot exactly");
+    assert.equal(frameCount, 33);
+    assert.equal(stager.getSlice().rows.length, 512);
+    assert.deepEqual(stager.getSlice().rows.map((r) => r.sid), snap512.rows.map((r) => r.sessionId));
 
-    // Multi-byte UTF-8 labels with quotes and backslashes near 512-byte row cap & 256 KiB snapshot cap
+    // Multi-byte UTF-8 labels with quotes and backslashes near 480-byte wire row cap & 256 KiB snapshot cap
     const heavySessions = [];
     for (let i = 0; i < 520; i++) {
       const id = `h2a-heavy-${String(i).padStart(4, "0")}`;
@@ -1663,11 +1684,15 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     await boundClock.advance(2_250);
 
     const lastMsg = boundMsgs[boundMsgs.length - 1];
-    assert.equal(lastMsg.t, "cat.snapshot", "change in truncatedRows must emit a new snapshot");
     assert.ok(lastMsg.rows.length <= 512);
     assert.equal(lastMsg.rows.length + lastMsg.truncatedRows, 520);
-    const totalSnapBytes = Buffer.byteLength(serializeCatalogueSnapshot(lastMsg), "utf8");
-    assert.ok(totalSnapBytes <= 262_144, `snapshot exceeded 256 KiB: ${totalSnapBytes}`);
+    const heavyPlan = provider.planCatalogueSnapshot({
+      nodeId: "node-bound-1",
+      snapId: "snap-heavy-1",
+      rows: lastMsg.rows,
+      truncatedRows: lastMsg.truncatedRows
+    });
+    assert.ok(heavyPlan.totalEncodedBytes <= 262_144, `snapshot exceeded 256 KiB: ${heavyPlan.totalEncodedBytes}`);
     for (const row of lastMsg.rows) {
       if (row.name !== undefined) {
         assert.equal(row.name.isWellFormed(), true, "truncated name must respect code-point boundaries");
@@ -1684,50 +1709,49 @@ test("LH-06 watch lifecycle: 249/250ms coalesce, suspended list + stopWatch, 65 
     }
     assert.ok(audits.length >= 2 && audits[audits.length - 1].truncatedRows === lastMsg.truncatedRows);
 
-    // parseCatalogueSnapshot rejects oversized snapshots (>512 rows, >512B row, >262144B snapshot)
-    const legacyNoTrunc = JSON.stringify({
+    // Bounded projection & codec guards (>512 rows capped, >8192B refused by codec, >32 parts refused by stager/isTrunkRecord)
+    const rows513 = Array.from({ length: 513 }, (_, i) =>
+      projectCatalogueRow({
+        sessionId: `n-${String(i).padStart(4, "0")}`,
+        instance: "inst-0",
+        host: "claude",
+        startedAt: "2026-11-21T10:00:00.000Z",
+        heartbeatAt: "2026-11-21T10:00:30.000Z",
+        state: "live"
+      })
+    );
+    const capped513 = projectBoundedCatalogue(rows513);
+    assert.equal(capped513.rows.length, 512);
+    assert.equal(capped513.truncatedRows, 1);
+
+    assert.equal(
+      isTrunkRecord({
+        v: 1,
+        t: "cat.snapshot.end",
+        ch: 1,
+        s: 1,
+        catSeq: 1,
+        nodeId: "node-1",
+        snapId: "snap-1",
+        partCount: 33,
+        totalRows: 512,
+        truncatedRows: 0
+      }),
+      false,
+      "partCount > 32 must be rejected"
+    );
+
+    const over8192 = {
       v: 1,
-      t: "cat.snapshot",
+      t: "cat.delta",
       ch: 1,
       s: 1,
-      at: T0,
-      rows: [
-        {
-          sessionId: "sess-legacy",
-          instance: "claude:legacy:1",
-          startedAt: "2026-11-21T10:00:00.000Z",
-          heartbeatAt: "2026-11-21T10:00:30.000Z",
-          state: "live",
-          hostKind: "native",
-          operable: true
-        }
-      ]
-    });
-    const parsedLegacy = parseCatalogueSnapshot(legacyNoTrunc);
-    assert.equal(parsedLegacy.truncatedRows, 0, "legacy snapshot without truncatedRows must default to 0");
-
-    const tooManyRows = {
-      v: 1, t: "cat.snapshot", ch: 1, s: 1, at: T0, truncatedRows: 0,
-      rows: Array.from({ length: 513 }, (_, i) => ({
-        sessionId: `n-${String(i).padStart(64, "0")}`,
-        state: "running",
-        hostKind: "native",
-        operable: true
-      }))
+      catSeq: 1,
+      nodeId: "node-1",
+      upserts: [{ sid: "s-1", name: "x".repeat(8200), operable: true }],
+      removes: []
     };
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(tooManyRows)), TypeError, "must reject > 512 rows");
-
-    const hugeRow = {
-      v: 1, t: "cat.snapshot", ch: 1, s: 1, at: T0, truncatedRows: 0,
-      rows: [{
-        sessionId: `n-${"a".repeat(64)}`,
-        name: "x".repeat(600),
-        state: "running",
-        hostKind: "native",
-        operable: true
-      }]
-    };
-    assert.throws(() => parseCatalogueSnapshot(JSON.stringify(hugeRow)), TypeError, "must reject row > 512 bytes");
+    assert.throws(() => provider.encodeFrame(over8192), /catalogue-record-too-large/);
 
     boundProj.stopWatch();
   } finally {

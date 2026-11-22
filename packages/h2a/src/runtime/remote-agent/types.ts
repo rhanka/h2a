@@ -157,24 +157,31 @@ export interface CatalogueSessionRow {
   readonly operabilityReason?: CatalogueOperabilityReason;
 }
 
-export interface CatalogueInstanceStatusUpdate {
-  readonly sessionId: string;
-  readonly instanceId: string;
-  readonly instanceStatus: CatalogueInstanceStatus;
-}
+export type CatalogueWireRow = Readonly<Record<string, unknown>>;
 
-export type CatalogueRowStatusUpdate = CatalogueInstanceStatusUpdate;
-
-export type CatalogueRowUpdate = CatalogueSessionRow | CatalogueInstanceStatusUpdate;
-
-export interface CatalogueSnapshot {
+export interface CatalogueSnapshotPart {
   readonly v: typeof TRUNK_PROTOCOL_VERSION;
-  readonly t: "cat.snapshot";
+  readonly t: "cat.snapshot.part";
   readonly ch: number;
   readonly s: number;
-  readonly at: number;
-  readonly rows: readonly CatalogueSessionRow[];
-  readonly truncatedRows?: number;
+  readonly catSeq: number;
+  readonly nodeId: string;
+  readonly snapId: string;
+  readonly part: number;
+  readonly rows: readonly CatalogueWireRow[];
+}
+
+export interface CatalogueSnapshotEnd {
+  readonly v: typeof TRUNK_PROTOCOL_VERSION;
+  readonly t: "cat.snapshot.end";
+  readonly ch: number;
+  readonly s: number;
+  readonly catSeq: number;
+  readonly nodeId: string;
+  readonly snapId: string;
+  readonly partCount: number;
+  readonly totalRows: number;
+  readonly truncatedRows: number;
 }
 
 export interface CatalogueDelta {
@@ -182,9 +189,9 @@ export interface CatalogueDelta {
   readonly t: "cat.delta";
   readonly ch: number;
   readonly s: number;
-  readonly at: number;
-  readonly adds: readonly CatalogueSessionRow[];
-  readonly updates: readonly CatalogueRowUpdate[];
+  readonly catSeq: number;
+  readonly nodeId: string;
+  readonly upserts: readonly CatalogueWireRow[];
   readonly removes: readonly string[];
 }
 
@@ -202,7 +209,12 @@ export interface CatalogueWatchStop {
   readonly s: number;
 }
 
-export type TrunkCatalogueRecord = CatalogueSnapshot | CatalogueDelta | CatalogueWatchStart | CatalogueWatchStop;
+export type TrunkCatalogueRecord =
+  | CatalogueSnapshotPart
+  | CatalogueSnapshotEnd
+  | CatalogueDelta
+  | CatalogueWatchStart
+  | CatalogueWatchStop;
 
 export type TerminalMode = "observe" | "control";
 export type TerminalStatus = "running" | "stopping" | "exited" | string;
@@ -414,6 +426,22 @@ function isStringArray(v: unknown): v is readonly string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
+function isAsciiId(v: unknown, maxBytes = CATALOGUE_ID_MAX_BYTES): v is string {
+  if (typeof v !== "string" || v.length < 1 || v.length > maxBytes) return false;
+  for (let i = 0; i < v.length; i += 1) {
+    const code = v.charCodeAt(i);
+    if (code < 0x20 || code > 0x7e) return false;
+  }
+  return true;
+}
+
+function isPlainRowArray(v: unknown): v is readonly CatalogueWireRow[] {
+  return (
+    Array.isArray(v) &&
+    v.every((r) => r !== null && typeof r === "object" && !Array.isArray(r))
+  );
+}
+
 function isPosIntArray(v: unknown): v is readonly number[] {
   return Array.isArray(v) && v.length > 0 && v.every((x) => isSafePosInt(x));
 }
@@ -504,21 +532,44 @@ export function isTrunkRecord(value: unknown): value is TrunkRecord {
     case "watch.start":
     case "watch.stop":
       return ch === 1;
-    case "cat.snapshot":
+    case "cat.snapshot.part":
       return (
         ch === 1 &&
-        isFiniteNumber(rec["at"]) &&
-        Array.isArray(rec["rows"]) &&
-        (rec["truncatedRows"] === undefined || isSafeNonNegInt(rec["truncatedRows"]))
+        isSafePosInt(rec["catSeq"]) &&
+        isAsciiId(rec["nodeId"]) &&
+        isAsciiId(rec["snapId"]) &&
+        isSafeNonNegInt(rec["part"]) &&
+        rec["part"] < CATALOGUE_SNAPSHOT_MAX_PARTS &&
+        isPlainRowArray(rec["rows"]) &&
+        rec["rows"].length >= 1 &&
+        rec["rows"].length <= CATALOGUE_PART_MAX_ROWS
       );
-    case "cat.delta":
+    case "cat.snapshot.end":
       return (
         ch === 1 &&
-        isFiniteNumber(rec["at"]) &&
-        Array.isArray(rec["adds"]) &&
-        Array.isArray(rec["updates"]) &&
-        isStringArray(rec["removes"])
+        isSafePosInt(rec["catSeq"]) &&
+        isAsciiId(rec["nodeId"]) &&
+        isAsciiId(rec["snapId"]) &&
+        isSafeNonNegInt(rec["partCount"]) &&
+        rec["partCount"] <= CATALOGUE_SNAPSHOT_MAX_PARTS &&
+        isSafeNonNegInt(rec["totalRows"]) &&
+        rec["totalRows"] <= CATALOGUE_MAX_ROWS &&
+        isSafeNonNegInt(rec["truncatedRows"])
       );
+    case "cat.delta": {
+      if (
+        ch !== 1 ||
+        !isSafePosInt(rec["catSeq"]) ||
+        !isAsciiId(rec["nodeId"]) ||
+        !isPlainRowArray(rec["upserts"]) ||
+        !Array.isArray(rec["removes"])
+      ) {
+        return false;
+      }
+      const total = rec["upserts"].length + rec["removes"].length;
+      if (total < 1 || total > CATALOGUE_DELTA_MAX_ENTRIES) return false;
+      return rec["removes"].every((sid) => isAsciiId(sid));
+    }
     case "credit":
       return (
         ch >= 1 &&

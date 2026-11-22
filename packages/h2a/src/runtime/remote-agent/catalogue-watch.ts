@@ -13,26 +13,17 @@
 import type { H2ASession } from "../../session.js";
 import { listPresenceWithDiagnostics } from "../local-files/presence.js";
 import { classifyLaunchHost } from "./fleet-inventory.js";
+import type { CatalogueInstanceStatus, CatalogueSessionRow } from "./types.js";
 import {
-  TRUNK_PROTOCOL_VERSION,
-  canonicalTrunkJson,
-  type CatalogueDelta,
-  type CatalogueInstanceStatus,
-  type CatalogueInstanceStatusUpdate,
-  type CatalogueRowUpdate,
-  type CatalogueSessionRow,
-  type CatalogueSnapshot
-} from "./types.js";
-import {
-  buildBoundedCatalogueSnapshot,
   isCanonicalCatalogueSid,
   isInternalCompanionNativeId,
   nativeCatalogueSid,
   presenceCatalogueSid,
+  projectBoundedCatalogue,
   projectJoinedCatalogueRow
 } from "./catalogue.js";
 import { wireInstanceId } from "./wire-ids.js";
-import { catalogueRowsEqual } from "./catalogue-plan.js";
+import { planCatalogueUpdate, type CatalogueProjection } from "./catalogue-plan.js";
 import {
   isSidExcluded,
   linkExclusionAlias,
@@ -96,7 +87,7 @@ export interface CatalogueUnavailableEvent {
   readonly exit?: { readonly exitCode: number; readonly signal?: number } | null;
 }
 
-export type CatalogueEmitMessage = CatalogueSnapshot | CatalogueDelta;
+export type CatalogueEmitMessage = CatalogueProjection;
 
 export interface ResolvedOpenTarget {
   readonly ok: true;
@@ -137,7 +128,7 @@ export interface CatalogueProjector {
   resolveOpen(sid: string): Promise<ResolveOpenResult>;
   withShareAllowed(sid: string, enqueue: () => void): ShareAllowedResult;
   onUnavailable(callback: (event: CatalogueUnavailableEvent) => void): () => void;
-  getSnapshot(): CatalogueSnapshot | null;
+  getProjection(): CatalogueProjection | null;
 }
 
 const DEFAULT_CLOCK: CatalogueClock = {
@@ -222,28 +213,6 @@ interface LiveNativeRecord {
   readonly status: "running" | "stopping";
 }
 
-function isOnlyInstanceStatusChange(
-  prev: CatalogueSessionRow,
-  next: CatalogueSessionRow
-): CatalogueInstanceStatusUpdate | null {
-  if (
-    prev.instanceId === undefined ||
-    next.instanceId === undefined ||
-    prev.instanceId !== next.instanceId ||
-    prev.instanceStatus === next.instanceStatus ||
-    next.instanceStatus === undefined
-  ) {
-    return null;
-  }
-  const normalizedPrev: CatalogueSessionRow = { ...prev, instanceStatus: next.instanceStatus };
-  if (!catalogueRowsEqual(normalizedPrev, next)) return null;
-  return {
-    sessionId: next.sessionId,
-    instanceId: next.instanceId,
-    instanceStatus: next.instanceStatus
-  };
-}
-
 export function createCatalogueProjector(
   options: CatalogueProjectorOptions
 ): CatalogueProjector {
@@ -267,7 +236,6 @@ export function createCatalogueProjector(
   let expiryTimer: CatalogueTimerHandle | null = null;
   let coalesceTimer: CatalogueTimerHandle | null = null;
   let pollInFlight = false;
-  let nextLocalSeq = 1;
 
   const revokedInstances = new Set<string>();
   const unavailableListeners = new Set<(event: CatalogueUnavailableEvent) => void>();
@@ -281,10 +249,9 @@ export function createCatalogueProjector(
   const knownNonNativeSids = new Set<string>();
   const sidAliases = new Map<string, readonly string[]>();
 
-  let lastPublishedRows: Map<string, CatalogueSessionRow> | null = null;
-  let lastPublishedTruncatedRows: number | null = null;
+  let lastPublishedProjection: CatalogueProjection | null = null;
   let lastAuditedTruncatedRows = 0;
-  let latestBoundedSnapshot: CatalogueSnapshot | null = null;
+  let latestProjection: CatalogueProjection | null = null;
 
   function emitUnavailable(event: CatalogueUnavailableEvent): void {
     for (const listener of [...unavailableListeners]) {
@@ -315,101 +282,39 @@ export function createCatalogueProjector(
     return null;
   }
 
-  function computeDiff(
-    prevMap: ReadonlyMap<string, CatalogueSessionRow>,
-    nextRows: readonly CatalogueSessionRow[],
-    at: number
-  ): CatalogueDelta | null {
-    const nextMap = new Map<string, CatalogueSessionRow>();
-    for (const row of nextRows) nextMap.set(row.sessionId, row);
-
-    const adds: CatalogueSessionRow[] = [];
-    const updates: CatalogueRowUpdate[] = [];
-    const removes: string[] = [];
-
-    for (const row of nextRows) {
-      const prev = prevMap.get(row.sessionId);
-      if (!prev) {
-        adds.push(row);
-      } else if (!catalogueRowsEqual(prev, row)) {
-        const statusOnly = isOnlyInstanceStatusChange(prev, row);
-        updates.push(statusOnly ?? row);
-      }
+  function emitTruncationAuditIfChanged(projection: CatalogueProjection, at: number): void {
+    if (projection.truncatedRows !== lastAuditedTruncatedRows) {
+      lastAuditedTruncatedRows = projection.truncatedRows;
+      onAudit?.({ kind: "catalogue-truncated", truncatedRows: projection.truncatedRows, at });
     }
-    for (const sid of prevMap.keys()) {
-      if (!nextMap.has(sid)) {
-        removes.push(sid);
-      }
-    }
-    removes.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-
-    if (adds.length === 0 && updates.length === 0 && removes.length === 0) {
-      return null;
-    }
-
-    return {
-      v: TRUNK_PROTOCOL_VERSION,
-      t: "cat.delta",
-      ch,
-      s: nextLocalSeq,
-      at,
-      adds,
-      updates,
-      removes
-    };
   }
 
   function flushCoalesced(cycleId: number): void {
     coalesceTimer = null;
-    if (!watching || cycleId !== watchCycleId || !emitFn || !latestBoundedSnapshot || !lastPublishedRows) {
+    if (!watching || cycleId !== watchCycleId || !emitFn || !latestProjection || !lastPublishedProjection) {
       return;
     }
-    const now = clock.now();
-    const nextTrunc = latestBoundedSnapshot.truncatedRows ?? 0;
-    if (nextTrunc !== lastPublishedTruncatedRows) {
-      const snap: CatalogueSnapshot = {
-        ...latestBoundedSnapshot,
-        s: nextLocalSeq,
-        at: now
-      };
-      nextLocalSeq += 1;
-      lastPublishedRows = new Map(snap.rows.map((r) => [r.sessionId, r]));
-      lastPublishedTruncatedRows = nextTrunc;
-      emitFn(snap);
-      return;
-    }
-    const delta = computeDiff(lastPublishedRows, latestBoundedSnapshot.rows, now);
-    if (!delta) return;
-    nextLocalSeq += 1;
-    lastPublishedRows = new Map(latestBoundedSnapshot.rows.map((r) => [r.sessionId, r]));
-    emitFn(delta);
+    const plan = planCatalogueUpdate(lastPublishedProjection, latestProjection);
+    if (plan.kind === "none") return;
+    const at = clock.now();
+    lastPublishedProjection = latestProjection;
+    emitTruncationAuditIfChanged(latestProjection, at);
+    emitFn(latestProjection);
   }
 
-  function publishOrSchedule(snapshot: CatalogueSnapshot, cycleId: number): void {
+  function publishOrSchedule(projection: CatalogueProjection, at: number, cycleId: number): void {
     if (!watching || cycleId !== watchCycleId || !emitFn) return;
-    latestBoundedSnapshot = snapshot;
-    const nextTrunc = snapshot.truncatedRows ?? 0;
+    latestProjection = projection;
 
-    if (nextTrunc !== lastAuditedTruncatedRows) {
-      lastAuditedTruncatedRows = nextTrunc;
-      onAudit?.({ kind: "catalogue-truncated", truncatedRows: nextTrunc, at: snapshot.at });
-    }
-
-    if (lastPublishedRows === null) {
-      const initial: CatalogueSnapshot = {
-        ...snapshot,
-        s: nextLocalSeq
-      };
-      nextLocalSeq += 1;
-      lastPublishedRows = new Map(initial.rows.map((r) => [r.sessionId, r]));
-      lastPublishedTruncatedRows = nextTrunc;
-      emitFn(initial);
+    if (lastPublishedProjection === null) {
+      lastPublishedProjection = projection;
+      emitTruncationAuditIfChanged(projection, at);
+      emitFn(projection);
       return;
     }
 
-    const truncChanged = nextTrunc !== lastPublishedTruncatedRows;
-    const hasDiff = truncChanged || computeDiff(lastPublishedRows, snapshot.rows, snapshot.at) !== null;
-    if (hasDiff && coalesceTimer === null) {
+    const plan = planCatalogueUpdate(lastPublishedProjection, projection);
+    if (plan.kind !== "none" && coalesceTimer === null) {
       const armedCycle = cycleId;
       coalesceTimer = clock.setTimeout(() => flushCoalesced(armedCycle), coalesceWindowMs);
     }
@@ -584,7 +489,7 @@ export function createCatalogueProjector(
       ...winnerByNativeId.keys()
     ]);
 
-    const wasInitialPoll = lastPublishedRows === null;
+    const wasInitialPoll = lastPublishedProjection === null;
 
     for (const nativeId of candidateNativeIds) {
       if (isInternalCompanionNativeId(nativeId)) continue;
@@ -760,14 +665,9 @@ export function createCatalogueProjector(
       }
     }
 
-    // 7. Apply bounds (512 rows, 512 B/row, 256 KiB snapshot) and publish/coalesce.
-    const { snapshot } = buildBoundedCatalogueSnapshot({
-      rows,
-      at: now,
-      ch,
-      s: nextLocalSeq
-    });
-    publishOrSchedule(snapshot, cycleId);
+    // 7. Apply bounded projection (<= 512 rows, counted omissions) and publish/coalesce.
+    const projection = projectBoundedCatalogue(rows);
+    publishOrSchedule(projection, now, cycleId);
 
     // 8. Schedule exact expiry timer for the soonest fresh heartbeat.
     scheduleNextExpiryTimer(evaluatedAll, now, cycleId);
@@ -834,9 +734,9 @@ export function createCatalogueProjector(
     const cycleId = watchCycleId;
     emitFn = emit;
     activeAbort = new AbortController();
-    lastPublishedRows = null;
-    lastPublishedTruncatedRows = null;
-    latestBoundedSnapshot = null;
+    lastPublishedProjection = null;
+    latestProjection = null;
+    lastAuditedTruncatedRows = 0;
     pollInFlight = false;
     void runPollCycle(cycleId);
   }
@@ -853,9 +753,9 @@ export function createCatalogueProjector(
       activeAbort = null;
     }
     pollInFlight = false;
-    lastPublishedRows = null;
-    lastPublishedTruncatedRows = null;
-    latestBoundedSnapshot = null;
+    lastPublishedProjection = null;
+    latestProjection = null;
+    lastAuditedTruncatedRows = 0;
   }
 
   function applyRevokedInstances(ids: Iterable<string>): void {
@@ -863,7 +763,7 @@ export function createCatalogueProjector(
     for (const id of ids) {
       if (typeof id === "string" && id.length > 0) revokedInstances.add(id);
     }
-    if (watching && latestBoundedSnapshot) {
+    if (watching && latestProjection) {
       reprojectFromPresences(watchCycleId);
     }
   }
@@ -872,19 +772,17 @@ export function createCatalogueProjector(
     if (status === "revoked") revokedInstances.add(instanceId);
     else revokedInstances.delete(instanceId);
 
-    if (!watching || !latestBoundedSnapshot) return;
-    const updatedRows = latestBoundedSnapshot.rows.map((row) =>
+    if (!watching || !latestProjection) return;
+    const updatedRows = latestProjection.rows.map((row) =>
       row.instanceId === instanceId && row.instanceStatus !== status
         ? { ...row, instanceStatus: status }
         : row
     );
-    const { snapshot } = buildBoundedCatalogueSnapshot({
+    const projection: CatalogueProjection = {
       rows: updatedRows,
-      at: clock.now(),
-      ch,
-      s: nextLocalSeq
-    });
-    publishOrSchedule(snapshot, watchCycleId);
+      truncatedRows: latestProjection.truncatedRows
+    };
+    publishOrSchedule(projection, clock.now(), watchCycleId);
   }
 
   async function resolveOpen(sid: string): Promise<ResolveOpenResult> {
@@ -973,8 +871,8 @@ export function createCatalogueProjector(
     };
   }
 
-  function getSnapshot(): CatalogueSnapshot | null {
-    return latestBoundedSnapshot;
+  function getProjection(): CatalogueProjection | null {
+    return latestProjection;
   }
 
   return {
@@ -985,6 +883,6 @@ export function createCatalogueProjector(
     resolveOpen,
     withShareAllowed,
     onUnavailable,
-    getSnapshot
+    getProjection
   };
 }
