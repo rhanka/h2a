@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { digest, canonicalBytes } from './wire.js';
 import { validate, safeRelative } from './formats.js';
 import { privateDirectory, readState, publishState, replaceState } from './state.js';
@@ -12,6 +13,14 @@ export const SYNC_HYDRATE_FILE_CEILING = 128;
 export const MIGRATION_SCAN_BATCH_SIZE = 100;
 export const MIGRATION_COMMIT_BATCH_SIZE = 32;
 export const MIGRATION_MAX_SLICE_MS = 8;
+export const MIGRATION_SLICE_MEASURE_NAME = 'h2a:ledger-migration:slice';
+
+function readThreadCpuUsage(previous = undefined) {
+  if (typeof process.threadCpuUsage === 'function') {
+    return process.threadCpuUsage(previous);
+  }
+  return process.cpuUsage(previous);
+}
 
 const ARCHIVED_OPERATION_CACHE_MAX = 256;
 const MIGRATION_MAX_TRANSIENT_RETRIES = 6;
@@ -1504,7 +1513,7 @@ export class OperationLedger {
     return moved;
   }
 
-  async _commitArchiveSubLotAsync(subLot, reason, batchName, options) {
+  async _commitArchiveSubLotAsync(subLot, reason, batchName, options, wrapSync = undefined) {
     const moved = {
       operations: [],
       effects: [],
@@ -1516,11 +1525,13 @@ export class OperationLedger {
     };
     if (subLot.length === 0) return moved;
 
-    fs.mkdirSync(this.archiveDirectory, { recursive: true, mode: 0o700 });
     const batchPath = join(this.archiveDirectory, batchName);
-    fs.mkdirSync(batchPath, { recursive: true, mode: 0o700 });
-
-    const run = () => this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved);
+    const runBody = () => {
+      fs.mkdirSync(this.archiveDirectory, { recursive: true, mode: 0o700 });
+      fs.mkdirSync(batchPath, { recursive: true, mode: 0o700 });
+      return this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved);
+    };
+    const run = typeof wrapSync === 'function' ? () => wrapSync(runBody) : runBody;
     if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
       await this.registry.withLock(run, options);
     } else {
@@ -1590,6 +1601,30 @@ export class OperationLedger {
       }
     };
 
+    const runMeasuredSlice = (phase, getItems, yieldedAfter, fn) => {
+      const startWall = performance.now();
+      const startCpu = readThreadCpuUsage();
+      try {
+        return fn();
+      } finally {
+        const wallMs = Math.max(0, performance.now() - startWall);
+        const deltaCpu = readThreadCpuUsage(startCpu);
+        const cpuMs = Math.max(0, (deltaCpu.user + deltaCpu.system) / 1_000);
+        performance.measure(MIGRATION_SLICE_MEASURE_NAME, {
+          start: startWall,
+          duration: wallMs,
+          detail: {
+            directory: this.directory,
+            phase,
+            items: getItems(),
+            cpuMs,
+            yieldedAfter
+          }
+        });
+        performance.clearMeasures(MIGRATION_SLICE_MEASURE_NAME);
+      }
+    };
+
     const step = async () => {
       this._migrationTimer = null;
       this._migrationTimerKind = null;
@@ -1598,25 +1633,27 @@ export class OperationLedger {
       try {
         // Phase 1: outside-lock inspection in slices of <= 100 files and <= 8 ms
         if (scanIndex < pendingNames.length) {
-          const sliceStart = performance.now();
           let processed = 0;
-          while (scanIndex < pendingNames.length && processed < MIGRATION_SCAN_BATCH_SIZE) {
-            const name = pendingNames[scanIndex];
-            const c = this._inspectCandidateFile(name);
-            scanIndex++;
-            if (c) {
-              inspected.push(c);
-              if (c.family === 'operations' && c.value.state !== 'completed') {
-                // Insert pending/unknown immediately unless a newer revision is already in memory.
-                const existing = this.activeById.get(c.value.operationId);
-                if (!existing || c.value.revision > existing.revision) {
-                  this._recordOperationInMemory(c.name, c.value, c.stamp);
+          runMeasuredSlice('scan', () => processed, true, () => {
+            const sliceStart = performance.now();
+            while (scanIndex < pendingNames.length && processed < MIGRATION_SCAN_BATCH_SIZE) {
+              const name = pendingNames[scanIndex];
+              const c = this._inspectCandidateFile(name);
+              scanIndex++;
+              if (c) {
+                inspected.push(c);
+                if (c.family === 'operations' && c.value.state !== 'completed') {
+                  // Insert pending/unknown immediately unless a newer revision is already in memory.
+                  const existing = this.activeById.get(c.value.operationId);
+                  if (!existing || c.value.revision > existing.revision) {
+                    this._recordOperationInMemory(c.name, c.value, c.stamp);
+                  }
                 }
               }
+              processed++;
+              if (performance.now() - sliceStart >= MIGRATION_MAX_SLICE_MS) break;
             }
-            processed++;
-            if (performance.now() - sliceStart >= MIGRATION_MAX_SLICE_MS) break;
-          }
+          });
           transientRetries = 0;
           scheduleNext(1);
           return;
@@ -1624,22 +1661,24 @@ export class OperationLedger {
 
         // Transition: select archive candidates once inspection completes, then yield before lock commits.
         if (archiveQueue === null) {
-          archiveQueue = this._selectArchiveCandidates(inspected);
-          // Hydrate retained root operations & effects into memory so active/retained indexes are complete.
-          const selectedNames = new Set(archiveQueue.map(c => c.name));
-          for (const c of inspected) {
-            if (selectedNames.has(c.name)) continue;
-            if (c.family === 'operations') {
-              const existing = this.activeById.get(c.value.operationId) ?? this.retainedCompleted.get(c.value.operationId);
-              if (!existing || c.value.revision >= existing.revision) {
-                this._recordOperationInMemory(c.name, c.value, c.stamp);
-              }
-            } else if (c.family === 'effects') {
-              if (!this._effectFileToMeta.has(c.name)) {
-                this._recordRootEffect(c.name, c.value, c.stamp);
+          runMeasuredSlice('select', () => inspected.length, true, () => {
+            archiveQueue = this._selectArchiveCandidates(inspected);
+            // Hydrate retained root operations & effects into memory so active/retained indexes are complete.
+            const selectedNames = new Set(archiveQueue.map(c => c.name));
+            for (const c of inspected) {
+              if (selectedNames.has(c.name)) continue;
+              if (c.family === 'operations') {
+                const existing = this.activeById.get(c.value.operationId) ?? this.retainedCompleted.get(c.value.operationId);
+                if (!existing || c.value.revision >= existing.revision) {
+                  this._recordOperationInMemory(c.name, c.value, c.stamp);
+                }
+              } else if (c.family === 'effects') {
+                if (!this._effectFileToMeta.has(c.name)) {
+                  this._recordRootEffect(c.name, c.value, c.stamp);
+                }
               }
             }
-          }
+          });
           transientRetries = 0;
           scheduleNext(1);
           return;
@@ -1649,7 +1688,13 @@ export class OperationLedger {
         // foreground HTTP I/O (ping/initialize) and writer lock acquisitions never starve behind migration.
         if (commitIndex < archiveQueue.length) {
           const subLot = archiveQueue.slice(commitIndex, commitIndex + MIGRATION_COMMIT_BATCH_SIZE);
-          await this._commitArchiveSubLotAsync(subLot, 'startup-migration', batchName);
+          await this._commitArchiveSubLotAsync(
+            subLot,
+            'startup-migration',
+            batchName,
+            undefined,
+            run => runMeasuredSlice('commit', () => subLot.length, true, run)
+          );
           if (this._migrationStopped) return;
           commitIndex += subLot.length;
           transientRetries = 0;
@@ -1658,15 +1703,17 @@ export class OperationLedger {
         }
 
         // Finalize: sync root stamps and flip ledgerMigrationComplete = true only if final sync succeeds.
-        this.registry.lastRevisionStamp = null;
-        this.ledgerMigrationComplete = true;
-        try {
-          this.registry.syncIfExternalChange();
-        } catch (syncError) {
-          this.ledgerMigrationComplete = false;
-          throw syncError;
-        }
-        this.migrationError = null;
+        runMeasuredSlice('finalize', () => this.registry.rootFileStamps.size, false, () => {
+          this.registry.lastRevisionStamp = null;
+          this.ledgerMigrationComplete = true;
+          try {
+            this.registry.syncIfExternalChange();
+          } catch (syncError) {
+            this.ledgerMigrationComplete = false;
+            throw syncError;
+          }
+          this.migrationError = null;
+        });
       } catch (error) {
         if (this._migrationStopped || error?.code === 'ENOENT') return;
         if (isTransientMigrationError(error) && transientRetries < MIGRATION_MAX_TRANSIENT_RETRIES) {
