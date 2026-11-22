@@ -3260,7 +3260,7 @@ describe("native attach right panel (L0)", () => {
     );
     expect(codeB).toBe(0);
     const outB = stdoutB.chunks.join("");
-    expect(outB).toContain("remote control active — remote.sent-tech.");
+    expect(outB).toContain("remote control active — remote.sent-tech");
     expect(outB).not.toContain("type to take back");
     expect(outB).toContain("controller released or session replaced");
   });

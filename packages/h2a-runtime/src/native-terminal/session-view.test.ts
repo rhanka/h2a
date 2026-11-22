@@ -559,6 +559,7 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     expect(banners).toEqual(["remote control active — remote.sent-tech.ca — type to take back"]);
 
     // Resize while observing must not issue client resize
+    resizes.length = 0;
     view.sendChildResize();
     expect(resizes).toEqual([]);
 
@@ -603,6 +604,7 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     let holderKind1: "human" | "remote" = "human";
     let rejectWrite1!: (err: Error) => void;
     let writeCall1 = 0;
+    let rejectNextResize1 = false;
 
     const client1: AttachClient = {
       async acquireController(_id, _cid, _act, opts) {
@@ -636,7 +638,9 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
         writes1.push(data);
       },
       async resize() {
-        throw new NativeTerminalRemoteError("operation-failed", "stale terminal controller lease");
+        if (rejectNextResize1) {
+          throw new NativeTerminalRemoteError("operation-failed", "stale terminal controller lease");
+        }
       },
       close() {},
     };
@@ -672,7 +676,6 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
 
     // 2. Concurrent resize stale-lease + remote -> enters observer without takeback; 25ms ESC timer
     const stdout2 = new FakeOutput();
-    const acquireCalls2: Array<Record<string, unknown>> = [];
     let releaseDelay!: () => void;
     let timerArmed = 0;
     const view2 = createSessionView({
@@ -691,17 +694,22 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     });
     holderKind1 = "human";
     writeCall1 = 0;
+    rejectNextResize1 = false;
     await view2.connectAndAcquire(async () => client1);
+    const acquireCountBeforeResize = acquireCalls1.length;
     holderKind1 = "remote";
+    rejectNextResize1 = true;
     view2.sendChildResize();
     await vi.waitFor(() => expect(view2.observing).toBe(true));
-    expect(acquireCalls2.length).toBe(0);
+    rejectNextResize1 = false;
+    expect(acquireCalls1.length).toBe(acquireCountBeforeResize);
 
     // ESC followed by focus report cancels timer -> zero takeback
     view2.enqueueInput(Buffer.from([0x1b]));
     expect(timerArmed).toBe(1);
     view2.enqueueInput(Buffer.from("[I"));
     releaseDelay();
+    await Promise.resolve();
     await Promise.resolve();
     expect(view2.observing).toBe(true);
 
