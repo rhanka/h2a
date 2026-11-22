@@ -4,6 +4,51 @@ import type {
 } from "./host.js";
 
 export const NATIVE_TERMINAL_PROTOCOL_VERSION = 1 as const;
+export const APPLICATION_FACET_VERSION = 1 as const;
+
+export type ApplicationForeground = Readonly<{
+  applicationFacet: "cli" | "shell" | "other" | "unknown";
+  applicationIncarnation: string | null;
+  foregroundProcessGroup: number | null;
+  foregroundRevision: number;
+}>;
+
+export const UNKNOWN_APPLICATION_FOREGROUND: ApplicationForeground = Object.freeze({
+  applicationFacet: "unknown",
+  applicationIncarnation: null,
+  foregroundProcessGroup: null,
+  foregroundRevision: 0,
+});
+
+/** Interpret an additive state from a protocol-v1 host, including older peers. */
+export function applicationForeground(state: Partial<ApplicationForeground>): ApplicationForeground {
+  const { applicationFacet, applicationIncarnation, foregroundProcessGroup, foregroundRevision } = state;
+  if (applicationFacet === undefined || foregroundRevision === undefined ||
+      !Number.isSafeInteger(foregroundRevision) || foregroundRevision < 0) return UNKNOWN_APPLICATION_FOREGROUND;
+  const validGroup = typeof foregroundProcessGroup === "number" &&
+    Number.isSafeInteger(foregroundProcessGroup) && foregroundProcessGroup > 0;
+  const validIncarnation = typeof applicationIncarnation === "string" && applicationIncarnation.length > 0;
+  switch (applicationFacet) {
+    case "cli":
+    case "other":
+      if (validGroup && validIncarnation) {
+        return { applicationFacet, applicationIncarnation, foregroundProcessGroup, foregroundRevision };
+      }
+      break;
+    case "shell":
+      if (validGroup && applicationIncarnation === null) {
+        return { applicationFacet, applicationIncarnation, foregroundProcessGroup, foregroundRevision };
+      }
+      break;
+    case "unknown":
+      return {
+        applicationFacet, foregroundRevision,
+        applicationIncarnation: validIncarnation ? applicationIncarnation : null,
+        foregroundProcessGroup: validGroup ? foregroundProcessGroup : null,
+      };
+  }
+  return UNKNOWN_APPLICATION_FOREGROUND;
+}
 export const NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION = 4 * 1024 * 1024;
 // JSON escaping can expand one replay byte to six wire bytes (for example NUL).
 export const NATIVE_TERMINAL_MAX_FRAME_BYTES = 32 * 1024 * 1024;
@@ -94,6 +139,7 @@ export type NativeTerminalResponse =
   | NativeTerminalErrorResponse;
 
 export type NativeTerminalPing = Readonly<{
+  applicationFacetVersion?: typeof APPLICATION_FACET_VERSION;
   launchFence?: boolean;
   softRespawn?: boolean;
   generation: string;
