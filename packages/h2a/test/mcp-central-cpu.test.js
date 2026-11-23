@@ -1036,6 +1036,25 @@ test('T2.8: oversize output with 4000 pre-existing payloads keeps ping < 100 ms 
   });
 
   const controlPing = await measureControlProbe(() => pingOnce(central.endpoint), 5);
+  let syncPayloadEntryOps = 0;
+  const isPayloadEntryPath = (p) => typeof p === 'string' && p.startsWith(`${payloadDir}/`) && (p.endsWith('.bin') || p.endsWith('.json'));
+  const origStatSync = fs.statSync;
+  const origLstatSync = fs.lstatSync;
+  const origReadFileSync = fs.readFileSync;
+  t.mock.method(fs, 'statSync', (p, ...args) => {
+    if (isPayloadEntryPath(p)) syncPayloadEntryOps++;
+    return origStatSync(p, ...args);
+  });
+  t.mock.method(fs, 'lstatSync', (p, ...args) => {
+    if (isPayloadEntryPath(p)) syncPayloadEntryOps++;
+    return origLstatSync(p, ...args);
+  });
+  t.mock.method(fs, 'readFileSync', (p, ...args) => {
+    if (isPayloadEntryPath(p)) syncPayloadEntryOps++;
+    return origReadFileSync(p, ...args);
+  });
+  syncBuiltinESMExports();
+
   const probe = startEventLoopWorkProbe({ intervalMs: 5 });
   const pings = [];
   let work;
@@ -1092,6 +1111,12 @@ test('T2.8: oversize output with 4000 pre-existing payloads keeps ping < 100 ms 
   } finally {
     work = probe.stop();
   }
+
+  assert.equal(
+    syncPayloadEntryOps,
+    0,
+    `T2.8 oversize persistOutputAsync must perform 0 synchronous statSync/lstatSync/readFileSync calls over payload entries (saw ${syncPayloadEntryOps})`
+  );
 
   const stats = assertResponsiveUnderContention({
     label: 'T2.8 oversize 4000 payloads',

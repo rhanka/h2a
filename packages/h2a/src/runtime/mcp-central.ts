@@ -125,6 +125,13 @@ async function centralToolResult(
         content: [{ type: "text", text: JSON.stringify(result) }],
         isError: Boolean(result && typeof result === "object" && "error" in result)
       };
+  // Break up large tool-result serialization from boundCallToolResultAsync frame encoding.
+  if (shaped.content.some((item) => item.type === "text" && typeof item.text === "string" && item.text.length > 65_536)) {
+    await new Promise<void>((resolveYield) => {
+      const t = setTimeout(resolveYield, 0);
+      t.unref?.();
+    });
+  }
   // L1 + L2: bound the final SDK frame using non-blocking persistOutputAsync
   // only when the result actually exceeds frameBudget (never wrapping callTool).
   return (await boundCallToolResultAsync(shaped as never, server.frameBudget, async (j) => {

@@ -241,6 +241,8 @@ export function boundCallToolResult(
   };
 }
 
+const CALL_TOOL_RESULT_ENVELOPE_PREFIX = '{"jsonrpc":"2.0","id":0,"result":';
+
 export async function boundCallToolResultAsync(
   result: CallToolResultShape,
   budget: FrameBudget,
@@ -259,8 +261,18 @@ export async function boundCallToolResultAsync(
   if (intact.bytes <= limit) return result;
   let recovery: PayloadRecoveryRef | undefined;
   if (recover) {
+    // Reuse intact.json directly instead of running a second multi-MB JSON.stringify(result),
+    // and yield to the event loop before persistence so serialization and disk I/O do not stack.
+    const intactResultJson =
+      intact.json.startsWith(CALL_TOOL_RESULT_ENVELOPE_PREFIX) && intact.json.endsWith("}")
+        ? intact.json.slice(CALL_TOOL_RESULT_ENVELOPE_PREFIX.length, -1)
+        : JSON.stringify(result);
+    await new Promise<void>((resolveYield) => {
+      const t = setTimeout(resolveYield, 0);
+      t.unref?.();
+    });
     try {
-      recovery = await recover(JSON.stringify(result), intact.bytes);
+      recovery = await recover(intactResultJson, intact.bytes);
     } catch {
       recovery = undefined;
     }
