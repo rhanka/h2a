@@ -484,6 +484,9 @@ function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
       }
       done({ ok: false, code: "timeout", stdout: "", stderr: "" });
     }, STATION_CLI_TIMEOUT_MS);
+    // The timer never holds the station open on its own: the child carries
+    // the relaunch, and closing the station never cuts a relaunch in flight.
+    timer.unref?.();
     try {
       child = execFile(
         target.command,
@@ -506,7 +509,10 @@ function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
           }
           const code = (error as NodeJS.ErrnoException | { code?: unknown }).code;
           if (code === "ENOENT") {
-            done({ ok: false, code: "binary-missing", stdout, stderr });
+            // A missing working directory reports ENOENT too: only a
+            // present cwd with an unresolvable binary is `binary-missing`.
+            const cwdOk = existsSync(request.cwd);
+            done({ ok: false, code: cwdOk ? "binary-missing" : "spawn-error", stdout, stderr });
             return;
           }
           if (typeof code === "number") {

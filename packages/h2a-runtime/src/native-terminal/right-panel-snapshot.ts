@@ -1231,16 +1231,13 @@ function stationRestorableFromPlan(args: {
         continue;
       }
       const decision = decisionByTab.get(classification.tab);
-      if (
-        decision?.kind === "attach" &&
-        classification.tab.hostKind === "local-tmux" &&
-        hostView.tmux.known === false
-      ) {
-        // A tmux session the station must not relaunch attaches under an
-        // unknown tmux view instead: motif, never a gesture. With a known
-        // view an attach decision names a live line, never a row.
-        push(classification.windowTitle, {
-          key, label, project, reason: "unknown-view", state: "queued",
+      if (decision?.kind === "attach" && hostView.tmux.known === false) {
+        // Under an unknown tmux view no attach decision names a provable live
+        // line (local-tmux tabs and legacy tabs without a recorded host alike):
+        // motif, never a gesture. With a known view an attach decision names
+        // a live line, never a row.
+        push(titleOfProject(classification.project), {
+          key, label, project, reason: "unknown-view", state: "ended",
         });
         continue;
       }
@@ -1249,32 +1246,32 @@ function stationRestorableFromPlan(args: {
           decision?.kind === "refuse" &&
           (decision.reason === "native-host-unknown" || decision.reason === "attach-live-gone")
         ) {
-          push(classification.windowTitle, { key, label, project, reason: "unknown-view", state: "queued" });
+          push(titleOfProject(classification.project), { key, label, project, reason: "unknown-view", state: "ended" });
         } else if (decision?.kind === "refuse" && decision.reason === "ambiguous-owner") {
-          push(classification.windowTitle, { key, label, project, reason: "dual-host", state: "queued" });
+          push(titleOfProject(classification.project), { key, label, project, reason: "dual-host", state: "ended" });
         } else if (decision?.kind === "refuse" && decision.reason === "ambiguous-slug") {
           // Same family as a dual-host identity: no recorded host can be picked.
-          push(classification.windowTitle, { key, label, project, reason: "dual-host", state: "queued" });
+          push(titleOfProject(classification.project), { key, label, project, reason: "dual-host", state: "ended" });
         }
         // attach, skip-live and defer decisions are live lines, never rows.
         continue;
       }
       const session = classification.session;
       if (!session?.tool || !resumeArgvVerified(session.tool)) {
-        push(classification.windowTitle, {
-          key, label, project, reason: "resume-argv-unverified", state: "queued",
+        push(titleOfProject(classification.project), {
+          key, label, project, reason: "resume-argv-unverified", state: "ended",
         });
         continue;
       }
       const relaunch = relaunchTokens(classification.tab);
       if (!relaunch) {
         // A launch without a resolvable sid: motif, never a guessed identifier.
-        push(classification.windowTitle, {
-          key, label, project, reason: "unresolved-conversation", state: "queued",
+        push(titleOfProject(classification.project), {
+          key, label, project, reason: "unresolved-conversation", state: "ended",
         });
         continue;
       }
-      push(classification.windowTitle, {
+      push(titleOfProject(classification.project), {
         key, label, project, reason: "launch", state: "queued", relaunch,
       });
       continue;
@@ -1296,8 +1293,12 @@ function stationRestorableFromPlan(args: {
       ) {
         relaunch = relaunchTokens(classification.tab) ?? undefined;
       }
+      // Beyond the cap the gesture stays, but the launch file takes only
+      // `launch` rows: a capped row with tokens waits for its D2 gesture
+      // (`deferred`), one without tokens is listed without a gesture (`ended`).
       push(title, {
-        key, label, project, reason: "launch-cap", state: "queued",
+        key, label, project, reason: "launch-cap",
+        state: relaunch !== undefined ? "deferred" : "ended",
         ...(relaunch !== undefined ? { relaunch } : {}),
       });
       continue;
@@ -1320,7 +1321,7 @@ function stationRestorableFromPlan(args: {
       }
     })();
     if (reason === undefined) continue;
-    push(titleOfProject(classification.project), { key, label, project, reason, state: "queued" });
+    push(titleOfProject(classification.project), { key, label, project, reason, state: "ended" });
   }
   return byTitle;
 }
@@ -1791,13 +1792,18 @@ export async function buildLiveRightPanelSnapshot(
 
     const groups = groupPanelSessions(liveSessions, layoutCfg);
     if (restorableByTitle.size > 0) {
-      // A tab exists when it carries a live line or a restorable row: attach
-      // the station plan rows, creating restorable-only tabs in config order.
+      // A tab exists only when it carries a live line or a restorable row:
+      // attach the station plan rows, keep config order, deduplicate titles,
+      // drop config groups with neither, and sort `other` last.
       const byTitle = new Map(groups.map((workspace) => [workspace.title, workspace]));
+      const liveTitles = new Set(byTitle.keys());
+      const configTitles = layoutCfg.groups
+        .filter((group) => !group.remote)
+        .map((group) => group.title);
       const orderedTitles = [
-        ...layoutCfg.groups.filter((group) => !group.remote).map((group) => group.title),
+        ...configTitles.filter((title) => liveTitles.has(title) || restorableByTitle.has(title)),
         ...[...restorableByTitle.keys()]
-          .filter((title) => !byTitle.has(title))
+          .filter((title) => !liveTitles.has(title) && !configTitles.includes(title))
           .sort((a, b) =>
             a === "other" ? 1 : b === "other" ? -1 : a.localeCompare(b, "en"),
           ),

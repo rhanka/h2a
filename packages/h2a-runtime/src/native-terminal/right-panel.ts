@@ -185,6 +185,11 @@ export type RightPanelWorkspace = Readonly<{
   sessions: readonly RightPanelSession[];
   /** Dead sessions of the restore plan under this tab (station only, S2). */
   restorable?: readonly RightPanelRestorableRow[] | undefined;
+  /**
+   * Localised restorable section header (station-decorated from
+   * `station.restorable.header`; the renderer falls back to English).
+   */
+  restorableHeader?: string | undefined;
 }>;
 
 export type RightPanelDossierLinkClass =
@@ -408,6 +413,7 @@ export function buildRightPanelSnapshot(args: {
     title: string;
     sessions: readonly RightPanelSession[];
     restorable?: readonly RightPanelRestorableRow[] | undefined;
+    restorableHeader?: string | undefined;
   }[];
   decisions: readonly RightPanelDecision[];
   decisionsDegraded?: readonly RightPanelProjectDecisionsDegraded[];
@@ -422,6 +428,7 @@ export function buildRightPanelSnapshot(args: {
     sessions: g.sessions.filter((s) => s.delegated !== true),
     // S2: the restorable dead sessions of the plan travel with their tab.
     ...(g.restorable !== undefined ? { restorable: g.restorable } : {}),
+    ...(g.restorableHeader !== undefined ? { restorableHeader: g.restorableHeader } : {}),
   }));
 
   // PANEL §4.3: one list — decisions first, then questions, oldest first within each class.
@@ -1154,17 +1161,28 @@ export class RightPanelController {
     this.#onSelectionChange?.();
   }
 
-  /** S2: restorable rows of the active tab (empty without a station plan). */
-  #activeRestorable(): readonly RightPanelRestorableRow[] {
+  /** S2: restorable rows of the active tab, whether or not they are shown. */
+  #restorableRows(): readonly RightPanelRestorableRow[] {
     if (this.view !== "sessions") return [];
     return this.#snapshot.workspaces[this.activeTabIndex]?.restorable ?? [];
+  }
+
+  /**
+   * S2: walkable restorable rows of the active tab (empty without a station
+   * plan, or while its expander is collapsed so hidden rows stay
+   * unselectable; the expander itself is always reachable).
+   */
+  #activeRestorable(): readonly RightPanelRestorableRow[] {
+    const ws = this.#snapshot.workspaces[this.activeTabIndex];
+    if (this.view !== "sessions" || !ws || !this.#expandedRestorable.has(ws.title)) return [];
+    return ws.restorable ?? [];
   }
 
   #clampSelection(): void {
     const ws = this.#snapshot.workspaces[this.activeTabIndex];
     const sLen = ws?.sessions.length ?? 0;
     this.#selectedSession = sLen === 0 ? 0 : Math.min(this.#selectedSession, sLen - 1);
-    const rLen = this.#activeRestorable().length;
+    const rLen = this.#restorableRows().length;
     if (this.#selectedRestorable !== undefined && rLen === 0) {
       this.#selectedRestorable = undefined;
     } else if (this.#selectedRestorable !== undefined && this.#selectedRestorable >= rLen) {
@@ -1444,20 +1462,22 @@ export class RightPanelController {
         const expanded = this.#expandedRestorable.has(title);
         const arrow = expanded ? "▾" : "▸";
         const expanderSelected = this.#selectedRestorable === -1;
+        const header = ws.restorableHeader ?? `${restorable.length} restorable`;
         rows.push({
           text: expanderSelected
-            ? `\x1b[7m${truncate(`  ${arrow} ${restorable.length} restorable`, width)}\x1b[0m`
-            : truncate(`  ${arrow} ${restorable.length} restorable`, width),
+            ? `\x1b[7m${truncate(`  ${arrow} ${header}`, width)}\x1b[0m`
+            : truncate(`  ${arrow} ${header}`, width),
           hit: { type: "toggle-restorable-expander", tab: title, expanded: !expanded },
           isSelected: expanderSelected,
         });
         if (expanded) {
           restorable.forEach((row, rowIndex) => {
             const rowSelected = this.#selectedRestorable === rowIndex;
-            const detail =
-              row.state === "launching" || row.state === "ended" || row.state === "failed"
-                ? (row.stateText ?? row.state)
-                : (row.reasonText ?? row.reason);
+            // A launch row carries no motif: its state is the detail. Every
+            // other row shows its motif with its file state.
+            const motif = row.reason === "launch" ? undefined : (row.reasonText ?? row.reason);
+            const state = row.stateText ?? row.state;
+            const detail = motif === undefined ? state : `${motif} · ${state}`;
             const body = truncate(`    · ${row.label} (${detail})`, width);
             rows.push({
               text: rowSelected ? `\x1b[7m${body}\x1b[0m` : body,
@@ -2011,7 +2031,7 @@ export class RightPanelController {
       const sessions = ws?.sessions ?? [];
       if (sessions.length === 0) {
         // A restorable-only tab: the cursor starts in its section.
-        if (delta === 1 && this.#activeRestorable().length > 0) {
+        if (delta === 1 && this.#restorableRows().length > 0) {
           this.#selectedRestorable = -1;
           this.#ensureSelectedRowVisible();
           return { dirty: true, selectionChanged: true, actions: [] };
@@ -2041,7 +2061,7 @@ export class RightPanelController {
         next === sessions.length - 1 &&
         next === this.#selectedSession &&
         extraIndex >= extras.length - 1 &&
-        this.#activeRestorable().length > 0
+        this.#restorableRows().length > 0
       ) {
         this.#selectedExtra = undefined;
         this.#selectedRestorable = -1;
@@ -2080,14 +2100,15 @@ export class RightPanelController {
   #activateSelected(): { dirty: boolean; actions: RightPanelAction[] } {
     if (this.view === "sessions") {
       // S2: Enter in the restorable section toggles the expander or offers
-      // the gesture of a relaunchable row; other rows offer nothing.
+      // the gesture of a relaunchable row; other rows offer nothing. The
+      // expander itself stays toggleable while collapsed.
       if (this.#selectedRestorable !== undefined) {
-        const ws = this.#snapshot.workspaces[this.activeTabIndex];
-        const rows = this.#activeRestorable();
-        if (!ws || rows.length === 0) return { dirty: false, actions: [] };
         if (this.#selectedRestorable === -1) {
           return this.#toggleRestorableExpander("toggle");
         }
+        const ws = this.#snapshot.workspaces[this.activeTabIndex];
+        const rows = this.#activeRestorable();
+        if (!ws || rows.length === 0) return { dirty: false, actions: [] };
         const row = rows[this.#selectedRestorable];
         if (!row || row.relaunch === undefined) return { dirty: false, actions: [] };
         return { dirty: true, actions: [{ type: "activate-restorable-row", key: row.key }] };
@@ -2289,12 +2310,17 @@ export class RightPanelController {
           return { dirty: true, selectionChanged: true, actions: [hit] };
         }
         if (hit.type === "activate-restorable-row") {
+          // r2 §2.3: selection and activation stay separate, as for live
+          // sessions — a first click only selects; the gesture (confirmed in
+          // the station) fires on the second click or Enter.
           const ws = this.#snapshot.workspaces[this.activeTabIndex];
           const index = (ws?.restorable ?? []).findIndex((row) => row.key === hit.key);
-          if (index >= 0) {
-            this.#selectedRestorable = index;
-            this.#selectedExtra = undefined;
-          }
+          if (index < 0) return { dirty: false, actions: [] };
+          const alreadySelected =
+            this.#selectedRestorable === index && this.#selectedExtra === undefined;
+          this.#selectedRestorable = index;
+          this.#selectedExtra = undefined;
+          if (!alreadySelected) return { dirty: true, selectionChanged: true, actions: [] };
           return { dirty: true, selectionChanged: true, actions: [hit] };
         }
         if (hit.type === "select-decision") {
