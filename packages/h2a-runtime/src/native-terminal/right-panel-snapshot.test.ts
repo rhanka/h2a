@@ -14,6 +14,7 @@ import type { NativeTerminalSessionState } from "./host.js";
 import {
   RightPanelSnapshotRefresher,
   TrackJournalCache,
+  TranscriptScanCache,
   buildLiveRightPanelSnapshot,
   resolveJournalOfRecord,
   type SiblingBinaryTarget,
@@ -723,5 +724,296 @@ describe("right-panel-snapshot — Étape 1/3/4/5 live projection & Track cache 
     expect(refresher.getSnapshot().collapsedLit).toBe(true);
     expect(updates.at(-1)).toBe(true);
     refresher.dispose();
+  });
+});
+
+describe("S2 canal des restaurables (plan 09-S2)", () => {
+  let uuidSeq = 0;
+  function nextUuid(): string {
+    uuidSeq += 1;
+    return `22222222-2222-4222-8222-2222222222${String(uuidSeq).padStart(2, "0")}`;
+  }
+
+  function deadEntry(
+    home: string,
+    over: Partial<RegistryEntry> & { id: string; project: string },
+  ): RegistryEntry {
+    const cwd = join(home, "src", over.project);
+    mkdirSync(cwd, { recursive: true });
+    return {
+      tool: "claude",
+      kind: "local-native",
+      source: "run",
+      sessionClass: "human",
+      enrolledAt: "2026-11-20T10:00:00.000Z",
+      lastSeenAt: "2026-11-20T10:00:00.000Z",
+      label: over.id,
+      tmuxSession: `h2a-${over.id}`,
+      convId: nextUuid(),
+      ...over,
+      cwd,
+    } as RegistryEntry;
+  }
+
+  it("should carry every dead session of the restore plan under `restorable`, with one reason each, from one host photo", async () => {
+    const home = makeTempDir("h2a-panel-s2-");
+    const registryPath = join(home, "registry.json");
+    const h2aRoot = join(home, ".h2a");
+    mkdirSync(join(h2aRoot, "presence"), { recursive: true });
+
+    let collectCalls = 0;
+    const nativeStates = [makeNativeState("h2a-live-one")];
+    const collectNative = async () => {
+      collectCalls += 1;
+      return makeInventory(nativeStates);
+    };
+
+    const scanned: Array<{
+      project: string;
+      mtimeMs: number;
+      tool: "claude";
+      sid: string;
+      cwd: string;
+      origin: "scan";
+      restoreClass: "unclassified";
+    }> = [
+      {
+        project: "scanproj",
+        mtimeMs: 1_700_000_000_000,
+        tool: "claude",
+        sid: "scan-sid-1",
+        cwd: join(home, "src", "scanproj"),
+        origin: "scan",
+        restoreClass: "unclassified",
+      },
+      {
+        project: "scanproj",
+        mtimeMs: 1_700_000_001_000,
+        tool: "claude",
+        sid: "scan-sid-2",
+        cwd: join(home, "src", "scanproj"),
+        origin: "scan",
+        restoreClass: "unclassified",
+      },
+    ];
+    let scanCalls = 0;
+
+    const entries: RegistryEntry[] = [
+      // The one live session: a live line, never a restorable row.
+      deadEntry(home, {
+        id: "live-one",
+        project: "h2a",
+        tmuxSession: "h2a-live-one",
+        lastSeenAt: "2026-11-20T10:09:00.000Z",
+      }),
+      // Selected dead claude session: launched, with tokens.
+      deadEntry(home, {
+        id: "dead-claude",
+        project: "h2a",
+        lastSeenAt: "2026-11-20T10:08:00.000Z",
+      }),
+      // Beyond the explicit cap: same motif, gesture offered.
+      deadEntry(home, {
+        id: "dead-claude-2",
+        project: "h2a",
+        lastSeenAt: "2026-11-20T10:07:00.000Z",
+      }),
+      // No resolved conversation: motif, never a gesture.
+      deadEntry(home, {
+        id: "dead-unresolved",
+        project: "h2a",
+        convId: undefined,
+        lastSeenAt: "2026-11-20T10:06:00.000Z",
+      }),
+      // One identity on two hosts: motif, never a gesture.
+      deadEntry(home, {
+        id: "ambig-native",
+        project: "ambig",
+        kind: "local-native",
+        label: "ambig",
+        tmuxSession: "h2a-ambig",
+        lastSeenAt: "2026-11-20T10:05:00.000Z",
+      }),
+      deadEntry(home, {
+        id: "ambig-tmux",
+        project: "ambig",
+        kind: "local-tmux",
+        label: "ambig",
+        tmuxSession: "h2a-ambig",
+        lastSeenAt: "2026-11-20T10:05:00.000Z",
+      }),
+      // tmux view unknown: no relaunch of the tmux session by the station.
+      deadEntry(home, {
+        id: "unknown-one",
+        project: "site",
+        kind: "local-tmux",
+        tmuxSession: "h2a-unknown",
+        lastSeenAt: "2026-11-20T10:04:00.000Z",
+      }),
+      // Selected agy session whose argv is not verified: motif, never a gesture.
+      deadEntry(home, {
+        id: "dead-agy",
+        project: "shared-a",
+        tool: "agy",
+        lastSeenAt: "2026-11-20T10:03:00.000Z",
+      }),
+      // Beyond the shared pool: same motif, gesture offered.
+      deadEntry(home, {
+        id: "dead-shared-b",
+        project: "shared-b",
+        lastSeenAt: "2026-11-20T10:02:00.000Z",
+      }),
+      // Not human sessions of the layout: never listed.
+      {
+        ...deadEntry(home, { id: "delegated-one", project: "h2a" }),
+        role: "job",
+        delegationOrigin: "mcp:h2a_run",
+        delegatorInstance: "inst-1",
+      },
+      {
+        ...deadEntry(home, { id: "remote-one", project: "rem" }),
+        kind: "remote",
+      } as RegistryEntry,
+    ];
+    writeRegistry(registryPath, entries);
+
+    const config: RemoteCliConfig = {
+      layout: {
+        maxAgeHours: 48,
+        maxPerWindow: 2,
+        sharedWindows: 1,
+        multiSession: { scanproj: 1 },
+        multiSessionDefault: 0,
+        groups: [{ title: "core", projects: ["h2a"] }],
+      },
+    };
+
+    const scanCache = new TranscriptScanCache();
+    const baseOpts = {
+      currentSessionId: "h2a-live-one",
+      home,
+      config,
+      registryPath,
+      h2aRoot,
+      collectNative,
+      listTmux: async () => ({ known: false as const, reason: "no tmux in station" }),
+      trackSources: [],
+      scanCache,
+      scanReader: () => {
+        scanCalls += 1;
+        return [...scanned];
+      },
+    };
+    const snap = await buildLiveRightPanelSnapshot({ ...baseOpts, nowMs: 1_000 });
+    // One photo and one plan per snapshot: one inventory read per refresh,
+    // while the transcript scan stays cached at the same clock.
+    await buildLiveRightPanelSnapshot({ ...baseOpts, nowMs: 1_000 });
+    await buildLiveRightPanelSnapshot({ ...baseOpts, nowMs: 1_000 });
+    expect(collectCalls).toBe(3);
+    expect(scanCalls).toBe(1);
+
+    const byTitle = new Map(snap.workspaces.map((w) => [w.title, w]));
+    // The live session stays a live line.
+    expect(byTitle.get("core")!.sessions.map((s) => s.id)).toEqual(["h2a-live-one"]);
+    const otherEarly = byTitle.get("other")!.restorable ?? [];
+
+    const coreRestorable = byTitle.get("core")!.restorable ?? [];
+    const row = (key: string) => coreRestorable.find((r) => r.key === key)!;
+    expect(row("registry:dead-claude")).toMatchObject({
+      label: "dead-claude",
+      reason: "launch",
+      state: "queued",
+    });
+    expect(row("registry:dead-claude").relaunch).toEqual({
+      args: [
+        "run",
+        "claude",
+        join(home, "src", "h2a"),
+        "--resume",
+        entries.find((e) => e.id === "dead-claude")!.convId!,
+        "--name",
+        "dead-claude",
+        "--no-attach",
+      ],
+      env: ["H2A_SESSION_HOST=native"],
+      cwd: join(home, "src", "h2a"),
+    });
+    expect(row("registry:dead-claude-2")).toMatchObject({
+      reason: "launch-cap",
+      state: "queued",
+    });
+    expect(row("registry:dead-claude-2").relaunch).toBeDefined();
+    expect(row("registry:dead-unresolved")).toMatchObject({
+      reason: "unresolved-conversation",
+    });
+    expect(row("registry:dead-unresolved").relaunch).toBeUndefined();
+
+    // Identity on two hosts: one row per classification, same motif, no
+    // gesture. The project is ungrouped, so both rows sit under `other`.
+    const ambigRows = otherEarly.filter((r) => r.reason === "dual-host");
+    expect(ambigRows).toHaveLength(2);
+    for (const ambig of ambigRows) expect(ambig.relaunch).toBeUndefined();
+
+    const other = byTitle.get("other")!.restorable ?? [];
+    const otherRow = (key: string) => other.find((r) => r.key === key)!;
+    expect(otherRow("registry:dead-shared-b")).toMatchObject({ reason: "launch-cap" });
+    expect(otherRow("registry:dead-shared-b").relaunch).toBeDefined();
+    // Transcript scans are unclassified by construction: both rows carry the
+    // raw plan code. (`per-project-scan-cap` is mapped the same way when the
+    // plan emits it; the scan never reaches the grouping caps.)
+    expect(otherRow("scan:scanproj:scan-sid-1").reason).toBe("unclassified-scan");
+    expect(otherRow("scan:scanproj:scan-sid-2").reason).toBe("unclassified-scan");
+
+    // The tmux session under an unknown view and the selected agy session
+    // share the single shared window, each with its own motif.
+    const sharedWin = byTitle.get("fenêtre partagée 1")!.restorable ?? [];
+    expect(sharedWin).toHaveLength(2);
+    expect(sharedWin[0]).toMatchObject({
+      key: "registry:unknown-one",
+      reason: "unknown-view",
+    });
+    expect(sharedWin[0]!.relaunch).toBeUndefined();
+    expect(sharedWin[1]).toMatchObject({
+      key: "registry:dead-agy",
+      reason: "resume-argv-unverified",
+    });
+    expect(sharedWin[1]!.relaunch).toBeUndefined();
+
+    // Neither the delegated row nor the remote row is ever listed.
+    const allKeys = snap.workspaces.flatMap((w) => [
+      ...w.sessions.map((s) => s.id),
+      ...(w.restorable ?? []).map((r) => r.key),
+    ]);
+    expect(allKeys).not.toContain("registry:delegated-one");
+    expect(allKeys).not.toContain("registry:remote-one");
+  });
+
+  it("should throttle the transcript scan to one read per 60 s of injected clock", async () => {
+    const home = makeTempDir("h2a-panel-scan-");
+    const registryPath = join(home, "registry.json");
+    writeRegistry(registryPath, []);
+    const config: RemoteCliConfig = {
+      layout: { maxPerWindow: 1, sharedWindows: 1, groups: [] },
+    };
+    let scanCalls = 0;
+    const scanCache = new TranscriptScanCache();
+    const opts = {
+      currentSessionId: "",
+      home,
+      config,
+      registryPath,
+      collectNative: async () => makeInventory([]),
+      trackSources: [] as never[],
+      scanCache,
+      scanReader: () => {
+        scanCalls += 1;
+        return [];
+      },
+    };
+    await buildLiveRightPanelSnapshot({ ...opts, nowMs: 1_000 });
+    await buildLiveRightPanelSnapshot({ ...opts, nowMs: 60_999 });
+    expect(scanCalls).toBe(1);
+    await buildLiveRightPanelSnapshot({ ...opts, nowMs: 61_000 });
+    expect(scanCalls).toBe(2);
   });
 });
