@@ -204,8 +204,6 @@ async function createStationFixture(opts: {
       socketPath,
       "--state-file",
       statePath,
-      "--dead-count",
-      "1",
     ];
     const recovery = new URL("./attach-recovery.ts", import.meta.url).href;
     const args = protectedByParent
