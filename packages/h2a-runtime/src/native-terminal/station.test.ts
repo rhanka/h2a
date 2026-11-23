@@ -1774,6 +1774,67 @@ describe("S1.5 replay: no terminal request, no reply, no side effect is replayed
     expect(h.fleet.session("h2a-api").writes).toEqual([]);
   });
 
+  it("should preserve input coalesced behind or split across the sentinel reply", async () => {
+    const h = new Harness({ tty: true });
+    const api = h.fleet.session("h2a-api");
+    const tracker = h.fleet.session("h2a-tracker");
+    let sentinels = 0;
+    h.stdout.onWrite = (chunk) => {
+      if (!chunk.includes(`${ESC}[5n`)) return;
+      sentinels += 1;
+      if (sentinels === 1) {
+        // Coalesced in one read: garbage + ESC[0n + panel click + digit to switch.
+        h.stdin.type(`junk${ESC}[0n${ESC}[<0;160;37M${ESC}[<0;160;37m3`);
+      } else {
+        // Split ESC[0n across two chunks, with keystrokes right after `n`.
+        h.stdin.type(`early${ESC}[0`);
+        h.stdin.type("nafter-split");
+      }
+    };
+    h.step(tick, tick);
+    await h.run();
+    expect(h.of("sentinel").map((event) => event.outcome)).toEqual(["answered", "answered"]);
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+    expect(api.writes).toEqual([]);
+    expect(tracker.writes.join("")).toBe("after-split");
+    // Only bytes up to and including ESC[0n were dropped as transition input.
+    const dropped = h.of("input-dropped").reduce((sum, event) => sum + event.bytes, 0);
+    expect(dropped).toBe(`junk${ESC}[0n`.length + `early${ESC}[0n`.length);
+  });
+
+  it("should preserve input arriving after the sentinel reply while focus-in is in flight", async () => {
+    const h = new Harness({ tty: true });
+    const tracker = h.fleet.session("h2a-tracker");
+    tracker.emit(`${ESC}[?1004h`);
+    let releaseFocusIn: (() => void) | undefined;
+    h.fleet.host("/fake/host-1.sock").hooks.beforeWrite = (session, data) => {
+      if (session.id === "h2a-tracker" && data === `${ESC}[I`) {
+        return new Promise<void>((resolve) => {
+          releaseFocusIn = resolve;
+        });
+      }
+      return undefined;
+    };
+    let sentinels = 0;
+    h.stdout.onWrite = (chunk) => {
+      if (!chunk.includes(`${ESC}[5n`)) return;
+      sentinels += 1;
+      h.stdin.type(`${ESC}[0n`);
+      if (sentinels === 2) {
+        // Arrives in a separate chunk after ESC[0n while FOCUS_IN is still pending.
+        setTimeout(() => {
+          h.stdin.type(`${ESC}[<0;160;37M${ESC}[<0;160;37m`);
+          h.stdin.type("1");
+          releaseFocusIn?.();
+        }, 0);
+      }
+    };
+    h.step((x) => x.activate("h2a-tracker"), tick, tick);
+    await h.run();
+    expect(h.displayed()).toEqual(["h2a-api", "h2a-tracker", "h2a-api"]);
+    expect(tracker.writes.join("")).toBe(`${ESC}[I${ESC}[O`);
+  });
+
   it("should open the input at the bounded delay when nothing answers, and swallow a late reply", async () => {
     const h = new Harness({ tty: true });
     const tracker = h.fleet.session("h2a-tracker");
