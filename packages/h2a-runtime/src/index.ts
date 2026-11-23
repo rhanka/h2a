@@ -10246,6 +10246,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "ouvre le poste: toutes les sessions natives vivantes dans CE terminal, une affichée à la fois, avec le panneau latéral (TTY requis; aucune session relancée ni arrêtée; Ctrl-\\ ferme le poste)",
     )
     .option(
+      "--lazy",
+      "ne vaut que pour le poste (restore --station --lazy): liste les sessions relançables sans les relancer",
+    )
+    .option(
       "--reattach",
       "rouvre les sessions tmux déjà visibles; côté PTY natif, rattache une session non contrôlée mais refuse toujours un second contrôleur concurrent",
     )
@@ -10265,6 +10269,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           dryRun?: boolean;
           station?: boolean;
+          lazy?: boolean;
           reattach?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
@@ -10272,6 +10277,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noGw?: boolean;
         },
       ) => {
+        // S2: --lazy only ever lists for the station; anywhere else it
+        // refuses with zero effect (the old mode is untouched by the option).
+        if (opts.lazy && !opts.station) {
+          process.stderr.write(`[h2a] ${humanOutputText("restore.refusal.lazyWindows")}\n`);
+          process.exitCode = 1;
+          return;
+        }
         const norm = (s: string) =>
           s
             .toLowerCase()
@@ -10281,14 +10293,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const needRemote = cfg.groups.some(
           (g) => g.remote && (!group || norm(g.title) === norm(group)),
         );
-
-        // Panel lot S1: the station opens no window and launches nothing, so
-        // it needs neither the remote listing nor a gateway prewarm. With
-        // --dry-run the usual plan preview is printed instead (same plan).
-        if (opts.station && !opts.dryRun) {
-          process.exitCode = restoreStation(group ? { group } : {});
-          return;
-        }
 
         const restoreOpts: RestoreOptions = {};
         if (group) restoreOpts.group = group;
@@ -10315,7 +10319,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
         }
 
-        if (needRemote) {
+        // The remote listing stays out of the station path (S2): the station
+        // is a native-terminal process and never opens the window layout.
+        // The plan preview (--dry-run) keeps the full picture instead.
+        if (needRemote && !(opts.station && !opts.dryRun)) {
           const url = getConfiguredRemote();
           await ensureConnected(url);
           const sessions = await listRemoteSessions(url);
@@ -10345,6 +10352,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
+        }
+        // S2 station branch: after the central MCP preparation and the
+        // gateway prewarm (a station relaunch may carry a gateway pin), at
+        // the place of the window-layout call. With --dry-run the usual plan
+        // preview is printed instead (same plan).
+        if (opts.station && !opts.dryRun) {
+          process.exitCode = restoreStation({
+            ...(group ? { group } : {}),
+            ...(opts.lazy ? { lazy: true } : {}),
+            ...(forceGateway ? { forceGateway } : {}),
+          });
+          return;
         }
         const restoreResult = restoreLayout(restoreOpts);
         const { total } = restoreResult;

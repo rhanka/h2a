@@ -493,6 +493,25 @@ describe("main", () => {
     }
   });
 
+  it("should refuse --lazy without --station and launch nothing (S2, plan 09-S2 P-1)", async () => {
+    const prevLang = process.env.H2A_LANG;
+    process.env.H2A_LANG = "en";
+    try {
+      const exitCode = await main(["node", "h2a", "restore", "--lazy"]);
+
+      expect(exitCode).toBe(1);
+      expect(process.exitCode).toBe(1);
+      expect(restoreLayout).not.toHaveBeenCalled();
+      expect(prepareCentralMcpForRestore).not.toHaveBeenCalled();
+      const out = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
+      expect(out).toContain("--lazy applies to the station only");
+      expect(out).toContain("nothing was launched");
+    } finally {
+      if (prevLang === undefined) delete process.env.H2A_LANG;
+      else process.env.H2A_LANG = prevLang;
+    }
+  });
+
   describe("WP6 — remote fan-out (--count N)", () => {
     it("--count N creates N sessions, each on its OWN workspace (distinct subPath), and never auto-attaches", async () => {
       getDefaultRemote.mockReturnValue("http://localhost:8080");
