@@ -55,7 +55,12 @@ import {
 } from "../blockage/registry.js";
 import { conductorFor } from "../governance/conductor.js";
 import { appendConductorClaim } from "../governance/claims.js";
-import { conductorLaunchCheck } from "../governance/launch-check.js";
+import {
+  conductorLaunchCheck,
+  conductorLaunchCheckAsync,
+  runTrackActivityAsync,
+  type ConductorLaunchCheckOpts
+} from "../governance/launch-check.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import { createLocalStore } from "../local-files/store.js";
 import type { LocalStore } from "../local-files/store.js";
@@ -1374,6 +1379,71 @@ export function handleConductorLaunchCheck(
   }
 }
 
+/** Non-blocking counterpart to `handleConductorLaunchCheck` for the central MCP server. */
+export async function handleConductorLaunchCheckAsync(
+  root: string,
+  args: { workspaceId?: string; workspacePath?: string; idleMs?: number } | undefined
+): Promise<McpToolResult | McpErrorResult> {
+  let workspaceId: string | undefined;
+
+  if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args?.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+
+  if (!workspaceId) {
+    return { error: "h2a_conductor_launch_check: provide workspaceId or workspacePath" };
+  }
+
+  let idleMs: number | undefined;
+  if (args?.idleMs !== undefined) {
+    const parsed = Number(args.idleMs);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return { error: `h2a_conductor_launch_check: idleMs must be a positive number (got ${args.idleMs})` };
+    }
+    idleMs = parsed;
+  }
+
+  try {
+    const result = await conductorLaunchCheckAsync({ root, workspaceId, ...(idleMs !== undefined ? { idleMs } : {}) });
+    return result as unknown as McpToolResult;
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+/**
+ * Pre-fetch `track workspace-activity` asynchronously before acquiring store or
+ * inbox locks for `h2a_conductor_launch`, so the synchronous critical section
+ * never invokes `execFileSync("track", ...)`.
+ */
+export async function prefetchConductorTrackActivityAsync(
+  args: { workspaceId?: string; workspacePath?: string; idleMs?: number } | undefined
+): Promise<{ runTrackActivity: NonNullable<ConductorLaunchCheckOpts["runTrackActivity"]> } | undefined> {
+  let workspaceId: string | undefined;
+  if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args?.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+  if (!workspaceId) return undefined;
+
+  let idleMs = 86_400_000;
+  if (args?.idleMs !== undefined) {
+    const parsed = Number(args.idleMs);
+    if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+    idleMs = parsed;
+  }
+
+  const activity = await runTrackActivityAsync(workspaceId, idleMs);
+  return { runTrackActivity: () => activity };
+}
+
 /**
  * h2a_conductor_launch — D3 EMISSION: emit a conductor-launch-request envelope
  * to a live remote agent when work is stalled and no conductor is live.
@@ -1392,7 +1462,8 @@ export function handleConductorLaunch(
         remote?: string;
         instance?: string;
       }
-    | undefined
+    | undefined,
+  deps?: { runTrackActivity?: ConductorLaunchCheckOpts["runTrackActivity"] }
 ): McpToolResult | McpErrorResult {
   const root = typeof storeOrRoot === "string" ? storeOrRoot : storeOrRoot.paths.root;
   // Resolve workspace id (mirrors handleConductorLaunchCheck)
@@ -1422,7 +1493,8 @@ export function handleConductorLaunch(
   const check = conductorLaunchCheck({
     root,
     workspaceId,
-    ...(idleMs !== undefined ? { idleMs } : {})
+    ...(idleMs !== undefined ? { idleMs } : {}),
+    ...(deps?.runTrackActivity ? { runTrackActivity: deps.runTrackActivity } : {})
   });
 
   if (check.recommendation !== "launch") {

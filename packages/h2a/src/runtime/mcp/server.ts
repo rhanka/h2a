@@ -13,7 +13,9 @@ import {
   handleConductorClaim,
   handleConductorRelease,
   handleConductorLaunchCheck,
+  handleConductorLaunchCheckAsync,
   handleConductorLaunch,
+  prefetchConductorTrackActivityAsync,
   handleCounteroffer,
   handleDeclareConflitInteret,
   handleDiscoverInstances,
@@ -620,6 +622,23 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       }
       if (name === "h2a_remote_off") {
         return handleRemoteOffAsync(store.paths.root, args as never);
+      }
+      if (name === "h2a_conductor_launch_check") {
+        return handleConductorLaunchCheckAsync(store.paths.root, args as never);
+      }
+      if (name === "h2a_conductor_launch") {
+        const prefetched = await prefetchConductorTrackActivityAsync(args as never);
+        const invokeLaunch = () => handleConductorLaunch(store, args as never, prefetched);
+        if (store.acquireMutationLocksForToolAsync && isCentralSyncMutator(name, args)) {
+          const signerInstance = (options.getSendContext?.() ?? options.sendContext)?.instance;
+          return store.acquireMutationLocksForToolAsync(
+            name,
+            args,
+            () => invokeLaunch() as McpToolResult | McpErrorResult | McpTransportResult,
+            signerInstance ? { signerInstance } : undefined
+          );
+        }
+        return invokeLaunch();
       }
       if (store.acquireMutationLocksForToolAsync && isCentralSyncMutator(name, args)) {
         const signerInstance = (options.getSendContext?.() ?? options.sendContext)?.instance;

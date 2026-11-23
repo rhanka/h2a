@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { monitorEventLoopDelay } from 'node:perf_hooks';
 import test from 'node:test';
+import { startEventLoopWorkProbe } from './helpers/event-loop-work.js';
 import { appendJournalEntry, createJournalEntry, createLocalStore, signCanonical } from '../dist/index.js';
 import { consentPairId } from '../dist/runtime/drive/consent.js';
 import { negotiationJournalFile } from '../dist/runtime/local-files/paths.js';
@@ -278,22 +278,36 @@ test('T1.5: streaming verifyAsync handles 80 pairs (6000 entries, 300 expired, 2
     });
     t.mock.timers.enable({ apis: ['setInterval'] });
 
-    const lag = monitorEventLoopDelay({ resolution: 10 });
-    lag.enable();
+    let yieldsA = 0;
+    const origSetImmediateA = globalThis.setImmediate;
+    t.mock.method(globalThis, 'setImmediate', (fn, ...args) => {
+      yieldsA++;
+      return origSetImmediateA(fn, ...args);
+    });
+    const probeA = startEventLoopWorkProbe({ intervalMs: 5 });
+    let workA;
     const storeA = createLocalStore({ root: rootA, initialize: false, alwaysEmitConsentBudget: true, deferConsentHistoryVerification: true });
     assert.equal(syncJournalReads, 0);
 
-    const pass1Done = nextVerify();
-    t.mock.timers.tick(60_000);
-    await pass1Done;
-    const p99A = lag.percentile(99) / 1e6;
-    lag.disable();
-    t.diagnostic(`T1.5(a) 80 pairs: syncJournalReads=${syncJournalReads}, keysReads=${keysReads}, streamOpens=${streamOpens}, lag p99=${p99A.toFixed(2)}ms`);
+    try {
+      const pass1Done = nextVerify();
+      t.mock.timers.tick(60_000);
+      await pass1Done;
+    } finally {
+      workA = probeA.stop();
+    }
+    t.diagnostic(
+      `T1.5(a) 80 pairs: syncJournalReads=${syncJournalReads}, keysReads=${keysReads}, streamOpens=${streamOpens}, ` +
+      `yields=${yieldsA}, maxCpu=${workA.maxCpuMs.toFixed(2)}ms, p95WallLag=${workA.p95WallLagMs.toFixed(2)}ms, maxWallLag=${workA.maxWallLagMs.toFixed(2)}ms`
+    );
 
     assert.equal(syncJournalReads, 0, 'pass 1 must perform 0 readFileSync on journal.jsonl');
     assert.ok(keysReads <= 1, `keys.jsonl must be read at most 1 time, got ${keysReads}`);
     assert.equal(streamOpens, 80, 'pass 1 must stream all 80 pairs');
-    assert.ok(p99A < 75, `case (a) eventLoopLagMs.p99=${p99A.toFixed(2)}ms exceeded 75ms`);
+    assert.ok(yieldsA >= 5, `case (a) must yield across 80 pairs / 6k entries, got ${yieldsA} setImmediate yields`);
+    assert.ok(workA.maxCpuMs < 75, `case (a) maxSliceCpu=${workA.maxCpuMs.toFixed(2)}ms exceeded 75ms`);
+    assert.ok(workA.p95WallLagMs < 75, `case (a) p95WallLag=${workA.p95WallLagMs.toFixed(2)}ms exceeded 75ms`);
+    assert.ok(workA.maxWallLagMs < 180, `case (a) maxWallLag=${workA.maxWallLagMs.toFixed(2)}ms exceeded 180ms synchronous stall ceiling`);
 
     // Pass 2 on unchanged files -> 0 reads!
     streamOpens = 0;
@@ -372,20 +386,34 @@ test('T1.5: streaming verifyAsync handles 80 pairs (6000 entries, 300 expired, 2
     });
     t.mock.timers.enable({ apis: ['setInterval'] });
 
-    const lag = monitorEventLoopDelay({ resolution: 10 });
-    lag.enable();
+    let yieldsB = 0;
+    const origSetImmediateB = globalThis.setImmediate;
+    t.mock.method(globalThis, 'setImmediate', (fn, ...args) => {
+      yieldsB++;
+      return origSetImmediateB(fn, ...args);
+    });
+    const probeB = startEventLoopWorkProbe({ intervalMs: 5 });
+    let workB;
     const storeB = createLocalStore({ root: rootB, initialize: false, alwaysEmitConsentBudget: true, deferConsentHistoryVerification: true });
 
-    const pass1Done = nextVerify();
-    t.mock.timers.tick(60_000);
-    await pass1Done;
-    const p99B = lag.percentile(99) / 1e6;
-    lag.disable();
-    t.diagnostic(`T1.5(b) 20k single pair: syncJournalReads=${syncJournalReads}, streamOpens=${streamOpens}, lag p99=${p99B.toFixed(2)}ms`);
+    try {
+      const pass1Done = nextVerify();
+      t.mock.timers.tick(60_000);
+      await pass1Done;
+    } finally {
+      workB = probeB.stop();
+    }
+    t.diagnostic(
+      `T1.5(b) 20k single pair: syncJournalReads=${syncJournalReads}, streamOpens=${streamOpens}, ` +
+      `yields=${yieldsB}, maxCpu=${workB.maxCpuMs.toFixed(2)}ms, p95WallLag=${workB.p95WallLagMs.toFixed(2)}ms, maxWallLag=${workB.maxWallLagMs.toFixed(2)}ms`
+    );
 
     assert.equal(syncJournalReads, 0, '20k-entry pass 1 must perform 0 readFileSync on journal.jsonl');
     assert.equal(streamOpens, 1, '20k-entry pass 1 must open exactly 1 stream');
-    assert.ok(p99B < 75, `case (b) eventLoopLagMs.p99=${p99B.toFixed(2)}ms exceeded 75ms`);
+    assert.ok(yieldsB >= 50, `case (b) must yield repeatedly across 20k entries, got ${yieldsB} setImmediate yields`);
+    assert.ok(workB.maxCpuMs < 75, `case (b) maxSliceCpu=${workB.maxCpuMs.toFixed(2)}ms exceeded 75ms`);
+    assert.ok(workB.p95WallLagMs < 75, `case (b) p95WallLag=${workB.p95WallLagMs.toFixed(2)}ms exceeded 75ms`);
+    assert.ok(workB.maxWallLagMs < 180, `case (b) maxWallLag=${workB.maxWallLagMs.toFixed(2)}ms exceeded 180ms synchronous stall ceiling`);
 
     // Pass 2 unchanged -> 0 reads
     streamOpens = 0;

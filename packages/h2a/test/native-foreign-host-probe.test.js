@@ -41,7 +41,7 @@ async function fixture(context, body) {
   const clients = [];
   const processes = [];
   let cleanupPromise;
-  function start(args, input = "ignore", timeout = 10_000) {
+  function start(args, input = "ignore", timeout = 15_000) {
     context.signal.throwIfAborted();
     assert.equal(cleanupPromise, undefined, "cannot spawn after fixture teardown");
     const child = spawnIsolatedNative(process.execPath, args, {
@@ -146,10 +146,25 @@ async function fixture(context, body) {
       assert.equal((await response)[0].toString(), "alive");
     } };
   }
-  async function session(host, id) {
-    return host.client.create({ id, command: "/bin/bash",
+  async function session(host, id, { waitForReady = false } = {}) {
+    const created = await host.client.create({ id, command: "/bin/bash",
       args: ["--noprofile", "--norc", "-c", "printf 'foreign-probe-ready\\n'; while IFS= read -r line; do printf '%s\\n' \"$line\"; done"],
       cwd: root, env, cols: 80, rows: 24 });
+    if (waitForReady) {
+      // Wait for the PTY shell to flush its marker into scrollback before
+      // starting CLI attach, eliminating startup races under loaded CI runners.
+      const deadline = Date.now() + 10_000;
+      let seq = 0;
+      let seen = "";
+      while (!seen.includes("foreign-probe-ready") && Date.now() < deadline) {
+        const replay = await host.client.readOutput(id, seq, 2_000);
+        for (const chunk of replay.chunks) seen += chunk.data;
+        seq = replay.latestSeq;
+        if (!seen.includes("foreign-probe-ready")) await new Promise(r => setTimeout(r, 25));
+      }
+      assert.match(seen, /foreign-probe-ready/, `session ${id} never emitted ready marker before attach`);
+    }
+    return created;
   }
   async function deletedForeignHost() {
     const directory = join(root, "foreign");
@@ -348,13 +363,17 @@ test("should keep an opaque same-named legacy listener without a directory FD un
   }));
 
 for (const index of [0, 1]) test(`should attach and kill a real session on endpoint ${index} beside a deleted foreign host`,
-  { timeout: 30_000 }, context => fixture(context, async f => {
+  { timeout: 60_000 }, context => fixture(context, async f => {
     const host = await f.host(f.paths[index]);
     const id = `h2a-foreign-${index}`;
-    await f.session(host, id);
+    await f.session(host, id, { waitForReady: true });
     await f.deletedForeignHost();
     const slug = `foreign-${index}`;
-    const attach = f.start([cli, "attach", slug, "--local"], "pipe");
+    // Public CLI attach runs serial discovery + absence proofs (walking /proc
+    // on endpoint 0 before reaching endpoint 1) across 3 subprocesses; size the
+    // bounded child deadline above loaded-CI p99 (30 s, matching host()) so
+    // runner contention cannot SIGKILL attach mid-handshake.
+    const attach = f.start([cli, "attach", slug, "--local"], "pipe", 30_000);
     // Public CLI discovery performs several bounded absence proofs. Wait for
     // actual replay (or process exit), rather than timing that preflight with
     // a shorter polling budget. The operation's own timeout still kills it.
@@ -363,11 +382,11 @@ for (const index of [0, 1]) test(`should attach and kill a real session on endpo
         if (attach.output().stdout.includes("foreign-probe-ready")) resolve();
       });
     })]);
-    if (attach.child.exitCode === null) attach.child.stdin.end(Buffer.from([0x1c]));
+    if (attach.child.exitCode === null && attach.child.signalCode === null) attach.child.stdin.end(Buffer.from([0x1c]));
     const attached = await attach.closed;
     // Exercise kill even when attach failed: the red run must prove BOTH
     // product operations refuse the owner because of the unrelated host.
-    const killed = await f.start([cli, "stop", slug]).closed;
+    const killed = await f.start([cli, "stop", slug], "ignore", 20_000).closed;
     context.diagnostic(JSON.stringify({ attached, killed }));
     assert.deepEqual([attached.status, killed.status], [0, 0], JSON.stringify({ attached, killed }));
     assert.match(attached.stdout, /foreign-probe-ready/);
