@@ -913,9 +913,11 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
     expect(scanCalls).toBe(1);
 
     const byTitle = new Map(snap.workspaces.map((w) => [w.title, w]));
+    // A tab exists only with a live line or a restorable row: config order,
+    // deduplicated, `other` last, no empty tab.
+    expect(snap.workspaces.map((w) => w.title)).toEqual(["core", "other"]);
     // The live session stays a live line.
     expect(byTitle.get("core")!.sessions.map((s) => s.id)).toEqual(["h2a-live-one"]);
-    const otherEarly = byTitle.get("other")!.restorable ?? [];
 
     const coreRestorable = byTitle.get("core")!.restorable ?? [];
     const row = (key: string) => coreRestorable.find((r) => r.key === key)!;
@@ -939,46 +941,55 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
       cwd: join(home, "src", "h2a"),
       name: "h2a-dead-claude",
     });
+    // Beyond the explicit cap: same motif, gesture kept outside the file.
     expect(row("registry:dead-claude-2")).toMatchObject({
       reason: "launch-cap",
-      state: "queued",
+      state: "deferred",
     });
     expect(row("registry:dead-claude-2").relaunch).toBeDefined();
     expect(row("registry:dead-unresolved")).toMatchObject({
       reason: "unresolved-conversation",
+      state: "ended",
     });
     expect(row("registry:dead-unresolved").relaunch).toBeUndefined();
 
-    // Identity on two hosts: one row per classification, same motif, no
-    // gesture. The project is ungrouped, so both rows sit under `other`.
-    const ambigRows = otherEarly.filter((r) => r.reason === "dual-host");
-    expect(ambigRows).toHaveLength(2);
-    for (const ambig of ambigRows) expect(ambig.relaunch).toBeUndefined();
-
     const other = byTitle.get("other")!.restorable ?? [];
     const otherRow = (key: string) => other.find((r) => r.key === key)!;
-    expect(otherRow("registry:dead-shared-b")).toMatchObject({ reason: "launch-cap" });
+    // Identity on two hosts: one row per classification, same motif, no
+    // gesture. The project is ungrouped, so both rows sit under `other`.
+    const ambigRows = other.filter((r) => r.reason === "dual-host");
+    expect(ambigRows).toHaveLength(2);
+    for (const ambig of ambigRows) {
+      expect(ambig.relaunch).toBeUndefined();
+      expect(ambig.state).toBe("ended");
+    }
+
+    expect(otherRow("registry:dead-shared-b")).toMatchObject({
+      reason: "launch-cap",
+      state: "deferred",
+    });
     expect(otherRow("registry:dead-shared-b").relaunch).toBeDefined();
     // Transcript scans are unclassified by construction: both rows carry the
     // raw plan code. (`per-project-scan-cap` is mapped the same way when the
     // plan emits it; the scan never reaches the grouping caps.)
-    expect(otherRow("scan:scanproj:scan-sid-1").reason).toBe("unclassified-scan");
-    expect(otherRow("scan:scanproj:scan-sid-2").reason).toBe("unclassified-scan");
+    for (const key of ["scan:scanproj:scan-sid-1", "scan:scanproj:scan-sid-2"]) {
+      expect(otherRow(key).reason).toBe("unclassified-scan");
+      expect(otherRow(key).state).toBe("ended");
+      expect(otherRow(key).relaunch).toBeUndefined();
+    }
 
     // The tmux session under an unknown view and the selected agy session
-    // share the single shared window, each with its own motif.
-    const sharedWin = byTitle.get("fenêtre partagée 1")!.restorable ?? [];
-    expect(sharedWin).toHaveLength(2);
-    expect(sharedWin[0]).toMatchObject({
-      key: "registry:unknown-one",
+    // are listed under the config group of their project, never relaunched.
+    expect(otherRow("registry:unknown-one")).toMatchObject({
       reason: "unknown-view",
+      state: "ended",
     });
-    expect(sharedWin[0]!.relaunch).toBeUndefined();
-    expect(sharedWin[1]).toMatchObject({
-      key: "registry:dead-agy",
+    expect(otherRow("registry:unknown-one").relaunch).toBeUndefined();
+    expect(otherRow("registry:dead-agy")).toMatchObject({
       reason: "resume-argv-unverified",
+      state: "ended",
     });
-    expect(sharedWin[1]!.relaunch).toBeUndefined();
+    expect(otherRow("registry:dead-agy").relaunch).toBeUndefined();
 
     // Neither the delegated row nor the remote row is ever listed.
     const allKeys = snap.workspaces.flatMap((w) => [

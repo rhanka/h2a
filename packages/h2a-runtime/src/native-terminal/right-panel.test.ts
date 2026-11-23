@@ -766,4 +766,55 @@ describe("S2 restorable expander (plan 09-S2)", () => {
     const silent = panel.handleInput("\r", { cliMouseEnabled: false });
     expect(silent.actions).toEqual([]);
   });
+
+  it("should not walk into a collapsed restorable section", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: restorableSnapshot(),
+      width: 60,
+    });
+    panel.toggle();
+    // Down from the live session lands on the collapsed expander.
+    const down = panel.handleInput("j", { cliMouseEnabled: false });
+    expect(down.actions).toEqual([]);
+    // A further Down leaves the collapsed section instead of selecting a
+    // hidden row: no gesture fires, and Enter returns to the live session.
+    const hidden = panel.handleInput("j", { cliMouseEnabled: false });
+    expect(hidden.actions).toEqual([]);
+    const enter = panel.handleInput("\r", { cliMouseEnabled: false });
+    expect(enter.actions).toContainEqual({
+      type: "activate-session",
+      index: 0,
+      sessionId: "s-live",
+    });
+  });
+
+  it("should select a restorable row on first click and fire its gesture on second click", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: restorableSnapshot(),
+      width: 60,
+    });
+    panel.toggle();
+    // Open the expander by keyboard, then click the first row twice. The
+    // panel paints by cursor positioning, so read the row from its CUP.
+    panel.handleInput("j", { cliMouseEnabled: false });
+    const mark = out.chunks.length;
+    panel.handleInput("\r", { cliMouseEnabled: false });
+    const painted = out.chunks.slice(mark).join("");
+    const cells = [...painted.matchAll(/\x1b\[(\d+);41H([^\x1b]*)/g)];
+    const rowY = Number(cells.find((cell) => cell[2].includes("dead-one"))?.[1] ?? 0);
+    expect(rowY).toBeGreaterThan(1);
+    const click = (y: number) =>
+      panel.handleInputBytes(Buffer.from(`\x1b[<0;90;${y}M`), { cliMouseEnabled: false });
+    const first = click(rowY);
+    expect(first.actions).toEqual([]);
+    const second = click(rowY);
+    expect(second.actions).toContainEqual({
+      type: "activate-restorable-row",
+      key: "registry:dead-1",
+    });
+  });
 });
