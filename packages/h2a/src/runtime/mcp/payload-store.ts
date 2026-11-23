@@ -213,7 +213,59 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     });
   }
 
+  async function sha256Async(bytes: Buffer): Promise<string> {
+    const CHUNK_BYTES = 512 * 1024;
+    const hash = createHash("sha256");
+    if (bytes.length <= CHUNK_BYTES) {
+      return `sha256:${hash.update(bytes).digest("hex")}`;
+    }
+    for (let offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
+      hash.update(bytes.subarray(offset, Math.min(offset + CHUNK_BYTES, bytes.length)));
+      if (offset + CHUNK_BYTES < bytes.length) {
+        await new Promise<void>((resolveYield) => setImmediate(resolveYield));
+      }
+    }
+    return `sha256:${hash.digest("hex")}`;
+  }
+
+  async function ensureDirAsync(): Promise<void> {
+    await fsPromises.mkdir(dir, { recursive: true, mode: 0o700 });
+    try {
+      await fsPromises.chmod(dir, 0o700);
+    } catch {
+      /* best effort; a pre-existing dir may be owned differently in tests */
+    }
+  }
+
+  async function readQuotaWatermarkAsync(path: string): Promise<bigint | undefined> {
+    try {
+      const raw = (await fsPromises.readFile(path, "utf8")).trim();
+      if (!/^\d+$/.test(raw)) return undefined;
+      return BigInt(raw);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function statFileStampAsync(path: string): Promise<FileStamp | undefined> {
+    let info;
+    try {
+      info = await fsPromises.lstat(path, { bigint: true });
+    } catch {
+      return undefined;
+    }
+    if (!info.isFile()) return undefined;
+    return {
+      dev: info.dev,
+      ino: info.ino,
+      size: info.size,
+      mtimeNs: info.mtimeNs,
+      ctimeNs: info.ctimeNs
+    };
+  }
+
   async function dirBytesAsync(maxSliceMs = 4): Promise<number> {
+    const STAT_BATCH_SIZE = 16;
     let entries: string[];
     try {
       entries = await fsPromises.readdir(dir);
@@ -223,10 +275,20 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     }
     let total = 0;
     let sliceStart = performance.now();
-    for (let i = 0; i < entries.length; i++) {
-      const info = statSync(prefix + entries[i]!, { throwIfNoEntry: false });
-      if (info) total += info.size;
-      if ((i & 31) === 31 && performance.now() - sliceStart >= maxSliceMs) {
+    for (let i = 0; i < entries.length; i += STAT_BATCH_SIZE) {
+      const end = Math.min(i + STAT_BATCH_SIZE, entries.length);
+      const batch: Array<Promise<number>> = [];
+      for (let j = i; j < end; j++) {
+        batch.push(
+          fsPromises.stat(prefix + entries[j]!).then(
+            (info) => info.size,
+            () => 0
+          )
+        );
+      }
+      const sizes = await Promise.all(batch);
+      for (const size of sizes) total += size;
+      if (performance.now() - sliceStart >= maxSliceMs) {
         await yieldSlice();
         sliceStart = performance.now();
       }
@@ -235,6 +297,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
   }
 
   async function scanExpiredAsync(now: number, maxSliceMs = 4): Promise<{ exists: boolean; candidates: ExpiredCandidate[] }> {
+    const SCAN_BATCH_SIZE = 8;
     let entries: string[];
     try {
       entries = await fsPromises.readdir(dir);
@@ -242,46 +305,54 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false, candidates: [] };
       throw err;
     }
-    const candidates: ExpiredCandidate[] = [];
-    const gen = ++sweepGen;
-    let sliceStart = performance.now();
+    const targets: Array<{ ref: string; path: string }> = [];
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i]!;
       if (entry.length === 69 && entry.charCodeAt(64) === 46 && entry.endsWith(".json")) {
         const ref = entry.slice(0, 64);
-        const cached = liveExpiries.get(ref);
-        if (cached || REF_RE.test(ref)) {
+        if (liveExpiries.has(ref) || REF_RE.test(ref)) {
+          targets.push({ ref, path: prefix + entry });
+        }
+      }
+    }
+    const candidates: ExpiredCandidate[] = [];
+    const gen = ++sweepGen;
+    let sliceStart = performance.now();
+    for (let i = 0; i < targets.length; i += SCAN_BATCH_SIZE) {
+      const batch = targets.slice(i, i + SCAN_BATCH_SIZE);
+      await Promise.all(
+        batch.map(async ({ ref, path }) => {
           try {
-            const path = prefix + entry;
-            const stamp = statFileStamp(path);
-            if (stamp) {
-              if (cached && sameStamp(cached, stamp) && cached.expiresAt > now) {
-                cached.gen = gen;
-              } else {
-                const meta = JSON.parse(readFileSync(path, "utf8")) as PayloadMeta;
-                const after = statFileStamp(path);
-                if (after && sameStamp(stamp, after)) {
-                  const expiresAt = Date.parse(meta.expiresAt);
-                  if (expiresAt <= now) {
-                    candidates.push({ ref, path, stamp });
-                  } else if (Number.isFinite(expiresAt)) {
-                    liveExpiries.set(ref, { ...stamp, expiresAt, gen });
-                  }
-                }
+            const stamp = await statFileStampAsync(path);
+            if (!stamp) return;
+            const cached = liveExpiries.get(ref);
+            if (cached && sameStamp(cached, stamp) && cached.expiresAt > now) {
+              cached.gen = gen;
+              return;
+            }
+            const raw = await fsPromises.readFile(path, "utf8");
+            const meta = JSON.parse(raw) as PayloadMeta;
+            const after = await statFileStampAsync(path);
+            if (after && sameStamp(stamp, after)) {
+              const expiresAt = Date.parse(meta.expiresAt);
+              if (expiresAt <= now) {
+                candidates.push({ ref, path, stamp });
+              } else if (Number.isFinite(expiresAt)) {
+                liveExpiries.set(ref, { ...stamp, expiresAt, gen });
               }
             }
           } catch {
             /* a corrupt meta is left for a human sweep, never live source data */
           }
-        }
-      }
-      if ((i & 15) === 15 && performance.now() - sliceStart >= maxSliceMs) {
+        })
+      );
+      if (performance.now() - sliceStart >= maxSliceMs) {
         await yieldSlice();
         sliceStart = performance.now();
       }
     }
     for (const [key, entry] of liveExpiries) {
-      if (entry.gen !== gen) liveExpiries.delete(key);
+      if (entry.gen < gen) liveExpiries.delete(key);
     }
     return { exists: true, candidates };
   }
@@ -551,7 +622,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
 
   async function persistOutputAsync(bytes: Buffer): Promise<PayloadRecoveryRef> {
     try {
-      ensureDir();
+      await ensureDirAsync();
     } catch (err) {
       throw new PayloadStoreError(
         "recovery_unavailable",
@@ -561,7 +632,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     }
 
     // Read watermark & update cachedUsedBytes asynchronously in <= 4 ms slices if cold or stale.
-    let preW0 = readQuotaWatermark(watermarkPath);
+    let preW0 = await readQuotaWatermarkAsync(watermarkPath);
     let preUsed: number;
     if (cachedUsedBytes !== undefined && cachedWatermark !== undefined && preW0 !== undefined && preW0 >= cachedWatermark) {
       const delta = preW0 - cachedWatermark;
@@ -582,7 +653,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     // Reclaim expired payloads asynchronously only when approaching quota.
     if (preUsed + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
       await sweepExpiredAsync(Date.now(), 4);
-      preW0 = readQuotaWatermark(watermarkPath);
+      preW0 = await readQuotaWatermarkAsync(watermarkPath);
       preUsed = await dirBytesAsync(4);
       if (preW0 !== undefined) {
         cachedUsedBytes = preUsed;
@@ -591,7 +662,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     }
 
     const ref = randomBytes(32).toString("hex");
-    const sha256 = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const sha256 = await sha256Async(bytes);
     const now = Date.now();
     const meta: PayloadMeta = {
       sha256,

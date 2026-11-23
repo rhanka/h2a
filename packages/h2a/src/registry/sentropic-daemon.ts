@@ -262,9 +262,13 @@ function buildAdapter(manifest: Manifest, connectorId: string, rawCallTool: Daem
           redactionClass: "none"
         };
       }
+      let cachedText: string | undefined;
       return {
         ok: true,
-        output: { text: JSON.stringify(raw), transport: raw },
+        output: {
+          get text() { return (cachedText ??= JSON.stringify(raw)); },
+          transport: raw
+        },
         auditId: "h2a-daemon-local",
         redactionClass: "none"
       };
