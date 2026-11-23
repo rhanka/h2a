@@ -42,7 +42,9 @@ claim consensus.
 
 ## Dispatch through h2a
 
-Keep legs blind and give each the same target plus a distinct adversarial lens. Launch only through the
+Keep legs blind and give each the same target plus a distinct adversarial lens. For a code target, also
+give each leg the same change-risk table (`harness/test`), computed once at `target-ref`: it is shared
+evidence, not a lens, and a leg does not recompute it. Launch only through the
 installed h2a MCP server's `h2a_run` tool — that is how a skill user reaches the `h2a run` operation.
 The packaged Claude Code hook also refuses direct `h2a` CLI calls from Bash.
 
@@ -107,6 +109,17 @@ retry.
    `completed` requires ≥2 eligible completed legs and no failed dispatched leg. Any dispatched leg that
    fails makes the dossier `incomplete`; selection failure and incomplete review have no consensus verdict.
 
+   For a code target, the dossier also carries the change-risk counter, next to the aggregate result:
+
+   ```yaml
+   change-risk:
+     pr: <pull request or branch; the tally keeps the last round of each PR>
+     touched: <units in the table>
+     alerts: <units that trip the ratchet: added or made more complex, and over 30>
+     not-relevant: <alerts both legs judge not relevant>
+     na: <touched units without coverage>
+   ```
+
 ## Receiving review (technical rigor, not performative agreement)
 
 Before implementing a suggestion, verify it. If feedback is unclear or technically questionable, push back
@@ -119,6 +132,12 @@ Findings that gate a lot escalate to a `VerificationRun` (`harness verify --cate
 findings stay a `WorkEvent`. Blocking findings must be resolved before merge; non-blocking are logged in
 `BRANCH.md` `## Feedback Loop` with owner + status.
 
+Change risk (`harness/test`) is reported with its table and its counter; it does not block a merge by
+itself. One case blocks today: a score brought down by tests that assert nothing. For a `switch`, judge
+before asking for a split: delegating cases are not counted, and a function still over 30 because its
+cases hold logic may read better left whole — say which, and why. An alert both legs find not relevant
+is counted as `not-relevant`.
+
 ## Enforcement boundary
 
 **Structural > test > spec line > habit.** The MCP schema and Claude Code Bash guard are structural for
@@ -126,3 +145,5 @@ launch shape only. This skill states the metadata, selector, artefact, and failu
 but an agent still applies the predicate, trusts declared identities, and checks outputs (habit). No code
 in this design enforces author exclusion or attests the effective model; do not present either as
 structural or test-backed.
+
+The change-risk number comes from a script and its tests; what a reviewer does with it is habit.

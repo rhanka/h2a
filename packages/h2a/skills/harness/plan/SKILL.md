@@ -17,7 +17,10 @@ detailed:
 - **Objective** + **Scope / Guardrails**.
 - **Branch Scope Boundaries**: `Allowed` / `Forbidden` / `Conditional` paths (default forbidden: `Makefile`,
   `docker-compose*.yml`, `.cursor/rules/**`). Exceptions via `BRxx-EXn` (reason + impact + rollback).
-- **Lot-based plan**: each lot is one logical change with a file-level test list and a lot gate.
+- **Lot-based plan**: each lot is one logical change with a file-level test list and a lot gate. When a
+  lot touches a function whose complexity is already over 30 (`harness/test`, Change risk), its test
+  list starts with the tests that pin that function's current behaviour, and a split of that function
+  is a lot of its own.
 - **Feedback Loop** for blockers/decisions.
 
 ## Lots & commit discipline
