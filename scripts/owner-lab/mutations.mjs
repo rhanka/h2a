@@ -8,14 +8,13 @@ assert.equal(process.env.GITHUB_ACTIONS, 'true');
 assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted');
 assert.ok(process.env.TMPDIR);
 const runtime = resolve('packages/h2a-runtime/dist');
-function red(name, entry, pattern, mutate, expected) {
+function red(name, entry, pattern, mutate, expected, testFile = 'packages/h2a/test/native-host-crash-recovery.test.js') {
   const original = readFileSync(entry, 'utf8');
   const changed = mutate(original);
   assert.notEqual(changed, original, `${name}: mutation did not apply`);
   try {
     writeFileSync(entry, changed);
-    const args = ['--test', ...(pattern ? ['--test-name-pattern=' + pattern] : []),
-      name === 'worker-scope' ? 'scripts/owner-lab/isolation.qualification.mjs' : 'packages/h2a/test/native-host-crash-recovery.test.js'];
+    const args = ['--test', ...(pattern ? ['--test-name-pattern=' + pattern] : []), testFile];
     const result = spawnSync(process.execPath, args, { env: process.env, encoding: 'utf8', timeout: 20000 });
     assert.equal(result.error, undefined, `${name}: infrastructure error`);
     assert.notEqual(result.status, 0, `${name}: regression escaped its release gate`);
@@ -31,7 +30,15 @@ red('publication-contention', join(runtime, 'native-terminal/server.js'), 'ten c
   /publication lock timed out/);
 red('worker-scope', join(runtime, 'native-terminal/process.js'), undefined,
   code => code.replace('spawner: isolation.isolated ?', 'spawner: false ?'),
-  /h2a-native-/);
+  /h2a-native-/,
+  'scripts/owner-lab/isolation.qualification.mjs');
+red('oom-non-oom-sigkill', resolve('scripts/owner-lab/isolation.qualification.mjs'), undefined,
+  code => code.replace(
+    'let count=0;const timer=setInterval(()=>{keep.push(Buffer.alloc(1024*1024,1));if(++count===160)clearInterval(timer);},10);',
+    "process.kill(process.pid,'SIGKILL');",
+  ),
+  /worker agent died without any cgroup oom_kill/,
+  'scripts/owner-lab/isolation.qualification.mjs');
 // R5 negative control: a 1 s sleep in the packaged bin.js must fail the
 // BLOCKING non-regression gate of EVERY committed mode/state (fresh, resume,
 // restore on fallback; fresh/resume 1 live/killed on systemd — one cell each
