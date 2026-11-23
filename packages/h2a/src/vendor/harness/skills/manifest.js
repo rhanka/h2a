@@ -15,6 +15,7 @@ export const HARNESS_SKILLS = [
     { name: 'track-report', summary: 'render the deterministic track output in session (FAIT/À-FAIRE/DÉCISIONS/RECOMMANDATION), no AI subprocess' },
     { name: 'plan', summary: 'spec-ladder + BRANCH.md lots; completes with track', legacySuperpowers: 'writing-plans' },
     { name: 'adopt', summary: 'adapt the harness method to ANY repo (profile)' },
+    { name: 'code-debt', summary: 'existing change-risk debt: computed inventory, independent lots, owner-ratified order' },
 ];
 /** Host → the skills directory `skills install` copies the pack into. */
 export const HOST_SKILL_DIR = {
