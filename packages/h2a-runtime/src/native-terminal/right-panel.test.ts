@@ -655,3 +655,115 @@ describe("PANEL L1 unit helpers (hit spans, expander state, wheel step, width ac
     expect(panel.selectedDelegatedNamesForBar()).toBeUndefined();
   });
 });
+
+describe("S2 restorable expander (plan 09-S2)", () => {
+  function restorableSnapshot(): RightPanelSnapshot {
+    return buildRightPanelSnapshot({
+      currentSessionId: "s-live",
+      groups: [
+        {
+          title: "core",
+          sessions: [{ id: "s-live", label: "live", status: "running" }],
+          restorable: [
+            {
+              key: "registry:dead-1",
+              label: "dead-one",
+              reason: "launch-cap",
+              reasonText: "launch cap",
+              state: "queued",
+              relaunch: {
+                args: ["run", "claude", "/src/a", "--resume", "sid-1", "--name", "dead-one", "--no-attach"],
+                env: [],
+                cwd: "/src/a",
+              },
+            },
+            {
+              key: "registry:dead-2",
+              label: "dead-two",
+              reason: "unresolved-conversation",
+              reasonText: "conversation not resolved",
+              state: "queued",
+            },
+            {
+              key: "registry:dead-3",
+              label: "dead-three",
+              reason: "dual-host",
+              reasonText: "identity on two hosts",
+              state: "queued",
+            },
+            {
+              key: "registry:dead-4",
+              label: "dead-four",
+              reason: "unknown-view",
+              reasonText: "view unknown",
+              state: "queued",
+            },
+            {
+              key: "registry:dead-5",
+              label: "dead-five",
+              reason: "unclassified-scan",
+              reasonText: "unclassified-scan",
+              state: "queued",
+            },
+          ],
+        },
+      ],
+      decisions: [],
+    });
+  }
+
+  function plainish(text: string): string {
+    return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  }
+
+  it("should list every restorable row under its tab, uncapped, with its reason", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot: restorableSnapshot(),
+      width: 60,
+    });
+    const mark = out.chunks.length;
+    panel.toggle();
+    const collapsed = plainish(out.chunks.slice(mark).join(""));
+    expect(panel.isOpen()).toBe(true);
+    expect(collapsed).toContain("5 restorable");
+    for (const label of ["dead-one", "dead-two", "dead-three", "dead-four", "dead-five"]) {
+      expect(collapsed).not.toContain(label);
+    }
+
+    // Walk down to the expander and open it: one uncapped section, one motif a row.
+    panel.handleInput("j", { cliMouseEnabled: false });
+    const toggled = panel.handleInput("\r", { cliMouseEnabled: false });
+    expect(toggled.actions).toContainEqual({
+      type: "toggle-restorable-expander",
+      tab: "core",
+      expanded: true,
+    });
+    const expanded = plainish(out.chunks.slice(mark).join(""));
+    for (
+      const [label, reason] of [
+        ["dead-one", "launch cap"],
+        ["dead-two", "conversation not resolved"],
+        ["dead-three", "identity on two hosts"],
+        ["dead-four", "view unknown"],
+        ["dead-five", "unclassified-scan"],
+      ]
+    ) {
+      expect(expanded).toContain(label);
+      expect(expanded).toContain(reason);
+    }
+
+    // Enter on the relaunchable row offers its gesture; a row without
+    // gesture offers nothing and guesses no identifier.
+    panel.handleInput("j", { cliMouseEnabled: false });
+    const gesture = panel.handleInput("\r", { cliMouseEnabled: false });
+    expect(gesture.actions).toContainEqual({
+      type: "activate-restorable-row",
+      key: "registry:dead-1",
+    });
+    panel.handleInput("j", { cliMouseEnabled: false });
+    const silent = panel.handleInput("\r", { cliMouseEnabled: false });
+    expect(silent.actions).toEqual([]);
+  });
+});
