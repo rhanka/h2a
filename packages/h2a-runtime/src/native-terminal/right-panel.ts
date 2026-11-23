@@ -170,7 +170,13 @@ export type RightPanelRestorableRow = Readonly<{
   code?: string | undefined;
   /** Relaunch tokens (`h2a run … --no-attach`); absent ⇒ no gesture, ever. */
   relaunch?:
-    | Readonly<{ args: readonly string[]; env: readonly string[]; cwd: string }>
+    | Readonly<{
+        args: readonly string[];
+        env: readonly string[];
+        cwd: string;
+        /** Managed session name to watch for the first running observation. */
+        name?: string | undefined;
+      }>
     | undefined;
 }>;
 
@@ -1066,6 +1072,8 @@ export class RightPanelController {
       if (index < 0) continue;
       this.activeTabIndex = tab;
       this.#selectedSession = index;
+      // S2: the cursor follows the displayed live session, out of restorable.
+      this.#selectedRestorable = undefined;
       this.#selectedExtra = undefined;
       this.#ensureSelectedRowVisible();
       this.paint();
@@ -2027,9 +2035,6 @@ export class RightPanelController {
         return { dirty: true, actions: [] };
       }
       const next = Math.max(0, Math.min(sessions.length - 1, this.#selectedSession + delta));
-      if (next === this.#selectedSession && this.#selectedExtra !== undefined) {
-        return { dirty: false, actions: [] };
-      }
       // S2: past the last extra of the last session lies the restorable section.
       if (
         delta === 1 &&
@@ -2042,6 +2047,9 @@ export class RightPanelController {
         this.#selectedRestorable = -1;
         this.#ensureSelectedRowVisible();
         return { dirty: true, selectionChanged: true, actions: [] };
+      }
+      if (next === this.#selectedSession && this.#selectedExtra !== undefined) {
+        return { dirty: false, actions: [] };
       }
       this.#selectedSession = next;
       this.#selectedExtra = undefined;

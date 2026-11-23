@@ -1210,6 +1210,7 @@ function stationRestorableFromPlan(args: {
       args: [...tokens.args, "--no-attach"],
       env: [...tokens.env],
       cwd: tokens.cwd,
+      ...(tab.managedName !== undefined ? { name: tab.managedName } : {}),
     };
   };
 
