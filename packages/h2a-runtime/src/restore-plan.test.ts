@@ -45,6 +45,8 @@ const {
   groupSessionsWithClassification,
   managedLiveLookupFromSnapshot,
   planLayoutLaunch,
+  resumeArgvVerified,
+  tabRunInvocation,
 } = await import("./restore-plan.js");
 type RegistryEntry = import("./registry.js").RegistryEntry;
 type HostViewSnapshot = import("./launch-layout.js").HostViewSnapshot;
@@ -1372,5 +1374,107 @@ describe("D2 — foreground facet decisions in decideLayoutTab and planLayoutLau
     }
     expect(otherDecision.ledgerOutcome).toBe("deferred:foreground-other");
     expect(planLayoutLaunch([{ title: "w", tabs: [tab] }], otherHost).windows[0]!.decisions[0]).toEqual(otherDecision);
+  });
+});
+
+describe("S2 step 1 — relaunch tokens mirror tabCommand, profile by profile and pin by pin (plan 09-S2)", () => {
+  /** Split a `tabCommand` string on its own single-quote rule (`:1353`). */
+  function splitShell(command: string): string[] {
+    const out: string[] = [];
+    const re = /'((?:[^']|'\\'')*)'|(\S+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(command)) !== null) {
+      if (m[1] !== undefined) out.push(m[1].replace(/'\\''/g, "'"));
+      else out.push(m[2]!);
+    }
+    return out;
+  }
+
+  const pins: Array<{ name: string; tab: Partial<LayoutTab>; opts?: { forceGateway?: "gateway" | "direct" } }> = [
+    { name: "no pin", tab: {} },
+    { name: "explicit gateway pin", tab: { gatewayMode: "gateway", gatewayProvenance: "explicit" } },
+    { name: "explicit direct pin", tab: { gatewayMode: "direct", gatewayProvenance: "explicit" } },
+    { name: "direct without provenance", tab: { gatewayMode: "direct" } },
+    { name: "bare", tab: { bare: true } },
+    { name: "no-bare", tab: { bare: false } },
+    { name: "native host", tab: { hostKind: "local-native" } },
+    { name: "tmux host", tab: { hostKind: "local-tmux" } },
+    {
+      name: "explicit gateway + native + bare",
+      tab: { gatewayMode: "gateway", gatewayProvenance: "explicit", hostKind: "local-native", bare: true },
+    },
+    {
+      name: "forced gateway over direct pin",
+      tab: { gatewayMode: "direct", gatewayProvenance: "explicit" },
+      opts: { forceGateway: "gateway" },
+    },
+    {
+      name: "forced direct over gateway pin",
+      tab: { gatewayMode: "gateway", gatewayProvenance: "explicit" },
+      opts: { forceGateway: "direct" },
+    },
+  ];
+
+  it("should emit the same tokens as tabCommand for every profile and pin", () => {
+    for (const tool of ["claude", "codex", "agy", "muse", "vibe"]) {
+      for (const pin of pins) {
+        const tab: LayoutTab = {
+          cwd: "/src/h2a",
+          label: `${tool}-one`,
+          tool,
+          sid: "22222222-2222-4222-8222-222222222201",
+          ...pin.tab,
+        };
+        const tokens = tabRunInvocation(tab, pin.opts ?? {});
+        expect(tokens, `${tool}/${pin.name}`).toBeDefined();
+        expect(tokens!.cwd).toBe(tab.cwd);
+        expect([...tokens!.env, "h2a", ...tokens!.args]).toEqual(
+          splitShell(tabCommand(tab, new Set(), pin.opts ?? {})),
+        );
+      }
+    }
+  });
+
+  it("should survive spaces and single quotes in cwd and label", () => {
+    const tab: LayoutTab = {
+      cwd: "/tmp/a b",
+      label: "o'clock shift",
+      tool: "claude",
+      sid: "22222222-2222-4222-8222-222222222201",
+      hostKind: "local-native",
+    };
+    const tokens = tabRunInvocation(tab);
+    expect(tokens).toBeDefined();
+    expect([...tokens!.env, "h2a", ...tokens!.args]).toEqual(splitShell(tabCommand(tab, new Set(), {})));
+    expect(tokens!.args).toContain("/tmp/a b");
+    expect(tokens!.args).toContain("o'clock shift");
+  });
+
+  it("should emit nothing for a remote tab, an attach-live tab or a tab without sid", () => {
+    expect(
+      tabRunInvocation({ cwd: "/pod", label: "pod1", remoteId: "scw-42" }),
+    ).toBeUndefined();
+    expect(
+      tabRunInvocation({
+        cwd: "/src/h2a",
+        label: "live",
+        tool: "claude",
+        sid: "",
+        attachLive: true,
+        hostKind: "local-native",
+        managedName: "h2a-live",
+      }),
+    ).toBeUndefined();
+    expect(
+      tabRunInvocation({ cwd: "/src/h2a", label: "nosid", tool: "claude" }),
+    ).toBeUndefined();
+  });
+
+  it("should report the agy resume argv as not verified", () => {
+    expect(resumeArgvVerified("agy")).toBe(false);
+    expect(resumeArgvVerified("antigravity")).toBe(false);
+    for (const tool of ["claude", "codex", "muse", "vibe"]) {
+      expect(resumeArgvVerified(tool)).toBe(true);
+    }
   });
 });
