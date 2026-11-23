@@ -18,7 +18,9 @@
  * that is never written to nor resized. The manual pin, the broker and the
  * draft vault live in the host; the station only calls them.
  *
- * This module never spawns a process and never starts or stops a PTY.
+ * The station never spawns a process itself and never starts or stops a PTY:
+ * every relaunch goes through the `execH2a` effect port of its runtime
+ * (`nt/op.ts`), one call at a time, as detached `h2a` tokens.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -53,12 +55,15 @@ import {
   type RightPanelForwardedMouse,
   type RightPanelHandleResult,
   type RightPanelOverlay,
+  type RightPanelRestorableRow,
   type RightPanelSession,
   type RightPanelSnapshot,
 } from "./right-panel.js";
+import { resumeArgvVerified, titleMatches } from "../restore-plan.js";
 import {
   RightPanelSnapshotRefresher,
   TrackJournalCache,
+  TranscriptScanCache,
   buildLiveRightPanelSnapshot,
   type BuildLiveRightPanelSnapshotOptions,
 } from "./right-panel-snapshot.js";
@@ -227,6 +232,24 @@ export type StationStatusBar = SessionViewStatusBar & {
   restoreChildStateSequence(): string;
 };
 
+/** S2 effect port: one detached `h2a` call, tokens after the binary. */
+export type StationCliRequest = Readonly<{
+  args: readonly string[];
+  cwd: string;
+  /** Plan pins, added to the station environment. */
+  env?: Readonly<Record<string, string>>;
+}>;
+
+export type StationCliResult =
+  | Readonly<{ ok: true; stdout: string }>
+  | Readonly<{
+      ok: false;
+      code: "binary-missing" | "timeout" | "exit-nonzero" | "spawn-error";
+      exitCode?: number;
+      stdout: string;
+      stderr: string;
+    }>;
+
 export type StationRuntime = {
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream;
@@ -243,6 +266,12 @@ export type StationRuntime = {
   connect(socketPath: string): Promise<StationHostClient>;
   /** Proof that an unreachable endpoint is absent rather than unknown. */
   proveAbsent?(socketPath: string, failure: unknown): Promise<boolean>;
+  /**
+   * S2 relaunch effect (launch file and D1/D2 gestures share one queue).
+   * Never throws. Absent ⇒ every relaunch gesture reports
+   * `relaunch-unavailable` on its line.
+   */
+  execH2a?(request: StationCliRequest): Promise<StationCliResult>;
 };
 
 export type StationRefusalReason =
@@ -286,6 +315,12 @@ export type StationEvent =
   | { type: "lease-released"; sessionId: string }
   | { type: "reconnected"; sessionId: string }
   | { type: "gesture"; gesture: string; sessionId: string; outcome: string }
+  | {
+      type: "relaunch";
+      key: string;
+      phase: "queued" | "started" | "done" | "failed";
+      code?: string;
+    }
   | { type: "closed"; reason: "detach" | "stdin-end" | "terminate" };
 
 export type StationPanelOptions = {
@@ -311,8 +346,12 @@ export type StationOptions = {
   readonly statePath?: string;
   /** Private directory of raw draft exports (default: next to the state). */
   readonly exportDir?: string;
-  /** Dead sessions of the restore plan: displayed as a number before S2. */
-  readonly deadCount?: number;
+  /** S2: a group title matched to the initial tab. */
+  readonly group?: string;
+  /** S2: list the relaunchable sessions without launching them. */
+  readonly lazy?: boolean;
+  /** S2: gateway posture passed to the station plan. */
+  readonly forceGateway?: "gateway" | "direct";
   readonly locale?: string;
   readonly tty?: string;
   readonly pid?: number;
@@ -330,8 +369,31 @@ type HostLink = {
   client: StationHostClient;
   /** INJ L2 host: the legacy automation lease is closed server-side. */
   brokerProtected: boolean;
+  /** S2 D1: the host can respawn a session in place (`softRespawn` ping). */
+  softRespawn: boolean;
   generation: string;
 };
+
+type RelaunchEntry = {
+  key: string;
+  args: readonly string[];
+  cwd: string;
+  env: Readonly<Record<string, string>>;
+};
+
+/** S2 reason ids with a catalogued motif (any other code shows as-is). */
+const RESTORABLE_REASON_KEYS = new Set([
+  "launch-cap",
+  "resume-argv-unverified",
+  "unresolved-conversation",
+  "dual-host",
+  "unknown-view",
+]);
+
+/** S2 D-guard bound: terminal draft state waited at most this long. */
+const DRAFT_TERMINAL_WAIT_MS = 2_000;
+/** S2 D-guard poll slice on the harness clock. */
+const DRAFT_TERMINAL_POLL_MS = 250;
 
 type GuardLease = {
   lease: NativeTerminalControllerLease;
@@ -546,6 +608,19 @@ class Station {
   #titlePushed = false;
   #recoveryView: { view: DraftRecoveryView; ref: StationDraftRef } | undefined;
   #trackCache: TrackJournalCache | undefined;
+  /** S2: the station provides the transcript-scan cache (single 60 s slot). */
+  #scanCache = new TranscriptScanCache();
+  /** S2 relaunch file: one call in flight for the whole station. */
+  #relaunchQueue: RelaunchEntry[] = [];
+  #relaunchStates = new Map<string, { state: RightPanelRestorableRow["state"]; code?: string }>();
+  #relaunchInFlight: string | undefined;
+  #pumpRunning = false;
+  /** S2: relaunch targets watched for their first running observation. */
+  #pendingDisplay: Array<{ sessionId?: string; name?: string; onlyIfIdle: boolean }> = [];
+  /** S2: a human gesture already activated a line (no initial auto-display). */
+  #humanActivatedLine = false;
+  /** S2: the launch file already showed its first running session. */
+  #launchAutoShown = false;
   /** Nothing is painted before the launch decided what to display. */
   #started = false;
   /** Set when the station is leaving: no connection may be opened or kept. */
@@ -643,6 +718,8 @@ class Station {
           client,
           // Absent or not understood ⇒ compatibility guard (r4 §3.1, §4).
           brokerProtected: ping.composerBrokerVersion === 1,
+          // S2 D1: in-place respawn needs the host soft-respawn capability.
+          softRespawn: ping.softRespawn === true,
           generation: ping.generation,
         };
         this.#links.set(socketPath, link);
@@ -850,6 +927,12 @@ class Station {
         nowMs: this.#runtime.now(),
         seenDecisionKeys,
         ...(this.#trackCache !== undefined ? { trackCache: this.#trackCache } : {}),
+        // S2: the station always provides the scan cache and the gateway
+        // posture; the loader computes the restore plan from its own photo.
+        scanCache: this.#scanCache,
+        ...(this.#options.forceGateway !== undefined
+          ? { forceGateway: this.#options.forceGateway }
+          : {}),
         // One inventory feeds the panel rows, the owners and the guard checks.
         collectNative: () => this.#collectInventory(),
       });
@@ -950,6 +1033,35 @@ class Station {
         activatable: true,
       });
     }
+    // S2 D1: in-place relaunch of the process in place, confirmed and naming
+    // what is terminated. Facets `cli` and `other` never offer it: the CLI is
+    // alive there, this is not a D1 (r2 `:271`). Unverified argv or
+    // conversation shows the motif instead of the gesture (r2 `:279`).
+    if (link !== undefined && state?.status === "running") {
+      const facet = state.applicationFacet;
+      if (facet === "shell" || facet === undefined || facet === "unknown") {
+        if (!row.tool || !resumeArgvVerified(row.tool)) {
+          extraRows.push({
+            id: "respawn-unavailable",
+            text: this.#t("station.restorable.reason.resumeArgvUnverified"),
+            whenSelected: true,
+          });
+        } else if (row.resumeConversationVerified !== true) {
+          extraRows.push({
+            id: "respawn-unavailable",
+            text: this.#t("station.restorable.reason.unresolvedConversation"),
+            whenSelected: true,
+          });
+        } else {
+          extraRows.push({
+            id: "respawn-in-place",
+            text: this.#t("station.row.respawn"),
+            activatable: true,
+            whenSelected: true,
+          });
+        }
+      }
+    }
     // Contextual gestures: shown under the selected row, always confirmed.
     if (link !== undefined && state?.status === "running") {
       if (!link.brokerProtected && !displayedHere) {
@@ -992,16 +1104,45 @@ class Station {
     };
   }
 
+  #decorateRestorableRow(row: RightPanelRestorableRow): RightPanelRestorableRow {
+    const progress = this.#relaunchStates.get(row.key);
+    const state = progress?.state ?? row.state;
+    const code = progress?.code ?? row.code;
+    return {
+      ...row,
+      state,
+      ...(code !== undefined ? { code } : {}),
+      reasonText:
+        row.reasonText ??
+        (RESTORABLE_REASON_KEYS.has(row.reason)
+          ? this.#t(`station.restorable.reason.${row.reason}`)
+          : row.reason),
+      stateText: this.#t(`station.restorable.state.${state}`, { code: code ?? "unknown" }),
+    };
+  }
+
   #decorate(snapshot: RightPanelSnapshot): RightPanelSnapshot {
-    const dead = this.#options.deadCount ?? 0;
+    // S2: the parent no longer counts dead sessions; the station plan lists
+    // them under `restorable`, one row each. The relaunch file progress and
+    // the localised motif/state lines merge here.
     return {
       ...snapshot,
       workspaces: snapshot.workspaces.map((workspace) => ({
         title: workspace.title,
         sessions: workspace.sessions.map((row) => this.#decorateRow(row)),
+        ...(workspace.restorable !== undefined
+          ? { restorable: workspace.restorable.map((row) => this.#decorateRestorableRow(row)) }
+          : {}),
       })),
-      ...(dead > 0
-        ? { footerRows: [this.#t("station.dead.count", { count: dead })] }
+      // S2: a refused restore plan says its reason once, in the foot.
+      ...(snapshot.restorablePlanRefused !== undefined
+        ? {
+            footerRows: [
+              this.#t("station.restorable.planRefused", {
+                reason: singleLine(snapshot.restorablePlanRefused),
+              }),
+            ],
+          }
         : {}),
     };
   }
@@ -1012,11 +1153,156 @@ class Station {
     this.#panel.setSnapshot(decorated);
     this.#bar?.paint(false);
     this.#emit({ type: "snapshot", snapshot: decorated });
+    // S2: a watched relaunch target switches at its first running observation.
+    void this.#maybePendingDisplay();
   }
 
   /** Re-derive the station marks (displayed, guards, drafts) without a reload. */
   #redecorate(): void {
     if (this.#rawSnapshot) this.#applySnapshot(this.#rawSnapshot);
+  }
+
+  // --- S2 relaunch file -------------------------------------------------------
+
+  /** One detached `h2a` call; absent port or throw ⇒ a named issue, never a throw. */
+  async #execRelaunch(entry: {
+    args: readonly string[];
+    cwd: string;
+    env: Readonly<Record<string, string>>;
+  }): Promise<{ ok: true; stdout: string } | { ok: false; code: string }> {
+    const exec = this.#runtime.execH2a;
+    if (!exec) return { ok: false, code: "relaunch-unavailable" };
+    try {
+      const result = await exec({ args: entry.args, cwd: entry.cwd, env: entry.env });
+      return result.ok ? { ok: true, stdout: result.stdout } : { ok: false, code: result.code };
+    } catch {
+      return { ok: false, code: "spawn-error" };
+    }
+  }
+
+  #enqueueRelaunch(entry: RelaunchEntry, front: boolean): boolean {
+    if (
+      this.#relaunchQueue.some((queued) => queued.key === entry.key) ||
+      this.#relaunchInFlight === entry.key
+    ) {
+      return false;
+    }
+    if (front) this.#relaunchQueue.unshift(entry);
+    else this.#relaunchQueue.push(entry);
+    this.#relaunchStates.set(entry.key, { state: "queued" });
+    this.#emit({ type: "relaunch", key: entry.key, phase: "queued" });
+    this.#pumpRelaunchFile();
+    if (!this.#ended) this.#redecorate();
+    return true;
+  }
+
+  /** S2 launch file at station start: every relaunchable row, in plan order. */
+  #startRelaunchFile(rows: readonly RightPanelRestorableRow[]): void {
+    for (const row of rows) {
+      if (row.relaunch === undefined) continue;
+      if (this.#options.lazy === true) {
+        this.#relaunchStates.set(row.key, { state: "deferred" });
+        this.#emit({ type: "relaunch", key: row.key, phase: "queued" });
+        continue;
+      }
+      const env: Record<string, string> = {};
+      for (const pin of row.relaunch.env) {
+        const at = pin.indexOf("=");
+        if (at > 0) env[pin.slice(0, at)] = pin.slice(at + 1);
+      }
+      if (this.#relaunchQueue.some((queued) => queued.key === row.key)) continue;
+      this.#relaunchQueue.push({
+        key: row.key,
+        args: [...row.relaunch.args],
+        cwd: row.relaunch.cwd,
+        env,
+      });
+      this.#relaunchStates.set(row.key, { state: "queued" });
+      this.#emit({ type: "relaunch", key: row.key, phase: "queued" });
+      // At launch the station shows the first relaunched session running —
+      // once, only while nothing is displayed and no gesture was made.
+      if (row.relaunch.name !== undefined) {
+        this.#pendingDisplay.push({ name: row.relaunch.name, onlyIfIdle: true });
+      }
+    }
+    if (!this.#ended) this.#redecorate();
+    this.#pumpRelaunchFile();
+  }
+
+  /**
+   * One call in flight for the whole station, relaunches of the launch file
+   * and gestures confounded. The loop never awaits it (r2 `:281`): an entry
+   * settles, a typed keystroke is served, then the next entry starts. A
+   * failed entry marks its line and lets the next one go.
+   */
+  #pumpRelaunchFile(): void {
+    if (this.#pumpRunning) return;
+    this.#pumpRunning = true;
+    void (async () => {
+      try {
+        for (;;) {
+          if (this.#ended) return;
+          const next = this.#relaunchQueue.shift();
+          if (!next) return;
+          this.#relaunchInFlight = next.key;
+          this.#relaunchStates.set(next.key, { state: "launching" });
+          this.#emit({ type: "relaunch", key: next.key, phase: "started" });
+          if (!this.#ended) this.#redecorate();
+          const result = await this.#execRelaunch(next);
+          this.#relaunchInFlight = undefined;
+          if (result.ok) {
+            this.#relaunchStates.set(next.key, { state: "ended" });
+            this.#emit({ type: "relaunch", key: next.key, phase: "done" });
+          } else {
+            this.#relaunchStates.set(next.key, { state: "failed", code: result.code });
+            this.#emit({ type: "relaunch", key: next.key, phase: "failed", code: result.code });
+          }
+          if (!this.#ended) {
+            this.#redecorate();
+            await this.#maybePendingDisplay();
+          }
+          await this.#runtime.delay(0);
+        }
+      } finally {
+        this.#pumpRunning = false;
+      }
+    })().catch(() => {
+      this.#pumpRunning = false;
+    });
+  }
+
+  /** Switch to a watched relaunch target at its first running observation. */
+  async #maybePendingDisplay(): Promise<void> {
+    if (this.#ended || !this.#inventory) return;
+    const remaining: Array<{ sessionId?: string; name?: string; onlyIfIdle: boolean }> = [];
+    for (const pending of this.#pendingDisplay) {
+      const id = pending.sessionId ?? pending.name;
+      const target =
+        id !== undefined
+          ? this.#inventory.sessions.find(
+              (session) => session.id === id && session.status === "running",
+            )
+          : undefined;
+      if (!target) {
+        remaining.push(pending);
+        continue;
+      }
+      if (pending.onlyIfIdle) {
+        if (this.#displayed !== undefined || this.#humanActivatedLine || this.#launchAutoShown) {
+          remaining.push(pending);
+          continue;
+        }
+        this.#launchAutoShown = true;
+      }
+      // A hard relaunch replaces the PTY under the displayed view: the old
+      // leases died with the old incarnation, so the connection is dropped
+      // (as on an interruption) and the normal switch takes a fresh lease.
+      if (this.#displayed?.id === target.id) {
+        this.#dropLink(target.socketPath);
+      }
+      void this.#switchTo(target.id, {});
+    }
+    this.#pendingDisplay = remaining;
   }
 
   // --- input ----------------------------------------------------------------
@@ -1189,7 +1475,13 @@ class Station {
           if (remembered !== undefined) this.#panel.selectSessionById(remembered);
         }
       } else if (action.type === "activate-extra-row") {
+        this.#humanActivatedLine = true;
         this.#activateExtraRow(action.sessionId, action.rowId);
+      } else if (action.type === "toggle-restorable-expander") {
+        // Panel-internal: the controller already toggled its section.
+      } else if (action.type === "activate-restorable-row") {
+        this.#humanActivatedLine = true;
+        this.#relaunchFromRow(action.key);
       }
     }
     for (const mouse of handled.forwardedMouse ?? []) {
@@ -1333,7 +1625,273 @@ class Station {
     else if (rowId === "guard-keep") confirm("station.confirm.guardKeep", () => this.#keepGuard(sessionId));
     else if (rowId === "pin-set") confirm("station.confirm.pinSet", () => this.#setManualPin(sessionId, true));
     else if (rowId === "pin-remove") confirm("station.confirm.pinRemove", () => this.#setManualPin(sessionId, false));
+    else if (rowId === "respawn-in-place") this.#confirmRespawnInPlace(sessionId);
     else if (rowId.startsWith("draft:")) void this.#openRecoveryView(sessionId, rowId).catch(() => {});
+  }
+
+  /** S2 D1 availability, re-checked at gesture time (never a guessed identifier). */
+  #respawnAvailability(
+    sessionId: string,
+  ):
+    | { ok: true; kind: "shell" | "unknown"; pid: number; group: number | null }
+    | { ok: false; reason: "argv" | "conversation" | "facet" | "state" } {
+    const state = this.#inventory?.sessions.find((session) => session.id === sessionId);
+    if (!state || state.status !== "running") return { ok: false, reason: "state" };
+    const facet = state.applicationFacet;
+    if (facet !== "shell" && facet !== undefined && facet !== "unknown") {
+      return { ok: false, reason: "facet" };
+    }
+    const row = this.#rawSnapshot?.workspaces
+      .flatMap((workspace) => workspace.sessions)
+      .find((candidate) => candidate.id === sessionId);
+    if (!row?.tool || !resumeArgvVerified(row.tool)) return { ok: false, reason: "argv" };
+    if (row.resumeConversationVerified !== true) return { ok: false, reason: "conversation" };
+    return {
+      ok: true,
+      kind: facet === "shell" ? "shell" : "unknown",
+      pid: state.pid,
+      group: state.foregroundProcessGroup ?? null,
+    };
+  }
+
+  /** S2 D1: confirm naming the process in place (pid, foreground state). */
+  #confirmRespawnInPlace(sessionId: string): void {
+    const session = this.#sessionLabel(sessionId);
+    const availability = this.#respawnAvailability(sessionId);
+    if (!availability.ok) {
+      const key =
+        availability.reason === "argv"
+          ? "station.restorable.reason.resumeArgvUnverified"
+          : "station.restorable.reason.unresolvedConversation";
+      this.#showCard([`${session}: ${this.#t(key)}`], this.#t("station.card.dismiss"));
+      return;
+    }
+    const confirmKey =
+      availability.kind === "shell" && availability.group !== null
+        ? "station.confirm.respawnShell"
+        : "station.confirm.respawnUnknown";
+    this.#showCard(
+      [
+        this.#t(confirmKey, {
+          session,
+          pid: availability.pid,
+          group: availability.group ?? "unknown",
+        }),
+      ],
+      this.#t("station.confirm.prompt"),
+      () => {
+        void this.#respawnInPlace(sessionId).catch(() => {});
+      },
+    );
+  }
+
+  /** S2 step 6: the D1/D-hard effect waits for a terminal draft state first. */
+  async #readDraftTerminal(sessionId: string): Promise<boolean> {
+    const owner = this.#inventory?.sessions.find((session) => session.id === sessionId);
+    if (!owner) return true;
+    let link: HostLink;
+    try {
+      link = await this.#link(owner.socketPath);
+    } catch {
+      return true;
+    }
+    // A host without the D port carries no draft: the guard passes.
+    if (typeof link.client.draftStatus !== "function") return true;
+    let statuses: Record<string, StationSessionDraftStatus | undefined>;
+    try {
+      statuses = (await link.client.draftStatus([sessionId])) as Record<
+        string,
+        StationSessionDraftStatus | undefined
+      >;
+    } catch {
+      // An unreadable source never reads as a draft in flight.
+      return true;
+    }
+    const drafts = statuses[sessionId]?.drafts ?? [];
+    return !drafts.some((draft) => draft.draft === "restoring-on-ready");
+  }
+
+  async #awaitDraftTerminal(sessionId: string): Promise<boolean> {
+    const start = this.#runtime.now();
+    for (;;) {
+      if (await this.#readDraftTerminal(sessionId)) return true;
+      if (this.#runtime.now() - start >= DRAFT_TERMINAL_WAIT_MS) return false;
+      await this.#runtime.delay(DRAFT_TERMINAL_POLL_MS);
+    }
+  }
+
+  /** Read the `h2a restart --json` issue (`h2a.restart.result`). */
+  #parseRestartResult(
+    stdout: string,
+    sessionId: string,
+  ): { ok: true; strategy: string } | { ok: false; code: string } {
+    let parsed: {
+      kind?: unknown;
+      ok?: unknown;
+      sessions?: Array<{
+        id?: unknown;
+        name?: unknown;
+        restarted?: unknown;
+        strategy?: unknown;
+        failure?: unknown;
+      }>;
+    };
+    try {
+      parsed = JSON.parse(stdout) as typeof parsed;
+    } catch {
+      return { ok: false, code: "invalid-response" };
+    }
+    const row = parsed?.sessions?.find(
+      (candidate) => candidate.id === sessionId || candidate.name === sessionId,
+    );
+    if (parsed?.kind !== "h2a.restart.result" || !row) {
+      return { ok: false, code: "invalid-response" };
+    }
+    if (typeof row.failure === "string") return { ok: false, code: row.failure };
+    if (parsed.ok !== true || row.restarted !== true || typeof row.strategy !== "string") {
+      return { ok: false, code: "unknown" };
+    }
+    return { ok: true, strategy: row.strategy };
+  }
+
+  /** S2 D1: relaunch in place (soft), then watch or refuse per the issue. */
+  async #respawnInPlace(sessionId: string): Promise<void> {
+    const session = this.#sessionLabel(sessionId);
+    let outcome = "done";
+    try {
+      const owner = await this.#resolveOwner(sessionId, true);
+      if (owner.state !== "found") throw new Error(owner.state);
+      const link = await this.#link(owner.socketPath);
+      if (link.softRespawn !== true) {
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+        this.#showCard(
+          [this.#t("station.respawn.softUnsupported", { session })],
+          this.#t("station.confirm.prompt"),
+          () => {
+            void this.#respawnHard(sessionId).catch(() => {});
+          },
+        );
+        return;
+      }
+      if (!(await this.#awaitDraftTerminal(sessionId))) {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+        return;
+      }
+      const result = await this.#execRelaunch({
+        args: ["restart", sessionId, "--soft", "--json"],
+        cwd: process.cwd(),
+        env: {},
+      });
+      if (!result.ok) throw new Error(result.code);
+      const parsed = this.#parseRestartResult(result.stdout, sessionId);
+      if (!parsed.ok) {
+        if (parsed.code === "host-soft-restart-unsupported") {
+          this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+          this.#showCard(
+            [this.#t("station.respawn.softUnsupported", { session })],
+            this.#t("station.confirm.prompt"),
+            () => {
+              void this.#respawnHard(sessionId).catch(() => {});
+            },
+          );
+          return;
+        }
+        throw new Error(parsed.code);
+      }
+      if (parsed.strategy !== "soft") throw new Error(`strategy: ${parsed.strategy}`);
+    } catch (error) {
+      outcome = error instanceof Error ? singleLine(error.message) : "refused";
+      this.#showCard(
+        [this.#t("station.respawn.failed", { session, code: outcome })],
+        this.#t("station.card.dismiss"),
+      );
+    }
+    this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+    // Soft keeps incarnation, lease and scrollback: no switch, just re-read.
+    await this.#refresher.maybeRefresh(true);
+    this.#redecorate();
+  }
+
+  /** S2 D1 on an old host: hard relaunch after its own confirmation, then switch. */
+  async #respawnHard(sessionId: string): Promise<void> {
+    const session = this.#sessionLabel(sessionId);
+    let outcome = "done";
+    try {
+      if (!(await this.#awaitDraftTerminal(sessionId))) {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      const result = await this.#execRelaunch({
+        args: ["restart", sessionId, "--soft", "--allow-hard", "--json"],
+        cwd: process.cwd(),
+        env: {},
+      });
+      if (!result.ok) throw new Error(result.code);
+      const parsed = this.#parseRestartResult(result.stdout, sessionId);
+      if (!parsed.ok) throw new Error(parsed.code);
+      if (parsed.strategy !== "hard" && parsed.strategy !== "hard-fallback") {
+        throw new Error(`strategy: ${parsed.strategy}`);
+      }
+      // A new incarnation starts: switch at its first running observation.
+      this.#pendingDisplay.push({ sessionId, onlyIfIdle: false });
+      await this.#refresher.maybeRefresh(true);
+      this.#redecorate();
+    } catch (error) {
+      outcome = error instanceof Error ? singleLine(error.message) : "refused";
+      this.#showCard(
+        [this.#t("station.respawn.failed", { session, code: outcome })],
+        this.#t("station.card.dismiss"),
+      );
+    }
+    this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+    if (outcome === "done") {
+      await this.#refresher.maybeRefresh(true);
+      this.#redecorate();
+    }
+  }
+
+  /** S2 D2 from a restorable row: confirmed relaunch of the dead session. */
+  #relaunchFromRow(key: string): void {
+    const row = this.#rawSnapshot?.workspaces
+      .flatMap((workspace) => workspace.restorable ?? [])
+      .find((candidate) => candidate.key === key);
+    // A line without tokens offers nothing: zero calls, never a guessed name.
+    if (!row?.relaunch) return;
+    this.#humanActivatedLine = true;
+    this.#showCard(
+      [this.#t("station.confirm.relaunch", { session: row.label })],
+      this.#t("station.confirm.prompt"),
+      () => {
+        this.#enqueueRowRelaunch(row);
+      },
+    );
+  }
+
+  /** S2: confirmed D2 effect shared by the row gesture and the end card. */
+  #enqueueRowRelaunch(row: RightPanelRestorableRow): void {
+    const relaunch = row.relaunch;
+    if (!relaunch) return;
+    const env: Record<string, string> = {};
+    for (const pin of relaunch.env) {
+      const at = pin.indexOf("=");
+      if (at > 0) env[pin.slice(0, at)] = pin.slice(at + 1);
+    }
+    this.#enqueueRelaunch(
+      { key: row.key, args: [...relaunch.args], cwd: relaunch.cwd, env },
+      true,
+    );
+    if (relaunch.name !== undefined) {
+      this.#pendingDisplay.push({ name: relaunch.name, onlyIfIdle: false });
+    }
   }
 
   async #releaseGuard(sessionId: string): Promise<void> {
@@ -1573,6 +2131,8 @@ class Station {
 
   /** t0, synchronously with the gesture that asks for the switch. */
   #requestActivation(sessionId: string, takeover: boolean): void {
+    // S2: a human gesture activated a line: no initial auto-display afterwards.
+    this.#humanActivatedLine = true;
     const view = this.#liveView();
     if (
       view !== undefined &&
@@ -1977,6 +2537,29 @@ class Station {
     view.dispose();
     this.#bar = undefined;
     this.#emit({ type: "card", kind, sessionId, text });
+    // S2 D2: the end card of a relaunched-able session offers the relaunch.
+    if (kind === "ended") {
+      // The plan is re-read first: the session just ended, so no snapshot
+      // taken before is allowed to decide whether it is relaunchable.
+      await this.#refresher.maybeRefresh(true);
+      const row = this.#rawSnapshot?.workspaces
+        .flatMap((workspace) => workspace.restorable ?? [])
+        .find((candidate) => candidate.relaunch?.name === sessionId);
+      if (row?.relaunch) {
+        this.#showCard(
+          [text, this.#t("station.confirm.relaunch", { session: row.label })],
+          this.#t("station.confirm.prompt"),
+          () => {
+            this.#humanActivatedLine = true;
+            this.#enqueueRowRelaunch(row);
+          },
+        );
+        this.#panel.paint();
+        this.#redecorate();
+        void this.#refresher.maybeRefresh(true);
+        return;
+      }
+    }
     this.#panel.paint();
     this.#redecorate();
     void this.#refresher.maybeRefresh(true);
@@ -2198,7 +2781,7 @@ class Station {
   }
 
   /** Persisted session, else the most recent of the first group, then the rest. */
-  #initialCandidates(snapshot: RightPanelSnapshot): string[] {
+  #initialCandidates(snapshot: RightPanelSnapshot, preferredTab?: string): string[] {
     const candidates: string[] = [];
     const live = new Set(snapshot.workspaces.flatMap((w) => w.sessions.map((s) => s.id)));
     const push = (id: string | undefined): void => {
@@ -2206,7 +2789,15 @@ class Station {
     };
     const tab = this.#state.activeTab;
     if (tab !== undefined) push(this.#state.lastSessionByTab[tab]);
-    for (const workspace of snapshot.workspaces) {
+    // S2: the bridge group opens on its tab: that tab's sessions lead.
+    const ordered =
+      preferredTab !== undefined
+        ? [
+            ...snapshot.workspaces.filter((workspace) => workspace.title === preferredTab),
+            ...snapshot.workspaces.filter((workspace) => workspace.title !== preferredTab),
+          ]
+        : snapshot.workspaces;
+    for (const workspace of ordered) {
       const byRecency = [...workspace.sessions].sort(
         (a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0) || a.id.localeCompare(b.id, "en"),
       );
@@ -2269,8 +2860,27 @@ class Station {
     // One inventory, one plan, before the terminal is touched.
     await this.#refresher.maybeRefresh(true);
     const snapshot = this.#rawSnapshot;
-    const candidates = snapshot ? this.#initialCandidates(snapshot) : [];
-    if (candidates.length === 0) {
+    // S2: the bridge group becomes the initial tab; without a matching tab
+    // the station warns and opens on the remembered tab instead.
+    let preferredTab: string | undefined;
+    if (this.#options.group !== undefined && snapshot) {
+      const titles = snapshot.workspaces.map((workspace) => workspace.title);
+      const initial = titles.find((title) =>
+        titleMatches(title, this.#options.group as string),
+      );
+      if (initial !== undefined) {
+        this.#persist(withActiveTab(this.#state, initial));
+        preferredTab = initial;
+      } else {
+        this.#emit({ type: "notice", key: "station.notice.groupUnknown" });
+        this.#stdout.write(
+          `[h2a] ${this.#t("station.notice.groupUnknown", { group: this.#options.group })}\r\n`,
+        );
+      }
+    }
+    const candidates = snapshot ? this.#initialCandidates(snapshot, preferredTab) : [];
+    const restorable = snapshot?.workspaces.flatMap((workspace) => workspace.restorable ?? []) ?? [];
+    if (candidates.length === 0 && restorable.length === 0) {
       const key =
         this.#inventory !== undefined && !this.#inventory.complete
           ? "station.refusal.inventoryUnknown"
@@ -2341,6 +2951,9 @@ class Station {
       }
 
       await this.#reacquireAllGuards();
+      // S2 launch file: the loop never awaits it; entries settle on their own
+      // while keystrokes keep flowing to the displayed session.
+      this.#startRelaunchFile(restorable);
       let shown = false;
       this.#quietRefusals = true;
       try {
