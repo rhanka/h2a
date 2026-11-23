@@ -378,7 +378,9 @@ describe.skipIf(process.platform !== "linux")(
       await until(() => outer.output().includes("ALPHA_READY"), 20_000, "launch");
       await until(() => outer.output().includes("[demo]"), 10_000, "panel");
       expect(outer.output()).toContain("\x1b[?1000h\x1b[?1006h");
-      expect(outer.output()).toContain("1 dead");
+      // S2 retired the dead count: a registry row without convId lists its
+      // D1-unavailable motif instead of offering a gesture (plan 09-S2).
+      expect(outer.output()).toContain("conversation not resolved");
       // Panel open ⇒ the displayed PTY has the columns left of the panel.
       await until(() => outer.output().includes("ALPHA_WINCH:88x30"), 10_000, "child resize");
       await outer.inputOpen(1);
