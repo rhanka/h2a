@@ -532,6 +532,9 @@ class Station {
   #heldPress: HeldPress | undefined;
   #outerFocus: "unknown" | "gained" | "lost" = "unknown";
   #sentinelWaiter: (() => void) | undefined;
+  #sentinelCarry: Buffer = Buffer.alloc(0);
+  #sentinelSatisfied = false;
+  #postSentinelInput: Buffer[] = [];
   #lateSentinels = 0;
   #lateTail: Buffer = Buffer.alloc(0);
   #lateTailGeneration = 0;
@@ -1039,6 +1042,18 @@ class Station {
     }
   }
 
+  /** Longest trailing prefix of `SENTINEL_REPLY_BYTES` at the end of `data`. */
+  #trailingSentinelReplyPrefix(data: Buffer): Buffer {
+    let keep = Math.min(data.length, SENTINEL_REPLY_BYTES.length - 1);
+    while (
+      keep > 0 &&
+      !SENTINEL_REPLY_BYTES.subarray(0, keep).equals(data.subarray(data.length - keep))
+    ) {
+      keep -= 1;
+    }
+    return keep > 0 ? Buffer.from(data.subarray(data.length - keep)) : Buffer.alloc(0);
+  }
+
   /** A late sentinel reply is swallowed, even split across chunks (S1.5). */
   #swallowLateSentinel(chunk: Buffer): Buffer {
     let data = this.#lateTail.length > 0 ? Buffer.concat([this.#lateTail, chunk]) : chunk;
@@ -1053,12 +1068,9 @@ class Station {
     }
     if (this.#lateSentinels === 0) return data;
     // Hold back a trailing prefix of the reply: the next chunk may complete it.
-    let keep = Math.min(data.length, SENTINEL_REPLY_BYTES.length - 1);
-    while (keep > 0 && !SENTINEL_REPLY_BYTES.subarray(0, keep).equals(data.subarray(data.length - keep))) {
-      keep -= 1;
-    }
-    if (keep === 0) return data;
-    this.#lateTail = Buffer.from(data.subarray(data.length - keep));
+    const prefix = this.#trailingSentinelReplyPrefix(data);
+    if (prefix.length === 0) return data;
+    this.#lateTail = prefix;
     const generation = this.#lateTailGeneration;
     void this.#runtime.delay(LATE_TAIL_FLUSH_MS).then(() => {
       if (generation !== this.#lateTailGeneration || this.#lateTail.length === 0) return;
@@ -1067,7 +1079,49 @@ class Station {
       this.#lateTail = Buffer.alloc(0);
       if (!this.#ended && this.#gate === "open") this.#dispatch(held);
     });
-    return data.subarray(0, data.length - keep);
+    return data.subarray(0, data.length - prefix.length);
+  }
+
+  /**
+   * Consume input during t6 sentinel wait: drop everything up to and including
+   * `ESC[0n` (even if split across chunks), and return any trailing bytes that
+   * arrived after the terminal replied.
+   */
+  #consumeSentinelChunk(chunk: Buffer): {
+    matched: boolean;
+    tail: Buffer;
+    droppedBytes: number;
+  } {
+    const window =
+      this.#sentinelCarry.length > 0 ? Buffer.concat([this.#sentinelCarry, chunk]) : chunk;
+    const at = window.indexOf(SENTINEL_REPLY_BYTES);
+    if (at >= 0) {
+      const consumed = at + SENTINEL_REPLY_BYTES.length;
+      const droppedBytes = consumed - this.#sentinelCarry.length;
+      const tail = Buffer.from(window.subarray(consumed));
+      this.#sentinelCarry = Buffer.alloc(0);
+      return { matched: true, tail, droppedBytes };
+    }
+    this.#sentinelCarry = this.#trailingSentinelReplyPrefix(window);
+    return { matched: false, tail: Buffer.alloc(0), droppedBytes: chunk.length };
+  }
+
+  #flushPostSentinelInput(): void {
+    if (this.#postSentinelInput.length === 0) return;
+    const buffered = this.#postSentinelInput.splice(0);
+    for (const chunk of buffered) {
+      if (this.#ended) continue;
+      if (this.#gate === "frozen") {
+        this.#emit({ type: "input-dropped", bytes: chunk.length, reason: "transition" });
+        continue;
+      }
+      let next = chunk;
+      if (this.#lateSentinels > 0 || this.#lateTail.length > 0) {
+        next = this.#swallowLateSentinel(next);
+        if (next.length === 0) continue;
+      }
+      this.#dispatch(next);
+    }
   }
 
   #onInput = (value: Buffer | string): void => {
@@ -1079,12 +1133,26 @@ class Station {
     }
     this.#observeOuterFocus(chunk);
     if (this.#sentinelWaiter) {
-      // Everything that arrives before the sentinel reply is dropped.
-      if (chunk.indexOf(SENTINEL_REPLY_BYTES) >= 0) this.#sentinelWaiter();
-      this.#emit({ type: "input-dropped", bytes: chunk.length, reason: "transition" });
+      // Everything up to and including the sentinel reply is dropped; bytes
+      // arriving after it wait for the transition epilogue to open the gate.
+      const { matched, tail, droppedBytes } = this.#consumeSentinelChunk(chunk);
+      if (droppedBytes > 0) {
+        this.#emit({ type: "input-dropped", bytes: droppedBytes, reason: "transition" });
+      }
+      if (matched) {
+        const waiter = this.#sentinelWaiter;
+        this.#sentinelWaiter = undefined;
+        this.#sentinelSatisfied = true;
+        if (tail.length > 0) this.#postSentinelInput.push(tail);
+        waiter();
+      }
       return;
     }
     if (this.#gate === "frozen") {
+      if (this.#sentinelSatisfied && !this.#request) {
+        this.#postSentinelInput.push(chunk);
+        return;
+      }
       this.#emit({ type: "input-dropped", bytes: chunk.length, reason: "transition" });
       return;
     }
@@ -1755,6 +1823,7 @@ class Station {
       this.#emit({ type: "sentinel", outcome: "skipped" });
       return;
     }
+    this.#sentinelCarry = Buffer.alloc(0);
     let answered = false;
     const reply = new Promise<void>((resolve) => {
       this.#sentinelWaiter = () => {
@@ -1765,6 +1834,7 @@ class Station {
     this.#stdout.write(STATION_SENTINEL_QUERY);
     await Promise.race([reply, this.#runtime.delay(this.#sentinelTimeoutMs)]);
     this.#sentinelWaiter = undefined;
+    this.#sentinelCarry = Buffer.alloc(0);
     if (answered) {
       this.#emit({ type: "sentinel", outcome: "answered" });
     } else {
@@ -1849,6 +1919,13 @@ class Station {
       const view = this.#liveView();
       this.#panel.setOverlay(undefined);
       if (view !== undefined && view.active !== undefined) {
+        // The cursor of the panel follows the session now displayed and focus
+        // returns to the CLI before the sentinel goes out, so all transition
+        // painting precedes the query.
+        this.#panel.selectSessionById(sessionId);
+        this.#panel.focusCli();
+        this.#sentinelSatisfied = false;
+        this.#postSentinelInput.length = 0;
         await this.#sentinel();
         if (view.modes.isFocusReportingEnabled() && this.#outerFocus !== "lost") {
           const active = view.active;
@@ -1856,9 +1933,6 @@ class Station {
             await active.client.write(active.lease, FOCUS_IN).catch(() => {});
           }
         }
-        // The cursor of the panel follows the session now displayed.
-        this.#panel.selectSessionById(sessionId);
-        this.#panel.focusCli();
         this.#emit({
           type: "displayed",
           sessionId,
@@ -1870,8 +1944,12 @@ class Station {
       }
       return "displayed";
     } finally {
+      this.#sentinelWaiter = undefined;
+      this.#sentinelCarry = Buffer.alloc(0);
+      this.#sentinelSatisfied = false;
       // Refused: the station is back on A, unchanged. Displayed: B is open.
       this.#gate = "open";
+      this.#flushPostSentinelInput();
     }
   }
 

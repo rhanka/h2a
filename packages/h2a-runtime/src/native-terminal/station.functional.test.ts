@@ -576,8 +576,15 @@ describe.skipIf(process.platform !== "linux")(
 
       // Rows of the tab, by label: k256 (1), m4 (2), small (3).
       const measure = async (digit: string, ready: string): Promise<number> => {
+        const focusMark = outer.mark();
         outer.focusPanel();
-        await sleep(40);
+        // Wait causally for the station to process the focus click and repaint
+        // the panel before starting the switch timer.
+        await until(
+          () => outer.since(focusMark).includes("\x1b[1;129H"),
+          15_000,
+          "panel focus",
+        );
         const mark = outer.mark();
         const seen = outer.sentinelCount();
         const started = performance.now();
