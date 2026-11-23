@@ -976,7 +976,13 @@ test("LH-05 real-host arbitration bench (RM-0 spike b, manipulations 1..5)", { t
 
   const m5cD4 = await remoteAcquire({ manipulation: "M5c", caller: "D4", windowMs: 2_000 });
   assert.equal(m5cD4.res.granted, true);
+  const sizeCountBeforeD4 = readJsonLines(childSizeFile).length;
   await m5cD4.conn.resize(m5cD4.res.lease, 132, 45);
+  await eventually(
+    () => readJsonLines(childSizeFile).slice(sizeCountBeforeD4),
+    (rows) => rows.some((r) => r.cols === 132 && r.rows === 45),
+    "M5c: child resized to 132x45 by D4",
+  );
 
   const inputCountBeforeHStale = readJsonLines(childInputFile).length;
   await expectStaleAct("M5c", "H", "write", () => H.write(leaseH, "stale-h"));
@@ -1006,7 +1012,15 @@ test("LH-05 real-host arbitration bench (RM-0 spike b, manipulations 1..5)", { t
   if (wait5cD5 > 0) await delay(wait5cD5);
   const m5cD5 = await remoteAcquire({ manipulation: "M5c", caller: "D5", windowMs: 2_000 });
   assert.equal(m5cD5.res.granted, true);
+  // Wait for the child PTY to observe 132x45 before releasing so Node's
+  // stdout._refreshSize() does not see 90x25 == 90x25 and suppress SIGWINCH.
+  const sizeCountBeforeD5 = readJsonLines(childSizeFile).length;
   await m5cD5.conn.resize(m5cD5.res.lease, 132, 45);
+  await eventually(
+    () => readJsonLines(childSizeFile).slice(sizeCountBeforeD5),
+    (rows) => rows.some((r) => r.cols === 132 && r.rows === 45),
+    "M5c: child resized to 132x45 by D5",
+  );
   const sizeCountBeforeD5Release = readJsonLines(childSizeFile).length;
   await m5cD5.conn.releaseController(m5cD5.res.lease);
   m5cD5.conn.close();
