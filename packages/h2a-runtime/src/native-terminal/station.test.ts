@@ -9,6 +9,7 @@ import xtermMod from "@xterm/headless";
 
 import type { RemoteCliConfig } from "../config.js";
 import type { RegistryEntry } from "../registry.js";
+import type { DiscoveredSession } from "../restore-plan.js";
 import type {
   NativeTerminalControllerIdentity,
   NativeTerminalControllerLease,
@@ -22,6 +23,8 @@ import type { SessionViewStatusBar } from "./session-view.js";
 import type { DraftRecoveryRecord } from "./draft-recovery-view.js";
 import {
   runStation,
+  type StationCliRequest,
+  type StationCliResult,
   type StationDraftOutcome,
   type StationDraftRef,
   type StationEvent,
@@ -57,6 +60,9 @@ class FakeSession {
   readonly host: FakeHost;
   incarnation = "inc-1";
   pid = 4242;
+  /** S2 D1 designation: the facet and foreground group the host publishes. */
+  facet: "shell" | "cli" | "other" | "unknown" | undefined;
+  foregroundProcessGroup: number | null | undefined;
   status: NativeTerminalSessionState["status"] = "running";
   exit: NativeTerminalSessionState["exit"] = null;
   stopSignal: string | null = null;
@@ -130,6 +136,14 @@ class FakeSession {
       controller: this.controller,
       lastHumanActivityAt: this.lastHumanActivityAt,
       ...(this.manualPin !== undefined ? { manualPin: this.manualPin } : {}),
+      ...(this.facet !== undefined
+        ? {
+            applicationFacet: this.facet,
+            applicationIncarnation: this.incarnation,
+            foregroundProcessGroup: this.foregroundProcessGroup ?? null,
+            foregroundRevision: 0,
+          }
+        : {}),
     } as NativeTerminalSessionState;
   }
 }
@@ -155,6 +169,8 @@ class FakeBroker {
   readonly accepted: Array<{ sessionId: string; text: string }> = [];
   readonly deposits: Array<{ sessionId: string; text: string; outcome: string }> = [];
   readonly status = new Map<string, StationSessionDraftStatus>();
+  /** S2: dynamic draft status consulted before the static map (D-guard tests). */
+  statusFn: ((sessionId: string) => StationSessionDraftStatus | undefined) | undefined;
   readonly vault = new Map<string, Uint8Array>();
   readonly pinCalls: Array<{ sessionId: string; incarnation: string; manualPin: boolean }> = [];
   readonly replaceCalls: StationDraftRef[] = [];
@@ -205,6 +221,8 @@ class FakeHost {
   hostPid = 7000;
   /** INJ L2 host: the ping carries `composerBrokerVersion: 1`. */
   composerBrokerVersion: unknown;
+  /** S2 D1: the ping carries `softRespawn` when the host can respawn in place. */
+  softRespawn: boolean | undefined;
   /** INJ double; present only on a "new host" fixture. */
   broker: FakeBroker | undefined;
   readonly sessions = new Map<string, FakeSession>();
@@ -283,7 +301,7 @@ class FakeClient implements StationHostClient {
       this.#guard();
       return Object.fromEntries(
         sessionIds.flatMap((id) => {
-          const status = broker.status.get(id);
+          const status = broker.statusFn?.(id) ?? broker.status.get(id);
           return status ? [[id, status] as const] : [];
         }),
       );
@@ -342,6 +360,7 @@ class FakeClient implements StationHostClient {
       ...(this.host.composerBrokerVersion !== undefined
         ? { composerBrokerVersion: this.host.composerBrokerVersion }
         : {}),
+      ...(this.host.softRespawn !== undefined ? { softRespawn: this.host.softRespawn } : {}),
     };
   }
 
@@ -626,6 +645,10 @@ type FixtureSession = {
   label: string;
   host: string;
   mtime: number;
+  /** S2: registry conversation id (absent ⇒ the conversation is unresolved). */
+  convId?: string;
+  /** S2: CLI profile of the registry row (default `claude`). */
+  tool?: string;
 };
 
 /** 3 configured groups + `other`, 7 live sessions, 2 owner hosts (S1.1). */
@@ -657,12 +680,13 @@ type HarnessOptions = {
   tty?: boolean;
   /** Raw content of the persisted station state, or absent. */
   state?: string;
-  deadCount?: number;
   /** INJ L2 hosts answer the ping with `composerBrokerVersion: 1`. */
   brokerProtected?: boolean;
   sessions?: readonly FixtureSession[];
   /** Extra registry rows without a live host session (dead before S2). */
   deadSessions?: readonly FixtureSession[];
+  /** S2: transcript-scan reader injected into the snapshot options. */
+  scanReader?: (maxAgeMs: number, home: string) => DiscoveredSession[];
   statusBar?: (stdout: FakeOutput, sessionId: string) => StationStatusBar;
   station?: Partial<StationOptions>;
 };
@@ -690,6 +714,14 @@ class Harness {
   readonly listeners: Array<(event: StationEvent) => void> = [];
   /** Tab the panel cursor is on, as the harness drives it. */
   panelTab = 0;
+  /** S2: every `execH2a` call the station made, in order. */
+  readonly execCalls: StationCliRequest[] = [];
+  /** S2: issue of the next `execH2a` calls (settled per call, in order). */
+  execOutcomes: StationCliResult[] = [];
+  /** S2: default issue when `execOutcomes` runs dry. */
+  execDefaultOutcome: StationCliResult = { ok: true, stdout: "{}" };
+  /** S2: gate awaited before each `execH2a` call settles (ordering tests). */
+  execGate: ((request: StationCliRequest) => Promise<void> | void) | undefined;
 
   constructor(options: HarnessOptions = {}) {
     this.#options = options;
@@ -710,13 +742,14 @@ class Harness {
       mkdirSync(cwd, { recursive: true });
       entries.push({
         id: fixture.id,
-        tool: "claude",
+        tool: fixture.tool ?? "claude",
         kind: "local-native",
         cwd,
         label: fixture.label,
         tmuxSession: fixture.id,
         source: "run",
         sessionClass: "human",
+        ...(fixture.convId !== undefined ? { convId: fixture.convId } : {}),
         lastSeenAt: new Date(fixture.mtime).toISOString(),
         enrolledAt: new Date(fixture.mtime).toISOString(),
       } as RegistryEntry);
@@ -791,6 +824,14 @@ class Harness {
       },
       endpoints: () => [...this.fleet.hosts.keys(), ...this.absentEndpoints],
       ...(this.proveAbsent ? { proveAbsent: this.proveAbsent } : {}),
+      execH2a: async (request: StationCliRequest) => {
+        this.execCalls.push(request);
+        await this.execGate?.(request);
+        const outcome = this.execOutcomes.length > 0 ? this.execOutcomes.shift()! : this.execDefaultOutcome;
+        // Like a detached child, the issue settles after the input pump ran.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return outcome;
+      },
       connect: async (socketPath) => {
         const host = this.fleet.hosts.get(socketPath);
         if (!host) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
@@ -807,7 +848,6 @@ class Harness {
       createStatusBar: (sessionId) =>
         this.#options.statusBar?.(this.stdout, sessionId) ?? new PlainStatusBar(this.stdout),
       statePath: this.statePath,
-      ...(this.#options.deadCount !== undefined ? { deadCount: this.#options.deadCount } : {}),
       locale: "en",
       tty: "/dev/pts/9",
       pid: 9001,
@@ -821,6 +861,10 @@ class Harness {
           h2aRoot: join(this.home, ".h2a"),
           env: {},
           trackSources: [],
+          // The station provides the scan cache; tests inject the reader.
+          ...(this.#options.scanReader !== undefined
+            ? { scanReader: this.#options.scanReader }
+            : {}),
         },
       },
       onEvent: (event) => {
@@ -1015,12 +1059,19 @@ function plain(text: string): string {
   return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
 
+/** Collapse all whitespace: wrapped card lines read as one sentence. */
+function squashed(text: string): string {
+  return plain(text).replace(/\s+/g, " ");
+}
+
 // ---------------------------------------------------------------------------
 // Step 1 — S1.1 launch
 // ---------------------------------------------------------------------------
 
 describe("S1.1 launch: one window, every live session, no PTY started or stopped", () => {
-  it("should open on the persisted session with tabs in config order then `other`, 7 rows and the panel open", async () => {
+  it("should open on the persisted session, relaunch the selected dead sessions through the port and list the others", async () => {
+    const CONV1 = "33333333-3333-4333-8333-333333333331";
+    const CONV2 = "33333333-3333-4333-8333-333333333332";
     const h = new Harness({
       state: JSON.stringify({
         version: 1,
@@ -1028,13 +1079,21 @@ describe("S1.1 launch: one window, every live session, no PTY started or stopped
         lastSessionByTab: { docs: "h2a-guide", core: "h2a-tracker" },
         compatGuards: {},
       }),
-      deadCount: 2,
       deadSessions: [
-        { id: "h2a-dead-1", project: "h2a", label: "dead-one", host: "", mtime: 1_700_000_050_000 },
-        { id: "h2a-dead-2", project: "site", label: "dead-two", host: "", mtime: 1_700_000_060_000 },
+        { id: "h2a-dead-1", project: "h2a", label: "dead-one", host: "", mtime: 1_700_000_050_000, convId: CONV1 },
+        { id: "h2a-dead-2", project: "site", label: "dead-two", host: "", mtime: 1_700_000_060_000, convId: CONV2 },
+        // No resolved conversation: listed with its motif, never relaunched.
+        { id: "h2a-dead-3", project: "h2a", label: "dead-three", host: "", mtime: 1_700_000_040_000 },
       ],
     });
     const before = h.fleet.all().map((s) => [s.id, s.host.generation, s.incarnation, s.status]);
+    // Let the launch file drain before the detach: the loop never awaits it.
+    h.step(tick, tick, tick, tick, tick, tick, tick, tick, tick, tick);
+    h.afterStation = async () => {
+      for (let i = 0; i < 200 && h.execCalls.length < 2; i += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    };
 
     const code = await h.run();
 
@@ -1044,10 +1103,30 @@ describe("S1.1 launch: one window, every live session, no PTY started or stopped
     const rows = snapshot.workspaces.flatMap((w) => w.sessions.map((s) => s.id));
     expect(rows).toHaveLength(7);
     expect(new Set(rows)).toEqual(new Set(FIXTURE_SESSIONS.map((s) => s.id)));
-    // Dead sessions are neither listed nor relaunched before S2: a count only.
+    // Dead sessions are never live lines; the selected ones go through the
+    // effect port, the others stay listed with one motif each.
     expect(rows).not.toContain("h2a-dead-1");
-    expect(snapshot.footerRows).toEqual(["2 dead · not relaunched (lot S2)"]);
-    expect(plain(h.stdout.text())).toContain("2 dead · not relaunched (lot S2)");
+    expect(snapshot.footerRows).toBeUndefined();
+    expect(h.execCalls.map((call) => call.args)).toEqual([
+      ["run", "claude", `${h.home}/src/h2a`, "--resume", CONV1, "--name", "dead-one", "--no-attach"],
+      ["run", "claude", `${h.home}/src/site`, "--resume", CONV2, "--name", "dead-two", "--no-attach"],
+    ]);
+    expect(h.execCalls.map((call) => call.cwd)).toEqual([
+      `${h.home}/src/h2a`,
+      `${h.home}/src/site`,
+    ]);
+    for (const call of h.execCalls) {
+      expect(call.env).toEqual({ H2A_SESSION_HOST: "native" });
+    }
+    expect(h.of("relaunch").filter((e) => e.phase === "queued").map((e) => e.key)).toEqual([
+      "registry:h2a-dead-1",
+      "registry:h2a-dead-2",
+    ]);
+    const deadRows = snapshot.workspaces.flatMap((w) => w.restorable ?? []);
+    expect(deadRows.find((r) => r.key === "registry:h2a-dead-3")).toMatchObject({
+      reason: "unresolved-conversation",
+    });
+    expect(deadRows.find((r) => r.key === "registry:h2a-dead-3")?.relaunch).toBeUndefined();
 
     // Displayed session = the last persisted one, owned by the second host.
     expect(h.displayed()).toEqual(["h2a-guide"]);
@@ -2955,7 +3034,10 @@ describe("Step 7 — D-A18 manual pin through set-manual-pin (INJ double)", () =
     h.step(tick, (x) => x.selectRow("h2a-tracker"), tick);
     await h.run();
     const rows = (h.row("h2a-tracker").extraRows ?? []).map((row) => row.id);
-    expect(rows).toEqual(["guard-keep"]);
+    // S2: the D1 gesture is replaced by its motif on an unverified row
+    // (the fixture carries no resolved conversation); the pin behavior is
+    // unchanged — still no pin gesture.
+    expect(rows).toEqual(["respawn-unavailable", "guard-keep"]);
     expect(h.row("h2a-tracker").draftCapability).toBe("refused-no-capability");
   });
 });
@@ -3053,5 +3135,608 @@ describe("Launch — every session is held by another terminal (restore tabs sti
     expect(tracker.writes.join("")).toBe("mine-now");
     const takeovers = [...h.fleet.hosts.values()].flatMap((host) => host.log.filter((e) => e.includes("takeover")));
     expect(takeovers).toEqual(["acquire:h2a-tracker:takeover"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S2 — relaunch file, gestures and guards (plan 09-S2)
+// ---------------------------------------------------------------------------
+
+/** S2 UUIDs with distinct conversations (dedup is on the sid). */
+const S2C1 = "33333333-3333-4333-8333-333333333331";
+const S2C2 = "33333333-3333-4333-8333-333333333332";
+const S2C3 = "33333333-3333-4333-8333-333333333333";
+
+/** Walk the panel to a restorable row and press Enter on it. */
+function walkToRestorableRow(h: Harness, tabTitle: string, key: string): void {
+  const snapshot = h.lastSnapshot();
+  const tab = snapshot.workspaces.findIndex((w) => w.title === tabTitle);
+  if (tab < 0) throw new Error(`no tab ${tabTitle}`);
+  h.focusPanel();
+  const count = snapshot.workspaces.length;
+  for (let i = 0; i < (tab - h.panelTab + count) % count; i += 1) h.stdin.type("\t");
+  h.panelTab = tab;
+  const ws = snapshot.workspaces[tab]!;
+  // From session 0, one step per session plus one per activatable extra row
+  // of each visited session (only activatable rows stop the cursor).
+  let presses = 0;
+  for (const session of ws.sessions) {
+    presses += 1 + (session.extraRows ?? []).filter((row) => row.activatable === true).length;
+  }
+  for (let i = 0; i < presses; i += 1) h.stdin.type("j");
+  h.stdin.type("\r");
+  const rows = ws.restorable ?? [];
+  const rowIndex = rows.findIndex((r) => r.key === key);
+  if (rowIndex < 0) throw new Error(`no restorable row ${key}`);
+  for (let i = 0; i <= rowIndex; i += 1) h.stdin.type("j");
+  h.stdin.type("\r");
+}
+
+/** Wait (bounded) for the launch file to settle its calls after the run. */
+function waitForExecCalls(h: Harness, count: number): () => Promise<void> {
+  return async () => {
+    for (let i = 0; i < 500 && h.execCalls.length < count; i += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  };
+}
+
+function restartJson(strategy: "soft" | "hard", id: string): string {
+  return JSON.stringify({
+    kind: "h2a.restart.result",
+    version: 1,
+    ok: true,
+    scope: "session",
+    sessions: [
+      {
+        id,
+        name: id,
+        requested: "restart",
+        state: "completed",
+        gatewayMode: "direct",
+        restarted: true,
+        strategy,
+        ptyPreserved: strategy === "soft",
+      },
+    ],
+  });
+}
+
+describe("S2 launch file: detached, one at a time, in plan order, never ahead of input", () => {
+  it("should relaunch exactly the launch decisions of the plan, detached, one at a time, in plan order", async () => {
+    const h = new Harness({
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+        { id: "h2a-k2", project: "h2a", label: "k2", host: "", mtime: 1_700_000_040_000, convId: S2C2 },
+        // Argv not verified: listed, never launched.
+        { id: "h2a-k3", project: "h2a", label: "k3", host: "", mtime: 1_700_000_030_000, convId: S2C3, tool: "agy" },
+      ],
+    });
+    // The first relaunch stays in flight until the owner typed: the loop
+    // never waits for it, and the second starts only after the keystroke.
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    h.execGate = async () => {
+      calls += 1;
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      try {
+        if (calls === 1) await firstHeld;
+      } finally {
+        inFlight -= 1;
+      }
+    };
+    const live = () => h.fleet.session("h2a-live");
+    h.step(
+      (x) => {
+        // The launch file is already working while the station displays.
+        expect(x.displayed()).toEqual(["h2a-live"]);
+        expect(x.execCalls).toHaveLength(1);
+        x.stdin.type("x");
+      },
+      (x) => {
+        expect(live().writes.join("")).toBe("x");
+        releaseFirst();
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.execCalls).toHaveLength(2);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 2);
+    const code = await h.run();
+
+    expect(code).toBe(0);
+    // Exactly the launch decisions: tokens, detached, in plan order.
+    expect(h.execCalls.map((call) => call.args)).toEqual([
+      ["run", "claude", `${h.home}/src/h2a`, "--resume", S2C1, "--name", "k1", "--no-attach"],
+      ["run", "claude", `${h.home}/src/h2a`, "--resume", S2C2, "--name", "k2", "--no-attach"],
+    ]);
+    expect(maxInFlight).toBe(1);
+    // queued, started and done in plan order; the agy row never enters the file.
+    expect(h.of("relaunch").map((e) => [e.key, e.phase])).toEqual([
+      ["registry:h2a-k1", "queued"],
+      ["registry:h2a-k2", "queued"],
+      ["registry:h2a-k1", "started"],
+      ["registry:h2a-k1", "done"],
+      ["registry:h2a-k2", "started"],
+      ["registry:h2a-k2", "done"],
+    ]);
+    // The agy row stays listed with the argv motif, never launched.
+    const rows = h.lastSnapshot().workspaces.flatMap((w) => w.restorable ?? []);
+    expect(rows.find((r) => r.key === "registry:h2a-k3")).toMatchObject({
+      reason: "resume-argv-unverified",
+    });
+    expect(rows.find((r) => r.key === "registry:h2a-k3")?.relaunch).toBeUndefined();
+  });
+
+  it("should relaunch nothing at launch with --lazy and list the selected sessions as deferred", async () => {
+    const h = new Harness({
+      station: { lazy: true },
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      ],
+    });
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.execCalls).toEqual([]);
+    expect(h.of("relaunch").map((e) => [e.key, e.phase])).toEqual([["registry:h2a-k1", "queued"]]);
+    const rows = h.lastSnapshot().workspaces.flatMap((w) => w.restorable ?? []);
+    expect(rows.find((r) => r.key === "registry:h2a-k1")).toMatchObject({ state: "deferred" });
+  });
+
+  it("should open on the panel with nothing displayed when only restorable sessions exist", async () => {
+    const h = new Harness({
+      station: { lazy: true },
+      sessions: [],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      ],
+    });
+    const code = await h.run();
+    // With --lazy nothing is displayed before a gesture, and nothing launched.
+    expect(code).toBe(0);
+    expect(h.displayed()).toEqual([]);
+    expect(h.execCalls).toEqual([]);
+  });
+
+  it("should open on the tab of the group argument", async () => {
+    const h = new Harness({ station: { group: "docs" } });
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.displayed()).toEqual(["h2a-spec"]);
+    expect(h.panelTab).toBe(1);
+  });
+
+  it("should warn on a group argument that matches no tab and open on the remembered tab", async () => {
+    const h = new Harness({ station: { group: "nope" } });
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.displayed()).toEqual(["h2a-api"]);
+    expect(h.of("notice").map((e) => e.key)).toContain("station.notice.groupUnknown");
+    expect(plain(h.stdout.text())).toContain('group "nope" matches no tab');
+  });
+});
+
+describe("S2 D1: in-place relaunch of the process in place", () => {
+  function opsHarness(facet: "shell" | "cli" | "other" | "unknown", over: {
+    convId?: string;
+    tool?: string;
+    softRespawn?: boolean;
+    brokerProtected?: boolean;
+    group?: number | null;
+  } = {}) {
+    const h = new Harness({
+      brokerProtected: over.brokerProtected,
+      sessions: [
+        {
+          id: "h2a-ops",
+          project: "h2a",
+          label: "ops",
+          host: "/fake/host-1.sock",
+          mtime: 1_700_000_100_000,
+          ...(over.convId !== undefined ? { convId: over.convId } : {}),
+          ...(over.tool !== undefined ? { tool: over.tool } : {}),
+        },
+      ],
+    });
+    const ops = h.fleet.session("h2a-ops");
+    ops.facet = facet;
+    ops.foregroundProcessGroup = over.group ?? 123;
+    if (over.softRespawn !== undefined) h.fleet.host("/fake/host-1.sock").softRespawn = over.softRespawn;
+    return { h, ops };
+  }
+
+  it("should respawn in place only after the confirmation that names what is terminated, and keep incarnation, lease and scrollback", async () => {
+    const { h, ops } = opsHarness("shell", { convId: S2C1, softRespawn: true });
+    h.execDefaultOutcome = { ok: true, stdout: restartJson("soft", "h2a-ops") };
+    const scrollback = "ops ready\r\n";
+    ops.emit(scrollback);
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => {
+        expect(plain(x.stdout.text())).toContain(
+          "fallback shell (pid 4242, group 123) and everything it runs are terminated",
+        );
+        x.stdin.type("\r");
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.execCalls.map((call) => call.args)).toEqual([
+          ["restart", "h2a-ops", "--soft", "--json"],
+        ]);
+      },
+      // Same incarnation, same lease while the station holds the session.
+      (x) => {
+        expect(ops.incarnation).toBe("inc-1");
+        expect(ops.controllerId).toBe(x.stationController);
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    await h.run();
+
+    // No switch, no second acquisition, scrollback kept.
+    expect(ops.incarnation).toBe("inc-1");
+    expect(h.displayed()).toEqual(["h2a-ops"]);
+    expect(ops.acquireRequests).toBe(1);
+    expect(plain(h.stdout.text())).toContain("ops ready");
+    expect(h.of("gesture")).toContainEqual({
+      type: "gesture",
+      gesture: "respawn-in-place",
+      sessionId: "h2a-ops",
+      outcome: "done",
+    });
+  });
+
+  it("should refuse on a host without soft respawn, then relaunch hard only after a second confirmation", async () => {
+    const { h, ops } = opsHarness("unknown", { convId: S2C1 });
+    h.execDefaultOutcome = { ok: true, stdout: restartJson("hard", "h2a-ops") };
+    h.execGate = async (request) => {
+      // The hard relaunch replaces the incarnation before the station re-reads.
+      if (request.args.includes("--allow-hard")) ops.incarnation = "inc-2";
+    };
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => {
+        // The confirmation names the process in place, foreground unidentified.
+        expect(squashed(x.stdout.text())).toContain(
+          "The process in place (pid 4242) and everything this terminal runs are terminated; its foreground is not identified.",
+        );
+        x.stdin.type("\r");
+      },
+      tick,
+      tick,
+      (x) => {
+        // No soft capability: separate refusal, then a separate hard confirm.
+        expect(squashed(x.stdout.text())).toContain("cannot respawn in place");
+        x.stdin.type("\r");
+      },
+      tick, tick, tick,
+      (x) => {
+        expect(x.execCalls.map((call) => call.args)).toEqual([
+          ["restart", "h2a-ops", "--soft", "--allow-hard", "--json"],
+        ]);
+      },
+      // Let the hard relaunch settle and the station switch on the new incarnation.
+      tick, tick, tick, tick, tick, tick,
+      (x) => {
+        // New incarnation: the station switched at its first running
+        // observation and holds the fresh lease while it runs.
+        expect(ops.incarnation).toBe("inc-2");
+        expect(x.displayed()).toEqual(["h2a-ops", "h2a-ops"]);
+        expect(ops.acquireRequests).toBe(2);
+        expect(x.heldByStation()).toEqual(["h2a-ops"]);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    await h.run();
+
+    expect(ops.incarnation).toBe("inc-2");
+    expect(h.displayed()).toEqual(["h2a-ops", "h2a-ops"]);
+    expect(ops.acquireRequests).toBe(2);
+  });
+
+  it("should offer no in-place relaunch while the host reports a live CLI, and a motif for unverified rows", async () => {
+    const liveCli = opsHarness("cli", { convId: S2C1, softRespawn: true });
+    liveCli.h.step((x) => x.selectRow("h2a-ops"), tick);
+    await liveCli.h.run();
+    expect(
+      (liveCli.h.row("h2a-ops").extraRows ?? []).map((row) => row.id),
+    ).not.toContain("respawn-in-place");
+    expect(
+      (liveCli.h.row("h2a-ops").extraRows ?? []).map((row) => row.id),
+    ).not.toContain("respawn-unavailable");
+
+    const noConv = opsHarness("shell", { softRespawn: true });
+    noConv.h.step((x) => x.selectRow("h2a-ops"), tick);
+    await noConv.h.run();
+    expect(noConv.h.row("h2a-ops").extraRows).toContainEqual({
+      id: "respawn-unavailable",
+      text: "conversation not resolved",
+      whenSelected: true,
+    });
+
+    const agy = opsHarness("shell", { convId: S2C1, tool: "agy", softRespawn: true });
+    agy.h.step((x) => x.selectRow("h2a-ops"), tick);
+    await agy.h.run();
+    expect(agy.h.row("h2a-ops").extraRows).toContainEqual({
+      id: "respawn-unavailable",
+      text: "resume argument not verified",
+      whenSelected: true,
+    });
+  });
+});
+
+describe("S2 D guards, D2 rows and mixed fleet (plan 09-S2 steps 5-6)", () => {
+  it("should wait for the terminal state of a draft in flight for at most 2 000 ms of harness clock, then refuse this relaunch", async () => {
+    const restoring = (id: string): StationSessionDraftStatus => ({
+      drafts: [
+        {
+          sessionId: id,
+          applicationIncarnation: "app-1",
+          requestId: "req-1",
+          submission: "pending",
+          draft: "restoring-on-ready",
+          byteLength: 3,
+        },
+      ],
+    });
+    const h = new Harness({
+      brokerProtected: true,
+      sessions: [
+        { id: "h2a-ops", project: "h2a", label: "ops", host: "/fake/host-1.sock", mtime: 1_700_000_100_000, convId: S2C1 },
+      ],
+    });
+    const ops = h.fleet.session("h2a-ops");
+    ops.facet = "shell";
+    ops.foregroundProcessGroup = 123;
+    h.fleet.host("/fake/host-1.sock").softRespawn = true;
+    const readAt: number[] = [];
+    h.broker().statusFn = (id) => {
+      readAt.push(h.now);
+      return restoring(id);
+    };
+    h.autoDetach = false;
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => x.stdin.type("\r"),
+      tick, tick, tick, tick, tick, tick, tick, tick,
+      (x) => {
+        x.stdin.type(Buffer.from([0x1c]));
+      },
+    );
+    const code = await h.run();
+    expect(code).toBe(0);
+
+    // Refused at 2 000 ms of harness clock, not before, zero port calls.
+    expect(h.execCalls).toEqual([]);
+    expect(h.of("gesture")).toContainEqual({
+      type: "gesture",
+      gesture: "respawn-in-place",
+      sessionId: "h2a-ops",
+      outcome: "refused",
+    });
+    expect(squashed(h.stdout.text())).toContain(
+      "ops: relaunch refused, a draft is still being restored (restoring-on-ready)",
+    );
+    expect(Math.max(...readAt)).toBeGreaterThanOrEqual(3000);
+    expect(h.broker().replaceCalls).toEqual([]);
+    expect(h.broker().deleteCalls).toEqual([]);
+  });
+
+  it("should proceed when the draft reaches a terminal state inside the wait", async () => {
+    const h = new Harness({
+      brokerProtected: true,
+      sessions: [
+        { id: "h2a-ops", project: "h2a", label: "ops", host: "/fake/host-1.sock", mtime: 1_700_000_100_000, convId: S2C1 },
+      ],
+    });
+    const ops = h.fleet.session("h2a-ops");
+    ops.facet = "shell";
+    ops.foregroundProcessGroup = 123;
+    h.fleet.host("/fake/host-1.sock").softRespawn = true;
+    h.execDefaultOutcome = { ok: true, stdout: restartJson("soft", "h2a-ops") };
+    // Terminal from 1 500 ms of harness clock: the wait proceeds, no refusal.
+    h.broker().statusFn = (id) =>
+      h.now >= 2500
+        ? { submission: "submitted" }
+        : {
+            drafts: [
+              {
+                sessionId: id,
+                applicationIncarnation: "app-1",
+                requestId: "req-1",
+                submission: "pending",
+                draft: "restoring-on-ready",
+                byteLength: 3,
+              },
+            ],
+          };
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => x.stdin.type("\r"),
+      tick, tick, tick, tick, tick, tick,
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    await h.run();
+
+    expect(h.execCalls.map((call) => call.args)).toEqual([["restart", "h2a-ops", "--soft", "--json"]]);
+    expect(h.of("gesture")).toContainEqual({
+      type: "gesture",
+      gesture: "respawn-in-place",
+      sessionId: "h2a-ops",
+      outcome: "done",
+    });
+  });
+
+  it("should relaunch a resolved dead session from its row and switch at the first running observation", async () => {
+    const h = new Harness({
+      station: { lazy: true },
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      ],
+    });
+    h.step(
+      (x) => {
+        // Lazy lists without launching; the live session still displays.
+        expect(x.displayed()).toEqual(["h2a-live"]);
+        walkToRestorableRow(x, "core", "registry:h2a-k1");
+      },
+      (x) => {
+        expect(squashed(x.stdout.text())).toContain(
+          "Relaunch k1? A new incarnation starts; the old scrollback is lost.",
+        );
+        x.stdin.type("\r");
+      },
+      (x) => {
+        expect(x.execCalls.map((call) => call.args)).toEqual([
+          ["run", "claude", `${x.home}/src/h2a`, "--resume", S2C1, "--name", "k1", "--no-attach"],
+        ]);
+        // The relaunched session appears running: the station switches to it.
+        x.fleet.host("/fake/host-1.sock").add("h2a-k1").emit("k1 ready\r\n");
+      },
+      tick, tick, tick, tick, tick, tick,
+      (x) => {
+        expect(x.displayed()).toContain("h2a-k1");
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.fleet.session("h2a-k1").acquireRequests).toBe(1);
+  });
+
+  it("should launch nothing for an unresolved, ambiguous or unknown row", async () => {
+    const h = new Harness({
+      station: { lazy: true },
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000 },
+      ],
+    });
+    h.step((x) => {
+      // Lazy lists without launching; the live session still displays.
+      expect(x.displayed()).toEqual(["h2a-live"]);
+      walkToRestorableRow(x, "core", "registry:h2a-k1");
+    }, tick);
+    await h.run();
+    // No gesture on the row: zero calls, never a guessed identifier.
+    expect(h.execCalls).toEqual([]);
+    expect(h.of("gesture")).toEqual([]);
+  });
+
+  it("should offer the relaunch from the end card of the displayed session", async () => {
+    const h = new Harness({
+      sessions: [
+        { id: "h2a-ops", project: "h2a", label: "ops", host: "/fake/host-1.sock", mtime: 1_700_000_100_000, convId: S2C1 },
+      ],
+    });
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.fleet.session("h2a-ops").end(0);
+      },
+      tick,
+      tick,
+      (x) => {
+        expect(x.of("card").map((e) => e.kind)).toContain("ended");
+        // Cards live in the panel: focus it first, then confirm.
+        x.focusPanel();
+        x.stdin.type("\r");
+      },
+      tick,
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    const code = await h.run();
+    expect(code).toBe(0);
+    expect(h.execCalls.map((call) => call.args)).toEqual([
+      ["run", "claude", `${h.home}/src/h2a`, "--resume", S2C1, "--name", "ops", "--no-attach"],
+    ]);
+  });
+
+  it("should open a relaunched session without adapter and keep its deposit visible with refused-no-draft-adapter", async () => {
+    const h = new Harness({
+      station: { lazy: true },
+      brokerProtected: true,
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      ],
+    });
+    h.step(
+      (x) => {
+        // Lazy lists without launching; the live session still displays.
+        expect(x.displayed()).toEqual(["h2a-live"]);
+        // eslint-disable-next-line no-console
+        console.error("FLOTTE-ROWS", JSON.stringify(x.row("h2a-live").extraRows?.map((r) => r.id)));
+        walkToRestorableRow(x, "core", "registry:h2a-k1");
+      },
+      (x) => {
+        // eslint-disable-next-line no-console
+        console.error("FLOTTE-GESTURES", JSON.stringify(x.of("gesture")));
+        x.stdin.type("\r");
+      },
+      (x) => {
+        // eslint-disable-next-line no-console
+        console.error("FLOTTE-EXEC", JSON.stringify(x.execCalls.map((c) => c.args)));
+        expect(x.execCalls).toHaveLength(1);
+        x.fleet.host("/fake/host-1.sock").add("h2a-k1").emit("k1 ready\r\n");
+      },
+      tick, tick, tick, tick, tick, tick,
+      (x) => {
+        expect(x.displayed()).toContain("h2a-k1");
+        x.stdin.type("hi");
+      },
+      tick,
+      (x) => {
+        expect(x.fleet.session("h2a-k1").writes.join("")).toBe("hi");
+        // A later automatic message stays deposited and visible, never automatic.
+        expect(x.broker().deposit("h2a-k1", "wake")).toBe("refused-no-draft-adapter");
+      },
+      tick, tick,
+      (x) => {
+        expect(x.row("h2a-k1").extraRows).toContainEqual({
+          id: "refusal",
+          text: "refused-no-draft-adapter",
+        });
+        expect(x.broker().automaticPtyBytes).toEqual([]);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    const code = await h.run();
+    expect(code).toBe(0);
   });
 });
