@@ -937,6 +937,7 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
       ],
       env: ["H2A_SESSION_HOST=native"],
       cwd: join(home, "src", "h2a"),
+      name: "h2a-dead-claude",
     });
     expect(row("registry:dead-claude-2")).toMatchObject({
       reason: "launch-cap",
