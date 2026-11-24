@@ -3140,6 +3140,30 @@ describe("Launch — every session is held by another terminal (restore tabs sti
     const takeovers = [...h.fleet.hosts.values()].flatMap((host) => host.log.filter((e) => e.includes("takeover")));
     expect(takeovers).toEqual(["acquire:h2a-tracker:takeover"]);
   });
+
+  it("should say at launch which other terminal holds sessions, read from the controller states, and take nothing", async () => {
+    const h = new Harness();
+    const tracker = h.fleet.session("h2a-tracker");
+    const spec = h.fleet.session("h2a-spec");
+    // Another terminal holds two sessions on the same TTY before the launch.
+    tracker.controlElsewhere({ pid: 4321, tty: "/dev/pts/7" });
+    spec.controlElsewhere({ pid: 4321, tty: "/dev/pts/7" });
+
+    const code = await h.run();
+
+    expect(code).toBe(0);
+    // One notice for the pair, read from the controller states.
+    expect(h.of("notice").map((e) => e.key).filter((key) => key === "station.notice.otherController")).toHaveLength(1);
+    expect(plain(h.stdout.text())).toContain(
+      "another terminal holds 2 session(s): /dev/pts/7 (pid 4321); the host arbitrates each takeover.",
+    );
+    // Nothing was taken: no takeover was attempted and the foreign leases are intact.
+    const takeovers = [...h.fleet.hosts.values()].flatMap((host) => host.log.filter((e) => e.includes("takeover")));
+    expect(takeovers).toEqual([]);
+    expect(tracker.controller).toMatchObject({ pid: 4321, tty: "/dev/pts/7" });
+    expect(spec.controller).toMatchObject({ pid: 4321, tty: "/dev/pts/7" });
+    expect(h.displayed()).toEqual(["h2a-api"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
