@@ -121,6 +121,14 @@ jobs:
         run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
+      - name: Restore native toolchain fixture cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/h2a-toolchain
+          key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
+          restore-keys: h2a-toolchain-
+      - name: Export toolchain cache dir
+        run: echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
       - name: Verify bulk acceptance independently of the aggregate runner
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
