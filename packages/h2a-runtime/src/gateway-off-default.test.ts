@@ -502,7 +502,9 @@ describe("restore CLI route (legacy enabled=true is not consent)", () => {
       ANTHROPIC_AUTH_TOKEN: "live-token",
     });
     for (const argv of [
-      ["node", "h2a", "restore"],
+      // S6: bare restore opens the station (refused without a TTY here), so
+      // the layout path this gate watches is now behind --windows.
+      ["node", "h2a", "restore", "--windows"],
       ["node", "h2a", "restore", "--dry-run"],
     ]) {
       acquireLlmMeshSessionEnv.mockClear();
