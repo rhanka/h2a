@@ -69,6 +69,57 @@ function runDir(): string {
   return base;
 }
 
+export type StationWindowLaunch = {
+  readonly cwd: string;
+  readonly title: string;
+  readonly command: string;
+};
+
+/**
+ * S6: open ONE gnome-terminal window hosting the station (`h2a restore`
+ * without a TTY but with a proven display). Same run directory, same
+ * dispatcher chain, same child environment and same error relay as the tab
+ * launcher; the dispatch file holds a single `<cwd>\t<command>` line and
+ * the invocation carries a single `--window`, never `--tab`.
+ * A synchronous spawn failure is relayed on stderr and rethrown so the
+ * caller exits non-zero.
+ */
+export function launchStationWindow(
+  window: StationWindowLaunch,
+  stderr: NodeJS.WriteStream = process.stderr,
+): void {
+  const mapPath = join(runDir(), `station-${process.pid}-${mapCounter++}.map`);
+  writeFileSync(mapPath, `${window.cwd}\t${window.command}\n`, "utf8");
+  const args = [
+    "--window",
+    `--working-directory=${window.cwd}`,
+    `--title=${window.title}`,
+    "--",
+    "bash",
+    "-lc",
+    DISPATCHER,
+    "remote-restore",
+    mapPath,
+  ];
+  try {
+    // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
+    // silently claiming the window opened.
+    const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
+    const child = spawn("gnome-terminal", args, {
+      stdio: ["ignore", "ignore", "pipe"],
+      detached: true,
+      env: childEnv,
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr.write(`[h2a] gnome-terminal: ${chunk.toString().trim()}\n`);
+    });
+    child.unref();
+  } catch (error) {
+    stderr.write(`[h2a] gnome-terminal: ${(error as Error).message}\n`);
+    throw error;
+  }
+}
+
 /**
  * Launch the layout in gnome-terminal: one window per group, one tab per session.
  *

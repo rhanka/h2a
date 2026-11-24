@@ -24,6 +24,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 const { captureHostViewSnapshot, launchLayout } = await import("./restore.js");
+const { launchStationWindow } = await import("./launch-layout.js");
 
 describe("launchLayout prefix collision", () => {
   let previousScreen: string | undefined;
@@ -241,5 +242,82 @@ describe("launchLayout prefix collision", () => {
     // Host-agnostic attach to the exact managed name (never a relaunch).
     expect(command).toContain("h2a attach 'h2a-unknown'");
     expect(command).not.toContain("h2a run");
+  });
+});
+
+describe("S6 step 3 — launchStationWindow opens exactly one window hosting the station (plan 13-S6)", () => {
+  let previousScreen: string | undefined;
+  let previousRuntimeDir: string | undefined;
+  let runtimeDir: string;
+
+  beforeEach(() => {
+    spawn.mockReset();
+    spawn.mockReturnValue({ stderr: { on: vi.fn() }, unref: vi.fn() });
+    previousScreen = process.env.GNOME_TERMINAL_SCREEN;
+    previousRuntimeDir = process.env.XDG_RUNTIME_DIR;
+    runtimeDir = mkdtempSync(join(tmpdir(), "h2a-station-window-"));
+    process.env.XDG_RUNTIME_DIR = runtimeDir;
+  });
+
+  afterEach(() => {
+    if (previousScreen === undefined) delete process.env.GNOME_TERMINAL_SCREEN;
+    else process.env.GNOME_TERMINAL_SCREEN = previousScreen;
+    if (previousRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = previousRuntimeDir;
+    rmSync(runtimeDir, { recursive: true, force: true });
+  });
+
+  it("should open exactly one window hosting the station, with no tab", () => {
+    process.env.GNOME_TERMINAL_SCREEN = "/org/gnome/Terminal/screen/foreign";
+    const command =
+      "H2A_STATION_WINDOW=1 h2a restore --station 'docs' --lazy --gw";
+    const write = vi.fn(() => true);
+
+    launchStationWindow(
+      { cwd: "/repo/docs", title: "h2a", command },
+      { write } as unknown as NodeJS.WriteStream,
+    );
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const [binary, args, options] = spawn.mock.calls[0]! as unknown as [
+      string,
+      string[],
+      { env: NodeJS.ProcessEnv },
+    ];
+    expect(binary).toBe("gnome-terminal");
+    // One window, never a tab; working directory and title pinned.
+    expect(args.filter((arg) => arg === "--window")).toHaveLength(1);
+    expect(args).not.toContain("--tab");
+    expect(args).toContain("--working-directory=/repo/docs");
+    expect(args).toContain("--title=h2a");
+    // Same dispatcher form as the tab launcher: one shared shell command.
+    const dash = args.indexOf("--");
+    expect(dash).toBeGreaterThanOrEqual(0);
+    expect(args.slice(dash, dash + 3)).toEqual(["--", "bash", "-lc"]);
+    const dispatcher = args[dash + 3]!;
+    expect(dispatcher).toContain("flock");
+    expect(args[dash + 4]).toBe("remote-restore");
+    const mapPath = args[dash + 5]!;
+    expect(mapPath.startsWith(runtimeDir)).toBe(true);
+    // A single dispatch line: the exact station command for this cwd.
+    expect(readFileSync(mapPath, "utf8")).toBe(`/repo/docs\t${command}\n`);
+    // The child environment never inherits a foreign terminal screen.
+    expect(options.env).not.toHaveProperty("GNOME_TERMINAL_SCREEN");
+  });
+
+  it("should relay the gnome-terminal error and throw", () => {
+    spawn.mockImplementation(() => {
+      throw new Error("Failed to get screen");
+    });
+    const write = vi.fn(() => true);
+
+    expect(() =>
+      launchStationWindow(
+        { cwd: "/repo/docs", title: "h2a", command: "H2A_STATION_WINDOW=1 h2a restore --station" },
+        { write } as unknown as NodeJS.WriteStream,
+      ),
+    ).toThrow("Failed to get screen");
+    const output = write.mock.calls.map((call) => String(call[0])).join("");
+    expect(output).toContain("[h2a] gnome-terminal: Failed to get screen");
   });
 });
