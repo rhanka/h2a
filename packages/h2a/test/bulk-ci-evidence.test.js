@@ -24,7 +24,7 @@ function assertGraph(workflow) {
     'node scripts/test-sandbox.mjs --prepare-ci',
     'npm ci',
     'npm run build',
-    'echo "H2A_TOOLCHAIN_CACHE_DIR=$GITHUB_WORKSPACE/tmp/h2a-toolchain-cache" >> "$GITHUB_ENV"',
+    'echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache-tmp/h2a-test/toolchain-cache" >> "$GITHUB_ENV"',
     'node scripts/populate-toolchain-cache.mjs',
     'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js',
     'node scripts/test-sandbox.mjs -- node scripts/ci-bulk-proof.mjs',

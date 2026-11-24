@@ -206,9 +206,10 @@ succeeded the same morning when the link was fast. Four-way parallel range
 fetches were measured counterproductive (connect `ETIMEDOUT`), so the
 fixture downloader reassembles sequential 2 MB ranges (each inside one
 attempt) with the sha256 pin unchanged, and a dead link still fails
-explicitly. The archives are cached in `tmp/h2a-toolchain-cache`
-(actions/cache keyed by the lock file, repo-local so the D16 sandbox
-admits it); a hit never hits the network. Only the first population per
+explicitly. The archives are cached in `~/.cache-tmp/h2a-test/toolchain-cache`
+(actions/cache keyed by the lock file; host-persisted so the post-job save
+sees it, readable inside the D16 sandbox via ro-bind /); a hit never hits
+the network. Only the first population per
 lock content pays the download, so `bulk-qualification` (ci.yml and
 node-qualification.yml, the first fixture consumers in each workflow) moves
 25m to 35m with the fixture spawn caps at 1800 s; shard, trust-root and M17

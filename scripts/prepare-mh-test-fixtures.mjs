@@ -74,7 +74,15 @@ try {
   // the sha256 integrity check stays on both paths, and a miss that fails
   // stays an explicit fixture_download_failed.
   const toolchainCacheDir = process.env.H2A_TOOLCHAIN_CACHE_DIR || null;
-  if (toolchainCacheDir) fs.mkdirSync(toolchainCacheDir, { recursive: true, mode: 0o700 });
+  // Best-effort: the unsandboxed populate step guarantees the dir in CI; a
+  // read-only sandbox bind must never turn a usable cache into a crash.
+  if (toolchainCacheDir) {
+    try {
+      fs.mkdirSync(toolchainCacheDir, { recursive: true, mode: 0o700 });
+    } catch {
+      // Fall through: present files still hit, the rest download explicitly.
+    }
+  }
   for (const archive of lock.recipe.archives) {
     let bytes = null;
     if (toolchainCacheDir) {
