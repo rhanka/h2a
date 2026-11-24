@@ -35,12 +35,15 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, relative } from "node:path";
 
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
+function quoteDoctorShellPath(p: string): string {
+  return /[^A-Za-z0-9_./:@=-]/.test(p) ? `'${p.replace(/'/g, "'\\''")}'` : p;
+}
 import type { H2ASession } from "../session.js";
 import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
 import { currentCliVersion } from "../runtime/upgrade/index.js";
-import { defaultPluginBridgeLockPath, findVerifiedPluginVersionDir, resolveClaudeConfigPath } from "../registry/bridge-lock.js";
+import { defaultPluginBridgeLockPath, findVerifiedPluginVersionDir, readBridgeLock, resolveClaudeConfigPath } from "../registry/bridge-lock.js";
 import type { RegistryEntry } from "../registry/descriptors.js";
-import { ensureLocalBinH2aFallback, readPluginDeclaration, rebootstrapMissingPluginLock, type LocalBinFallbackDiagnostics } from "../registry/host-bootstrap.js";
+import { ensureLocalBinH2aFallback, readPluginDeclaration, rebootstrapMissingPluginLock, refreshUpgradedPluginLock, type LocalBinFallbackDiagnostics } from "../registry/host-bootstrap.js";
 import { registryPackageManifest } from "../registry/manifest.js";
 import { CLAUDE_NATIVE_MCP_ROOT_KEY } from "./installation-doctor-contract.js";
 import {
@@ -172,6 +175,7 @@ export interface HostInstallationReport {
   readonly bridgeLock?: {
     readonly lockPath: string;
     readonly action: "provisioned" | "already-present" | "refused";
+    readonly quarantinePath?: string;
     readonly error?: string;
     readonly pathFallback?: {
       readonly linked: string | null;
@@ -262,6 +266,7 @@ interface MutableHostReport {
   bridgeLock?: {
     readonly lockPath: string;
     readonly action: "provisioned" | "already-present" | "refused";
+    readonly quarantinePath?: string;
     readonly error?: string;
     readonly pathFallback?: {
       readonly linked: string | null;
@@ -2556,6 +2561,45 @@ function ensurePluginBridgeLockForDoctor(
     const configPath = host === "claude" ? resolveClaudeConfigPath(home) : codexConfigPath(home);
     const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
     const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+    // B-3: doctor --repair converges drifted digests, not only absent
+    // locks. A proven version upgrade is quarantined (reversible) and
+    // re-provisioned with quarantinePath; an unproven tamper stays refused
+    // with the shell-quoted remedy; a host-config conflict propagates the
+    // refresh cause instead of a bare install that would fail the same way.
+    try {
+      readBridgeLock(lockPath);
+    } catch (readError) {
+      const code = (readError as { code?: string }).code ?? "missing_lock";
+      if (code === "integrity_mismatch" && existsSync(lockPath)) {
+        const quotedConfig = quoteDoctorShellPath(configPath);
+        const quotedPluginDir = quoteDoctorShellPath(pluginDir);
+        const remedy = `run h2a registry bootstrap install --mechanism plugin --host ${host} --profile default --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
+        try {
+          const refreshed = refreshUpgradedPluginLock({ host, configPath, profile: "default", pluginDir, h2aEntry, trackEntry });
+          if (refreshed.refreshed) {
+            if (refreshed.quarantinePath) stderr.write(`h2a doctor --repair: refreshed ${host} plugin lock at ${lockPath} (prior quarantined at ${refreshed.quarantinePath})\n`);
+            else stderr.write(`h2a doctor --repair: refreshed ${host} plugin lock at ${lockPath}\n`);
+            report.bridgeLock = { lockPath, action: "provisioned", ...(refreshed.quarantinePath ? { quarantinePath: refreshed.quarantinePath } : {}), ...(pathFallback ? { pathFallback } : {}) };
+            return;
+          }
+        } catch (refreshError) {
+          report.bridgeLock = {
+            lockPath,
+            action: "refused",
+            error: `${(readError as Error).message}; auto-refresh refused: ${(refreshError as Error).message}; ${remedy}`,
+            ...(pathFallback ? { pathFallback } : {})
+          };
+          return;
+        }
+        report.bridgeLock = {
+          lockPath,
+          action: "refused",
+          error: `${(readError as Error).message}; ${remedy}`,
+          ...(pathFallback ? { pathFallback } : {})
+        };
+        return;
+      }
+    }
     const result = rebootstrapMissingPluginLock({
       host,
       configPath,

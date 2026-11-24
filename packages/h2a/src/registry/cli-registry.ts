@@ -618,7 +618,16 @@ export async function cmdRegistryBridge(
   } catch (error) {
     let activeError: unknown = error;
     let errorCode = (activeError as { code?: string }).code ?? "missing_lock";
-    if (defaulted && flags["auto-upgrade"] === "true" && errorCode === "integrity_mismatch") {
+    // B-2: only an explicit --auto-upgrade may self-heal a proven version
+    // upgrade on serve. Codex never carries --auto-upgrade (rmcp constraint,
+    // host-bootstrap bridgeArgs) so a codex N-1 lock refuses closed with the
+    // exact remedy; explicit `doctor --repair` converges it. Tampered digests
+    // (unproven) still fail closed.
+    const allowUpgradeHeal = defaulted && flags["auto-upgrade"] === "true" && errorCode === "integrity_mismatch";
+    // NB-2: keep the refresh refusal cause so the integrity_mismatch remedy
+    // below can name it (conflict vs tamper) instead of swallowing it.
+    let healRefusedCause: string | null = null;
+    if (allowUpgradeHeal) {
       const context = resolveHostPluginContext(host, profile, flags);
       if (!context.error && context.pluginDir && existsSync(context.pluginDir)) {
         try {
@@ -635,8 +644,9 @@ export async function cmdRegistryBridge(
           });
           if (refreshed.refreshed) {
             const priorLabel = refreshed.priorVersions?.join(", ") || "previous";
+            const quarantineSuffix = refreshed.quarantinePath ? `; prior lock quarantined at ${refreshed.quarantinePath}` : "";
             streams.stderr.write(
-              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})\n`
+              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})${quarantineSuffix}\n`
             );
             try {
               lock = readBridgeLock(lockPath, deps.memory?.entry);
@@ -646,8 +656,9 @@ export async function cmdRegistryBridge(
               errorCode = (activeError as { code?: string }).code ?? "missing_lock";
             }
           }
-        } catch {
-          /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal */
+        } catch (refreshError) {
+          /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal, with cause */
+          healRefusedCause = (refreshError as Error).message;
         }
       }
     }
@@ -679,6 +690,22 @@ export async function cmdRegistryBridge(
         "missing_lock",
         `no lock at the plugin default ${lockPath} for host=${host} profile=${profile} ` +
         `(${detail}); ${remedy}`
+      );
+    }
+    // B-2/NB-2: an integrity_mismatch that cannot self-heal must print the
+    // exact operator remedy instead of a bare digest error, naming the
+    // refresh refusal cause (host-config conflict) when the auto-heal
+    // attempt was refused rather than the digest merely unproven.
+    if (defaulted && errorCode === "integrity_mismatch") {
+      const context = resolveHostPluginContext(host, profile, flags);
+      const effectiveConfigPath = rebootstrapConflictConfigPath ?? context.configPath;
+      const quotedConfig = effectiveConfigPath ? quoteShellPath(effectiveConfigPath) : "<host-config>";
+      const quotedPluginDir = context.pluginDir ? quoteShellPath(context.pluginDir) : "<plugin-dir>";
+      const installCmd = `h2a registry bootstrap install --mechanism plugin --host ${host} --profile ${profile} --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
+      const cause = healRefusedCause ? `auto-heal refused: ${healRefusedCause}; ` : "";
+      return refuse(
+        errorCode,
+        `${(activeError as Error).message}; ${cause}run ${installCmd}`
       );
     }
     return refuse(errorCode, (activeError as Error).message);

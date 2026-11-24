@@ -1843,7 +1843,8 @@ function collectTrustedPluginUpgradeMetadata(
 /**
  * Cryptographically verified in-place refresh of a default plugin bridge lock
  * after a global `h2a` package version upgrade (e.g. 0.98.10 → 0.98.11) when
- * invoked via `registry-bridge serve --auto-upgrade`.
+ * invoked via `registry-bridge serve --auto-upgrade` (explicit opt-in) or via
+ * the explicit `h2a doctor --repair` convergence (both hosts).
  *
  * Security invariant: tampered or corrupt locks MUST fail closed. This helper
  * ONLY refreshes `lockPath` when:
@@ -1863,7 +1864,7 @@ function collectTrustedPluginUpgradeMetadata(
  */
 export function refreshUpgradedPluginLock(
   options: PluginInstallOptions & { memoryEntry?: RegistryEntry }
-): { refreshed: boolean; lockPath: string; priorVersions?: string[] } {
+): { refreshed: boolean; lockPath: string; priorVersions?: string[]; quarantinePath?: string } {
   assertRegistryHost(options.host);
   if (options.host !== "claude" && options.host !== "codex") {
     return { refreshed: false, lockPath: "" };
@@ -1992,6 +1993,22 @@ export function refreshUpgradedPluginLock(
     ...existing,
     entries: refreshedEntries
   };
+  // NB-1: keep the stale N-1 lock reversible WITHOUT opening a
+  // missing_lock window: the quarantine copy is verified first and the live
+  // lock is never unlinked — the tmp file renames over it atomically below.
+  // (quarantineBridgeLock unlinks, which a parallel start would observe as
+  // missing_lock; the uninstall flow keeps using it where removal is wanted.)
+  const quarantinePath = `${lockPath}.quarantine-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  try {
+    const originalBytes = readFileSync(lockPath);
+    writeFileSync(quarantinePath, originalBytes, { mode: 0o600, flag: "wx" });
+    if (!readFileSync(quarantinePath).equals(originalBytes)) {
+      throw new RegistryError("restore_failed", `quarantine copy verification failed for ${quarantinePath}`);
+    }
+  } catch (err) {
+    if (err instanceof RegistryError) throw err;
+    throw new RegistryError("restore_failed", `failed to quarantine stale plugin lock at ${lockPath}: ${(err as Error).message ?? "unknown error"}`);
+  }
   mkdirSync(dirname(lockPath), { recursive: true });
   const tmpPath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
   writeFileSync(tmpPath, `${JSON.stringify(refreshed, null, 2)}\n`, { mode: 0o600, flag: "wx" });
@@ -2005,7 +2022,7 @@ export function refreshUpgradedPluginLock(
     }
     throw err;
   }
-  return { refreshed: true, lockPath, priorVersions: [...matchedPriorVersions] };
+  return { refreshed: true, lockPath, priorVersions: [...matchedPriorVersions], ...(quarantinePath ? { quarantinePath } : {}) };
 }
 
 /**
