@@ -618,10 +618,15 @@ export async function cmdRegistryBridge(
   } catch (error) {
     let activeError: unknown = error;
     let errorCode = (activeError as { code?: string }).code ?? "missing_lock";
-    // L5A-(a): codex never carries --auto-upgrade (rmcp constraint) yet must
-    // still self-heal a proven version upgrade on serve; claude heals only
-    // with the explicit flag. Tampered digests (unproven) still fail closed.
-    const allowUpgradeHeal = defaulted && (flags["auto-upgrade"] === "true" || host === "codex") && errorCode === "integrity_mismatch";
+    // B-2: only an explicit --auto-upgrade may self-heal a proven version
+    // upgrade on serve. Codex never carries --auto-upgrade (rmcp constraint,
+    // host-bootstrap bridgeArgs) so a codex N-1 lock refuses closed with the
+    // exact remedy; explicit `doctor --repair` converges it. Tampered digests
+    // (unproven) still fail closed.
+    const allowUpgradeHeal = defaulted && flags["auto-upgrade"] === "true" && errorCode === "integrity_mismatch";
+    // NB-2: keep the refresh refusal cause so the integrity_mismatch remedy
+    // below can name it (conflict vs tamper) instead of swallowing it.
+    let healRefusedCause: string | null = null;
     if (allowUpgradeHeal) {
       const context = resolveHostPluginContext(host, profile, flags);
       if (!context.error && context.pluginDir && existsSync(context.pluginDir)) {
@@ -651,8 +656,9 @@ export async function cmdRegistryBridge(
               errorCode = (activeError as { code?: string }).code ?? "missing_lock";
             }
           }
-        } catch {
-          /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal */
+        } catch (refreshError) {
+          /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal, with cause */
+          healRefusedCause = (refreshError as Error).message;
         }
       }
     }
@@ -686,17 +692,20 @@ export async function cmdRegistryBridge(
         `(${detail}); ${remedy}`
       );
     }
-    // L5A-(a): an integrity_mismatch that cannot self-heal must print the
-    // exact operator remedy instead of a bare digest error.
+    // B-2/NB-2: an integrity_mismatch that cannot self-heal must print the
+    // exact operator remedy instead of a bare digest error, naming the
+    // refresh refusal cause (host-config conflict) when the auto-heal
+    // attempt was refused rather than the digest merely unproven.
     if (defaulted && errorCode === "integrity_mismatch") {
       const context = resolveHostPluginContext(host, profile, flags);
       const effectiveConfigPath = rebootstrapConflictConfigPath ?? context.configPath;
       const quotedConfig = effectiveConfigPath ? quoteShellPath(effectiveConfigPath) : "<host-config>";
       const quotedPluginDir = context.pluginDir ? quoteShellPath(context.pluginDir) : "<plugin-dir>";
       const installCmd = `h2a registry bootstrap install --mechanism plugin --host ${host} --profile ${profile} --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
+      const cause = healRefusedCause ? `auto-heal refused: ${healRefusedCause}; ` : "";
       return refuse(
         errorCode,
-        `${(activeError as Error).message}; run ${installCmd}`
+        `${(activeError as Error).message}; ${cause}run ${installCmd}`
       );
     }
     return refuse(errorCode, (activeError as Error).message);

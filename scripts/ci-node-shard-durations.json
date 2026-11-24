@@ -16,6 +16,9 @@
     "packages/h2a/test/mcp-identity-readiness.test.js": 56.0,
     "packages/h2a/test/mcp-central-scale-15k.test.js": 60.0,
     "packages/h2a/test/mcp-central-idle-cpu.test.js": 15.0,
+    "packages/h2a/test/mcp-central-supervised-cpu.test.js": 15.0,
+    "packages/h2a/test/mcp-central-idle-poll-b1.test.js": 5.0,
+    "packages/h2a/test/doctor-repair-converge-b3.test.js": 5.0,
     "packages/h2a/test/registry-bridge-upgrade-heal.test.js": 5.0
   }
 }

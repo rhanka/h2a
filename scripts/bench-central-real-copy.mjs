@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // L5A bench: profile witness rc.10 then candidate main on isolated copies of the real state.
 // Follows L5.md §3.1-§3.3: disk guard, single active copy, --cpu-prof, guaranteed witness cleanup.
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, cpSync } from "node:fs";
 import { statfsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 function usage() {
-  console.log("Usage: bench-central-real-copy.mjs [--source-state <dir>] [--source-root <dir>] [--rc10 <version>] [--witness-timeout-ms <n>]");
+  console.log("Usage: bench-central-real-copy.mjs --source-state <dir> --source-root <dir> [--run-base <dir>] [--rc10 <version>] [--witness-timeout-ms <n>]");
+  console.log("  --run-base defaults to $TMPDIR (must be set, never /tmp); --source-state/--source-root are required (no hardcoded owner paths).");
 }
 
 const args = process.argv.slice(2);
@@ -16,13 +16,31 @@ function opt(name, def) {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : def;
 }
+function requiredOpt(name) {
+  const v = opt(name, "");
+  if (!v) { console.error(`bench: ${name} is required`); usage(); process.exit(2); }
+  return v;
+}
 if (args.includes("--help") || args.includes("-h")) { usage(); process.exit(0); }
-const sourceState = opt("--source-state", "/run/user/1000/h2a-mcp-central");
-const sourceRoot = opt("--source-root", "/home/antoinefa/h2a-workspace/.h2a");
+// B-4/NB-6: no hardcoded owner paths; both sources are required options.
+const sourceState = requiredOpt("--source-state");
+const sourceRoot = requiredOpt("--source-root");
 const rc10ver = opt("--rc10", "0.98.11-rc.10");
 const witnessMs = Number(opt("--witness-timeout-ms", "15000"));
 
-const runBase = process.env.TMPDIR || tmpdir();
+// B-4/NB-6: never fall back to os.tmpdir() (/tmp). TMPDIR (or --run-base)
+// must point inside the lane worktree; refuse otherwise.
+const explicitRunBase = opt("--run-base", "");
+const tmpdirEnv = process.env.TMPDIR ?? "";
+if (!explicitRunBase && !tmpdirEnv) {
+  console.error("bench: refusing to start: set TMPDIR (lane .tmp) or pass --run-base <dir>; never /tmp");
+  process.exit(2);
+}
+const runBase = explicitRunBase || tmpdirEnv;
+if (runBase === "/tmp" || runBase.startsWith("/tmp/")) {
+  console.error(`bench: refusing to start: run base ${runBase} is /tmp; use the lane .tmp dir`);
+  process.exit(2);
+}
 const runDir = join(runBase, `h2a-l5-bench-${Date.now()}`);
 mkdirSync(runDir, { recursive: true, mode: 0o700 });
 
@@ -34,16 +52,36 @@ function diskOk(path, needGB = 40) {
   } catch { return true; }
 }
 
-if (!diskOk(runBase, 40)) {
-  console.error(`bench: refusing to start, free space < 40G under ${runBase}`);
-  process.exit(2);
+function guardDiskOrExit() {
+  if (!diskOk(runBase, 40)) {
+    console.error(`bench: refusing to start, free space < 40G under ${runBase}`);
+    try { rmSync(runDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    process.exit(2);
+  }
 }
+guardDiskOrExit();
 
 function copyLedgerSubset(srcState, srcRoot, destRuntime, destRoot) {
   const dstState = join(destRuntime, "h2a-mcp-central");
   mkdirSync(dstState, { recursive: true, mode: 0o700 });
   mkdirSync(destRoot, { recursive: true, mode: 0o700 });
   const keepRe = /^(operation-.*\.json|effect-.*\.json|generation-end-.*\.json|ownership-.*\.json|launch.*\.json|wake-.*\.json|checkpoint-.*\.json|participant-revision\.json)$/;
+  // B-4/NB-6: the 512MiB cap covers everything copied, including archive/
+  // and the registry/keys/negotiations subsets (previously archive/ was
+  // copied after the cap check).
+  const dirSize = (dir) => {
+    let total = 0;
+    try {
+      for (const name of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, name.name);
+        try {
+          if (name.isDirectory()) total += dirSize(p);
+          else if (name.isFile()) total += Number(statSync(p).size);
+        } catch { /* ignore */ }
+      }
+    } catch { /* absent */ }
+    return total;
+  };
   let bytes = 0;
   let count = 0;
   if (existsSync(srcState)) {
@@ -57,10 +95,17 @@ function copyLedgerSubset(srcState, srcRoot, destRuntime, destRoot) {
         count++;
       } catch { continue; }
     }
-    if (bytes > 512 * 1024 * 1024) {
-      console.error(`bench: refusing copy, need ${(bytes / 1048576).toFixed(0)}MiB > 512MiB cap`);
-      process.exit(2);
-    }
+    bytes += dirSize(join(srcState, "archive"));
+  }
+  if (srcRoot && existsSync(srcRoot)) {
+    for (const sub of ["registry", "keys", "negotiations"]) bytes += dirSize(join(srcRoot, sub));
+    try { bytes += Number(statSync(join(srcRoot, ".h2a-schema.json")).size); } catch { /* ignore */ }
+  }
+  if (bytes > 512 * 1024 * 1024) {
+    console.error(`bench: refusing copy, need ${(bytes / 1048576).toFixed(0)}MiB > 512MiB cap (ledger + archive + root subsets)`);
+    process.exit(2);
+  }
+  if (existsSync(srcState)) {
     for (const name of readdirSync(srcState)) {
       if (!keepRe.test(name)) continue;
       const src = join(srcState, name);
@@ -111,9 +156,10 @@ async function runCase(name, entryBin, root, runtimeBase, profDir, home) {
     child.stderr.on("data", onData);
   });
   await new Promise((r) => setTimeout(r, witnessMs));
+  // B-4: ESM import (require() throws in this module); RSS in MiB.
   const rssMB = (() => {
     try {
-      const out = require("node:child_process").execSync(`ps -o rss= -p ${child.pid}`).toString().trim();
+      const out = execSync(`ps -o rss= -p ${child.pid}`).toString().trim();
       return Number(out) / 1024;
     } catch { return NaN; }
   })();
@@ -132,18 +178,61 @@ async function runCase(name, entryBin, root, runtimeBase, profDir, home) {
 const caseRc10 = join(runDir, "case-rc10");
 const caseMain = join(runDir, "case-main");
 let counts = { ops: 0, effects: 0 };
+// B-4: branch runCase — witness rc.10 (tarball) then candidate (local dist).
+// Resolves the witness entry without network when the tarball is pre-fetched
+// via --rc10-tarball <file>; otherwise npm packs the pinned rc.10 version.
+function resolveWitnessEntry() {
+  const explicit = opt("--rc10-tarball", "");
+  const packDir = join(runDir, "witness-pack");
+  mkdirSync(packDir, { recursive: true, mode: 0o700 });
+  try {
+    const tarball = explicit || execSync(`npm pack @sentropic/h2a@${rc10ver} --pack-destination ${packDir} --silent`, { encoding: "utf8" }).trim().split("\n").pop();
+    const tgz = explicit || join(packDir, tarball);
+    const dest = join(runDir, "witness-pkg");
+    mkdirSync(dest, { recursive: true, mode: 0o700 });
+    execSync(`tar -xzf ${tgz} -C ${dest} --strip-components=1 package/dist/bin.js package/package.json`);
+    return join(dest, "dist", "bin.js");
+  } catch (error) {
+    console.error(JSON.stringify({ event: "witness-unavailable", rc10ver, error: String(error?.message ?? error).slice(0, 300) }));
+    return null;
+  }
+}
+function candidateEntry() {
+  // Candidate is the locally built package (this checkout).
+  const here = new URL(import.meta.url);
+  const repoBin = join(dirname(dirname(here.pathname)), "packages", "h2a", "dist", "bin.js");
+  if (existsSync(repoBin)) return repoBin;
+  return null;
+}
 try {
   if (existsSync(sourceState)) {
     counts.ops = readdirSync(sourceState).filter((n) => n.startsWith("operation-")).length;
     counts.effects = readdirSync(sourceState).filter((n) => n.startsWith("effect-")).length;
   }
   console.log(JSON.stringify({ event: "l5-bench-start", sourceState, sourceRoot, counts, runDir }));
-  copyLedgerSubset(sourceState, sourceRoot, join(caseRc10, "runtime"), join(caseRc10, "root"));
-  console.log(JSON.stringify({ event: "case-rc10-ready", runDir }));
-  rmSync(caseRc10, { recursive: true, force: true });
-  console.log(JSON.stringify({ event: "case-rc10-cleaned" }));
+  const witnessBin = resolveWitnessEntry();
+  const mainBin = candidateEntry();
+  if (!mainBin) {
+    console.error(JSON.stringify({ event: "candidate-unavailable", hint: "run npm run build:h2a first" }));
+    process.exit(2);
+  }
+  if (witnessBin) {
+    copyLedgerSubset(sourceState, sourceRoot, join(caseRc10, "runtime"), join(caseRc10, "root"));
+    console.log(JSON.stringify({ event: "case-rc10-ready", runDir }));
+    const profRc10 = join(runDir, "prof-rc10");
+    const w = await runCase("rc10", witnessBin, join(caseRc10, "root"), join(caseRc10, "runtime"), profRc10, join(caseRc10, "home"));
+    console.log(JSON.stringify({ event: "case-rc10-done", listenMs: w.listenMs, rssMB: w.rssMB, profDir: profRc10 }));
+    rmSync(caseRc10, { recursive: true, force: true });
+    console.log(JSON.stringify({ event: "case-rc10-cleaned" }));
+  }
   copyLedgerSubset(sourceState, sourceRoot, join(caseMain, "runtime"), join(caseMain, "root"));
   console.log(JSON.stringify({ event: "case-main-ready" }));
+  const profMain = join(runDir, "prof-main");
+  const m = await runCase("main", mainBin, join(caseMain, "root"), join(caseMain, "runtime"), profMain, join(caseMain, "home"));
+  console.log(JSON.stringify({
+    event: "case-main-done", listenMs: m.listenMs, rssMB: m.rssMB, profDir: profMain,
+    note: "attach the newest .cpuprofile under each profDir plus rssMB to L5-report.md §2",
+  }));
 } finally {
   try { rmSync(runDir, { recursive: true, force: true }); } catch { /* ignore */ }
   console.log(JSON.stringify({ event: "l5-bench-cleaned", runDir }));

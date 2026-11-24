@@ -101,14 +101,18 @@ function seedL5A(f, { ops = 15500, effects = 15500, gens = 1450 } = {}) {
   try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
 }
 
-test("L5A scale: 15 500+ operations C5.1-C5.6 (preparation budget separate)", { timeout: 150_000 }, async (t) => {
+test("B-5 scale: 15 500+ operations C5.1-C5.6 (causal + structural, no wall-clock gate)", { timeout: 150_000 }, async (t) => {
   const f = mkFixture();
   t.after(() => f.cleanup());
+  // B-5: preparation budget is logged, never a blocking wall-clock gate
+  // (runner-shared CI). The strict < 15s budget lives in the quiet bench.
   const prepStart = Date.now();
   seedL5A(f);
   const prepMs = Date.now() - prepStart;
-  assert.ok(prepMs < 15_000, `preparation < 15s (took ${prepMs}ms)`);
-  const saved = { HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR, H2A_ROOT: process.env.H2A_ROOT };
+  t.diagnostic(`preparation took ${prepMs}ms (budget < 15s, logged only; strict in bench)`);
+  // NB-8: save and restore every key this file writes into process.env.
+  const saved = {};
+  for (const k of Object.keys(f.env)) saved[k] = process.env[k];
   for (const [k, v] of Object.entries(f.env)) process.env[k] = v;
   t.after(() => {
     for (const [k, v] of Object.entries(saved)) {
@@ -126,9 +130,9 @@ test("L5A scale: 15 500+ operations C5.1-C5.6 (preparation budget separate)", { 
   const listenStart = Date.now();
   const server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, physicalPrefix: f.dir, env: f.env });
   const listenMs = Date.now() - listenStart;
+  t.diagnostic(`start took ${listenMs}ms (C5.1 < 500ms, logged only; strict in bench)`);
   t.after(async () => { clearInterval(rssTimer); await server.stop().catch(() => {}); });
   assert.equal(server.kind, "started");
-  assert.ok(listenMs < 500, `C5.1 start < 500ms (took ${listenMs}ms)`);
   const healthRes = await fetch(new URL("/_h2a-central/health", server.endpoint));
   assert.equal(healthRes.status, 200);
   const health = await healthRes.json();
@@ -150,35 +154,74 @@ test("L5A scale: 15 500+ operations C5.1-C5.6 (preparation budget separate)", { 
     body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
   });
   assert.ok(notifRes.ok);
+  // B-5 causal C5.2: tools/list served while migration is still incomplete,
+  // reread after to prove it landed pendant la migration.
+  const preList = await (await fetch(new URL("/_h2a-central/health", server.endpoint))).json();
+  assert.equal(preList.ledgerMigrationComplete, false, "C5.2 tools/list starts while ledgerMigrationComplete === false");
   const listRes = await authenticatedHttpRequest(server.markerPath, marker, server.endpoint, {
     method: "POST", headers: { ...headers, "mcp-session-id": sessionId },
     body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }),
   });
   assert.equal(listRes.status, 200);
+  const listBody = await listRes.json();
+  assert.ok(Array.isArray(listBody.result?.tools), "tools/list returns a tool surface pendant la migration");
   const midHealth = await (await fetch(new URL("/_h2a-central/health", server.endpoint))).json();
+  assert.equal(midHealth.ledgerMigrationComplete, false, "C5.2 tools/list answered pendant la migration (reread after)");
   const statusMidRes = await authenticatedHttpRequest(server.markerPath, marker, new URL("/_h2a-central/status", server.endpoint));
   assert.equal(statusMidRes.status, 200);
   const statusMid = await statusMidRes.json();
-  // CI ceiling < 500ms (shared runner, real fsync active per L5 §3.2);
-  // strict p99 < 75ms moves to the quiet L5 bench on the real machine.
-  assert.ok(statusMid.eventLoopLagMs.p99 < 500, `C5.3 lag p99 < 500ms CI ceiling (got ${statusMid.eventLoopLagMs?.p99}); strict < 75ms in bench`);
-  // CI ceiling 60s (shared runner, real fsync); strict < 10s moves to the quiet L5 bench.
-  const deadline = Date.now() + 60_000;
+  // B-5: lag is logged, never a blocking wall-clock gate in CI (shared
+  // runner, real fsync). Strict p99 < 75ms lives in the quiet bench (B-4).
+  t.diagnostic(`eventLoopLagMs.p99 pendant la migration: ${statusMid.eventLoopLagMs?.p99} (strict < 75ms in bench, logged only in CI)`);
+  // B-5 structural C5.3: migration completes under the test's own timeout
+  // (no millisecond ceiling in CI; strict < 10s in bench).
   let finalHealth = midHealth;
-  while (Date.now() < deadline) {
+  for (;;) {
     const r = await fetch(new URL("/_h2a-central/health", server.endpoint));
     finalHealth = await r.json();
     if (finalHealth.ledgerMigrationComplete === true) break;
     await new Promise((r2) => setTimeout(r2, 100));
   }
-  assert.equal(finalHealth.ledgerMigrationComplete, true, "C5.3 migration < 60s CI ceiling (strict < 10s in bench)");
-  const opsLeft = fs.readdirSync(f.stateDir).filter((n) => n.startsWith("operation-")).length;
-  assert.ok(opsLeft <= 67, `C5.4 <= 67 ops at root (got ${opsLeft})`);
+  assert.equal(finalHealth.ledgerMigrationComplete, true, "C5.3 migration completes (test timeout is the only deadline; strict < 10s in bench)");
+  // B-5 structural C5.4: exactly the 3 pending ops stay at root, the rest is
+  // under archive/; generation-ends bounded; effects fully accounted.
+  const rootOps = fs.readdirSync(f.stateDir).filter((n) => n.startsWith("operation-"));
+  assert.ok(rootOps.length <= 67, `C5.4 <= 67 ops at root (got ${rootOps.length})`);
+  let pendingAtRoot = 0;
+  for (const name of rootOps) {
+    try {
+      const doc = JSON.parse(readFileSync(join(f.stateDir, name), "utf8"));
+      if (doc.state === "pending") pendingAtRoot++;
+    } catch { /* ignore unreadable */ }
+  }
+  assert.equal(pendingAtRoot, 3, `C5.4 exactly the 3 seeded pending ops stay at root (got ${pendingAtRoot} of ${rootOps.length})`);
   const gensLeft = fs.readdirSync(f.stateDir).filter((n) => n.startsWith("generation-end-")).length;
   assert.ok(gensLeft <= 64, `C5.4 <= 64 gens at root (got ${gensLeft})`);
+  const countUnder = (dir, prefix) => {
+    let total = 0;
+    const walk = (d) => {
+      let entries;
+      try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        const p = join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.isFile() && e.name.startsWith(prefix)) total++;
+      }
+    };
+    walk(dir);
+    return total;
+  };
+  const archiveOps = countUnder(join(f.stateDir, "archive"), "operation-");
+  assert.ok(archiveOps > 0, "C5.4 archive/ holds moved operations");
+  assert.equal(rootOps.length + archiveOps, 15_503, `C5.4 every seeded op accounted (root ${rootOps.length} + archive ${archiveOps} = 15 503)`);
+  const rootEffects = fs.readdirSync(f.stateDir).filter((n) => n.startsWith("effect-")).length;
+  const archiveEffects = countUnder(join(f.stateDir, "archive"), "effect-");
+  assert.equal(rootEffects + archiveEffects, 15_500, `C5.4 all 15 500 effects counted (root ${rootEffects} + archive ${archiveEffects})`);
+  // B-5: own CPU time (process.cpuUsage), never wall clock against the runner.
   const cpuDiff = process.cpuUsage(cpuStart);
   const cpuMs = (cpuDiff.user + cpuDiff.system) / 1000;
-  assert.ok(cpuMs < 15_000, `C5.5 CPU sanity (got ${cpuMs.toFixed(0)}ms)`);
+  t.diagnostic(`own CPU over the whole scale run: ${cpuMs.toFixed(0)}ms (sanity < 15 000ms; strict C5.5 < 150ms with shims in bench)`);
+  assert.ok(cpuMs < 15_000, `C5.5 own-CPU sanity (got ${cpuMs.toFixed(0)}ms)`);
   const rssMB = rssPeak / (1024 * 1024);
   // CI ceiling 350MiB (test harness + in-process central); strict < 256MiB in quiet bench/child process.
   assert.ok(rssMB < 350, `C5.6 RSS < 350MiB CI ceiling (got ${rssMB.toFixed(1)}MiB); strict < 256MiB in bench`);

@@ -81,7 +81,7 @@ function fakeMarker(xdgRuntime, root) {
   writeFileSync(join(parent, "marker.json"), JSON.stringify({ endpoint: "http://127.0.0.1:9/mcp", generation: "upgrade-heal-fixture", pid: process.pid, startedAt: new Date().toISOString(), token: "t", protocol: 2, root }), { mode: 0o600 });
 }
 
-test("L5A-(a) codex stale N-1 lock self-heals on serve with quarantine, then serves", async () => {
+test("B-2: codex N-1 lock without --instance refuses integrity_mismatch closed (no --instance heal)", async () => {
   const iso = isolated();
   try {
     const configPath = join(iso.home, ".codex", "config.toml");
@@ -89,6 +89,11 @@ test("L5A-(a) codex stale N-1 lock self-heals on serve with quarantine, then ser
     writeFileSync(configPath, 'model = "test"\n');
     writeCodexCache(iso.home, "0.98.10");
     fakeMarker(iso.xdgRuntime, iso.root);
+    // Exact packaged codex declaration: must carry no --instance (B-2).
+    const packaged = JSON.parse(readFileSync(fileURLToPath(new URL("../.codex-plugin/registry.mcp.json", import.meta.url)), "utf8"));
+    const packagedArgs = packaged?.mcpServers?.h2a?.args;
+    assert.ok(Array.isArray(packagedArgs), "packaged codex registry.mcp.json must declare h2a args");
+    assert.ok(!packagedArgs.includes("--instance"), "packaged codex serve carries no --instance");
     const h2aPrior = structuredClone(registryPackageManifest.entries[0]);
     const trackPrior = structuredClone(trackRegistryPackageManifest.entries[0]);
     h2aPrior.publisher.packageVersion = "0.98.10";
@@ -99,17 +104,18 @@ test("L5A-(a) codex stale N-1 lock self-heals on serve with quarantine, then ser
       const priorBytes = readFileSync(lockPath, "utf8");
       const io = streams();
       let delegated = 0;
-      // --instance sidecar skips the claude-only shared-central admission
-      // (R5-CA owns non-Claude adapters) so the lock heal can delegate.
-      const code = await cmdRegistryBridge(["serve", "--host", "codex", "--profile", "default", "--wake", "auto", "--auto-open", "--instance", "test-sidecar", "--root", iso.root, "--runtime-base", iso.xdgRuntime], io, { delegateServe: async () => { delegated++; return 0; } });
-      assert.equal(code, 0, `codex N-1 lock must self-heal on serve (stderr: ${io.text().stderr} stdout: ${io.text().stdout})`);
-      assert.equal(delegated, 1, "must delegate after heal");
-      assert.notEqual(readFileSync(lockPath, "utf8"), priorBytes, "lock re-provisioned to current digests");
+      // Serve with the exact packaged args (plus test-only routing), no --instance.
+      const serveArgs = [...packagedArgs.slice(1), "--root", iso.root, "--runtime-base", iso.xdgRuntime];
+      assert.equal(serveArgs[0], "serve");
+      const code = await cmdRegistryBridge(serveArgs, io, { delegateServe: async () => { delegated++; return 0; } });
+      const out = `${io.text().stdout}\n${io.text().stderr}`;
+      assert.equal(code, 2, `codex N-1 without --instance must refuse closed (got ${code}: ${out.slice(0, 800)})`);
+      assert.match(out, /integrity_mismatch/, "must refuse integrity_mismatch, not central_unavailable");
+      assert.equal(delegated, 0, "must not delegate on integrity_mismatch");
+      assert.equal(readFileSync(lockPath, "utf8"), priorBytes, "codex lock bytes intact without --auto-upgrade");
       const q = readdirSync(dirname(lockPath)).filter((n) => n.startsWith("default.lock.json.quarantine-"));
-      assert.ok(q.length >= 1, "old N-1 lock kept in quarantine");
-      const qBytes = readFileSync(join(dirname(lockPath), q[0]), "utf8");
-      assert.equal(qBytes, priorBytes, "quarantine holds exact prior bytes");
-      assert.match(io.text().stderr, /quarantine/i, "heal logged with quarantine path");
+      assert.equal(q.length, 0, "no quarantine without explicit repair");
+      assert.match(out, /registry bootstrap install --mechanism plugin --host codex --profile default --config .* --plugin-dir .*/);
     });
   } finally { iso.cleanup(); }
 });
@@ -124,16 +130,22 @@ test("L5A-(a) integrity_mismatch that cannot self-heal prints the exact install 
     await withEnv({ HOME: iso.home, XDG_CONFIG_HOME: iso.xdgConfig, XDG_RUNTIME_DIR: iso.xdgRuntime, H2A_ROOT: iso.root, H2A_MCP_CENTRAL: "1", CLAUDE_CONFIG_DIR: undefined, CLAUDE_PLUGIN_ROOT: undefined, CODEX_HOME: undefined }, async () => {
       const lockPath = defaultPluginBridgeLockPath("claude", "default");
       provisionBridgeLock({ lockPath, host: "claude", profile: "default" });
-      const tampered = JSON.parse(readFileSync(lockPath, "utf8"));
+      const priorBytes = readFileSync(lockPath, "utf8");
+      const tampered = JSON.parse(priorBytes);
       tampered.entries["sentropic.h2a"].digest = "f".repeat(64);
       writeFileSync(lockPath, JSON.stringify(tampered, null, 2));
+      const tamperedBytes = readFileSync(lockPath, "utf8");
       const io = streams();
       const code = await cmdRegistryBridge(["serve", "--host", "claude", "--profile", "default", "--wake", "auto", "--auto-open", "--auto-upgrade", "--root", iso.root, "--runtime-base", iso.xdgRuntime], io, { delegateServe: async () => 0 });
       assert.equal(code, 2, "tampered lock must fail closed");
       const out = io.text().stdout + "\n" + io.text().stderr;
       assert.match(out, /integrity_mismatch/);
       assert.match(out, /registry bootstrap install --mechanism plugin --host claude --profile default --config .* --plugin-dir .*/);
-      assert.ok(out.includes(pluginDir) || out.includes("--plugin-dir"), `remedy must name plugin-dir (got: ${out.slice(0, 800)})`);
+      assert.ok(out.includes(pluginDir), `remedy must cite the exact plugin-dir ${pluginDir} (got: ${out.slice(0, 800)})`);
+      assert.ok(out.includes(configPath), `remedy must cite the exact config ${configPath} (got: ${out.slice(0, 800)})`);
+      assert.equal(readFileSync(lockPath, "utf8"), tamperedBytes, "sabotaged lock bytes intact");
+      const q = readdirSync(dirname(lockPath)).filter((n) => n.startsWith("default.lock.json.quarantine-"));
+      assert.equal(q.length, 0, "sabotage creates no quarantine");
     });
   } finally { iso.cleanup(); }
 });

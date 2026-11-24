@@ -364,13 +364,29 @@ function createCentralApp(
       }
       const admin = administration();
       if (admin) {
-        // L5A-(b): idle fast-path — a quiet central with no live transaction
-        // and a clean revision stamp needs no flock spawn. The old code took
-        // two flock-backed locks (bothLocks) every 500ms sweep, burning ~50%
-        // of a core on the real state (acquireFlockFdAsync spawn, mutation.js).
+        // L5A-(b): idle fast-path — a quiet central with no live transaction,
+        // a clean revision stamp, no pause and no indeterminate flag needs no
+        // flock spawn. The old code took two flock-backed locks (bothLocks)
+        // every sweep (acquireFlockFdAsync spawn, mutation.js). The pause and
+        // indeterminate checks are a single file read plus in-memory flags
+        // (no spawn); skipping poll() while either is set would wedge a
+        // closed-but-live central (B-1), so they force the full path.
         const hasActiveTx = liveTransaction && !["ABORTED", "READY"].includes(liveTransaction.state);
+        // NB-5: resync after an external participant-revision.json write so a
+        // supervised central (idleTimeoutMs 0, no retirement probe) recovers
+        // its fast path instead of wedging on a stale dirty stamp. Gated on
+        // supervised mode: otherwise the retirement probe already resyncs via
+        // drain(), and an eager ingest here would read the durable operation
+        // history before retirement (T2.1b). Clean state costs one extra stat
+        // (early return, no spawn); the resync itself only runs when the
+        // stamp actually moved.
+        if (!idleEnabled && owner && sessions.size === 0 && pendingClosures.size === 0 &&
+          owner.pendingFinishes.length === 0 && !hasActiveTx) {
+          owner.registry.syncIfExternalChange();
+        }
         const idleClean = owner && sessions.size === 0 && pendingClosures.size === 0 &&
-          owner.pendingFinishes.length === 0 && !hasActiveTx && owner.registry.isRevisionClean();
+          owner.pendingFinishes.length === 0 && !hasActiveTx && owner.registry.isRevisionClean() &&
+          !admin.indeterminate && !owner.registry.indeterminate && !admin.pause();
         if (!idleClean) {
           try {
             if (owner) {
@@ -1121,5 +1137,9 @@ export async function startCentralMcpServer(
     })();
     return stopping;
   };
-  return { kind: "started", endpoint: marker.endpoint, generation: marker.generation, markerPath, closed, stop: stopServer };
+  return { kind: "started", endpoint: marker.endpoint, generation: marker.generation, markerPath, closed, stop: stopServer,
+    // Test-only hook (injected-clock suites): lets B-1 indeterminate/pause
+    // tests observe and set the in-memory flags without touching prod paths.
+    __test: { administration: () => administration, participants: () => participants } } as unknown as
+    { kind: "started"; endpoint: string; generation: string; markerPath: string; closed: Promise<void>; stop: () => Promise<void> };
 }
