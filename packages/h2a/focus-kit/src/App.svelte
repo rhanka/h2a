@@ -9,6 +9,7 @@
   import Citation from './Citation.svelte';
   import { decisionCodes, optionCode, responseLine } from '../../../focus-interactive/src/response-line.ts';
   import { preparePresentation } from '../../../focus/src/render/presentation.ts';
+  import { withoutTakeawayMarker as shown } from './takeaway.js';
   let { document: dossier, diagrams = {} } = $props();
   let dark = $state(matchMedia('(prefers-color-scheme: dark)').matches);
   const selections = new SvelteMap();
@@ -62,7 +63,7 @@
     <Container size="full">
       <main>
         <div class="reading-meta"><Badge tone="info">Focus</Badge> {#if report}Rapport{:else}{questions.length} question(s){/if} · {dossier.readability.readingBudgetMinutes} minutes</div>
-        <Card><h2>Votre demande</h2><blockquote>{dossier.readability.ownerRequestQuote}</blockquote><p>{dossier.readability.stakes}</p></Card>
+        <Card><h2>Votre demande</h2><blockquote>{dossier.readability.ownerRequestQuote}</blockquote><p>{shown(dossier.readability.stakes)}</p></Card>
         {#if dossier.readability.glossary?.length}
           <aside aria-label="Glossaire"><details class="focus-glossary" bind:this={glossary}>
             <summary>En mots simples ({dossier.readability.glossary.length} {dossier.readability.glossary.length === 1 ? 'terme' : 'termes'})</summary>
@@ -72,13 +73,13 @@
         {#each sections as section}
           <section id={section.id} class="dossier-section">
             {#if section.kind === 'prose'}
-              {#if report}<ReportProse markdown={section.markdown} />{:else}<p class="prose">{section.markdown}</p>{/if}
+              {#if report}<ReportProse markdown={section.markdown} />{:else}<p class="prose">{shown(section.markdown)}</p>{/if}
             {:else if section.kind === 'question'}
               {@const code = codes[questions.findIndex(q => q.id === section.id)]}
-              <h2>{#if !section.question.startsWith(`${code} · `)}{code} · {/if}{section.question}</h2><p>{section.context}</p>
-              <p class="recommendation"><Badge tone="success">Recommandation</Badge> {section.recommendedAnswer}</p>
+              <h2>{#if !section.question.startsWith(`${code} · `)}{code} · {/if}{section.question}</h2><p>{shown(section.context)}</p>
+              <p class="recommendation"><Badge tone="success">Recommandation</Badge> {shown(section.recommendedAnswer)}</p>
               <p class="muted">{section.readingTimeMinutes} minute(s) · {section.state === 'open' ? 'Question ouverte' : section.state === 'answered' ? 'Réponse reçue' : 'Décision validée'}</p>
-              {#if section.answer}<p>Réponse enregistrée : {section.answer}</p>{/if}
+              {#if section.answer}<p>Réponse enregistrée : {shown(section.answer)}</p>{/if}
             {:else if section.kind === 'optionSet'}
               {#if section.title}<h3>{section.title}</h3>{/if}
               <div class="options" role="group" aria-label={section.title ?? 'Options'}>
@@ -87,9 +88,9 @@
                     aria-pressed={selections.get(section.questionId) === option.id} onclick={() => selections.set(section.questionId, option.id)}>
                     <Card><strong>{optionCode(optionSets.filter(s => s.questionId === section.questionId).flatMap(s => s.options).findIndex(o => o.id === option.id))} · {option.label}</strong>
                       {#if recommended(section, option)}<Badge tone="success">Recommandée</Badge>{/if}
-                      <p>{option.consequence}</p>{#if option.body}<p>{option.body}</p>{/if}
+                      <p>{shown(option.consequence)}</p>{#if option.body}<p>{shown(option.body)}</p>{/if}
                       {#if option.annotation !== 'none'}<p>Annotation source : {option.annotation}</p>{/if}
-                      {#if option.annotationComment}<p>{option.annotationComment}</p>{/if}
+                      {#if option.annotationComment}<p>{shown(option.annotationComment)}</p>{/if}
                     </Card>
                   </button>
                 {/each}
@@ -98,7 +99,7 @@
             {:else if section.kind === 'diagram'}
               <Canvas document={section.scene} diagram={diagrams[section.id] ?? null} sectionId={section.id} alt={section.alt} />
             {:else if section.kind === 'outcome'}
-              <Card><h3>Conclusion proposée</h3><p>{section.statement}</p></Card>
+              <Card><h3>Conclusion proposée</h3><p>{shown(section.statement)}</p></Card>
             {/if}
             {#each section.citationRefs ?? [] as id}<Citation {dossier} {id} />{/each}
             {#if section.kind === 'optionSet'}{#each section.options as option}

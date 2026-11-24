@@ -1,5 +1,6 @@
 <script>
   import { renderR7Diagram } from './diagram-model.js';
+  import { displayWidth, pickDiagramVariant } from './diagram-fit.js';
   let { document, diagram = null, alt, sectionId = 'diagram' } = $props();
 
   // The build embeds static offline r7 inline SVGs (`wide` + `narrow`). A payload without them
@@ -12,6 +13,11 @@
     return renderR7Diagram(document, { id: sectionId, alt });
   });
 
+  // Room actually offered to the drawing; before the first measure, the page width is the estimate.
+  let available = $state(0);
+  let active = $derived(rendered.kind === 'rendered'
+    ? pickDiagramVariant(available || globalThis.innerWidth || 0, rendered.wide.width) : 'narrow');
+
   let links = $derived(Object.values(document.relations).filter(r => r.type === 'link'));
   const endpoint = (relation, role) => relation.endpoints.find(e => e.role === role).target;
 </script>
@@ -19,9 +25,11 @@
 <figure class="ds-diagram-figure" aria-label={alt}>
   <figcaption>{alt}</figcaption>
   {#if rendered.kind === 'rendered'}
-    <div class="ds-diagram-stage" data-renderer="r7" role="region" aria-label={`Schéma : ${alt}`}>
-      <div class="ds-diagram-mount" data-variant="wide" style={`max-width: ${Math.round(rendered.wide.width * 0.62)}px`}>{@html rendered.wide.svg}</div>
-      <div class="ds-diagram-mount" data-variant="narrow">{@html rendered.narrow.svg}</div>
+    <div class="ds-diagram-stage" data-renderer="r7" data-active={active} role="region" aria-label={`Schéma : ${alt}`}>
+      <div class="ds-diagram-fit" bind:clientWidth={available}>
+        <div class="ds-diagram-mount" data-variant="wide" style={`max-width: ${displayWidth('wide', rendered.wide.width)}px`}>{@html rendered.wide.svg}</div>
+        <div class="ds-diagram-mount" data-variant="narrow" style={`max-width: ${displayWidth('narrow', rendered.narrow.width)}px`}>{@html rendered.narrow.svg}</div>
+      </div>
     </div>
   {:else}
     <div class="diagram-refusal" role="alert">

@@ -1,3 +1,30 @@
+# Focus portable renderer — diagram display scale and takeaway marker
+
+- Branch: `fix/focus-diagram-narrow-compact`, based on `origin/main` 4128b0b5ee.
+- Scope: `packages/h2a/focus-kit/src` (Canvas, App, Evidence, ReportProse, style,
+  new `diagram-fit.js` and `takeaway.js`), the rebuilt `renderer.html` and its
+  manifest, `focus-kit/test` (two regressions, one report assertion, the frozen
+  Svelte parity baselines), screenshots under `docs/reviews/focus-diagram-compact`.
+- Diagram: the r7 scene is drawn in fixed units for a reduced display. Under
+  1200 px the page showed the single-column drawing capped at 620 px, almost
+  scale 1. Each variant now carries its own display cap (wide 0.62, column 0.5)
+  and the variant is picked per diagram from the room it really has: horizontal
+  while it stays readable (scale 0.36 or more) or on a desktop-size stage.
+- Measured on a four-step LR flowchart, before then after: 390 px 345x664 then
+  320x616, 800 px 620x1194 then 320x616, 1440 px 1126x122 unchanged.
+- Takeaway marker: `En bref :` and `In short:` are dropped from the displayed
+  text only and the next letter is capitalised. The embedded document and the
+  gate rule `missing_en_bref_takeaway` are unchanged. Open owner question: keep
+  the source requirement as an authoring discipline, or drop it.
+- Not covered: the opt-in Vue renderer (its manifest is already stale on main,
+  it uses another diagram component and still prints the marker) and the generic
+  `track focus` HTML render.
+- Checks run locally through `scripts/test-sandbox.mjs`: renderer `--check`,
+  browser, report-browser, renderer-parity, focus-vue, bibliography, focus-build,
+  focus-diagram-cards, focus-diagram-r7 pass. `evidence-browser` has one local
+  failure in the fresh-install case, an unreadable local npm cache, unverified
+  locally and left to CI. No peer review claimed. Ready PR to main, do not merge.
+
 # Identity self-heal — current boot and stale MCP failures
 
 - Branch: `fix/identity-same-boot-dead-chain`, based on `origin/main` db4857950.

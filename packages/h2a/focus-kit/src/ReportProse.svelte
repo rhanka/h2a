@@ -1,5 +1,6 @@
 <script>
   import { splitMarkdownTableCells as cells } from '../../../focus/src/render/markdown-table.ts';
+  import { withoutTakeawayMarker as shown } from './takeaway.js';
   // Bounded Markdown tables/headings; every cell remains Svelte-escaped text.
   // Other prose is retained verbatim, including unsupported Markdown syntax.
   let { markdown } = $props();
@@ -13,7 +14,7 @@
       } else if (/^#{1,6}\s+/.test(lines[i])) {
         result.push({ kind: 'heading', text: lines[i].replace(/^#+\s+/, '') });
       } else if (lines[i].trim()) {
-        result.push({ kind: 'text', text: lines[i] });
+        result.push({ kind: 'text', text: shown(lines[i]) });
       }
     }
     return result;
