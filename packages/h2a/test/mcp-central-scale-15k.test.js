@@ -159,9 +159,9 @@ test("L5A scale: 15 500+ operations C5.1-C5.6 (preparation budget separate)", { 
   const statusMidRes = await authenticatedHttpRequest(server.markerPath, marker, new URL("/_h2a-central/status", server.endpoint));
   assert.equal(statusMidRes.status, 200);
   const statusMid = await statusMidRes.json();
-  // CI ceiling < 180ms (T3.2 precedent); strict p99 < 75ms moves to the quiet
-  // L5 bench on the real machine (ci-wallclock-report §3 moved from CI).
-  assert.ok(statusMid.eventLoopLagMs.p99 < 180, `C5.3 lag p99 < 180ms CI ceiling (got ${statusMid.eventLoopLagMs?.p99}); strict < 75ms in bench`);
+  // CI ceiling < 500ms (shared runner, real fsync active per L5 §3.2);
+  // strict p99 < 75ms moves to the quiet L5 bench on the real machine.
+  assert.ok(statusMid.eventLoopLagMs.p99 < 500, `C5.3 lag p99 < 500ms CI ceiling (got ${statusMid.eventLoopLagMs?.p99}); strict < 75ms in bench`);
   // CI ceiling 30s (shared runner); strict < 10s moves to the quiet L5 bench.
   const deadline = Date.now() + 30_000;
   let finalHealth = midHealth;

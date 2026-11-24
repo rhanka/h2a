@@ -403,20 +403,14 @@ function createCentralApp(
         try {
           if (owner && !owner.registry.indeterminate && owner.ledger.ledgerMigrationComplete === true &&
               owner.pendingFinishes.length === 0 && await administration()?.admissionsOpenAsync({ nonBlocking: true })) {
-            // L5A-(b): idle fast-path — when the revision stamp is clean and
-            // this tick cannot retire the server, skip the flock-backed probe
-            // entirely (no spawn in acquireFlockFdAsync). Only the retiring
-            // tick takes the lock and reconciles durable history.
-            if (quietTicks + 1 < quietTicksForIdle && owner.registry.isRevisionClean()) {
-              quiet = true;
-            } else {
-              // Probe for a busy writer on each tick, but reconcile and read
-              // durable history only when this tick could retire the server.
-              quiet = await owner.registry.withLockAsync(
-                () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
-                { nonBlocking: true }
-              );
-            }
+            // Probe for a busy writer on each tick, but reconcile and read
+            // durable history only when this tick could retire the server.
+            // L5A-(b) keeps this probe (1 flock spawn) to reset quietTicks on
+            // contention (T2.1a); the admin bothLocks above are skipped when idle.
+            quiet = await owner.registry.withLockAsync(
+              () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
+              { nonBlocking: true }
+            );
           }
         } catch (error) {
           if (!isLockUnavailableError(error)) {
