@@ -762,7 +762,7 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
     mkdirSync(join(h2aRoot, "presence"), { recursive: true });
 
     let collectCalls = 0;
-    const nativeStates = [makeNativeState("h2a-live-one")];
+    const nativeStates = [makeNativeState("h2a-live-one"), makeNativeState("h2a-live-two")];
     const collectNative = async () => {
       collectCalls += 1;
       return makeInventory(nativeStates);
@@ -805,6 +805,14 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
         project: "h2a",
         tmuxSession: "h2a-live-one",
         lastSeenAt: "2026-11-20T10:09:00.000Z",
+      }),
+      // A second live session beyond the explicit cap: still a live line,
+      // never a `launch-cap` row.
+      deadEntry(home, {
+        id: "live-two",
+        project: "h2a",
+        tmuxSession: "h2a-live-two",
+        lastSeenAt: "2026-11-20T10:05:30.000Z",
       }),
       // Selected dead claude session: launched, with tokens.
       deadEntry(home, {
@@ -884,7 +892,9 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
         sharedWindows: 1,
         multiSession: { scanproj: 1 },
         multiSessionDefault: 0,
-        groups: [{ title: "core", projects: ["h2a"] }],
+        // NB-10: a config group with neither a live line nor a restorable
+        // row never becomes a tab.
+        groups: [{ title: "core", projects: ["h2a"] }, { title: "empty", projects: ["nope"] }],
       },
     };
 
@@ -914,10 +924,10 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
 
     const byTitle = new Map(snap.workspaces.map((w) => [w.title, w]));
     // A tab exists only with a live line or a restorable row: config order,
-    // deduplicated, `other` last, no empty tab.
+    // deduplicated, `other` last, no empty tab (NB-10: `empty` excluded).
     expect(snap.workspaces.map((w) => w.title)).toEqual(["core", "other"]);
-    // The live session stays a live line.
-    expect(byTitle.get("core")!.sessions.map((s) => s.id)).toEqual(["h2a-live-one"]);
+    // The live sessions stay live lines.
+    expect(byTitle.get("core")!.sessions.map((s) => s.id)).toEqual(["h2a-live-one", "h2a-live-two"]);
 
     const coreRestorable = byTitle.get("core")!.restorable ?? [];
     const row = (key: string) => coreRestorable.find((r) => r.key === key)!;
@@ -991,11 +1001,16 @@ describe("S2 canal des restaurables (plan 09-S2)", () => {
     });
     expect(otherRow("registry:dead-agy").relaunch).toBeUndefined();
 
-    // Neither the delegated row nor the remote row is ever listed.
     const allKeys = snap.workspaces.flatMap((w) => [
       ...w.sessions.map((s) => s.id),
       ...(w.restorable ?? []).map((r) => r.key),
     ]);
+    // B-8: a live session is never listed as restorable — neither the
+    // selected native `attach` under an unknown tmux view nor a live line
+    // beyond the cap.
+    expect(allKeys).not.toContain("registry:live-one");
+    expect(allKeys).not.toContain("registry:live-two");
+    // Neither the delegated row nor the remote row is ever listed.
     expect(allKeys).not.toContain("registry:delegated-one");
     expect(allKeys).not.toContain("registry:remote-one");
   });

@@ -790,6 +790,42 @@ describe("S2 restorable expander (plan 09-S2)", () => {
     });
   });
 
+  it("should paint an empty state text as motif alone, never deferred (NB-14)", () => {
+    const out = new FakeOut();
+    const snapshot = restorableSnapshot();
+    const core = snapshot.workspaces[0]!;
+    core.restorable = [
+      {
+        key: "registry:capped-1",
+        label: "capped-one",
+        reason: "launch-cap",
+        reasonText: "launch cap",
+        state: "deferred",
+        stateText: "",
+        relaunch: {
+          args: ["run", "claude", "/src/a", "--resume", "sid-1", "--name", "capped-one", "--no-attach"],
+          env: [],
+          cwd: "/src/a",
+        },
+      },
+    ];
+    const panel = new RightPanelController({
+      stdout: out as unknown as NodeJS.WriteStream,
+      snapshot,
+      width: 60,
+    });
+    panel.toggle();
+    // Walk down to the expander and open it.
+    panel.handleInput("j", { cliMouseEnabled: false });
+    const mark = out.chunks.length;
+    panel.handleInput("\r", { cliMouseEnabled: false });
+    const expanded = plainish(out.chunks.slice(mark).join(""));
+    expect(expanded).toContain("capped-one");
+    // The motif stands alone in parentheses: no state, no separator.
+    expect(expanded).toContain("(launch cap)");
+    expect(expanded).not.toContain("deferred");
+  });
+
   it("should select a restorable row on first click and fire its gesture on second click", () => {
     const out = new FakeOut();
     const panel = new RightPanelController({
