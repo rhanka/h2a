@@ -1,343 +1,291 @@
-# RACI of the twelve durable actors
+# RACI des cinq rôles durables h2a
 
-WP4 · Governance & RACI. **Status: architect's advice given and applied (COUNTER, three
-conditions, all met) — awaiting the owner's ratification.** Nothing in this file grants
-authority yet: the roles it names are not the roles the registry holds. See *Where this
-stops*.
+WP4 · Gouvernance et RACI. **Statut : décidé par l'owner le 2026-09-19 ; bascule coordonnée
+en attente des prérequis (D4=B).** Ce fichier décrit l'organisation cible retenue. Tant que
+la bascule n'est pas prononcée, les sessions actuelles continuent de porter leurs sujets et
+aucun droit n'est accordé par ce document (voir *Où ce document s'arrête*). Les prérequis de
+la bascule sont listés dans [`migration-cinq-roles.md`](./migration-cinq-roles.md).
 
-Author: `cond` (CONDUCTOR). Mandate: the owner settled on 2026-07-29 that the
-conductor **defines** the RACI, on the architect's advice — decision
-`01KYQ89WANWD257Y3GCW7YM8BZ`, option A, outcome `go`. The architect's advice is the
-single retained counterweight to that ownership and is **not optional**.
+Décision : dossier « Rôles h2a : cinq, six ou sept responsables » (révision r2), option A
+« Cinq rôles · regroupement fort », reçue le 2026-09-19 dans la conversation du conducteur
+h-cond. Réponses de l'owner : D1=A (cinq rôles, « sous réserve des contrôles indépendants
+décrits »), D2=A (délégation systématique), D3=B (qualification séparée avant toute évolution
+de la politique des modèles), D4=B (bascule coordonnée après validation de tous les
+prérequis). Pièces : [`docs/decisions/2026-09-19-roles-h2a/`](../decisions/2026-09-19-roles-h2a/)
+— `owner-decision.md`, `dossier.md`, `migration.md`, `index.html`.
 
-Machine form: [`org.h2a.yaml`](../../org.h2a.yaml) at the repo root — `h2a org show`,
-`h2a org validate`, `h2a org diff`.
+Auteur : `cond` (CONDUCTOR), qui **définit** le RACI sur avis de l'architecte (décision
+`01KYQ89WANWD257Y3GCW7YM8BZ`, 2026-07-29). **L'avis de h-arch sur cette réécriture reste à
+obtenir** : c'est le premier prérequis de la bascule, et la règle « l'avis de l'architecte
+n'est pas omissible » ci-dessous s'applique à ce document comme aux précédents.
 
-> **Two citations in this document do not resolve at this commit**, and that is stated here
-> rather than discovered at merge. `docs/agents/RECALL.md` (cited for DOC-06, the twelve-actor
-> roster) lands with `memory`'s PR 90; `docs/specs/2026-07-29-ARCH_raci-visa-and-wp7-arbitration.md`
-> (the architect's advice artefact) lives on the architect's own branch. Merging this document
-> first leaves both dangling. The substance of the architect's advice is reproduced in the track
-> decision that carries this RACI, so the *record* does not depend on the file — but the
-> *citations* do, and this repo has paid three times for citing an uncommitted document as a
-> mandate. Found by the third review leg; the ordering is a merge-sequence question for the
-> owner, not something to paper over.
+Forme machine : [`org.h2a.yaml`](../../org.h2a.yaml) à la racine — `h2a org show`,
+`h2a org validate`, `h2a org diff`. La liste des cinq instances et la carte des WP sont
+tenues par `packages/h2a/test/org-manifest-committed.test.js`.
 
 ---
 
-## What the letters mean here
+## Ce que signifient les lettres
 
-| letter | meaning in this repo |
+| lettre | sens dans ce dépôt |
 |---|---|
-| **A** — accountable | Answers for the outcome. Exactly one actor per act. Cannot be shared. |
-| **R** — responsible | Does the work. May be several. May be the same actor as A. |
-| **C** — consulted | Must be asked **before** the act, and their objection has to be addressed on the record. Blocking. |
-| **I** — informed | Told **after**, with no veto. |
+| **A** — répond du résultat | Un seul acteur par acte ou par WP. Ne se partage pas. Peut déléguer le travail, jamais sa responsabilité finale. |
+| **R** — réalise | Fait le travail. Peut être plusieurs. Peut être l'acteur A, ou un constructeur délégué. |
+| **C** — consulté | Doit être sollicité **avant** l'acte ; son objection est traitée au registre. Bloquant. |
+| **I** — informé | Prévenu **après**, sans veto. |
 
-Two rules override the tables when they collide:
+Deux règles priment sur les tableaux lorsqu'elles entrent en conflit avec eux :
 
-1. **The owner alone accepts.** No actor may declare an item `done` on a green suite.
-   A closure without owner UAT is the defect this repo repeats — six items were closed
-   on a claim the owner then observed to be false (`REF-01`).
-2. **The builder is never a review leg.** Any merge needs a test *and* two review legs,
-   neither of them the author.
+1. **L'owner seul accepte.** Aucun acteur ne déclare un sujet `done` sur une suite verte.
+   Une clôture sans recette de l'owner est le défaut que ce dépôt répète — six sujets ont été
+   clos sur une affirmation que l'owner a ensuite observée fausse (`REF-01`).
+2. **Le constructeur n'est jamais une jambe de relecture.** Toute fusion exige un test *et*
+   deux jambes de relecture, dont aucune n'est l'auteur — y compris lorsque l'auteur est un
+   constructeur délégué, et y compris lorsque le rôle durable possède à la fois la conception
+   et le contrôle (cas de `arch`, ci-dessous).
 
 ---
 
-## A · Ownership by workpackage
+## Les cinq rôles
 
-One accountable actor per WP; the WP is that actor's own scope for
-conflict-of-interest purposes.
+L'owner (`fabien`, PRINCIPAL) ne compte pas parmi les cinq rôles. Un contact principal :
+`cond`. Les alertes de sécurité et l'avis architectural gardent un accès direct à l'owner.
+Les constructeurs et relecteurs temporaires ne sont pas des rôles durables : ils agissent
+sous le mandat du rôle qui les délègue.
 
-| WP | title | A / R | C | I |
+| Rôle · instance · session | Mission | WP | Décide seul | Consulte ou demande |
 |---|---|---|---|---|
-| WP1 | Protocol & envelopes | `coop` | `arch` | `cond` |
-| WP2 | Addressing & presence | `coop` | `arch`, `runtime` | `cond` |
-| WP3 | Coordination & loop | `coop` | `cond` | `arch` |
-| WP4 | Governance & RACI | `cond` | `arch` (mandatory) | owner |
-| WP5 | Execution & runtime | `runtime` | `coop` (addressing doctrine), `cyber` (sandbox policy) | `cond` |
-| WP6 | Identity, auth & NHI | `arch` | `cyber`, `coop` — an identity that cannot be resolved cannot be bound | `cond` |
-| WP8 | Tracking & record | `track` | `cond` | all |
-| WP9 | Method & harness | `harness` | `cyber` (security discipline), `arch` | all |
-| WP10 | Distribution, CLI & packaging | `plugins` | `harness` (gate), `cond` (tempo) | all |
-| WP11 | Memory & context | `memory` | `agents`, `arch` | all |
-| WP12 | Integration — sentropic & MCP brokering | `portal` | `gateway` (routing), `arch` | `cond` |
-| WP13 | Native CLI & agent runtime | `agents` | `arch`, `memory` | `cond` |
-| WP14 | Gateway — routing, pools, loop | `gateway` | `runtime` | `cond` |
-| — | security policy, vulnerability register, audit gate | `cyber` | owning lane | `cond`, `harness` |
+| Conduite · `cond` · h-cond | Ordonne le travail, délègue construction et intégration, pilote et débloque, présente les décisions à l'owner. | WP4 | Ordre des lots dans les priorités fixées, délégation, reprise, désignation d'un remplaçant. | `arch` sur le RACI ; owner pour priorités, acceptation et actes irréversibles. |
+| Cadre et assurance · `arch` · h-arch | Réunit architecture, méthode, Track et contrôle de sécurité dans un même rôle durable. | WP8, WP9 (+ périmètre sécurité) | Contrats internes et méthode, sous les mandats existants. | Deux relecteurs indépendants pour ses propres productions ; owner pour RACI, droits et dérogations. |
+| Moteur · `runtime` · h-runtime | Rend les sessions, la coordination et les agents utilisables de bout en bout — y compris MCP au démarrage, `--gw`/`--bare`, RTK et JEV natifs. | WP1, WP2, WP3, WP5, WP11, WP13, WP14 | Réparations et choix internes du cycle de vie, dans les contrats approuvés. | `arch` pour interfaces et sécurité ; `portal` pour les effets visibles. |
+| Expérience · `portal` · h-portal | Porte Focus, les diagrammes et les interfaces utilisables par l'owner. | WP12 | Conception et réalisation dans les parcours et contrats approuvés. | DS pour les composants partagés ; `arch` pour les contrats ; owner pour recette et changement visible. |
+| Plateforme · `infra` · h-infra | Livre les services, identités, plugins et versions nécessaires aux autres rôles. | WP6, WP7, WP10 | Construction, empaquetage et préparation des livraisons dans les mandats existants. | `arch` pour identité et audit ; `cond` pour le calendrier ; owner pour la publication. |
 
-**WP7 is gone from this table, and that is deliberate.** The owner selected dissolution on
-2026-07-29 at 22:02Z; the architect applied eight reparentings, and the leaves went to five
-destinations across four actors — WP2 ×3, WP5 ×2, WP9, WP12, WP14. An earlier version of this
-row carried `runtime` with a *provisional* marker; keeping it would have named an accountable
-actor for a container with no leaves, and any percentage it reported would have been
-meaningless.
+Les modèles utilisés par chaque rôle suivent [`model-assignment.md`](./model-assignment.md)
+(politique owner du 2026-09-19). Les profils « Sol » et « Terra » cités dans le dossier sont
+remplacés par cette politique.
 
-**The container is empty and NOT cancelled, on purpose.** The architect's reason, recorded
-here so nobody "repairs" a deliberate hole: positional derivation counts cancelled containers,
-and WP7 carries no stored code, so the code stays re-assignable. It will be cancelled once
-reopening exists. A gap in a numbered series that carries no explanation is exactly what caused
-two WPs to be cancelled by mistake the previous morning.
+### Correspondance avec les acteurs précédents
 
-**Why the row and the manifest had to change in the same commit.** The test derives table A
-rather than copying it, and it checks the WP sets of the document and of `org.h2a.yaml` agree
-**in both directions**. So removing this row while leaving `org:h2a/wp7` on `runtime` in the
-manifest turns the suite red — and the test would be right. The architect caught exactly that
-before it happened, from a tree 195 commits behind, by reading the assertion instead of my
-sentence. What the test refuses is **drift**; a coherently applied arbitration keeps it green,
-which is the property `harness` asked for and the reason the map is derived at all.
+Le RACI précédent (`c0b9e863:docs/governance/RACI.md`) nommait douze acteurs. Chaque ancien
+acteur est rattaché à un seul rôle ; un ancien nom devient une correspondance de transition,
+jamais un second A.
 
-`cyber` is the only actor without a WP while it ships code. Its discipline currently
-lives as an item inside WP9 (`01KYJVQM5JMJ49MTKR2H4K12NK`). Whether it gets a WP of
-its own or keeps its items under WP9 is an **open owner decision**, flagged in its own
-brief and not settled here.
+| Ancien acteur ou session | Rôle de rattachement |
+|---|---|
+| `cond` · h-cond | Conduite (`cond`) |
+| `arch` · h-arch | Cadre et assurance (`arch`) |
+| `harness` · h-harness | Cadre et assurance (`arch`) — session retirée à la bascule |
+| `track` · session track | Cadre et assurance (`arch`) |
+| `cyber` | Cadre et assurance (`arch`) — audit ; la correction reste au rôle du composant |
+| `coop` | Moteur (`runtime`) |
+| `runtime` · h-runtime | Moteur (`runtime`) |
+| `memory` | Moteur (`runtime`) |
+| `agents` · h-agents | Moteur (`runtime`) — session retirée à la bascule |
+| `gateway` | Moteur (`runtime`) |
+| `portal` · h-portal | Expérience (`portal`) |
+| `plugins` · h-plugins | Plateforme (`infra`) — session retirée à la bascule |
+| h-infra (décision owner du 2026-08-08, `43002a77`, hors `main`) | Plateforme (`infra`) |
 
-## B · Ownership by act
+---
 
-This table is the part that arbitrates. Where an act crosses lanes, the accountable
-actor named here wins.
+## A · Propriété par WP
 
-| act | A | R | C | I |
+Un seul acteur A par WP ; le WP est le périmètre propre de cet acteur au sens des conflits
+d'intérêts. Le test du manifeste lit **cette table** : la colonne 3 donne l'acteur A (premier
+nom entre accents graves) et doit concorder, dans les deux sens, avec les scopes
+`org:h2a/wpN` de `org.h2a.yaml`.
+
+| WP | intitulé | A | C | I |
 |---|---|---|---|---|
-| Set product priority | owner | owner | `cond` | all |
-| Decide the tempo, dispatch a lane, relaunch a dead lane | `cond` | `cond` | — | affected lane |
-| Wake an idle agent | `cond` | `coop` (mechanism) | — | woken agent |
-| Define or amend this RACI, the actor→WP map, or the conductor's authority | `cond` | `cond` | `arch` — mandatory and **not omissible**, see the rule below | owner, all |
-| Ratify the org manifest / provision it | owner | `cond` (proposes) | `arch` | all |
-| Arbitrate a package or WP boundary, split a WP | `arch` | `arch` | affected lanes | `cond`, owner |
-| Resolve two lanes that contradict each other | `arch` | affected lanes | `cond` | owner |
-| Merge a branch | owning lane | owning lane | `harness` (gate), 2 review legs ≠ author | `cond` |
-| Cut and publish a release | `plugins` | `plugins` | `cond` (tempo), `harness` (gate) | all |
-| Change what the required test gate covers | `harness` | `harness` | `cyber` **and** `arch` — two named independent legs, see the exclusion below | all |
-| Command a remote session: back-channel, lifecycle, launch option | `runtime` | `runtime` | `portal` | `cond` |
-| Expose a session, a UAT or a decision dossier to sentropic — indifferent to where it runs | `portal` | `portal` | `runtime`, `arch` | `cond` |
-| Ship a security fix or a vulnerable-dependency bump | `cyber` | `cyber` | — | owning lane, `cond`, `harness` |
-| Waive an acceptance criterion (`track accept waive`) | owner | `track` (mechanism) | owning lane, `harness` | `cond` |
-| Offboard an NHI — revoke every active key and subagent, write the tombstone | `arch` | `arch` | `cyber`, affected actor, owner | `cond` |
-| Set the sandbox / greywall policy | `cyber` | `cyber` | `runtime` (executes it) | `cond` |
-| Declare an item `done` | owner (UAT) | owning lane | — | `cond`, `track` |
-| Reopen an item closed without validation | owning lane | `track` (mechanism) | — | `cond`, owner |
-| Cancel an item | owning lane | owning lane | `cond` | owner, `track` |
-| Write the journal, the report, the decision surface | `track` | `track` | `cond` | all |
-| Declare a conflict of interest / ask for clearance | declaring actor | `cond` | `arch` | owner |
-| Escalate after N failed relaunches | `cond` | `cond` | — | owner |
-| Speak to the `sentropic` repo | `portal` | `portal` | `arch` | `cond` |
-| Choose a model, an account pool, a routing target | `gateway` | `gateway` | `runtime` | `cond` |
-| Define what an actor must recall on wake | `memory` | `memory` | all | `cond` |
+| WP1 | Protocole et enveloppes | `runtime` | `arch` (contrats) | `cond` |
+| WP2 | Adressage et présence | `runtime` | `arch` | `cond` |
+| WP3 | Coordination et boucle | `runtime` | `cond` | `arch` |
+| WP4 | Gouvernance et RACI | `cond` | `arch` (obligatoire, non omissible) | owner |
+| WP5 | Exécution et runtime | `runtime` | `arch` (politique de bac à sable), `infra` (distribution des réglages) | `cond` |
+| WP6 | Identité, authentification et NHI | `infra` | `arch` (conception, audit) | `cond` |
+| WP7 | Infrastructure, déploiement et MCP | `infra` | `arch` (audit indépendant ; portée fixée par `cond` ou l'owner), `runtime` | `cond` |
+| WP8 | Suivi et registre (Track) | `arch` | `cond` | tous |
+| WP9 | Méthode et harnais | `arch` | deux relecteurs indépendants (voir l'exclusion ci-dessous) | tous |
+| WP10 | Distribution, CLI et empaquetage | `infra` | `arch` (porte de contrôle), `cond` (calendrier) | tous |
+| WP11 | Mémoire et contexte | `runtime` | `arch` (contrat Graphify) | tous |
+| WP12 | Intégration sentropic, Focus et courtage MCP | `portal` | `arch` (contrats), `runtime`, DS pour les composants partagés | `cond` |
+| WP13 | CLI natif et moteur des agents | `runtime` | `arch` | `cond` |
+| WP14 | Passerelle — routage, pools, boucle | `runtime` | `arch` (matrice `--gw`/`--bare`) | `cond` |
+| — | politique de sécurité, registre des vulnérabilités, audit | `arch` | rôle propriétaire du composant | `cond`, owner |
 
-Escalation chain, unchanged from `docs/drumbeat.md`: `AGENTS ← CONDUCTOR ← PRINCIPAL`.
-The owner is the escalation endpoint; there is no EXECUTIF at this scope.
+**WP7 reçoit un responsable.** Sur `main`, WP7 était absent de cette table et du manifeste
+(dissolution sélectionnée le 2026-07-29, conteneur vide et non annulé). La décision owner du
+2026-08-08 (`43002a77`, jamais fusionnée) l'avait rendu à h-infra ; l'option A retenue le
+2026-09-19 le confirme : `infra` en est A. Les sujets déjà reclassés hors de WP7 ne sont pas
+déplacés implicitement.
 
-### The architect's advice is not omissible
+**Pourquoi la table et le manifeste changent dans le même commit.** Le test dérive la table A
+au lieu de la recopier et vérifie la concordance des deux ensembles de WP dans les deux sens.
+Changer l'un sans l'autre fait échouer la suite, à juste titre : ce que le test refuse, c'est
+la dérive.
 
-Any amendment to this RACI, to the actor→WP map, or to the conductor's own authority
-carries a **track decision whose dossier references the architect's advice artefact**.
-The owner may **refuse** that advice; nobody may **skip** it. A conductor that amends its
-own governance without that reference has produced a document, not an amendment.
-
-Why this form rather than a stronger one: "C, mandatory" is a spec line — nothing fires
-when it is forgotten, and a habit is skipped exactly when it counts, which here means
-under pressure and on the conductor's own authority. Requiring the reference *inside a
-decision* is checkable by a human today and testable tomorrow: does the decision carry
-the artefact? This was the architect's condition for its visa, and it deliberately
-transfers nothing — WP4 stays with the conductor, which is what the owner decided. The
-counterweight's force comes from the artefact being answerable, not from the role holding
-it: an unconsulted CONTROL is worth less than an AGENTS whose advice cannot be skipped.
-
-### Exclusion — the owner of a gate is not the reviewer of its repair
-
-When `harness` ships code that changes the required test gate, `harness` is **neither of
-the two review legs nor the verifier** of that change. The two named independent legs are
-`cyber` (CONTROL, `gate-audit`) and `arch`, and a green suite produced by `harness` is not
-the evidence. This is rule 2 of this document — the builder is never a review leg — applied
-to the gate itself. Naming *two* legs rather than one is `harness`'s own request: a single
-named leg makes the exclusion unenforceable the day that leg is unavailable.
-
-It is not hypothetical: item `01KYPZA14CRATVDSSZ6V6HDPCZ` measured the required gate blind
-to the `h2a-runtime` tests — `harness` owns the gate *and* has to deliver its own repair,
-which is exactly the moment this exclusion applies. Whether that repair has landed on
-`main` is a question for `harness` and for the gate itself, not for this document. Same
-structure of conflict of interest as WP4, same treatment.
+**Conteneurs WP15 à WP23 et flux S1 à S8.** Track contient des conteneurs postérieurs à WP14.
+Ils n'appartiennent pas à la décision du 2026-09-19 ; leur rattachement est proposé dans
+`migration.md` § 6.1 et reste un prérequis de la bascule. Ils ne figurent pas ici tant qu'il
+n'est pas confirmé.
 
 ---
 
-## The recorded disagreement on WP4
+## B · Sujet → A
 
-Both legs of the double consensus concluded that WP4 should belong to `arch`, not to
-`cond`, on the same argument: **an operator must not own the rules that found its own
-authority**, and the repo already ships a conflict-of-interest posture that makes the
-separation explicit. The owner decided otherwise on 2026-07-29, citing the precedent of
-their other projects, and retained the architect's advice as the counterweight — *the
-separation is by advice, not by ownership*.
-
-This is recorded so that any future conflict over the conductor's authority is re-read
-in the light of what was flagged. It is not a reservation about the decision; it is the
-decision's own stated condition. In practice it means: an amendment to this RACI that
-`arch` has not seen is not valid, whoever writes it.
-
-One discrepancy in the ratified dossier, for the record: the selected option is titled
-"Onze acteurs durables : 4 transverses, 7 de domaine" while its own body enumerates
-four transverse and **eight** domain lanes — twelve actors, as `docs/agents/RECALL.md`
-DOC-06 states. The enumeration is authoritative; the count in the title is off by one.
+| Sujet | A | Interfaces |
+|---|---|---|
+| MCP au lancement et reprise | Moteur (`runtime`) | Plateforme pour service et identité ; Expérience pour les connecteurs visibles. |
+| `--gw`, `--bare` et joignabilité | Moteur (`runtime`) | Plateforme distribue ; Cadre et assurance vérifie la matrice des modes. |
+| Focus et diagrammes | Expérience (`portal`) | Le DS garde ses bibliothèques ; Cadre et assurance arbitre les contrats. |
+| Cluster mesh : intégration de service | Plateforme (`infra`) | Moteur porte le consommateur h2a ; fournisseur externe consulté. |
+| Track, journal et projection | Cadre et assurance (`arch`) | Conduite utilise les états ; Expérience présente les dossiers. |
+| Plugins et installation des skills | Plateforme (`infra`) | Cadre et assurance possède la doctrine des skills ; le rôle métier possède leur contenu spécialisé. |
+| Infrastructure et release | Plateforme (`infra`) | Conduite fixe le calendrier ; l'owner autorise la publication. |
+| Sécurité et audit | Cadre et assurance (`arch`) | Le rôle concerné livre le correctif ; aucun déployeur ne valide son propre audit. |
+| Mémoire et agents natifs | Moteur (`runtime`) | Architecture du contrat Graphify consultée ; aucun engagement externe implicite. |
+| Permissions d'une session | Moteur (`runtime`) | Plateforme distribue les réglages ; Cadre et assurance examine la politique. |
+| Outils natifs de la passerelle : RTK et JEV | Moteur (`runtime`) | Plateforme distribue par le plugin ; Cadre et assurance vérifie la matrice `--gw`/`--bare` et le contrat des outils ; llm-mesh consulté pour le juge. |
+| Politique des modèles et pratique de lancement (S6, S8) | Cadre et assurance (`arch`) | Toute évolution passe par une qualification séparée puis une décision owner (D3=B). |
 
 ---
 
-## Where this stops
+## C · RACI des actes
 
-On the enforceability ladder — **structural > test > spec line > habit** — this file is
-a **spec line**, and the roster sits one rung above it at **test**, not at structural.
+Cette table arbitre. Lorsqu'un acte traverse plusieurs rôles, l'acteur A nommé ici l'emporte.
+Les quatorze premières lignes viennent de l'option A du dossier ; les suivantes reprennent
+des actes du RACI précédent, l'ancien acteur étant remplacé par son rôle de rattachement.
 
-That distinction is a correction, not a nuance. An earlier version of this section called the
-roster structural on the strength of `validateOrgManifest`. The third review leg checked what
-that validator actually pins: a non-empty unique instance id, a canonical role, at least one
-scope, at least one PRINCIPAL, and edges referencing declared instances. It does **not** pin
-the twelve actors, nor a single CONDUCTOR, nor membership of the root scope, nor the WP map.
-Every property this document depends on is held by
-`packages/h2a/test/org-manifest-committed.test.js` alone — so the roster is exactly as strong
-as that test, and the same leg found a hole in it (a WP named twice in table A passed green;
-now closed and re-falsified). A gate is worth what its last falsification proved, not what its
-title says.
+| Acte | A | R | C | I |
+|---|---|---|---|---|
+| Priorités et acceptation utilisateur | owner | owner | `cond` | tous |
+| Ordre des lots et reprise d'un sujet | `cond` | `cond` | rôle concerné | owner au bilan |
+| Proposer ou amender ce RACI, la carte rôle→WP ou l'autorité du conducteur | `cond` | `cond` | `arch` — obligatoire et non omissible ; rôles concernés | tous, owner |
+| Ratifier le manifeste, accorder de nouveaux droits | owner | `cond` prépare | `arch` | tous |
+| Architecture et frontières : arbitrer une frontière, découper un WP, départager deux rôles | `arch` | `arch` | rôles concernés ; DS si touché | `cond`, owner |
+| Livraison d'un WP | rôle A du WP (table A) | constructeur délégué | `arch` | `cond` |
+| Recette technique et revue | `arch` | deux relecteurs indépendants | rôle concerné | `cond` |
+| Modification d'un contrôle requis | `arch` | constructeur distinct | deux jambes indépendantes du lot (voir l'exclusion) | tous |
+| Audit de sécurité | `arch` | auditeur indépendant | rôle audité ; portée fixée par `cond` ou l'owner | `cond`, owner |
+| Correction de sécurité, montée d'une dépendance vulnérable | rôle propriétaire du composant | constructeur délégué | `arch` | `cond` |
+| Préparation d'une version | `infra` | constructeur ou intégrateur délégué | `arch`, `cond` | tous |
+| Autorisation de publication | owner | `infra` exécute | `arch`, `cond` | tous |
+| Écriture du journal Track | `arch` | écrivain unique désigné | rôle du sujet ; `cond` | tous |
+| Engagement entre projets | `cond` pour h2a | rôle technique concerné | autre conducteur ; `arch` | propriétaires concernés |
+| Fusionner une branche | rôle propriétaire | intégrateur délégué (D2=A) | `arch` (porte), deux relecteurs ≠ auteur | `cond` |
+| Déclarer un sujet `done` | owner (recette) | rôle propriétaire | — | `cond`, `arch` |
+| Renoncer à un critère d'acceptation (`track accept waive`) | owner | `arch` (mécanisme Track) | rôle propriétaire | `cond` |
+| Rouvrir un sujet clos sans validation | rôle propriétaire | `arch` (mécanisme Track) | — | `cond`, owner |
+| Annuler un sujet | rôle propriétaire | rôle propriétaire | `cond` | owner, `arch` |
+| Réveiller, relancer ou remplacer une session | `cond` | `runtime` (mécanisme) | — | session concernée |
+| Escalader après N relances infructueuses | `cond` | `cond` | — | owner |
+| Commander une session distante : canal retour, cycle de vie, option de lancement | `runtime` | `runtime` | `portal` | `cond` |
+| Exposer une session, une UAT ou un dossier de décision à sentropic ; parler au dépôt sentropic | `portal` | `portal` | `runtime`, `arch` | `cond` |
+| Fixer la politique de bac à sable (greywall) | `arch` | `arch` | `runtime` (l'exécute), `infra` (distribue) | `cond` |
+| Retirer une NHI : révoquer clés et sous-agents, écrire la pierre tombale | `infra` | `infra` | `arch` (audit), acteur concerné, owner | `cond` |
+| Choisir un modèle, un pool de comptes, une cible de routage à l'exécution | `runtime` | `runtime` | `arch` (politique des modèles) | `cond` |
+| Faire évoluer la politique des modèles | owner | `arch` (qualification séparée, D3=B) | `cond` | tous |
+| Définir ce qu'un acteur doit se rappeler au réveil | `runtime` | `runtime` | tous | `cond` |
+| Déclarer un conflit d'intérêts, demander une levée | acteur déclarant | `cond` | `arch` | owner |
 
-The **A/R/C/I assignments remain a spec line**: nothing in the code refuses an act performed by
-the wrong actor. Five measurements say exactly how far the machine is from this paper.
+Chaîne d'escalade, inchangée (`docs/drumbeat.md`) : `AGENTS ← CONDUCTOR ← PRINCIPAL`. L'owner
+est le point final de l'escalade.
 
-**Status of the gate itself, stated precisely.** The test lives in `packages/h2a/test`,
-which the required `build-and-test` check runs on `main` under `enforce_admins`, and
-`npm test` builds before testing — so the mechanism does cover it. It is verified locally
-at 6/6, with falsification checked (two mutations, two named failures). But a required
-check runs on the **pushed** tree: until this work is pushed and merged, the honest claim
-is "checked locally", not "enforced by the gate". The architect made this correction, and
-it is the same defect this repo has paid for three times — citing an uncommitted document
-as a mandate.
+### L'avis de l'architecte n'est pas omissible
 
-1. **No actor holds its role in the registry.** All fourteen live agents in this
-   workspace are registered `roles: ["AGENTS"]` — including `cond`, `arch`, `harness`
-   and `cyber`. `h2a_conductor` returns `conductor: null, claimedBy: null` for the
-   workspace. Measured 2026-07-29 21:37Z. So the roles above are, today, invisible to
-   the machine. `h2a org provision` does **not** require the owner's ratification: it
-   can append role/scope grants from any valid manifest when registry rows are
-   array-shaped. On this legacy scalar-shaped registry it instead fails before any
-   grant with `TypeError: r.roles is not iterable`, so provisioning cannot currently
-   be relied on to make these roles exist.
+Tout amendement de ce RACI, de la carte rôle→WP ou de l'autorité du conducteur porte **une
+décision Track dont le dossier référence l'artefact d'avis de h-arch**. L'owner peut **refuser**
+cet avis ; personne ne peut le **sauter**. Un conducteur qui amende sa propre gouvernance sans
+cette référence a produit un document, pas un amendement.
 
-2. **The conductor resolver cannot be reached by path.** `h2a_conductor` called with
-   `workspacePath: /home/antoinefa/src/h2a` derives
-   `ws:4fcb3611-1010-56a7-b14d-9c2c760fa2b6` and answers `live: false` with zero
-   candidates; called with the presence-form id
-   `ws:4471ea0ce44cda345ef053f51773215a5b6f0f09aa9f505bef086751f50fb8d2` it answers
-   `live: true` with fourteen. So a caller that passes a path — the natural form for a
-   human or a hook — is silently told the workspace is dead, and "who conducts here" has
-   no reliable answer. Traced as a WP4 defect. The path form is a **third** mechanism
-   (UUID-shaped) and remains unexplained; the two sha256-shaped ids are explained by
-   measurement 5.
+La présente réécriture ne fait pas exception : la décision de l'owner est acquise, l'avis de
+h-arch ne l'est pas encore, et la bascule attend cet avis (prérequis n° 1 de
+`migration-cinq-roles.md`).
 
-3. **Per-item RACI cannot be back-filled.** `track` persists `accountable` /
-   `responsible` **only at item creation** (`track item new --accountable/--responsible`);
-   there is no command to set them on an existing item, and the backlog already holds well
-   over a hundred. So the ownership table above cannot yet be projected onto the backlog it
-   governs.
+### Contrôles indépendants du rôle Cadre et assurance
 
-   *On the counts in this section:* an earlier version wrote "115 items", and "2 items versus
-   119" in measurement 5. Neither reproduces from this commit — the third review leg measured
-   113 and 110 at the head. The journal is append-only and **mutable between reads**: twelve
-   actors were writing to it while these lines were drafted, so any absolute count is a
-   timestamp, not a fact about the repository. The measurements that carry this document are the
-   *ratios and the causes*, which do reproduce; the raw totals are dated observations and are
-   marked as such rather than being re-pinned to numbers that will drift again by morning.
+L'option A réunit dans `arch` ce qui était séparé entre `arch`, `harness`, `track` et `cyber`.
+L'owner l'a retenue « sous réserve des contrôles indépendants décrits ». Ces contrôles sont :
 
-4. **Routing to an actor is a convention.** Multi-namespace target resolution (DOC-03)
-   is decided and not wired. Until it is, a dispatch addressed to `runtime` is a name
-   this repo cannot reliably resolve, and every C in these tables depends on the message
-   arriving.
+- **`arch` ne certifie pas ses propres productions.** Quand `arch` conçoit ou fait construire
+  un changement de Track, de la méthode, d'une porte requise ou de la politique de sécurité,
+  `arch` ne compte pas parmi les jambes de relecture ni comme vérificateur. Deux relecteurs
+  indépendants, de familles de modèles différentes de celle de l'auteur
+  ([`model-assignment.md`](./model-assignment.md)), rendent le verdict ; `cond` vérifie leur
+  indépendance.
+- **Le déployeur ne clôt pas seul une alerte de sécurité.** La sécurité peut interrompre un
+  lot par une alerte motivée ; la portée d'un audit est fixée par `cond` ou l'owner, jamais par
+  le rôle audité (avis de l'architecte (a) du 2026-08-08).
+- **Le contrepoids sur le RACI reste une consultation.** `arch` est consulté sur le RACI ; il
+  n'en devient pas propriétaire. WP4 reste à `cond`, comme l'owner l'a décidé le 2026-07-29.
 
-5. **The journal this RACI would be enforced through is split across two workspace ids.**
-   `track workspace-id` prints
-   `ws:4471ea0ce44cda345ef053f51773215a5b6f0f09aa9f505bef086751f50fb8d2`; querying with
-   it returns **2** items, while the WP1–WP14 referential — every WP container included —
-   sits under `ws:89c45cc3e0…` with **119**. Root cause, computed and reproduced
-   independently on both sides rather than supposed: the id is
-   `sha256(root-commit-SHAs, sorted, comma-joined + "\n" + worktree-name)`
-   (`packages/track/src/workspace-id.ts`), and this repo has **two** root commits —
-   `ce2f385` (init h2a) and `e195823` (init `@sentropic/track`, absorbed by a
-   `git subtree add` on 2026-07-04). `sha256("ce2f385…\n")` reproduces the referential id
-   exactly; `sha256("ce2f385…,e195823…\n")` reproduces today's exactly. The function is
-   documented as durable because it is salted only by what travels with the repo: true
-   under a move or a clone, **false when the repo absorbs another repo's history** — which
-   is the direction h2a is taking (track absorbed, remote absorbed, single-plugin
-   consolidation ahead). The guarantee is real and narrower than its name.
+### Exclusion — le propriétaire d'une porte n'est pas le relecteur de sa réparation
 
-   Consequence for this document: ownership recorded through `track` can land outside the
-   referential, silently — the write succeeds and `track validate` says nothing. One item
-   already sits orphaned that way. **Interim instruction, in force for all twelve actors
-   until the drift is fixed: pass `--workspace ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d`
-   explicitly, and do not use `track workspace-id` in this repo.** Owned by the architect
-   in WP6 (identity & workspace); broadcast by the conductor.
-
-What would raise the A/R/C/I rung from spec line to structural, in order of cost:
-repair provisioning so it accepts the real registry rows, and enforce the intended
-ratification boundary before treating its grants as structural role state; give `track`
-a way to set `accountable`/`responsible` on an existing item; then gate the acts in
-table B on the actor's registered role, reusing the clearance gate rather than goodwill.
-
-**Provisioning: two of my successive claims were wrong, in opposite directions.** For the
-record, because the corrections matter more than the conclusion.
-
-I first wrote that provisioning "requires the owner's ratification". False: the third review
-leg on PR 84 measured that `h2a org provision` accepts any file passing `validateOrgManifest`
-and, on a control registry, granted CONDUCTOR plus two scopes to `cond` with **no signature,
-no `org-ratified` envelope and no key**. The propose/ratify lifecycle exists in the code and
-provisioning never checks it. There is no ratification boundary — only the fact that nobody
-has typed the command.
-
-I then narrowed it to "provisioning this manifest grants nothing, and `graphify` shows the
-shape that works". Also unsafe: the same leg could **not** reproduce the `graphify` evidence in
-any registry it read, and — decisively — on the **real** shared registry `org diff` and
-`org provision` do not run at all, throwing `TypeError: r.roles is not iterable` on a legacy
-row whose `role`/`scope` are scalars rather than arrays. A claim about what provisioning would
-grant presumes it reaches the granting step; here it does not.
-
-What is actually established: `provision` matches a declared `instance` against the registry by
-**exact string equality** (`org.ts`), reads no `name` field, and resolves no launch name. So
-"bind each durable name to a keyed instance" is a direction, **not an implemented path** — and
-the honest state of this row is that the mechanism must be measured before anyone decides
-anything about it. That is why the ratification decision carrying this document was withdrawn
-rather than defended.
+Quand `arch` livre un changement de la porte de tests requise, `arch` n'est **ni l'une des
+deux jambes de relecture ni le vérificateur** de ce changement, et une suite verte produite
+par `arch` n'est pas la preuve. C'est la règle 2 appliquée à la porte elle-même. Avant la
+fusion des rôles, les deux jambes nommées étaient `cyber` et `arch` ; toutes deux sont
+désormais dans le même rôle, d'où l'exigence de deux relecteurs extérieurs au lot ci-dessus.
+Nommer deux jambes plutôt qu'une garde l'exclusion applicable le jour où l'une est
+indisponible.
 
 ---
 
-## The architect's advice — the counterweight, exercised
+## Désaccord consigné sur WP4
 
-Requested 2026-07-29T21:43Z (envelope `raci-visa-req-20260729T2143Z`), answered
-2026-07-29T21:48Z (envelope `raci-visa-arch-counter-20260729T2148Z`, verdict **COUNTER**).
-Advice artefact: `docs/specs/2026-07-29-ARCH_raci-visa-and-wp7-arbitration.md`. The three
-questions were put as open, and the answers changed this document — they did not endorse
-it. All three conditions are applied above.
+Les deux jambes du double consensus de 2026-07-29 concluaient que WP4 devait appartenir à
+`arch`, au motif qu'un opérateur ne doit pas posséder les règles qui fondent sa propre
+autorité. L'owner a décidé autrement le 2026-07-29 et retenu l'avis de l'architecte comme
+contrepoids : *la séparation passe par l'avis, pas par la propriété*. La décision du
+2026-09-19 conserve WP4 à `cond`. Tout conflit futur sur l'autorité du conducteur se relit à
+la lumière de ce signalement : un amendement de ce RACI que `arch` n'a pas vu n'est pas valide,
+quel que soit son auteur.
 
-1. **`arch` = `AGENTS`, not `CONTROL` — refused by the architect itself.** "Taking CONTROL
-   would be taking through the vocabulary what was refused on the substance", and the
-   argument that an operator must not own the rules founding its own authority "applies to
-   me too". Encoding kept as proposed. Its condition instead: make the advice
-   *non-omissible* through a decision that carries the artefact — the rule now in table B.
-   The architect asked for opposability, not for power.
+---
 
-2. **WP7: record today's state, do not wait.** The arbitration is delivered and registered
-   as a *pending* decision; the architect declined to apply it, for two reasons worth
-   keeping: dissolving WP7 modifies an already-ratified decision (the owner's act), and it
-   refused to lean on this RACI's table B while this RACI is not yet ratified — "same
-   discipline for me as for you". Its measurement corrects both earlier review legs: the
-   destinations are five across four actors, not two, and three leaves have already left
-   toward three different packages, none of them WP5.
+## Où ce document s'arrête
 
-3. **`harness` stays `CONTROL`, with an explicit exclusion.** The role is founded on what
-   it gates, not what it writes — but rule 2 of this document then has to apply to the gate
-   itself, hence the exclusion above.
+Sur l'échelle d'opposabilité — **structurel > test > ligne de spécification > habitude** — ce
+fichier est une **ligne de spécification**, et la liste des rôles se trouve un barreau au-dessus,
+au niveau **test**.
 
-Endorsed without change: the 11-vs-12 discrepancy in the ratified option title, and that
-`cyber`'s missing WP is roster-level and therefore the owner's — registered as decision
-`01KYQXPNS1K1SJV0G3JYTAZF67`, recommendation A, neither of us deciding it further.
+- **Ce que le test tient.** `packages/h2a/test/org-manifest-committed.test.js` vérifie : les
+  cinq instances et elles seules (plus le PRINCIPAL), un seul CONDUCTOR, un seul PRINCIPAL, un
+  seul A par WP, la concordance de la table A avec le manifeste dans les deux sens, l'absence de
+  WP nommé deux fois, l'appartenance de chaque instance au scope racine et une arête de
+  `cond` vers chaque instance. `validateOrgManifest` seul ne vérifie aucune de ces propriétés.
+- **Ce que rien ne tient.** Les affectations A/R/C/I des tables B et C : aucun code ne refuse un
+  acte accompli par le mauvais rôle.
+- **Rien n'est provisionné.** `h2a org provision` n'a pas été exécuté pour ce manifeste. Mesuré
+  le 2026-07-29 : il accepte tout fichier qui passe `validateOrgManifest`, sans vérifier de
+  ratification, et échoue sur le registre partagé avec `TypeError: r.roles is not iterable`
+  sur une ligne héritée. Ces deux constats n'ont pas été re-mesurés pour cette réécriture ;
+  les droits restent à l'owner et à la bascule.
 
-**What this advice explicitly does not cover**, in the architect's own words: it did not
-verify that table B corresponds to any behaviour of the code (it does not — this document
-says so), nor that `h2a org validate` refuses every invalid manifest beyond the six pinned
-invariants, nor that role provisioning works. The visa covers the **coherence of the
-referential and the package boundaries**. The rest stays a spec line.
+Mesures de la version précédente (2026-07-29), toujours valables tant qu'elles ne sont pas
+re-mesurées :
+
+1. **Aucun acteur ne détient son rôle dans le registre** : les agents vivants étaient tous
+   enregistrés `roles: ["AGENTS"]`, et `h2a_conductor` répondait `conductor: null`.
+2. **Le résolveur du conducteur n'est pas atteignable par chemin** : appelé avec le chemin du
+   dépôt, il dérive un identifiant d'espace de travail sans candidat.
+3. **Le RACI par sujet ne se rétro-applique pas** : `track` n'enregistre `accountable` et
+   `responsible` qu'à la création (sujet `01KYQXJG77DQC368F4G2B2VGD8`). Le transfert des sujets
+   à la bascule passe donc par un registre de transfert tant que ce manque subsiste.
+4. **Le routage vers un acteur reste une convention** (DOC-03 décidé, non câblé) : chaque C de
+   ces tables dépend de l'arrivée effective du message.
+5. **Le journal Track est réparti sur deux identifiants d'espace de travail** (deux commits
+   racine depuis l'absorption de `@sentropic/track`). **Consigne intérimaire, en vigueur pour
+   tous les rôles jusqu'à correction : passer explicitement
+   `--workspace ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d` et ne pas
+   utiliser `track workspace-id` dans ce dépôt.**
+
+Ce qui ferait passer les tables B et C du barreau « spécification » au barreau « structurel »,
+par coût croissant : réparer le provisionnement et y faire respecter la frontière de
+ratification ; permettre à `track` de fixer `accountable`/`responsible` sur un sujet existant ;
+puis conditionner les actes de la table C au rôle enregistré de l'acteur.
+
+Le détail historique de ces mesures, l'avis de l'architecte du 2026-07-29 (COUNTER, trois
+conditions) et le RACI des douze acteurs restent consultables dans l'historique Git
+(`c0b9e863:docs/governance/RACI.md`).
