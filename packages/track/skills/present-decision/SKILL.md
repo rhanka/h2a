@@ -70,7 +70,7 @@ not approval.
 **Default dossier output: a bound-surface Focus artifact or standalone portable Focus HTML, never a claude.ai artifact.**
 Author the `DecisionDossierDocument` JSON (literal request, readable options, ecosystem diagram `source: "ecosystem:overview"`, `models`, `knowledge` or `interfaces`), validate it against the Focus gate, and deliver via the host's decision-dossier workflow.
 
-Refusals block output verbatim. Deliver the artifact URL or standalone HTML; check the real output at 390 and ~800 px in its shell — light/dark, cards, response line, pinch zoom, no sideways scroll. Phone at 390, wide near 800. Keep diagrams compact at natural size; split overflow instead of stretching. See `docs/focus/portable-dossiers.md`.
+Refusals block output verbatim. Deliver the artifact URL or standalone HTML; check the real output at 390 and ~800 px in its shell — light/dark, cards, response line, pinch zoom, no sideways scroll. Diagrams: horizontal while readable, else column. Keep diagrams compact at natural size; split overflow instead of stretching. See `docs/focus/portable-dossiers.md`.
 Cards and response lines only prepare a local answer; they never record approval.
 Before asking, read `assets/native-questions.md` and use the native question tool after a decision
 dossier with a diagram. If unavailable, leave consequential decisions pending.

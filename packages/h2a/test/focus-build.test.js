@@ -587,8 +587,11 @@ test('kit CSS keeps diagrams at natural size, DS container width, measured per-d
   assert.doesNotMatch(diagramRule[1], /(?:^|[{;\s])width\s*:\s*100%/)
   const mainRule = css.match(/(^|\n)main\s*\{([\s\S]*?)\}/)
   assert.ok(mainRule, 'main rule must exist')
-  assert.match(mainRule[2], /var\(--st-container-lg,\s*64rem\)/)
-  assert.match(mainRule[2], /var\(--st-spacing-4,\s*1rem\)/)
+  // The DS Container owns the width and the single side gutter: main only centers and pads vertically.
+  assert.doesNotMatch(mainRule[2], /max-width/)
+  assert.doesNotMatch(mainRule[2], /--st-container-lg/)
+  assert.doesNotMatch(mainRule[2], /--st-spacing-4/)
+  assert.match(mainRule[2], /padding-block/)
   assert.doesNotMatch(mainRule[2], /72rem/)
   assert.match(css, /\.ds-diagram-stage\[data-active="wide"\]/)
   assert.match(css, /\.ds-diagram-stage\[data-active="narrow"\]/)
@@ -604,4 +607,6 @@ test('kit CSS keeps diagrams at natural size, DS container width, measured per-d
   assert.ok(style.includes('data-active'))
   assert.ok(!style.includes('599px'))
   assert.ok(!style.includes('1199px'))
+  // The rebuilt bundle carries the single-gutter main rule (no max-width, no side padding on main).
+  assert.ok(/main\{margin:auto;padding-block:1rem 2rem\}/.test(style), 'bundle main rule has no double gutter')
 })

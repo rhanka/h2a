@@ -22,7 +22,7 @@ Missing evidence, criteria or review: **Incomplete**; request input, never final
 - [ ] **Delivery/capture:** Focus artifact or standalone portable Focus HTML (`dossier.json`),
   ecosystem canvas, light/dark, response line, pinch zoom; no claude.ai artifact. Dossier with diagram before the native question tool;
   never a bare text question. If unavailable, explain and leave the decision pending.
-  Open the real output at 390 and ~800 px in its shell: wide near 800, phone at 390,
+  Open the real output at 390 and ~800 px in its shell: diagrams horizontal while readable, else column,
   no sideways scroll, diagrams compact.
   Local selections never record approval; no fabricated `comprehension[]` or relay as decider.
 - [ ] **Evidence (H1):** original bytes/digests; resolved citations/backlinks; primary summaries,

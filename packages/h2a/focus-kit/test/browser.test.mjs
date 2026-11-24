@@ -333,6 +333,42 @@ test('artifact fragment renders at 390 and 800 px inside an artifact shell with 
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
+// Owner regression « trop de marge sur le côté »: the DS Container owns the only side gutter
+// (max-inline-size lg + 1rem padding), main only centers and pads vertically. A doubled gutter
+// would put 16 px of main padding on top of the 16 px container gutter.
+test('the DS container owns a single side gutter: main content is 358 px at 390 and 992 px at 1440', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const root = mkdtempSync(join(tmpdir(), 'focus-gutter-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const output = join(root, 'gutter.html');
+    writeFileSync(output, buildFocusDossier(doc));
+    browser = await chromium.launch({ headless: true });
+    for (const [width, mainWidth] of [[390, 358], [1440, 992]]) {
+      const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, colorScheme: 'light' });
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(output).href);
+      await page.locator('main').waitFor();
+      const measured = await page.evaluate(() => {
+        const main = document.querySelector('main');
+        const style = getComputedStyle(main);
+        const box = main.getBoundingClientRect();
+        const first = main.querySelector('.reading-meta');
+        const gap = first.getBoundingClientRect().left - box.left;
+        return { mainWidth: box.width, padLeft: style.paddingLeft, padRight: style.paddingRight, gap };
+      });
+      assert.equal(Math.round(measured.mainWidth), mainWidth, `${width}px viewport: DS lg content width`);
+      assert.equal(measured.padLeft, '0px', `${width}px viewport: main adds no side padding`);
+      assert.equal(measured.padRight, '0px', `${width}px viewport: main adds no side padding`);
+      assert.ok(Math.abs(measured.gap) < 1, `${width}px viewport: text starts at the container edge (gap ${measured.gap})`);
+      assert.deepEqual(errors, [], 'no browser runtime errors');
+      await context.close();
+    }
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 // Owner regression « diagramme trop zoomé »: the r7 scene is drawn in large fixed units and must
 // always be shown reduced. Before the fix every viewport under 1200 px showed the single-column
 // drawing almost at scale 1 (620 x 1194 px, 31 px titles, for four boxes at 800 px).

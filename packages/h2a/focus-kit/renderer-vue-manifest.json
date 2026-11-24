@@ -27,7 +27,7 @@
     "vue/diagram-adapter.js": "a4a8d755d738308e1b9e21c49002dcac16fe7880da1b4c94bdc651d50b9d4363",
     "vue/main.js": "2ba1655be848a029bda8f7533be7f8cf37428cd56b7f9606a372214dd0341193",
     "vue/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf",
-    "src/style.css": "5ad2a6779dbaf405c13e3ecd627c61ab7db4d91a73eee9b786d6189c913befd5",
+    "src/style.css": "c6b57eb53e364ba4cf66fd83db1fab84829f0a53608b7cce57c7ef587f7f0fc9",
     "src/evidence-search.js": "ba531b0680e85c2fcac108de34ccce8d1638bf3a89650804fd716cda9e31f2ff",
     "../../focus/src/render/presentation.ts": "9810b533fdb5a480ad25380b6a32cbd99b37413694f51c9b375011799b611dc5",
     "../../focus-interactive/src/response-line.ts": "755cc740610905d260d34ccfcd03650bbc914fad410b2da2b1eb96a69ece7e9b",
@@ -35,7 +35,7 @@
     "../../focus/src/validation/evidence-bytes.ts": "eb3ce3007c91f5b5f0e9d1b9c9dae9d3d3fc68a3b5ec9f1b95448cd76a441f3b",
     "../../../scripts/build-focus-vue.mjs": "05499668ed482cd777d10920598616044d9c673509fd258acf199f1263f9c76d"
   },
-  "html": "7fef0ac81cff481a38c58ad318e5b291a1686455b2c4219d2d02f37f737c310d",
+  "html": "3da344c4b5253f319d511a983ef9772f6b659b51c8037da052e2dbbc6d1907e1",
   "validator": "91ac76ce50c8d765765e572eb3d8ffc7aa1dc9f856fc4b625475fa56922b3642",
   "modules": [
     "App.vue",

@@ -6,7 +6,7 @@ body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
 h1 { margin: 0; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
 h2 { font-size: 1.125rem; margin: .5rem 0; }
 h3 { font-size: 1rem; }
-main { max-width: var(--st-container-lg, 64rem); margin: auto; padding: 1rem var(--st-spacing-4, 1rem) 2rem; }
+main { margin: auto; padding-block: 1rem 2rem; }
 p, blockquote { margin: .5rem 0; }
 blockquote { border-left: 1px solid var(--st-semantic-border-strong, #94a3b8); padding-left: 1rem; }
 .reading-meta { margin-bottom: 1rem; }
