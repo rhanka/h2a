@@ -1149,11 +1149,17 @@ class Station {
       row.reasonText ??
       (motifKey !== undefined ? this.#t(motifKey) : row.reason === "launch" ? undefined : row.reason);
     // NB-14: outside --lazy a capped row with a gesture shows its motif
-    // alone: the deferred state text names --lazy. The row state stays
-    // `deferred`; only the painted text drops it (the view renders an
-    // empty state text as motif-only).
+    // alone while it waits: the deferred state text names --lazy. The row
+    // state stays `deferred`; only the painted text drops it (the view
+    // renders an empty state text as motif-only).
+    // B-10: only the waiting state drops its text. Once the file owns the
+    // row (queued, launching) or settles it (ended, failed), the file state
+    // paints: a failure must never look like a neutral motif.
     const cappedOutsideLazy =
-      row.reason === "launch-cap" && row.relaunch !== undefined && this.#options.lazy !== true;
+      row.reason === "launch-cap" &&
+      row.relaunch !== undefined &&
+      state === "deferred" &&
+      this.#options.lazy !== true;
     return {
       ...row,
       state,
@@ -2153,6 +2159,9 @@ class Station {
       // NB-1: the JSON issue is readable even on `exit-nonzero` (r4 §5): an
       // unsupported soft respawn arms the hard confirmation, not a failure,
       // and any other JSON code wins over the bare exit code.
+      // NB-20: the JSON code wins only when it comes from readable JSON.
+      // Without readable JSON (`invalid-response`) the port code names the
+      // issue: an uncertain `timeout` must stay readable as a timeout.
       const parsed = this.#parseRestartResult(result.stdout, sessionId);
       if (!parsed.ok && parsed.code === "host-soft-restart-unsupported") {
         this.#refuseSoftThenArm(sessionId, {
@@ -2163,7 +2172,11 @@ class Station {
         });
         return;
       }
-      if (!result.ok) throw new Error(!parsed.ok ? parsed.code : result.code);
+      if (!result.ok) {
+        throw new Error(
+          !parsed.ok && parsed.code !== "invalid-response" ? parsed.code : result.code,
+        );
+      }
       if (!parsed.ok) throw new Error(parsed.code);
       if (parsed.strategy !== "soft") throw new Error(`strategy: ${parsed.strategy}`);
     } catch (error) {
@@ -2230,9 +2243,14 @@ class Station {
         throw new Error(result.code);
       }
       // NB-1: the JSON issue is read even on `exit-nonzero` (r4 §5), so its
-      // code wins over the bare exit code here too.
+      // code wins over the bare exit code here too. NB-20: only when it
+      // comes from readable JSON; otherwise the port code names the issue.
       const parsed = this.#parseRestartResult(result.stdout, sessionId);
-      if (!result.ok) throw new Error(!parsed.ok ? parsed.code : result.code);
+      if (!result.ok) {
+        throw new Error(
+          !parsed.ok && parsed.code !== "invalid-response" ? parsed.code : result.code,
+        );
+      }
       if (!parsed.ok) throw new Error(parsed.code);
       if (parsed.strategy !== "hard" && parsed.strategy !== "hard-fallback") {
         throw new Error(`strategy: ${parsed.strategy}`);

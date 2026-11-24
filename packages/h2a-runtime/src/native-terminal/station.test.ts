@@ -3456,6 +3456,78 @@ describe("S2 launch file: detached, one at a time, in plan order, never ahead of
     expect(lazy.execCalls).toEqual([]);
   });
 
+  it("should paint a capped row relaunch failure with its motif and state (B-10)", async () => {
+    const layoutConfig = {
+      layout: {
+        maxPerWindow: 2,
+        sharedWindows: 1,
+        groups: [{ title: "core", projects: ["h2a"] }],
+      },
+    };
+    const live = {
+      id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000,
+    };
+    const dead = [
+      { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      { id: "h2a-k2", project: "h2a", label: "k2", host: "", mtime: 1_700_000_040_000, convId: S2C2 },
+    ];
+    const h = new Harness({ layoutConfig, sessions: [live], deadSessions: dead });
+    // k1 launches at startup (default issue); the capped k2 relaunch fails.
+    h.execOutcomes = [
+      { ok: true, stdout: "{}" },
+      { ok: false, code: "exit-nonzero", stdout: "", stderr: "" },
+    ];
+    let releaseK2!: () => void;
+    const k2Held = new Promise<void>((resolve) => {
+      releaseK2 = resolve;
+    });
+    h.execGate = async (request) => {
+      const nameIndex = request.args.indexOf("--name");
+      if (request.args[nameIndex + 1] === "k2") await k2Held;
+    };
+    const cappedRow = () =>
+      h.lastSnapshot().workspaces.flatMap((w) => w.restorable ?? []).find((r) => r.key === "registry:h2a-k2");
+    h.step(
+      (x) => {
+        walkToRestorableRow(x, "core", "registry:h2a-k2");
+      },
+      (x) => {
+        expect(squashed(x.stdout.text())).toContain("Relaunch k2?");
+        x.stdin.type("\r");
+      },
+      tick, tick, tick, tick, tick, tick, tick, tick,
+      (x) => {
+        // k1 settled from the launch file; k2 is parked at the gate, launching.
+        expect(x.execCalls).toHaveLength(2);
+        expect(cappedRow()).toMatchObject({
+          reason: "launch-cap",
+          state: "launching",
+          stateText: "relaunching",
+        });
+        // The panel truncates the row to its width: the state prefix proves
+        // the file state paints instead of the motif alone.
+        expect(squashed(x.stdout.text())).toContain("launch cap · relaunch");
+        releaseK2();
+      },
+      tick, tick, tick, tick, tick, tick, tick, tick,
+      (x) => {
+        expect(x.execCalls).toHaveLength(2);
+        expect(cappedRow()).toMatchObject({
+          reason: "launch-cap",
+          state: "failed",
+          code: "exit-nonzero",
+          stateText: "relaunch failed (exit-nonzero)",
+        });
+        // Same truncation as above: the full state text lives on the row
+        // object; the screen proves it paints instead of the motif alone.
+        expect(squashed(x.stdout.text())).toContain("launch cap · relaunch");
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 2);
+    const code = await h.run();
+    expect(code).toBe(0);
+  });
+
   it("should never list a live session as restorable, even with a resolved conversation (B-8)", async () => {
     const h = new Harness({
       station: { lazy: true },
@@ -3865,6 +3937,75 @@ describe("S2 D1: in-place relaunch of the process in place", () => {
     await h.run();
     expect(squashed(h.stdout.text())).toContain("health-check-failed");
     expect(squashed(h.stdout.text())).not.toContain("exit-nonzero");
+  });
+
+  it("should name the port issue when a soft relaunch has no readable restart JSON (NB-20)", async () => {
+    const { h } = opsHarness("shell", { convId: S2C1, softRespawn: true });
+    // Uncertain port issue, empty stdout: no JSON code masks it.
+    h.execDefaultOutcome = { ok: false, code: "timeout", stdout: "", stderr: "" };
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => {
+        x.stdin.type("\r");
+      },
+      tick, tick, tick,
+      (x) => {
+        expect(x.execCalls.map((call) => call.args)).toEqual([
+          ["restart", "h2a-ops", "--soft", "--json"],
+        ]);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    await h.run();
+    expect(squashed(h.stdout.text())).toContain("relaunch in place failed (timeout)");
+    expect(squashed(h.stdout.text())).not.toContain("invalid-response");
+    expect(h.of("gesture")).toContainEqual({
+      type: "gesture",
+      gesture: "respawn-in-place",
+      sessionId: "h2a-ops",
+      outcome: "timeout",
+    });
+  });
+
+  it("should name the port issue when a hard relaunch has no readable restart JSON (NB-20)", async () => {
+    const { h } = opsHarness("unknown", { convId: S2C1 });
+    // Missing binary, empty stdout: no JSON code masks it.
+    h.execDefaultOutcome = { ok: false, code: "binary-missing", stdout: "", stderr: "" };
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => {
+        x.stdin.type("\r");
+      },
+      tick, tick,
+      (x) => {
+        expect(squashed(x.stdout.text())).toContain("host cannot respawn in place");
+        x.stdin.type("\r");
+      },
+      tick,
+      (x) => {
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => {
+        expect(squashed(h.stdout.text())).toContain("Hard relaunch?");
+        x.stdin.type("\r");
+      },
+      tick, tick, tick,
+      (x) => {
+        expect(x.execCalls.map((call) => call.args)).toEqual([
+          ["restart", "h2a-ops", "--soft", "--allow-hard", "--json"],
+        ]);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    await h.run();
+    expect(squashed(h.stdout.text())).toContain("relaunch in place failed (binary-missing)");
+    expect(squashed(h.stdout.text())).not.toContain("invalid-response");
   });
 
   it("should refuse a soft relaunch when the process moved between the card and Enter (NB-4)", async () => {

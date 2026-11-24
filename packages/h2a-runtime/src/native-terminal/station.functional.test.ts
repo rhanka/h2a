@@ -219,7 +219,10 @@ async function createStationFixture(opts: {
   }
   const statePath = join(configDir, STATION_STATE_FILE_NAME);
 
-  const station = (protectedByParent = false) => {
+  // NB-18: extra station args stay opt-in per test. A fixture with a
+  // resolved dead row must pass --lazy, or the launch file would really
+  // relaunch it through the production port during an S1 list test.
+  const station = (protectedByParent = false, extraStationArgs: readonly string[] = []) => {
     const stationArgs = [
       "--import",
       loader,
@@ -229,6 +232,7 @@ async function createStationFixture(opts: {
       socketPath,
       "--state-file",
       statePath,
+      ...extraStationArgs,
     ];
     const recovery = new URL("./attach-recovery.ts", import.meta.url).href;
     const args = protectedByParent
@@ -402,7 +406,8 @@ describe.skipIf(process.platform !== "linux")(
         ],
       });
       const before = await Promise.all(["h2a-alpha", "h2a-bravo"].map((id) => f.client.state(id)));
-      const outer = f.station();
+      // NB-18: --lazy lists the resolved dead row without relaunching it.
+      const outer = f.station(false, ["--lazy"]);
       // Launch: the most recent session of the first group, panel open, one window.
       await until(() => outer.output().includes("ALPHA_READY"), 20_000, "launch");
       await until(() => outer.output().includes("[demo]"), 10_000, "panel");
