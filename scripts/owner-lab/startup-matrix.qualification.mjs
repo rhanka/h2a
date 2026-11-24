@@ -125,7 +125,9 @@ async function sample(t, rows, concurrency, state, mode, serial, isolation = "fa
     const before = f.recorded().length;
     const begun = performance.now();
     if (mode === 'restore') {
-      const result = await f.start(['restore', 'qualification-owner', '--no-gw']).done;
+      // S6: bare restore opens the station; the historical window mode this
+      // cell measures is now behind --windows.
+      const result = await f.start(['restore', 'qualification-owner', '--windows', '--no-gw']).done;
       assert.equal(result.code, 0, result.stderr + result.stdout);
     } else {
       const results = await Promise.all(targets.map(target => f.start(['run', 'codex', project,
