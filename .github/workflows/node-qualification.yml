@@ -134,6 +134,14 @@ jobs:
           restore-keys: h2a-toolchain-
       - name: Export toolchain cache dir
         run: echo "H2A_TOOLCHAIN_CACHE_DIR=$GITHUB_WORKSPACE/tmp/h2a-toolchain-cache" >> "$GITHUB_ENV"
+      - name: Populate native toolchain fixture cache
+        # Unsandboxed on purpose: sandboxed writes land in per-run shadow
+        # dirs, invisible to the post-job cache save; reads inside the
+        # sandbox see this host path read-only. Pure network + verified
+        # writes, like npm ci.
+        run: node scripts/populate-toolchain-cache.mjs
+        env:
+          H2A_TOOLCHAIN_CACHE_DIR: ${{ github.workspace }}/tmp/h2a-toolchain-cache
       - name: Verify bulk acceptance independently of the aggregate runner
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
@@ -203,6 +211,14 @@ jobs:
           path: tmp/h2a-toolchain-cache
           key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
           restore-keys: h2a-toolchain-
+      - name: Populate native toolchain fixture cache
+        # Unsandboxed on purpose: sandboxed writes land in per-run shadow
+        # dirs, invisible to the post-job cache save; reads inside the
+        # sandbox see this host path read-only. Pure network + verified
+        # writes, like npm ci.
+        run: node scripts/populate-toolchain-cache.mjs
+        env:
+          H2A_TOOLCHAIN_CACHE_DIR: ${{ github.workspace }}/tmp/h2a-toolchain-cache
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
