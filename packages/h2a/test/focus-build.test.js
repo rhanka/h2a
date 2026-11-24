@@ -577,7 +577,7 @@ test('artifact fragment offers an open-in-new-tab alternative where download is 
   assert.ok(payload.document.sources.length > 0)
 }))
 
-test('kit CSS keeps diagrams at natural size, DS container width, 599px narrow switch and semantic fallbacks', () => {
+test('kit CSS keeps diagrams at natural size, DS container width, measured per-diagram variant and semantic fallbacks', () => {
   const css = readFileSync(join(kit, 'src/style.css'), 'utf8')
   const diagramRule = css.match(/\.ds-diagram-svg\s*\{([\s\S]*?)\}/)
   assert.ok(diagramRule, 'ds-diagram-svg rule must exist')
@@ -590,8 +590,10 @@ test('kit CSS keeps diagrams at natural size, DS container width, 599px narrow s
   assert.match(mainRule[2], /var\(--st-container-lg,\s*64rem\)/)
   assert.match(mainRule[2], /var\(--st-spacing-4,\s*1rem\)/)
   assert.doesNotMatch(mainRule[2], /72rem/)
-  assert.match(css, /max-width\s*:\s*599px/)
+  assert.match(css, /\.ds-diagram-stage\[data-active="wide"\]/)
+  assert.match(css, /\.ds-diagram-stage\[data-active="narrow"\]/)
   assert.doesNotMatch(css, /1199px/)
+  assert.doesNotMatch(css, /599px/)
   const bare = [...css.matchAll(/var\(--st-semantic-[a-z-]+\)/g)].map(m => m[0])
   assert.deepEqual(bare, [], `semantic vars without fallback: ${[...new Set(bare)].join(', ')}`)
   // The built portable bundle carries the same fixes.
@@ -599,6 +601,7 @@ test('kit CSS keeps diagrams at natural size, DS container width, 599px narrow s
   const style = bundle.match(/<style>([\s\S]*?)<\/style>/)[1]
   assert.match(style, /\.ds-diagram-svg\{[^}]*width:auto[^}]*max-width:100%/)
   assert.ok(!/\.ds-diagram-svg\{[^}]*(?:^|[;{])width:100%/.test(style))
-  assert.ok(style.includes('599px'))
+  assert.ok(style.includes('data-active'))
+  assert.ok(!style.includes('599px'))
   assert.ok(!style.includes('1199px'))
 })
