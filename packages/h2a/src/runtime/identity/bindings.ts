@@ -176,8 +176,7 @@ function prepareTransaction(root: string, key: IdentityBindingKey, deps: Reclaim
   catch(e){if(!(e instanceof BindingCommitIntegrityError))throw e;return {binding,proof:undefined};}
   if(pending) {
     const proof=preparePossession(root,pending.instance);
-    if(!proof)return {binding:pending,proof:undefined};
-    return {binding:pending,proof};
+    if(proof)return {binding:pending,proof};
   }
   const proof = binding && deps.verifyProof(binding) ? preparePossession(root, binding.instance) : undefined;
   if (binding && proof) return { binding, proof };
@@ -205,18 +204,28 @@ function transact(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps
 export function reclaimOrMint(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps,
   options: ReclaimOrMintOptions = {}): ReclaimOrMintResult {
   ensureDurableDirectory(identityDir(root));
-  const end = performance.now() + (options.deadlineMs ?? options.timeoutMs ?? 5000);
+  const budgetMs = options.deadlineMs ?? options.timeoutMs ?? 5000;
+  let end = performance.now() + budgetMs;
   const memo: {value?: ReclaimOrMintResult} = {};
   options={...options,signal:options.signal ?? new AbortController().signal};
+  let staleRetries = 0;
   for (;;) {
     try {
       const prepared = prepareTransaction(root, key, deps, options, memo);
+      if (options.deadlineMs === undefined && options.timeoutMs === undefined && staleRetries === 0) {
+        end = Math.max(end, performance.now() + budgetMs);
+      }
       return withIdentityFenceSync(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
       {...options, timeoutMs:Math.max(0,end-performance.now())}); }
     catch(e) {
       // The short registry wait is one preparation attempt within the original deadline.
       const contention = e instanceof LockTimeoutError && e.lockPath === join(root, "registry", ".lock");
-      if ((!(e instanceof BindingFenceStaleError) && !contention) || performance.now() >= end) throw e;
+      if (e instanceof BindingFenceStaleError && staleRetries < 3) {
+        staleRetries += 1;
+        end = Math.max(end, performance.now() + 1000);
+      } else if ((!(e instanceof BindingFenceStaleError) && !contention) || performance.now() >= end) {
+        throw e;
+      }
     }
   }
 }
@@ -224,17 +233,27 @@ export function reclaimOrMint(root: string, key: IdentityBindingKey, deps: Recla
 export async function reclaimOrMintAsync(root: string, key: IdentityBindingKey, deps: ReclaimOrMintDeps,
   options: ReclaimOrMintOptions = {}): Promise<ReclaimOrMintResult> {
   ensureDurableDirectory(identityDir(root));
-  const end = performance.now() + (options.deadlineMs ?? options.timeoutMs ?? 5000);
+  const budgetMs = options.deadlineMs ?? options.timeoutMs ?? 5000;
+  let end = performance.now() + budgetMs;
   const memo: {value?: ReclaimOrMintResult} = {};
   options={...options,signal:options.signal ?? new AbortController().signal};
+  let staleRetries = 0;
   for (;;) {
     try {
       const prepared = prepareTransaction(root,key,deps,options,memo);
+      if (options.deadlineMs === undefined && options.timeoutMs === undefined && staleRetries === 0) {
+        end = Math.max(end, performance.now() + budgetMs);
+      }
       return await withIdentityFence(bindingsLock(root), lease => transact(root,key,deps,memo,prepared,lease),
       {...options, timeoutMs:Math.max(0,end-performance.now())}); }
     catch(e) {
       const contention = e instanceof LockTimeoutError && e.lockPath === join(root, "registry", ".lock");
-      if ((!(e instanceof BindingFenceStaleError) && !contention) || performance.now() >= end) throw e;
+      if (e instanceof BindingFenceStaleError && staleRetries < 3) {
+        staleRetries += 1;
+        end = Math.max(end, performance.now() + 1000);
+      } else if ((!(e instanceof BindingFenceStaleError) && !contention) || performance.now() >= end) {
+        throw e;
+      }
       await new Promise(r=>setTimeout(r,0));
     }
   }
