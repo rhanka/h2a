@@ -209,11 +209,13 @@ jobs:
       - name: Restore native toolchain fixture cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/h2a-toolchain
+          # Repo-local so the D16 sandbox (writable <repo>/tmp leaf binds,
+          # gitignored) admits it; $HOME/.cache is not sandbox-writable.
+          path: tmp/h2a-toolchain-cache
           key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
           restore-keys: h2a-toolchain-
       - name: Export toolchain cache dir
-        run: echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
+        run: echo "H2A_TOOLCHAIN_CACHE_DIR=$GITHUB_WORKSPACE/tmp/h2a-toolchain-cache" >> "$GITHUB_ENV"
       - name: Verify bulk acceptance independently of the aggregate runner
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
@@ -285,7 +287,9 @@ jobs:
       - name: Restore native toolchain fixture cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/h2a-toolchain
+          # Repo-local so the D16 sandbox (writable <repo>/tmp leaf binds,
+          # gitignored) admits it; $HOME/.cache is not sandbox-writable.
+          path: tmp/h2a-toolchain-cache
           key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
           restore-keys: h2a-toolchain-
       - name: Create a disposable TMPDIR admitted by both confinement guards
@@ -298,7 +302,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$GITHUB_WORKSPACE/tmp/h2a-toolchain-cache" >> "$GITHUB_ENV"
       - name: Execute one duration-balanced Node shard
         run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
         env:
@@ -420,7 +424,9 @@ jobs:
       - name: Restore native toolchain fixture cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/h2a-toolchain
+          # Repo-local so the D16 sandbox (writable <repo>/tmp leaf binds,
+          # gitignored) admits it; $HOME/.cache is not sandbox-writable.
+          path: tmp/h2a-toolchain-cache
           key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
           restore-keys: h2a-toolchain-
       - name: Create a disposable TMPDIR admitted by both confinement guards
@@ -433,7 +439,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$GITHUB_WORKSPACE/tmp/h2a-toolchain-cache" >> "$GITHUB_ENV"
       - run: npm test
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
@@ -540,7 +546,9 @@ jobs:
       - name: Restore native toolchain fixture cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/h2a-toolchain
+          # Repo-local so the D16 sandbox (writable <repo>/tmp leaf binds,
+          # gitignored) admits it; $HOME/.cache is not sandbox-writable.
+          path: tmp/h2a-toolchain-cache
           key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
           restore-keys: h2a-toolchain-
       - name: Create a disposable TMPDIR admitted by both confinement guards
@@ -553,7 +561,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$GITHUB_WORKSPACE/tmp/h2a-toolchain-cache" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js
       - name: Require both complete M17 qualifications
