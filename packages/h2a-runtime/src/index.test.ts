@@ -571,6 +571,26 @@ describe("main", () => {
       expect(restoreStation).not.toHaveBeenCalled();
     });
 
+    it("should reach the station without central MCP preparation when stdin is not a TTY (S6 B-1)", async () => {
+      const stdinTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+      const stdoutTty = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: false });
+      Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: false });
+      try {
+        const exitCode = await main(["node", "h2a", "restore"]);
+
+        expect(exitCode).toBe(0);
+        expect(restoreStation).toHaveBeenCalledTimes(1);
+        expect(restoreStation).toHaveBeenCalledWith({});
+        expect(prepareCentralMcpForRestore).not.toHaveBeenCalled();
+      } finally {
+        if (stdinTty) Object.defineProperty(process.stdin, "isTTY", stdinTty);
+        else Reflect.deleteProperty(process.stdin, "isTTY");
+        if (stdoutTty) Object.defineProperty(process.stdout, "isTTY", stdoutTty);
+        else Reflect.deleteProperty(process.stdout, "isTTY");
+      }
+    });
+
   });
 
   describe("WP6 — remote fan-out (--count N)", () => {

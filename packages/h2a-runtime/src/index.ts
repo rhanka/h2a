@@ -10290,6 +10290,37 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        // Optional restore-launch gateway override. "auto" (no flag) leaves
+        // each session on its pinned posture; an existing live session is only
+        // attached so restore never replaces it to change gateway posture.
+        // Pure read of the flags: no config touch, no process, no network.
+        let forceGateway: "gateway" | "direct" | undefined;
+        try {
+          const mode = gatewayModeFromOptions(opts);
+          if (mode !== "auto") forceGateway = mode;
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
+        // S6 amendment (B-1): off a TTY (stdin or stdout not a TTY) and
+        // without --windows or --dry-run, reach the station BEFORE
+        // getLayoutConfig, the central MCP preparation and the --gw prewarm.
+        // The no-display refusal is then free of any effect, and the window
+        // process runs its own preparation with its own TTY. The TTY path
+        // below keeps the S2 order.
+        if (
+          !opts.windows &&
+          !opts.dryRun &&
+          (process.stdin.isTTY !== true || process.stdout.isTTY !== true)
+        ) {
+          process.exitCode = restoreStation({
+            ...(group ? { group } : {}),
+            ...(opts.lazy ? { lazy: true } : {}),
+            ...(forceGateway ? { forceGateway } : {}),
+          });
+          return;
+        }
         const norm = (s: string) =>
           s
             .toLowerCase()
@@ -10304,18 +10335,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
 
-        // Optional restore-launch gateway override. "auto" (no flag) leaves
-        // each session on its pinned posture; an existing live session is only
-        // attached so restore never replaces it to change gateway posture.
-        let forceGateway: "gateway" | "direct" | undefined;
-        try {
-          const mode = gatewayModeFromOptions(opts);
-          if (mode !== "auto") forceGateway = mode;
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
-          process.exitCode = 1;
-          return;
-        }
         if (forceGateway) restoreOpts.forceGateway = forceGateway;
 
         const centralMcp = await prepareCentralMcpForRestore({ root: process.cwd() });
@@ -10359,11 +10378,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
-        // S6 default: the station opens after the central MCP preparation
-        // and the gateway prewarm (a station relaunch may carry a gateway
-        // pin), at the place of the window-layout call. --station stays
-        // accepted without effect; --windows keeps the historical mode below.
-        // With --dry-run the usual plan preview is printed instead (same plan).
+        // S6 default: on a TTY the station opens after the central MCP
+        // preparation and the gateway prewarm (a station relaunch may carry
+        // a gateway pin), at the place of the window-layout call. Off a TTY
+        // the station was already reached above, before any effect.
+        // --station stays accepted without effect; --windows keeps the
+        // historical mode below. With --dry-run the usual plan preview is
+        // printed instead (same plan).
         if (!opts.windows && !opts.dryRun) {
           process.exitCode = restoreStation({
             ...(group ? { group } : {}),
