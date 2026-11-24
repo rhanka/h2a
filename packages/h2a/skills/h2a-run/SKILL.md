@@ -30,9 +30,9 @@ For a decision with stakes, present a decision dossier with a diagram before the
 - The user wants a background or interactive Claude/Codex/AGY session with a specific reasoning effort, with or without the llm-mesh gateway, and needs the exact CLI flags or MCP parameters.
 - **Not** for deciding *which* flavor is best for a task (that is a human/model-delegation call, not this skill's job), and **not** for resolving alias→upstream-provider routing — that table is owned by the llm-mesh gateway, not this skill (see Step 2).
 
-## Hard rule: never call the raw `h2a` binary from Bash
+## Hard rule: never call the raw `h2a` binary from Bash (except `h2a doctor`)
 
-This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blocks any Bash command that invokes `h2a` — it prints *"Blocked manual `h2a` CLI use..."* and exits non-zero. As a Claude agent, always launch through the **`h2a_run` MCP tool**, never `h2a run` in Bash. The `h2a run` CLI form below exists for reference (a human at a real terminal, or a host without this guard) and to explain what the MCP tool does under the hood — do not run it yourself from Bash.
+This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blocks any Bash command that invokes `h2a` — it prints *"Blocked manual `h2a` CLI use..."* and exits non-zero — with the single exception of a standalone `h2a doctor` invocation (with flags such as `--repair` or `--json`, optional redirects, and safe filter pipes). As a Claude agent, always launch through the **`h2a_run` MCP tool**, never `h2a run` in Bash. The `h2a run` CLI form below exists for reference (a human at a real terminal, or a host without this guard) and to explain what the MCP tool does under the hood — do not run it yourself from Bash.
 
 ## Step 1 — decode the intent into three independent axes
 
