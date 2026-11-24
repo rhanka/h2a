@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { verifyReleaseNative } from './build-release-native.mjs';
-import { downloadWithRetry } from './mh-l5-artifacts.mjs';
+import { downloadWithResume, downloadWithRetry } from './mh-l5-artifacts.mjs';
 
 const exec = promisify(execFile);
 const owned = [];
@@ -91,7 +91,10 @@ try {
       }
     }
     if (!bytes) {
-      bytes = await downloadWithRetry(archive.url, { stage: `native-toolchain:${archive.name}` });
+      // Resumable ranges: throttled links (ziglang.org ~70 KB/s measured
+      // 2026-11-24, 49 MB needs ~650 s) abort every 120 s-capped single
+      // fetch; 2 MB chunks each fit comfortably inside one attempt.
+      bytes = await downloadWithResume(archive.url, { stage: `native-toolchain:${archive.name}` });
       if (hash(bytes) !== archive.sha256) throw new Error('fixture_integrity_mismatch:' + archive.name);
       if (toolchainCacheDir) {
         try {

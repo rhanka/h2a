@@ -129,7 +129,7 @@ test("node-qualification.yml reuses the ci producer graph at the gated release S
   const sha = "${{ inputs.release-sha }}";
   for (const [id, timeout, extra] of [
     ["m17-qualification", 25, "m17"],
-    ["bulk-qualification", 25, "bulk"],
+    ["bulk-qualification", 35, "bulk"], // 0.98.11 lane: throttled first fixture population
     ["node-shard", 20, "shard"],
   ]) {
     const job = wf.jobs[id];

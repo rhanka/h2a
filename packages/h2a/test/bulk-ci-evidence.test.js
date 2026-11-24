@@ -14,7 +14,7 @@ function assertGraph(workflow) {
   assert.ok(jobs['bulk-qualification'], 'the nine bulk suites must have an independently failing producer');
   const producer = jobs['bulk-qualification'];
   assert.equal(producer['runs-on'], 'ubuntu-24.04'); // pinned with the ci.yml runner pin — TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY
-  assert.equal(producer['timeout-minutes'], 25);
+  assert.equal(producer['timeout-minutes'], 35); // 0.98.11 lane: throttled first fixture population; see docs/ci-job-budget.md
   assert.equal(producer.strategy['fail-fast'], false);
   assert.deepEqual(producer.strategy.matrix.node, ['22', '24']);
   for (const step of producer.steps) {

@@ -189,7 +189,10 @@ jobs:
 
   bulk-qualification:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # 35 min admits a first-time throttled fixture population (zig 49 MB at
+    # ~70 KB/s needs ~650 s, worst observed ~1300 s); steady-state cache hits
+    # take seconds. See docs/ci-job-budget.md (0.98.11 lane).
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:

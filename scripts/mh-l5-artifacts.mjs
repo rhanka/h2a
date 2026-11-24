@@ -111,6 +111,67 @@ export async function downloadWithRetry(url, {
   throw new Error(`fixture_download_failed:${stage}:unreachable:${url}`);
 }
 
+// Resumable chunked download for large archives behind throttled links.
+// Measured 2026-11-24: ziglang.org trickles at ~70 KB/s, so the 49 MB
+// zig.tar.xz needs ~650 s while a single fetch is capped at 120 s per
+// attempt and CI runners abort 6/6 attempts at the deadline (run 45449703686
+// bulk jobs). Fetch bytes=offset- probes range support; when the server
+// answers 206, reassemble fixed-size chunks (each retried by
+// downloadWithRetry, so a stall costs one chunk, not the file); otherwise
+// fall back to a plain downloadWithRetry. Integrity stays with the caller
+// (sha256 over the concatenated bytes); a dead link still fails explicitly.
+export async function downloadWithResume(url, {
+  stage = 'download',
+  chunkBytes = 2 * 1024 * 1024,
+  probeTimeoutMs = 30_000,
+  attemptTimeoutsMs = DEFAULT_ATTEMPT_TIMEOUTS_MS,
+  baseBackoffMs = 2_000,
+  maxBackoffMs = 25_000,
+  jitterMs = 1_500,
+  fetchImpl = fetch,
+  sleep = ms => new Promise(done => setTimeout(done, ms)),
+  random = Math.random,
+} = {}) {
+  const fallback = () => downloadWithRetry(url, {
+    stage, attemptTimeoutsMs, baseBackoffMs, maxBackoffMs, jitterMs, fetchImpl, sleep, random,
+  });
+  let total = null;
+  try {
+    const probe = await fetchImpl(url, {
+      headers: { Range: 'bytes=0-0' },
+      signal: AbortSignal.timeout(probeTimeoutMs),
+    });
+    try { await probe.body?.cancel?.(); } catch {}
+    if (probe.status === 206) {
+      const match = /\/(\d+)\s*$/.exec(probe.headers?.get?.('content-range') ?? '');
+      const parsed = match ? Number(match[1]) : NaN;
+      if (Number.isSafeInteger(parsed) && parsed > 0) total = parsed;
+    }
+  } catch {
+    // Probe failure is not a verdict: fall through to the plain download,
+    // whose own retries produce the explicit failure.
+  }
+  if (total === null || total <= chunkBytes) return fallback();
+  const parts = [];
+  for (let offset = 0; offset < total; offset += chunkBytes) {
+    const end = Math.min(offset + chunkBytes - 1, total - 1);
+    const rangedFetch = (u, opts = {}) => fetchImpl(u, {
+      ...opts,
+      headers: { ...(opts.headers ?? {}), Range: `bytes=${offset}-${end}` },
+    });
+    const bytes = await downloadWithRetry(url, {
+      stage: `${stage}:range-${offset}-${end}`,
+      attemptTimeoutsMs, baseBackoffMs, maxBackoffMs, jitterMs,
+      fetchImpl: rangedFetch, sleep, random,
+    });
+    if (bytes.length !== end - offset + 1) return fallback();
+    parts.push(bytes);
+  }
+  const out = Buffer.concat(parts);
+  if (out.length !== total) return fallback();
+  return out;
+}
+
 async function main() {
   process.umask(0o022);
   // MH_L5_ARTIFACTS_ROOT overrides the private root (owner rule: never the

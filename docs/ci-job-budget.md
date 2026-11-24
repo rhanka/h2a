@@ -194,3 +194,22 @@ This proves execution across same-run pristine checkouts, not a second Node
 campaign on the trust-root machine. Local `npm test`, with no shard directory
 configured, continues executing the complete suite. The tests step retains
 its 21-minute backstop and the job its 35-minute budget.
+
+## 0.98.11 lane: throttled fixture downloads (2026-11-24)
+
+`ziglang.org` trickles the 49 MB `zig.tar.xz` at ~70 KB/s (measured from two
+networks; 206 range responses, `Accept-Ranges: bytes`), so one archive needs
+~650 s typically and ~1300 s worst observed, while a single fetch was capped
+at 120 s per attempt: 6/6 aborts on every CI runner for hours (runs
+45417614083, 45435936620, 45449703686), whereas 24 parallel preparations
+succeeded the same morning when the link was fast. Four-way parallel range
+fetches were measured counterproductive (connect `ETIMEDOUT`), so the
+fixture downloader reassembles sequential 2 MB ranges (each inside one
+attempt) with the sha256 pin unchanged, and a dead link still fails
+explicitly. The archives are cached in `tmp/h2a-toolchain-cache`
+(actions/cache keyed by the lock file, repo-local so the D16 sandbox
+admits it); a hit never hits the network. Only the first population per
+lock content pays the download, so `bulk-qualification` (ci.yml and
+node-qualification.yml, the first fixture consumers in each workflow) moves
+25m to 35m with the fixture spawn caps at 1800 s; shard, trust-root and M17
+budgets are unchanged (shards restore the bulk-saved cache).
