@@ -38,9 +38,9 @@ import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest
 import type { H2ASession } from "../session.js";
 import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
 import { currentCliVersion } from "../runtime/upgrade/index.js";
-import { defaultPluginBridgeLockPath, findVerifiedPluginVersionDir, resolveClaudeConfigPath } from "../registry/bridge-lock.js";
+import { defaultPluginBridgeLockPath, findVerifiedPluginVersionDir, readBridgeLock, resolveClaudeConfigPath } from "../registry/bridge-lock.js";
 import type { RegistryEntry } from "../registry/descriptors.js";
-import { ensureLocalBinH2aFallback, readPluginDeclaration, rebootstrapMissingPluginLock, type LocalBinFallbackDiagnostics } from "../registry/host-bootstrap.js";
+import { ensureLocalBinH2aFallback, readPluginDeclaration, rebootstrapMissingPluginLock, refreshUpgradedPluginLock, type LocalBinFallbackDiagnostics } from "../registry/host-bootstrap.js";
 import { registryPackageManifest } from "../registry/manifest.js";
 import { CLAUDE_NATIVE_MCP_ROOT_KEY } from "./installation-doctor-contract.js";
 import {
@@ -2556,6 +2556,40 @@ function ensurePluginBridgeLockForDoctor(
     const configPath = host === "claude" ? resolveClaudeConfigPath(home) : codexConfigPath(home);
     const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
     const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+    // L5A-(a): doctor --repair converges drifted digests, not only absent
+    // locks. A proven version upgrade is quarantined (reversible) and
+    // re-provisioned; an unproven tamper stays refused with the remedy.
+    try {
+      readBridgeLock(lockPath);
+    } catch (readError) {
+      const code = (readError as { code?: string }).code ?? "missing_lock";
+      if (code === "integrity_mismatch" && existsSync(lockPath)) {
+        try {
+          const refreshed = refreshUpgradedPluginLock({ host, configPath, profile: "default", pluginDir, h2aEntry, trackEntry });
+          if (refreshed.refreshed) {
+            if (refreshed.quarantinePath) stderr.write(`h2a doctor --repair: refreshed ${host} plugin lock at ${lockPath} (prior quarantined at ${refreshed.quarantinePath})\n`);
+            else stderr.write(`h2a doctor --repair: refreshed ${host} plugin lock at ${lockPath}\n`);
+            report.bridgeLock = { lockPath, action: "provisioned", ...(pathFallback ? { pathFallback } : {}) };
+            return;
+          }
+        } catch (refreshError) {
+          report.bridgeLock = {
+            lockPath,
+            action: "refused",
+            error: `${(readError as Error).message}; run h2a registry bootstrap install --mechanism plugin --host ${host} --profile default --config ${configPath} --plugin-dir ${pluginDir}`,
+            ...(pathFallback ? { pathFallback } : {})
+          };
+          return;
+        }
+        report.bridgeLock = {
+          lockPath,
+          action: "refused",
+          error: `${(readError as Error).message}; run h2a registry bootstrap install --mechanism plugin --host ${host} --profile default --config ${configPath} --plugin-dir ${pluginDir}`,
+          ...(pathFallback ? { pathFallback } : {})
+        };
+        return;
+      }
+    }
     const result = rebootstrapMissingPluginLock({
       host,
       configPath,

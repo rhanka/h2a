@@ -618,7 +618,11 @@ export async function cmdRegistryBridge(
   } catch (error) {
     let activeError: unknown = error;
     let errorCode = (activeError as { code?: string }).code ?? "missing_lock";
-    if (defaulted && flags["auto-upgrade"] === "true" && errorCode === "integrity_mismatch") {
+    // L5A-(a): codex never carries --auto-upgrade (rmcp constraint) yet must
+    // still self-heal a proven version upgrade on serve; claude heals only
+    // with the explicit flag. Tampered digests (unproven) still fail closed.
+    const allowUpgradeHeal = defaulted && (flags["auto-upgrade"] === "true" || host === "codex") && errorCode === "integrity_mismatch";
+    if (allowUpgradeHeal) {
       const context = resolveHostPluginContext(host, profile, flags);
       if (!context.error && context.pluginDir && existsSync(context.pluginDir)) {
         try {
@@ -635,8 +639,9 @@ export async function cmdRegistryBridge(
           });
           if (refreshed.refreshed) {
             const priorLabel = refreshed.priorVersions?.join(", ") || "previous";
+            const quarantineSuffix = refreshed.quarantinePath ? `; prior lock quarantined at ${refreshed.quarantinePath}` : "";
             streams.stderr.write(
-              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})\n`
+              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})${quarantineSuffix}\n`
             );
             try {
               lock = readBridgeLock(lockPath, deps.memory?.entry);
@@ -679,6 +684,19 @@ export async function cmdRegistryBridge(
         "missing_lock",
         `no lock at the plugin default ${lockPath} for host=${host} profile=${profile} ` +
         `(${detail}); ${remedy}`
+      );
+    }
+    // L5A-(a): an integrity_mismatch that cannot self-heal must print the
+    // exact operator remedy instead of a bare digest error.
+    if (defaulted && errorCode === "integrity_mismatch") {
+      const context = resolveHostPluginContext(host, profile, flags);
+      const effectiveConfigPath = rebootstrapConflictConfigPath ?? context.configPath;
+      const quotedConfig = effectiveConfigPath ? quoteShellPath(effectiveConfigPath) : "<host-config>";
+      const quotedPluginDir = context.pluginDir ? quoteShellPath(context.pluginDir) : "<plugin-dir>";
+      const installCmd = `h2a registry bootstrap install --mechanism plugin --host ${host} --profile ${profile} --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
+      return refuse(
+        errorCode,
+        `${(activeError as Error).message}; run ${installCmd}`
       );
     }
     return refuse(errorCode, (activeError as Error).message);

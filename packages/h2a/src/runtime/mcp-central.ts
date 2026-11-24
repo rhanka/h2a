@@ -364,20 +364,29 @@ function createCentralApp(
       }
       const admin = administration();
       if (admin) {
-        try {
-          if (owner) {
-            await mutationLockAsync(writerDirectory(root), () => { admin.expire(); admin.poll(); }, { nonBlocking: true, bothLocks: true });
-          } else {
-            admin.expire();
-            admin.poll();
+        // L5A-(b): idle fast-path — a quiet central with no live transaction
+        // and a clean revision stamp needs no flock spawn. The old code took
+        // two flock-backed locks (bothLocks) every 500ms sweep, burning ~50%
+        // of a core on the real state (acquireFlockFdAsync spawn, mutation.js).
+        const hasActiveTx = liveTransaction && !["ABORTED", "READY"].includes(liveTransaction.state);
+        const idleClean = owner && sessions.size === 0 && pendingClosures.size === 0 &&
+          owner.pendingFinishes.length === 0 && !hasActiveTx && owner.registry.isRevisionClean();
+        if (!idleClean) {
+          try {
+            if (owner) {
+              await mutationLockAsync(writerDirectory(root), () => { admin.expire(); admin.poll(); }, { nonBlocking: true, bothLocks: true });
+            } else {
+              admin.expire();
+              admin.poll();
+            }
+          } catch (error) {
+            if (isLockUnavailableError(error)) {
+              quietTicks = 0;
+              return;
+            }
+            admin.indeterminate = true;
+            process.stderr.write(`h2a central: recovery_blocked: ${(error as Error).message}\n`);
           }
-        } catch (error) {
-          if (isLockUnavailableError(error)) {
-            quietTicks = 0;
-            return;
-          }
-          admin.indeterminate = true;
-          process.stderr.write(`h2a central: recovery_blocked: ${(error as Error).message}\n`);
         }
       }
       const transaction = administration()?.transaction()?.value;
@@ -394,12 +403,20 @@ function createCentralApp(
         try {
           if (owner && !owner.registry.indeterminate && owner.ledger.ledgerMigrationComplete === true &&
               owner.pendingFinishes.length === 0 && await administration()?.admissionsOpenAsync({ nonBlocking: true })) {
-            // Probe for a busy writer on each tick, but reconcile and read
-            // durable history only when this tick could retire the server.
-            quiet = await owner.registry.withLockAsync(
-              () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
-              { nonBlocking: true }
-            );
+            // L5A-(b): idle fast-path — when the revision stamp is clean and
+            // this tick cannot retire the server, skip the flock-backed probe
+            // entirely (no spawn in acquireFlockFdAsync). Only the retiring
+            // tick takes the lock and reconciles durable history.
+            if (quietTicks + 1 < quietTicksForIdle && owner.registry.isRevisionClean()) {
+              quiet = true;
+            } else {
+              // Probe for a busy writer on each tick, but reconcile and read
+              // durable history only when this tick could retire the server.
+              quiet = await owner.registry.withLockAsync(
+                () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
+                { nonBlocking: true }
+              );
+            }
           }
         } catch (error) {
           if (!isLockUnavailableError(error)) {

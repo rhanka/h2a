@@ -1863,7 +1863,7 @@ function collectTrustedPluginUpgradeMetadata(
  */
 export function refreshUpgradedPluginLock(
   options: PluginInstallOptions & { memoryEntry?: RegistryEntry }
-): { refreshed: boolean; lockPath: string; priorVersions?: string[] } {
+): { refreshed: boolean; lockPath: string; priorVersions?: string[]; quarantinePath?: string } {
   assertRegistryHost(options.host);
   if (options.host !== "claude" && options.host !== "codex") {
     return { refreshed: false, lockPath: "" };
@@ -1992,6 +1992,17 @@ export function refreshUpgradedPluginLock(
     ...existing,
     entries: refreshedEntries
   };
+  // L5A-(a): keep the stale N-1 lock reversible: quarantine the exact prior
+  // bytes before replacing, so an upgrade heal never destroys evidence.
+  // The lock is live (plugin cache requires it), so force the quarantine.
+  const quarantined = quarantineBridgeLock(lockPath, {
+    reason: "version-upgrade",
+    forceQuarantineCorrupt: true,
+  });
+  if (quarantined.action === "error") {
+    throw new RegistryError("restore_failed", `failed to quarantine stale plugin lock at ${lockPath}: ${quarantined.error ?? "unknown error"}`);
+  }
+  const quarantinePath = quarantined.quarantinePath;
   mkdirSync(dirname(lockPath), { recursive: true });
   const tmpPath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
   writeFileSync(tmpPath, `${JSON.stringify(refreshed, null, 2)}\n`, { mode: 0o600, flag: "wx" });
@@ -2005,7 +2016,7 @@ export function refreshUpgradedPluginLock(
     }
     throw err;
   }
-  return { refreshed: true, lockPath, priorVersions: [...matchedPriorVersions] };
+  return { refreshed: true, lockPath, priorVersions: [...matchedPriorVersions], ...(quarantinePath ? { quarantinePath } : {}) };
 }
 
 /**
