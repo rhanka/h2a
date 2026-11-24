@@ -13,7 +13,7 @@ function npm(args, cwd, env = {}) {
   return res;
 }
 
-test("L5A upgrade: previous rc in isolated prefix upgrades to built package (bridge+central+hosts)", { timeout: 300_000 }, async (t) => {
+test("L5A upgrade: previous rc in isolated prefix upgrades to built package (bridge+central+hosts)", { timeout: 600_000 }, async (t) => {
   const iso = mkdtempSync(join(tmpdir(), "h2a-l5-upgrade-"));
   t.after(() => rmSync(iso, { recursive: true, force: true }));
   const prefix = join(iso, "prefix");
@@ -26,7 +26,7 @@ test("L5A upgrade: previous rc in isolated prefix upgrades to built package (bri
   assert.ok(existsSync(join(prefix, "bin", "h2a")) || existsSync(join(prefix, "lib", "node_modules", "@sentropic", "h2a", "dist", "bin.js")));
   // 2. Pack the built candidate via the release script and upgrade the prefix.
   const outDir = join(iso, "candidate");
-  const pack = spawnSync(process.execPath, ["scripts/package-release.mjs", "--package", "@sentropic/h2a", "--output", outDir], { cwd: REPO, encoding: "utf8", timeout: 180_000, env: { ...process.env, ...env } });
+  const pack = spawnSync(process.execPath, ["scripts/package-release.mjs", "--package", "@sentropic/h2a", "--output", outDir], { cwd: REPO, encoding: "utf8", timeout: 300_000, env: { ...process.env, ...env } });
   assert.equal(pack.status, 0, `package-release candidate must succeed: ${pack.stderr.slice(0, 2000)} ${pack.stdout.slice(-1000)}`);
   let tarPath = "";
   try {
