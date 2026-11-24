@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 // L5A bench: profile witness rc.10 then candidate main on isolated copies of the real state.
 // Follows L5.md §3.1-§3.3: disk guard, single active copy, --cpu-prof, guaranteed witness cleanup.
-import { spawn, execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, cpSync } from "node:fs";
+//
+// B-4 residual (r2 review §2): the witness is a FULL package install
+// (`npm install --prefix <runDir>/witness @sentropic/h2a@<rc10>`), never a
+// two-file extract (dist/bin.js alone dies with ERR_MODULE_NOT_FOUND — the
+// published entry imports sibling modules). runCase returns `timeout` plus
+// the exit code and marks a dead witness `witness-failed`. Profiles and a
+// results JSON are written to a kept `--out` dir; peak RSS comes from VmHWM
+// in /proc/<pid>/status. Lag p99, migrationTotalMs and C5.5 are NOT MEASURED
+// by this bench (see results.json `notMeasured` + L5-report §8, L5B pre-step).
+import { spawn, execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, cpSync, writeFileSync } from "node:fs";
 import { statfsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 function usage() {
-  console.log("Usage: bench-central-real-copy.mjs --source-state <dir> --source-root <dir> [--run-base <dir>] [--rc10 <version>] [--witness-timeout-ms <n>]");
-  console.log("  --run-base defaults to $TMPDIR (must be set, never /tmp); --source-state/--source-root are required (no hardcoded owner paths).");
+  console.log("Usage: bench-central-real-copy.mjs --source-state <dir> --source-root <dir> --out <dir> [--run-base <dir>] [--rc10 <version>] [--witness-timeout-ms <n>]");
+  console.log("  --run-base defaults to $TMPDIR (must be set, never /tmp); --source-state/--source-root/--out are required (no hardcoded owner paths).");
+  console.log("  --out is kept after the run (profiles + results.json); the witness prefix and runDir are always deleted.");
 }
 
 const args = process.argv.slice(2);
@@ -22,11 +32,13 @@ function requiredOpt(name) {
   return v;
 }
 if (args.includes("--help") || args.includes("-h")) { usage(); process.exit(0); }
-// B-4/NB-6: no hardcoded owner paths; both sources are required options.
+// B-4/NB-6: no hardcoded owner paths; sources and out dir are required options.
 const sourceState = requiredOpt("--source-state");
 const sourceRoot = requiredOpt("--source-root");
+const outDir = requiredOpt("--out");
 const rc10ver = opt("--rc10", "0.98.11-rc.10");
 const witnessMs = Number(opt("--witness-timeout-ms", "15000"));
+const LISTEN_TIMEOUT_MS = 30_000;
 
 // B-4/NB-6: never fall back to os.tmpdir() (/tmp). TMPDIR (or --run-base)
 // must point inside the lane worktree; refuse otherwise.
@@ -41,6 +53,7 @@ if (runBase === "/tmp" || runBase.startsWith("/tmp/")) {
   console.error(`bench: refusing to start: run base ${runBase} is /tmp; use the lane .tmp dir`);
   process.exit(2);
 }
+mkdirSync(outDir, { recursive: true, mode: 0o700 });
 const runDir = join(runBase, `h2a-l5-bench-${Date.now()}`);
 mkdirSync(runDir, { recursive: true, mode: 0o700 });
 
@@ -128,7 +141,26 @@ function copyLedgerSubset(srcState, srcRoot, destRuntime, destRoot) {
   return { bytes, count, dstState };
 }
 
-async function runCase(name, entryBin, root, runtimeBase, profDir, home) {
+// Peak RSS in MiB from VmHWM in /proc/<pid>/status (true peak, not a single
+// post-run sample). Falls back to a one-shot ps reading when /proc is absent.
+function readVmHwmMB(pid) {
+  try {
+    const status = readFileSync(`/proc/${pid}/status`, "utf8");
+    const m = status.match(/^VmHWM:\s+(\d+)\s+kB$/m);
+    if (m) return Number(m[1]) / 1024;
+  } catch { /* process gone or no /proc */ }
+  return NaN;
+}
+
+function readPsRssMB(pid) {
+  try {
+    const out = execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim();
+    const kb = Number(out);
+    return Number.isFinite(kb) && kb > 0 ? kb / 1024 : NaN;
+  } catch { return NaN; }
+}
+
+async function runCase(name, entryBin, root, runtimeBase, profDir, home, measureMs) {
   mkdirSync(profDir, { recursive: true, mode: 0o700 });
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const env = {
@@ -137,14 +169,19 @@ async function runCase(name, entryBin, root, runtimeBase, profDir, home) {
   };
   delete env.H2A_MCP_AUTHORITY;
   delete env.H2A_MCP_CENTRAL_ENDPOINT;
-  const child = spawn(process.execPath, ["--max-old-space-size=384", "--cpu-prof", `--cpu-prof-dir=${profDir}`, entryBin, "mcp-central-serve", "--root", root, "--runtime-base", runtimeBase], { env, stdio: ["ignore", "pipe", "pipe"] });
+  let child;
+  try {
+    child = spawn(process.execPath, ["--max-old-space-size=384", "--cpu-prof", `--cpu-prof-dir=${profDir}`, entryBin, "mcp-central-serve", "--root", root, "--runtime-base", runtimeBase], { env, stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    return { name, spawnFailed: String(error?.message ?? error).slice(0, 300), listenMs: null, timeout: true, exitCode: null, exitSignal: null, rssPeakMB: NaN, stdout: "", stderr: "" };
+  }
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (c) => { stdout += String(c); });
   child.stderr.on("data", (c) => { stderr += String(c); });
   const start = Date.now();
   const listen = await new Promise((resolve) => {
-    const timer = setTimeout(() => resolve({ ms: Date.now() - start, timeout: true }), 30_000);
+    const timer = setTimeout(() => resolve({ ms: Date.now() - start, timeout: true }), LISTEN_TIMEOUT_MS);
     const onData = (chunk) => {
       const text = stdout + String(chunk);
       if (/listening on/.test(text)) {
@@ -155,47 +192,109 @@ async function runCase(name, entryBin, root, runtimeBase, profDir, home) {
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);
   });
-  await new Promise((r) => setTimeout(r, witnessMs));
-  // B-4: ESM import (require() throws in this module); RSS in MiB.
-  const rssMB = (() => {
-    try {
-      const out = execSync(`ps -o rss= -p ${child.pid}`).toString().trim();
-      return Number(out) / 1024;
-    } catch { return NaN; }
-  })();
-  child.kill("SIGINT");
-  const exited = await new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(false), 2000);
-    child.once("exit", () => { clearTimeout(timer); resolve(true); });
+  // B-4: sample the VmHWM peak while the case runs (not one ps sample after).
+  let rssPeakMB = readVmHwmMB(child.pid);
+  if (!Number.isFinite(rssPeakMB)) rssPeakMB = readPsRssMB(child.pid);
+  const sampler = setInterval(() => {
+    const v = readVmHwmMB(child.pid);
+    const sample = Number.isFinite(v) ? v : readPsRssMB(child.pid);
+    if (Number.isFinite(sample) && (!Number.isFinite(rssPeakMB) || sample > rssPeakMB)) rssPeakMB = sample;
+  }, 200);
+  const settled = await new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) return resolve(true);
+    const onExit = () => resolve(true);
+    child.once("exit", onExit);
+    setTimeout(() => { child.removeListener("exit", onExit); resolve(false); }, listen.timeout ? 1000 : measureMs);
   });
-  if (!exited) {
+  clearInterval(sampler);
+  if (!listen.timeout && !settled) {
+    // Case lived through the whole measure window: stop it cleanly.
+    const last = readVmHwmMB(child.pid);
+    if (Number.isFinite(last) && (!Number.isFinite(rssPeakMB) || last > rssPeakMB)) rssPeakMB = last;
+  }
+  const exit = child.exitCode !== null || child.signalCode !== null
+    ? { exitCode: child.exitCode, exitSignal: child.signalCode }
+    : await new Promise((resolve) => {
+      child.kill("SIGINT");
+      const timer = setTimeout(() => resolve({ exitCode: child.exitCode, exitSignal: child.signalCode ?? "SIGINT-timeout" }), 2000);
+      child.once("exit", () => { clearTimeout(timer); resolve({ exitCode: child.exitCode, exitSignal: child.signalCode }); });
+    });
+  let finalExit = exit;
+  if (finalExit.exitCode === null && finalExit.exitSignal && finalExit.exitSignal !== "SIGINT") {
+    // Unexpected death (crash): record as-is.
+  } else if (finalExit.exitCode === null && (finalExit.exitSignal === "SIGINT" || finalExit.exitSignal === "SIGINT-timeout")) {
     try { process.kill(child.pid, "SIGKILL"); } catch { /* ignore */ }
     await new Promise((r) => setTimeout(r, 1000));
+    finalExit = { exitCode: child.exitCode, exitSignal: child.signalCode };
   }
-  return { listenMs: listen.ms, rssMB, stdout: stdout.slice(0, 2000), stderr: stderr.slice(0, 2000) };
+  return {
+    name, listenMs: listen.timeout ? null : listen.ms, timeout: listen.timeout,
+    exitCode: finalExit.exitCode, exitSignal: finalExit.exitSignal,
+    rssPeakMB: Number.isFinite(rssPeakMB) ? Math.round(rssPeakMB * 10) / 10 : null,
+    stdout: stdout.slice(0, 2000), stderr: stderr.slice(0, 2000),
+  };
+}
+
+function newestProfile(profDir) {
+  try {
+    const files = readdirSync(profDir).filter((n) => n.endsWith(".cpuprofile"));
+    if (files.length === 0) return null;
+    let best = null;
+    for (const f of files) {
+      const st = statSync(join(profDir, f));
+      if (!best || st.mtimeMs > best.mtimeMs) best = { file: f, mtimeMs: st.mtimeMs };
+    }
+    return best.file;
+  } catch { return null; }
 }
 
 const caseRc10 = join(runDir, "case-rc10");
 const caseMain = join(runDir, "case-main");
+const witnessPrefix = join(runDir, "witness");
+const npmCache = join(runDir, "npm-cache");
 let counts = { ops: 0, effects: 0 };
-// B-4: branch runCase — witness rc.10 (tarball) then candidate (local dist).
-// Resolves the witness entry without network when the tarball is pre-fetched
-// via --rc10-tarball <file>; otherwise npm packs the pinned rc.10 version.
+const results = {
+  tool: "bench-central-real-copy.mjs",
+  startedAt: new Date().toISOString(),
+  sourceState, sourceRoot, witnessVersion: rc10ver,
+  notMeasured: ["eventLoopLagMs.p99", "migrationTotalMs", "C5.5-drive-consent-CPU"],
+  cases: {},
+};
+// B-4 residual (1): witness is the FULL published package installed with npm
+// (the old two-file dist/bin.js + package.json extract died with
+// ERR_MODULE_NOT_FOUND because dist/bin.js imports sibling modules).
+// Returns the witness entry binary path, or null with the reason recorded.
 function resolveWitnessEntry() {
-  const explicit = opt("--rc10-tarball", "");
-  const packDir = join(runDir, "witness-pack");
-  mkdirSync(packDir, { recursive: true, mode: 0o700 });
+  const home = join(runDir, "npm-home");
+  mkdirSync(witnessPrefix, { recursive: true, mode: 0o700 });
+  mkdirSync(npmCache, { recursive: true, mode: 0o700 });
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const npmEnv = {
+    ...process.env, HOME: home, npm_config_cache: npmCache,
+    TMPDIR: runBase, TMP: runBase, TEMP: runBase,
+  };
+  delete npmEnv.H2A_MCP_AUTHORITY;
+  delete npmEnv.H2A_MCP_CENTRAL_ENDPOINT;
   try {
-    const tarball = explicit || execSync(`npm pack @sentropic/h2a@${rc10ver} --pack-destination ${packDir} --silent`, { encoding: "utf8" }).trim().split("\n").pop();
-    const tgz = explicit || join(packDir, tarball);
-    const dest = join(runDir, "witness-pkg");
-    mkdirSync(dest, { recursive: true, mode: 0o700 });
-    execSync(`tar -xzf ${tgz} -C ${dest} --strip-components=1 package/dist/bin.js package/package.json`);
-    return join(dest, "dist", "bin.js");
+    execFileSync("npm", ["install", "--prefix", witnessPrefix, "--no-audit", "--no-fund", `@sentropic/h2a@${rc10ver}`], { encoding: "utf8", timeout: 300_000, env: npmEnv });
   } catch (error) {
-    console.error(JSON.stringify({ event: "witness-unavailable", rc10ver, error: String(error?.message ?? error).slice(0, 300) }));
-    return null;
+    return { bin: null, reason: `npm-install-failed: ${String(error?.message ?? error).slice(0, 300)}` };
   }
+  // rc.10 refuses a group/other-writable prefix (prefix_owner_mismatch);
+  // npm creates 0775 dirs, so strip those bits (same chmod the L5B
+  // procedure applies to the live prefix).
+  try {
+    execFileSync("chmod", ["-R", "go-w", witnessPrefix]);
+  } catch (error) {
+    return { bin: null, reason: `witness-chmod-failed: ${String(error?.message ?? error).slice(0, 200)}` };
+  }
+  const bin = join(witnessPrefix, "node_modules", "@sentropic", "h2a", "dist", "bin.js");
+  if (!existsSync(bin)) return { bin: null, reason: `witness-bin-missing: ${bin}` };
+  let installedVersion = null;
+  try {
+    installedVersion = JSON.parse(readFileSync(join(witnessPrefix, "node_modules", "@sentropic", "h2a", "package.json"), "utf8")).version ?? null;
+  } catch { /* ignore */ }
+  return { bin, reason: null, installedVersion };
 }
 function candidateEntry() {
   // Candidate is the locally built package (this checkout).
@@ -204,36 +303,73 @@ function candidateEntry() {
   if (existsSync(repoBin)) return repoBin;
   return null;
 }
+function writeResults() {
+  results.finishedAt = new Date().toISOString();
+  try { writeFileSync(join(outDir, "results.json"), `${JSON.stringify(results, null, 2)}\n`, { mode: 0o600 }); } catch { /* out dir kept best-effort */ }
+}
 try {
   if (existsSync(sourceState)) {
     counts.ops = readdirSync(sourceState).filter((n) => n.startsWith("operation-")).length;
     counts.effects = readdirSync(sourceState).filter((n) => n.startsWith("effect-")).length;
   }
-  console.log(JSON.stringify({ event: "l5-bench-start", sourceState, sourceRoot, counts, runDir }));
-  const witnessBin = resolveWitnessEntry();
+  results.sourceCounts = counts;
+  console.log(JSON.stringify({ event: "l5-bench-start", sourceState, sourceRoot, counts, runDir, outDir }));
+  const { bin: witnessBin, reason: witnessReason, installedVersion: witnessInstalled } = resolveWitnessEntry();
+  if (witnessInstalled) results.witnessInstalledVersion = witnessInstalled;
   const mainBin = candidateEntry();
   if (!mainBin) {
     console.error(JSON.stringify({ event: "candidate-unavailable", hint: "run npm run build:h2a first" }));
-    process.exit(2);
+    results.candidateUnavailable = true;
+    process.exitCode = 2;
+  } else {
+    if (witnessBin) {
+      copyLedgerSubset(sourceState, sourceRoot, join(caseRc10, "runtime"), join(caseRc10, "root"));
+      console.log(JSON.stringify({ event: "case-rc10-ready", runDir }));
+      const profRc10 = join(runDir, "prof-rc10");
+      const w = await runCase("rc10", witnessBin, join(caseRc10, "root"), join(caseRc10, "runtime"), profRc10, join(caseRc10, "home"), witnessMs);
+      // B-4 residual (2): a dead witness is `witness-failed`, never a slow witness.
+      const crashed = !w.timeout && w.exitCode !== null && w.exitCode !== 0;
+      w.status = (w.timeout || crashed || w.spawnFailed) ? "witness-failed" : "ok";
+      results.cases.rc10 = w;
+      const prof = newestProfile(profRc10);
+      if (prof) {
+        try { cpSync(join(profRc10, prof), join(outDir, "witness.cpuprofile")); results.cases.rc10.profile = "witness.cpuprofile"; } catch { /* ignore */ }
+      }
+      console.log(JSON.stringify({ event: "case-rc10-done", status: w.status, listenMs: w.listenMs, timeout: w.timeout, exitCode: w.exitCode, exitSignal: w.exitSignal, rssPeakMB: w.rssPeakMB }));
+      rmSync(caseRc10, { recursive: true, force: true });
+      rmSync(witnessPrefix, { recursive: true, force: true });
+      rmSync(npmCache, { recursive: true, force: true });
+      console.log(JSON.stringify({ event: "case-rc10-cleaned" }));
+    } else {
+      results.cases.rc10 = { name: "rc10", status: "witness-failed", reason: witnessReason, listenMs: null, timeout: null, exitCode: null, exitSignal: null, rssPeakMB: null };
+      console.log(JSON.stringify({ event: "case-rc10-failed", status: "witness-failed", reason: witnessReason }));
+      try { rmSync(witnessPrefix, { recursive: true, force: true }); } catch { /* ignore */ }
+      try { rmSync(npmCache, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+    copyLedgerSubset(sourceState, sourceRoot, join(caseMain, "runtime"), join(caseMain, "root"));
+    console.log(JSON.stringify({ event: "case-main-ready" }));
+    const profMain = join(runDir, "prof-main");
+    const m = await runCase("main", mainBin, join(caseMain, "root"), join(caseMain, "runtime"), profMain, join(caseMain, "home"), witnessMs);
+    m.status = (m.timeout || (!m.timeout && m.exitCode !== null && m.exitCode !== 0) || m.spawnFailed) ? "candidate-failed" : "ok";
+    results.cases.main = m;
+    const prof = newestProfile(profMain);
+    if (prof) {
+      try { cpSync(join(profMain, prof), join(outDir, "candidate.cpuprofile")); results.cases.main.profile = "candidate.cpuprofile"; } catch { /* ignore */ }
+    }
+    console.log(JSON.stringify({
+      event: "case-main-done", status: m.status, listenMs: m.listenMs, timeout: m.timeout, exitCode: m.exitCode, exitSignal: m.exitSignal, rssPeakMB: m.rssPeakMB,
+    }));
   }
-  if (witnessBin) {
-    copyLedgerSubset(sourceState, sourceRoot, join(caseRc10, "runtime"), join(caseRc10, "root"));
-    console.log(JSON.stringify({ event: "case-rc10-ready", runDir }));
-    const profRc10 = join(runDir, "prof-rc10");
-    const w = await runCase("rc10", witnessBin, join(caseRc10, "root"), join(caseRc10, "runtime"), profRc10, join(caseRc10, "home"));
-    console.log(JSON.stringify({ event: "case-rc10-done", listenMs: w.listenMs, rssMB: w.rssMB, profDir: profRc10 }));
-    rmSync(caseRc10, { recursive: true, force: true });
-    console.log(JSON.stringify({ event: "case-rc10-cleaned" }));
-  }
-  copyLedgerSubset(sourceState, sourceRoot, join(caseMain, "runtime"), join(caseMain, "root"));
-  console.log(JSON.stringify({ event: "case-main-ready" }));
-  const profMain = join(runDir, "prof-main");
-  const m = await runCase("main", mainBin, join(caseMain, "root"), join(caseMain, "runtime"), profMain, join(caseMain, "home"));
-  console.log(JSON.stringify({
-    event: "case-main-done", listenMs: m.listenMs, rssMB: m.rssMB, profDir: profMain,
-    note: "attach the newest .cpuprofile under each profDir plus rssMB to L5-report.md §2",
-  }));
+  writeResults();
+  console.log(JSON.stringify({ event: "l5-bench-results", outDir, results: join(outDir, "results.json") }));
 } finally {
+  writeResults();
+  // B-4 residual (3): --out survives; runDir (cases, witness prefix, profiles
+  // sources, npm cache) is always deleted.
+  try { rmSync(caseRc10, { recursive: true, force: true }); } catch { /* ignore */ }
+  try { rmSync(caseMain, { recursive: true, force: true }); } catch { /* ignore */ }
+  try { rmSync(witnessPrefix, { recursive: true, force: true }); } catch { /* ignore */ }
+  try { rmSync(npmCache, { recursive: true, force: true }); } catch { /* ignore */ }
   try { rmSync(runDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  console.log(JSON.stringify({ event: "l5-bench-cleaned", runDir }));
+  console.log(JSON.stringify({ event: "l5-bench-cleaned", runDir, outDir }));
 }

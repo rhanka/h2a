@@ -47,11 +47,12 @@ test("L5A-(b) idle central burns no steady CPU (own CPU time, not wall clock)", 
         const diff = process.cpuUsage(startCpu);
         const cpuMs = (diff.user + diff.system) / 1000;
         // Hot path was acquireFlockFdAsync spawning flock every 500ms sweep
-        // (mutation.js:168 + mcp-central.ts:369/399): ~255ms per 10s idle.
-        // After the idle fast-path (skip locks when revision clean + no tx),
-        // own CPU over 10s idle must stay well under the old floor.
-        // CI ceiling 200ms (shared runner); strict < 150ms in the quiet bench.
-        assert.ok(cpuMs < 200, `idle own CPU ${cpuMs.toFixed(1)}ms over 10s wall must be < 200ms CI ceiling (flock-per-tick hot path; strict < 150ms in bench)`);
+        // (mutation.js:168 + mcp-central.ts:369/399). After the idle
+        // fast-path (skip locks when revision clean + no tx), own CPU over
+        // 10s idle must stay well under the old floor. CI ceiling 200ms
+        // (shared runner); the strict < 150ms quiet-bench value is not
+        // measured (L5B pre-step, see L5-report §8).
+        assert.ok(cpuMs < 200, `idle own CPU ${cpuMs.toFixed(1)}ms over 10s wall must be < 200ms CI ceiling (flock-per-tick hot path)`);
       } finally {
         await central.stop();
       }

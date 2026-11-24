@@ -109,7 +109,7 @@ test("B-5 scale: 15 500+ operations C5.1-C5.6 (causal + structural, no wall-cloc
   const prepStart = Date.now();
   seedL5A(f);
   const prepMs = Date.now() - prepStart;
-  t.diagnostic(`preparation took ${prepMs}ms (budget < 15s, logged only; strict in bench)`);
+  t.diagnostic(`preparation took ${prepMs}ms (logged only; strict < 15s budget not measured — L5B pre-step, see L5-report §8)`);
   // NB-8: save and restore every key this file writes into process.env.
   const saved = {};
   for (const k of Object.keys(f.env)) saved[k] = process.env[k];
@@ -130,7 +130,7 @@ test("B-5 scale: 15 500+ operations C5.1-C5.6 (causal + structural, no wall-cloc
   const listenStart = Date.now();
   const server = await startCentralMcpServer({ root: f.root, runtimeBase: f.runtimeBase, physicalPrefix: f.dir, env: f.env });
   const listenMs = Date.now() - listenStart;
-  t.diagnostic(`start took ${listenMs}ms (C5.1 < 500ms, logged only; strict in bench)`);
+  t.diagnostic(`start took ${listenMs}ms (C5.1 < 500ms, logged only; strict threshold not measured — L5B pre-step, see L5-report §8)`);
   t.after(async () => { clearInterval(rssTimer); await server.stop().catch(() => {}); });
   assert.equal(server.kind, "started");
   const healthRes = await fetch(new URL("/_h2a-central/health", server.endpoint));
@@ -171,10 +171,12 @@ test("B-5 scale: 15 500+ operations C5.1-C5.6 (causal + structural, no wall-cloc
   assert.equal(statusMidRes.status, 200);
   const statusMid = await statusMidRes.json();
   // B-5: lag is logged, never a blocking wall-clock gate in CI (shared
-  // runner, real fsync). Strict p99 < 75ms lives in the quiet bench (B-4).
-  t.diagnostic(`eventLoopLagMs.p99 pendant la migration: ${statusMid.eventLoopLagMs?.p99} (strict < 75ms in bench, logged only in CI)`);
+  // runner, real fsync). Strict p99 < 75ms is not measured (B-4 residual:
+  // L5B pre-step, see L5-report §8).
+  t.diagnostic(`eventLoopLagMs.p99 pendant la migration: ${statusMid.eventLoopLagMs?.p99} (not measured; logged only in CI)`);
   // B-5 structural C5.3: migration completes under the test's own timeout
-  // (no millisecond ceiling in CI; strict < 10s in bench).
+  // (no millisecond ceiling in CI; strict < 10s not measured — L5B pre-step,
+  // see L5-report §8).
   let finalHealth = midHealth;
   for (;;) {
     const r = await fetch(new URL("/_h2a-central/health", server.endpoint));
@@ -220,9 +222,11 @@ test("B-5 scale: 15 500+ operations C5.1-C5.6 (causal + structural, no wall-cloc
   // B-5: own CPU time (process.cpuUsage), never wall clock against the runner.
   const cpuDiff = process.cpuUsage(cpuStart);
   const cpuMs = (cpuDiff.user + cpuDiff.system) / 1000;
-  t.diagnostic(`own CPU over the whole scale run: ${cpuMs.toFixed(0)}ms (sanity < 15 000ms; strict C5.5 < 150ms with shims in bench)`);
+  t.diagnostic(`own CPU over the whole scale run: ${cpuMs.toFixed(0)}ms (sanity < 15 000ms; strict C5.5 < 150ms with shims not measured — L5B pre-step, see L5-report §8)`);
   assert.ok(cpuMs < 15_000, `C5.5 own-CPU sanity (got ${cpuMs.toFixed(0)}ms)`);
   const rssMB = rssPeak / (1024 * 1024);
-  // CI ceiling 350MiB (test harness + in-process central); strict < 256MiB in quiet bench/child process.
+  // CI ceiling 350MiB (test harness + in-process central); the strict
+  // < 256MiB quiet-bench/child-process value is not measured — MemoryMax
+  // sizing is an L5B pre-step, see L5-report §8.
   assert.ok(rssMB < 350, `C5.6 RSS < 350MiB CI ceiling (got ${rssMB.toFixed(1)}MiB); strict < 256MiB in bench`);
 });
