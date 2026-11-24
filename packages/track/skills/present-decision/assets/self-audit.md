@@ -22,6 +22,8 @@ Missing evidence, criteria or review: **Incomplete**; request input, never final
 - [ ] **Delivery/capture:** Focus artifact or standalone portable Focus HTML (`dossier.json`),
   ecosystem canvas, light/dark, response line, pinch zoom; no claude.ai artifact. Dossier with diagram before the native question tool;
   never a bare text question. If unavailable, explain and leave the decision pending.
+  Checked at 390 px and around 800 px in the delivery target (artifact shell included):
+  wide layout around 800 px, phone layout at 390 px, no sideways scroll, diagrams compact.
   Local selections never record approval; no fabricated `comprehension[]` or relay as decider.
 - [ ] **Evidence (H1):** original bytes/digests; resolved citations/backlinks; primary summaries,
   separate annex consultation; offline search/download/back. H1 manifest only;

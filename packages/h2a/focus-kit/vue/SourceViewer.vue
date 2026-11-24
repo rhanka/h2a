@@ -2,11 +2,11 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { decodeEvidence, evidenceText, evidenceLines } from '../../../focus/src/validation/evidence-bytes.ts';
 import { searchSource } from '../src/evidence-search.js';
-const props = defineProps({ source: { type: Object, required: true }, locator: Object, visit: Number });
+const props = defineProps({ source: { type: Object, required: true }, locator: Object, visit: Number, target: { type: String, default: 'document' } });
 defineEmits(['back']);
 const lines = computed(() => props.source.mediaType.startsWith('image/') ? [] : evidenceLines(evidenceText(decodeEvidence(props.source.data))));
 const start = ref(0), jump = ref(1), query = ref(''), matches = ref([]), searching = ref(false), matchIndex = ref(0);
-const scroller = ref(null), target = ref(null), heading = ref(null);
+const scroller = ref(null), scrollTarget = ref(null), heading = ref(null);
 let serial = 0, navigation = 0;
 const windowSize = 80, lineHeight = 24;
 onMounted(() => heading.value.focus());
@@ -17,7 +17,7 @@ async function go(line, focus = true) {
   scroller.value.scrollTop = (n - 1) * lineHeight;
   await nextTick(); if (focus && token === navigation) {
     scroller.value?.querySelector(`[data-line="${n}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    target.value?.focus({ preventScroll: true });
+    scrollTarget.value?.focus({ preventScroll: true });
   }
 }
 watch(() => props.visit, () => { if (props.visit > 0 && lines.value.length) go(props.locator?.start ?? 1); }, { immediate: true, flush: 'post' });
@@ -41,7 +41,7 @@ function download() {
     <h3 ref="heading" tabindex="-1">{{ source.title }}</h3>
     <p>{{ source.mediaType }} · {{ source.size }} octets · {{ JSON.stringify(source.origin) }}</p>
     <details><summary>Empreinte des octets</summary><code>{{ source.sha256 }}</code></details>
-    <div class="evidence-actions"><button @click="$emit('back')">Retour au contexte</button><button @click="download">Télécharger les octets originaux</button></div>
+    <div class="evidence-actions"><button @click="$emit('back')">Retour au contexte</button><a v-if="props.target === 'artifact'" :href="`data:application/octet-stream;base64,${props.source.data}`" target="_blank" rel="noopener">Ouvrir les octets originaux (nouvel onglet)</a><button v-else @click="download">Télécharger les octets originaux</button></div>
     <figure v-if="source.mediaType.startsWith('image/')"><img :src="`data:${source.mediaType};base64,${source.data}`" :alt="source.alt" :width="source.width" :height="source.height" /><figcaption>{{ locator?.caption ?? source.alt }}</figcaption></figure>
     <template v-else>
       <label>Rechercher dans toute la source <input v-model="query" type="search" /></label>
@@ -50,7 +50,7 @@ function download() {
       <label>Aller à la ligne <input v-model="jump" type="number" min="1" :max="lines.length" /></label>
       <button @click="go(jump)">Atteindre</button><p>{{ lines.length }} lignes · plage citée : {{ locator?.start ?? '—' }}–{{ locator?.end ?? '—' }}</p>
       <div ref="scroller" class="source-scroll" @scroll="start = Math.max(0, Math.floor(scroller.scrollTop / lineHeight) - 8)">
-        <div ref="target" role="list" aria-label="Lignes de la source" tabindex="-1">
+        <div ref="scrollTarget" role="list" aria-label="Lignes de la source" tabindex="-1">
           <div aria-hidden="true" :style="{ height: `${start * lineHeight}px` }"></div>
           <div v-for="(line, offset) in lines.slice(start, start + windowSize)" :key="start + offset" role="listitem" class="source-line"
             :class="{ cited: start + offset + 1 >= locator?.start && start + offset + 1 <= locator?.end }" :data-line="start + offset + 1"><span class="line-number">{{ start + offset + 1 }}</span> {{ line || ' ' }}</div>

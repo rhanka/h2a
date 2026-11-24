@@ -66,7 +66,6 @@ var ULID_RE = /\b01[0-9A-HJKMNP-TV-Z]{24}\b/;
 var HASH_RE = /\b(?:sha256:)?[0-9a-f]{7,64}\b/i;
 var INTERNAL_ID_RE = /\b(?:WP\d+(?:\.\d+)?|D-\d+|O\d{3,4}|A\d{2}|T\d{2}|r\d+-D\d+|J\d+|M\d+|Q\d+|Q-[A-Z]|F\d+|LOT-\d+|AC-\d+|rel-\d+|PR\s*#?\d+|hrpn\/#\d+)\b/;
 var RAW_DIGIT_RE = /\b(?!h2a\b)\S*\d\S*\b/gi;
-var TAKEAWAY_RE = /^(?:En bref\s*:\s+|In short:\s+)/;
 var blank = (text2) => !text2?.trim();
 var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var minutesFor = (texts) => (texts.join(" ").match(/\S+/gu)?.length ?? 0) / READABILITY_LIMITS.wordsPerMinute;
@@ -153,23 +152,23 @@ var validateDecisionDossierReadability = (doc, options) => {
     });
     doc.evidenceGroups.forEach((g, i) => {
       visible(g.summary, `$.evidenceGroups[${i}].summary`);
-      checkProseCell(g.summary, `$.evidenceGroups[${i}].summary`, { requireTakeaway: true });
+      checkProseCell(g.summary, `$.evidenceGroups[${i}].summary`);
     });
     doc.annexes.forEach((a, i) => {
       visible(a.title, `$.annexes[${i}].title`);
       visible(a.summary, `$.annexes[${i}].summary`);
-      checkProseCell(a.summary, `$.annexes[${i}].summary`, { requireTakeaway: true });
+      checkProseCell(a.summary, `$.annexes[${i}].summary`);
       a.blocks.forEach((b, j) => {
         const path = `$.annexes[${i}].blocks[${j}]`;
         if (b.kind === "text") {
           checkCodes(b.text, `${path}.text`);
-          checkProseCell(b.text, `${path}.text`, { requireTakeaway: true });
+          checkProseCell(b.text, `${path}.text`);
         }
         if (b.kind === "table") {
           [...b.columns, ...b.rows.flat()].forEach((t) => checkCodes(t, path));
           b.rows.forEach(
             (row, rIdx) => row.forEach(
-              (cell, cIdx) => checkProseCell(cell, `${path}.rows[${rIdx}][${cIdx}]`, { requireTakeaway: false })
+              (cell, cIdx) => checkProseCell(cell, `${path}.rows[${rIdx}][${cIdx}]`)
             )
           );
         }
@@ -201,9 +200,6 @@ var validateDecisionDossierReadability = (doc, options) => {
   checkSteps(doc.amendmentTrace, "$.amendmentTrace");
   doc.interactions.forEach((action, i) => visible(action.label, `$.interactions[${i}].label`));
   const questions = doc.sections.filter((s) => s.kind === "question");
-  if (report && (doc.sections[0]?.kind !== "prose" || !TAKEAWAY_RE.test(doc.sections[0].markdown.trim()))) {
-    refuse("$.sections[0]", "report_summary_first", "Start the report with an En bref : or In short: summary.");
-  }
   const questionIds = new Set(questions.map((q) => q.id));
   if (!report && !questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
   const checkQuestionRef = (questionId, path, required) => {
@@ -283,8 +279,8 @@ var validateDecisionDossierReadability = (doc, options) => {
         checkCodes(section.recommendedAnswer, `${path}.recommendedAnswer`);
         checkCodes(section.answer, `${path}.answer`);
         checkMarkdownProse(section.context, `${path}.context`);
-        checkProseCell(section.recommendedAnswer, `${path}.recommendedAnswer`, { requireTakeaway: true });
-        checkProseCell(section.answer, `${path}.answer`, { requireTakeaway: true });
+        checkProseCell(section.recommendedAnswer, `${path}.recommendedAnswer`);
+        checkProseCell(section.answer, `${path}.answer`);
         checkInputsAndCriterion(section, path, texts);
         const minutes = section.readingTimeMinutes;
         const minimum = minutesFor(texts);
@@ -317,7 +313,7 @@ var validateDecisionDossierReadability = (doc, options) => {
           `Keep each input label to one short line of at most ${READABILITY_LIMITS.maxInputLabelWords} words and ${READABILITY_LIMITS.maxInputLabelLength} characters.`
         );
       }
-      checkProseCell(inp.label, labelPath, { requireTakeaway: false });
+      checkProseCell(inp.label, labelPath);
     });
     if (section.completionCriterion !== void 0) {
       const cc = section.completionCriterion;
@@ -331,7 +327,7 @@ var validateDecisionDossierReadability = (doc, options) => {
           `Keep completionCriterion to one sentence of at most ${READABILITY_LIMITS.maxCompletionCriterionWords} words and ${READABILITY_LIMITS.maxCompletionCriterionLength} characters.`
         );
       }
-      checkProseCell(cc, ccPath, { requireTakeaway: false });
+      checkProseCell(cc, ccPath);
     }
   }
   function checkProseCell(rawText, path, opts) {
@@ -347,13 +343,6 @@ var validateDecisionDossierReadability = (doc, options) => {
       );
     }
     const sents = sentencesOf(text2);
-    if (opts?.requireTakeaway !== false && sents.length > 1 && !TAKEAWAY_RE.test(text2)) {
-      refuse(
-        path,
-        "missing_en_bref_takeaway",
-        'Start multi-sentence prose blocks with "En bref : " or "In short: " so the reader gets the takeaway first.'
-      );
-    }
     if (text2.includes(";")) {
       refuse(
         path,
@@ -479,13 +468,13 @@ var validateDecisionDossierReadability = (doc, options) => {
     for (let idx = 0; idx < blocks.length; idx++) {
       const block = blocks[idx];
       if (block.kind === "heading") {
-        checkProseCell(block.lines[0], path, { requireTakeaway: false, isCleaned: true });
+        checkProseCell(block.lines[0], path, { isCleaned: true });
       } else if (block.kind === "table") {
         const line = block.lines[0];
         const cells = splitMarkdownTableCells(line);
         if (cells.every((c) => /^[-:]+$/.test(c))) continue;
         for (const cell of cells) {
-          checkProseCell(cell, path, { requireTakeaway: false, isCleaned: true });
+          checkProseCell(cell, path, { isCleaned: true });
         }
       } else if (block.kind === "bullets") {
         const prev = idx > 0 && blocks[idx - 1].kind === "paragraph" ? blocks[idx - 1].lines.join(" ") : "";
@@ -498,11 +487,11 @@ var validateDecisionDossierReadability = (doc, options) => {
           );
         }
         for (const item of block.lines) {
-          checkProseCell(item, path, { requireTakeaway: false, isCleaned: true });
+          checkProseCell(item, path, { isCleaned: true });
         }
       } else {
         const text2 = block.lines.join(" ");
-        checkProseCell(text2, path, { requireTakeaway: true, isCleaned: true });
+        checkProseCell(text2, path, { isCleaned: true });
       }
     }
   }
@@ -534,7 +523,7 @@ var validateDecisionDossierReadability = (doc, options) => {
       if (text2.trim().length > max || LINE_BREAK.test(text2)) refuse(`${path}.${field}`, code, `Keep this option ${field} to one short line of at most ${max} characters; move necessary context to the question.`);
       if (SUBOPTION_PATTERN.test(text2) || CHOICE_PATTERN.test(text2)) refuse(`${path}.${field}`, "nested_suboptions", "This option hides sub-options: expose the choices as separate options or as a separate question.");
       if (field !== "label") {
-        checkProseCell(text2, `${path}.${field}`, { requireTakeaway: true });
+        checkProseCell(text2, `${path}.${field}`);
       }
     }
   }

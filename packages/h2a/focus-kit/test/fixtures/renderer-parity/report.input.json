@@ -21,14 +21,14 @@
       "kind": "prose",
       "id": "context",
       "targetRef": "context",
-      "markdown": "En bref : Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier."
+      "markdown": "Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier."
     },
     {
       "kind": "question",
       "id": "format",
       "targetRef": "format",
       "question": "Quel format adopter pour les prochains dossiers ?",
-      "context": "En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion.",
+      "context": "Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion.",
       "recommendedAnswer": "Le fichier portable répond à la demande de partage et de lecture hors connexion.",
       "recommendedOptionId": "portable",
       "readingTimeMinutes": 1,
@@ -47,7 +47,7 @@
           "id": "portable",
           "targetRef": "portable",
           "label": "Fichier portable",
-          "body": "En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent.",
+          "body": "Coût d'une compilation par version. Retour : régénérer le fichier précédent.",
           "consequence": "Lecture hors connexion, mais chaque révision demande un nouveau fichier.",
           "annotation": "none"
         },
@@ -56,7 +56,7 @@
           "id": "hosted",
           "targetRef": "hosted",
           "label": "Page hébergée",
-          "body": "En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale.",
+          "body": "Coût du maintien d'un hébergement. Retour : exporter une copie locale.",
           "consequence": "Une adresse toujours à jour, mais la lecture dépend du service et du réseau.",
           "annotation": "none"
         }
@@ -75,7 +75,7 @@
       "id": "rationale",
       "targetRef": "rationale",
       "questionId": "format",
-      "markdown": "En bref : JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone."
+      "markdown": "JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone."
     },
     {
       "kind": "outcome",

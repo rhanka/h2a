@@ -7,7 +7,7 @@ import Evidence from './Evidence.vue';
 import Citation from './Citation.vue';
 import { preparePresentation } from '../../../focus/src/render/presentation.ts';
 import { decisionCodes, optionCode, responseLine } from '../../../focus-interactive/src/response-line.ts';
-const props = defineProps({ document: { type: Object, required: true }, mode: { type: String, default: 'decision' } });
+const props = defineProps({ document: { type: Object, required: true }, mode: { type: String, default: 'decision' }, target: { type: String, default: 'document' } });
 const dossier = computed(() => props.document);
 const dark = ref(matchMedia('(prefers-color-scheme: dark)').matches);
 const selections = reactive(new Map());
@@ -48,11 +48,11 @@ onUnmounted(() => window.removeEventListener('hashchange', revealTerm));
       <header class="title-band"><h1>{{ dossier.title }}</h1>
         <Button variant="ghost" size="sm" :aria-pressed="dark" @click="dark = !dark">Thème {{ dark ? 'clair' : 'sombre' }}</Button>
       </header>
-      <Container size="full"><main>
+      <Container size="lg"><main>
         <div class="reading-meta"><Badge tone="info">Focus</Badge> {{ questions.length }} question(s) · {{ dossier.readability.readingBudgetMinutes }} minutes</div>
         <Card><h2>Votre demande</h2><blockquote>{{ dossier.readability.ownerRequestQuote }}</blockquote><p>{{ dossier.readability.stakes }}</p></Card>
         <aside v-if="dossier.readability.glossary?.length" aria-label="Glossaire"><details ref="glossary" class="focus-glossary">
-          <summary>En mots simples ({{ dossier.readability.glossary.length }} {{ dossier.readability.glossary.length === 1 ? 'terme' : 'termes' }})</summary>
+          <summary>Glossaire ({{ dossier.readability.glossary.length }} {{ dossier.readability.glossary.length === 1 ? 'terme' : 'termes' }})</summary>
           <dl><template v-for="entry in dossier.readability.glossary" :key="entry.term"><dt :id="`glossary-${encodeURIComponent(entry.term)}`">{{ entry.term }}</dt><dd>{{ entry.definition }}</dd></template></dl>
         </details></aside>
         <section v-for="section in sections" :id="section.id" :key="section.id" class="dossier-section">
@@ -84,7 +84,7 @@ onUnmounted(() => window.removeEventListener('hashchange', revealTerm));
             <p v-for="id in option.citationRefs ?? []" :key="id">{{ option.label }} : <Citation :dossier="dossier" :id="id" /></p>
           </template></template>
         </section>
-        <Evidence v-if="dossier.schemaVersion === 2" ref="evidencePanel" :dossier="dossier" />
+        <Evidence v-if="dossier.schemaVersion === 2" ref="evidencePanel" :dossier="dossier" :target="props.target" />
         <details v-if="steps.length"><summary>Historique</summary><ul><li v-for="(step, index) in steps" :key="index">{{ step.at }} · {{ step.author }} : {{ step.summary }}</li></ul></details>
         <section v-if="questions.length" class="response-summary" aria-label="Récapitulatif des décisions">
           <h2>Votre réponse</h2>

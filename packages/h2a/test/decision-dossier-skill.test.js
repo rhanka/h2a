@@ -175,6 +175,23 @@ test("present-decision removes h2a tools while preserving the Q8 criteria table 
   assert.match(criteria, /\|\s*Owner criterion\s*\|\s*Request\/source\s*\|\s*Addressed by\s*\|\s*Gap or departure\s*\|/);
 });
 
+test("templates and skill texts never impose En bref, In short or En mots simples", () => {
+  const banned = /En bref|In short|En mots simples/;
+  for (const url of [
+    new URL("../focus-kit/dossier.template.json", import.meta.url),
+    new URL("../focus-kit/dossier.evidence.template.json", import.meta.url),
+  ]) {
+    assert.doesNotMatch(readFileSync(url, "utf8"), banned, `${url.pathname} must not impose a takeaway label`);
+  }
+  const skillTexts = [FOCUS_SKILL_URL, DECISION_DOSSIER_SKILL_URL];
+  for (const rel of ["SKILL.md", "assets/dossier-template.md", "assets/self-audit.md", "assets/native-questions.md", "assets/owner-gates.md", "assets/owner-criteria.template.md"]) {
+    skillTexts.push(new URL(rel, PRESENT_DECISION_DIR));
+  }
+  for (const url of skillTexts) {
+    assert.doesNotMatch(readFileSync(url, "utf8"), banned, `${url.pathname} must never generate a takeaway label`);
+  }
+});
+
 test("decision-dossier skill is declared by plugin manifests and installable across hosts", () => {
   const claudeManifest = JSON.parse(readFileSync(CLAUDE_PLUGIN_URL, "utf8"));
   const codexManifest = JSON.parse(readFileSync(CODEX_PLUGIN_URL, "utf8"));

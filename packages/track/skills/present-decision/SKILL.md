@@ -71,6 +71,7 @@ not approval of the decision.
 Author the `DecisionDossierDocument` JSON (literal request, readable options, ecosystem diagram `source: "ecosystem:overview"`, `models`, `knowledge` or `interfaces`), validate it against the Focus gate, and deliver via the host's decision-dossier workflow.
 
 Refusals block output verbatim. Deliver the artifact URL or standalone HTML; check offline phone reading, light/dark, cards, response line and pinch zoom. See `docs/focus/portable-dossiers.md`.
+Before publishing, open the real output at 390 px and around 800 px — inside the artifact shell when publishing as an artifact. The wide layout must show around 800 px and the phone layout at 390 px, with no sideways scroll. Keep diagrams compact: they render at natural size and never stretch, so split an overflowing diagram instead of enlarging it.
 Cards and response lines only prepare a local answer; they never record approval.
 Before asking, read `assets/native-questions.md`: use the exposed native question tool after a decision
 dossier with a diagram. If unavailable, leave consequential decisions pending. Decide-and-trace needs no ask.

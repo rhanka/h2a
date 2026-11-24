@@ -31,11 +31,11 @@ for (const renderer of ['portable', 'generic']) {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(pathToFileURL(output).href);
-      const glossary = page.locator('details').filter({ has: page.locator('summary', { hasText: /(?:En mots simples|Glossary)/ }) });
+      const glossary = page.locator('details').filter({ has: page.locator('summary', { hasText: /(?:Glossaire|Glossary)/ }) });
       assert.equal(await glossary.count(), 1);
       assert.equal(await glossary.evaluate(el => el.open), false);
       const summary = glossary.locator('summary');
-      assert.equal(await summary.innerText(), renderer === 'portable' ? 'En mots simples (47 termes)' : 'Glossary (47 terms)');
+      assert.equal(await summary.innerText(), renderer === 'portable' ? 'Glossaire (47 termes)' : 'Glossary (47 terms)');
       assert.equal(await glossary.locator('dt').count(), 47, 'terms remain in the DOM');
       assert.equal(await glossary.locator('dd').first().isVisible(), false);
       await summary.focus();
@@ -138,7 +138,7 @@ test('portable Focus works offline on desktop and phone with responsive r7 inlin
     browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
     for (const width of [1366, 390, 320]) {
       const mobile = width < 600;
-      const variant = width < 1200 ? 'narrow' : 'wide';
+      const variant = width < 600 ? 'narrow' : 'wide';
       const context = await browser.newContext({ offline: true, viewport: { width, height: mobile ? 844 : 1000 },
         isMobile: mobile, hasTouch: mobile, colorScheme: 'light' });
       const page = await context.newPage(), errors = [], network = [];
@@ -149,7 +149,7 @@ test('portable Focus works offline on desktop and phone with responsive r7 inlin
       const activeSvg = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
       await activeSvg.waitFor({ state: 'visible' });
       assert.equal(await page.title(), await page.locator('h1').innerText());
-      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'En mots simples (1 terme)');
+      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'Glossaire (1 terme)');
       assert.equal(await page.locator('.focus-glossary').evaluate(el => el.open), false);
       assert.equal(await page.locator('img').count(), 0);
       assert.match(await page.locator('main').innerText(), /<img src=x onerror=alert\(1\)>/);
@@ -288,5 +288,40 @@ test('a payload without views draws the DC-1 cards from its scene, and a refused
     assert.equal(await page.locator('.ds-diagram-svg').count(), 0, 'a refused diagram draws no empty SVG');
     assert.deepEqual(errors, [], 'no browser runtime errors');
     assert.deepEqual(network, [], 'no network requests');
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('artifact fragment renders at 390 and 800 px inside an artifact shell with the phone/desktop variants', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-artifact-shell-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const { buildFocusDossier } = await import('../../dist/focus-build.js');
+    const fragment = buildFocusDossier(doc, { target: 'artifact' });
+    assert.doesNotMatch(fragment, /<!doctype|<html[\s>]|<head[\s>]|<body[\s>]/i);
+    // Minimal artifact-shell stub: the host owns the document shell and the CSP.
+    const shell = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shell</title></head><body><div class="artifact-panel" style="max-width:60rem;margin:0 auto">${fragment}</div></body></html>`;
+    const file = join(root, 'shell.html');
+    writeFileSync(file, shell);
+    browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
+    for (const [width, variant] of [[390, 'narrow'], [800, 'wide']]) {
+      const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, colorScheme: 'light' });
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(file).href);
+      const active = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
+      await active.waitFor({ state: 'visible' });
+      const hidden = variant === 'wide' ? 'narrow' : 'wide';
+      assert.equal(await page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${hidden}"] .ds-diagram-svg`).isVisible(), false);
+      assert.equal(await page.locator('h1').innerText(), doc.title);
+      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'Glossaire (1 terme)');
+      assert.equal(await page.locator('.focus-glossary').evaluate(el => el.open), false);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal page overflow at ${width}px`);
+      const box = await active.boundingBox();
+      assert.ok(box && box.width > 0 && box.height > 0, `${variant} r7 SVG has non-zero rendered bounds at ${width}px`);
+      assert.ok(box.width <= width, `diagram keeps its natural size at ${width}px`);
+      assert.deepEqual(errors, [], 'no browser runtime errors');
+      await context.close();
+    }
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });

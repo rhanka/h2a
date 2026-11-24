@@ -5,7 +5,7 @@ import Citation from './Citation.vue';
 import { citationCallers } from './citation-callers.js';
 import { evidenceVolume, bibliography } from '../../../focus/src/render/evidence.ts';
 import { decodeEvidence } from '../../../focus/src/validation/evidence-bytes.ts';
-const props = defineProps({ dossier: { type: Object, required: true } });
+const props = defineProps({ dossier: { type: Object, required: true }, target: { type: String, default: 'document' } });
 const active = ref(null), locator = ref(null), visit = ref(0), expanded = reactive(new Set());
 let opener, scroll;
 const volume = computed(() => evidenceVolume(props.dossier));
@@ -55,11 +55,11 @@ defineExpose({ openCitation });
       <h3>Sources</h3>
       <ol><li v-for="entry in entries" :id="entry.anchorId" :key="entry.anchorId" tabindex="-1">
         {{ entry.citation.label }} · {{ entry.source.title }} · <button class="source-location" @click="openSource(entry.source.id, entry.citation.locator)">{{ entry.location }}</button> ·
-        <a :href="`#${entry.anchorId}`" @click="download($event, entry.source)">Télécharger</a> ·
+        <a v-if="props.target === 'artifact'" :href="`data:application/octet-stream;base64,${entry.source.data}`" target="_blank" rel="noopener">Ouvrir dans un nouvel onglet</a><a v-else :href="`#${entry.anchorId}`" @click="download($event, entry.source)">Télécharger</a> ·
         <button class="citation-return" @click="returnToCitation(entry.anchorId)">Retour au texte</button>
       </li></ol>
     </section>
-    <SourceViewer v-if="active" :key="active.id" :source="active" :locator="locator" :visit="visit" @back="back" />
+    <SourceViewer v-if="active" :key="active.id" :source="active" :locator="locator" :visit="visit" :target="props.target" @back="back" />
     <details open><summary>Catalogue des sources</summary><ul><li v-for="source in dossier.sources" :key="source.id"><button @click="openSource(source.id)">Consulter {{ source.title }}</button> · {{ source.size }} octets</li></ul></details>
     <article v-for="group in dossier.evidenceGroups" :key="group.id"><p>{{ group.summary }}</p>
       <Citation v-for="id in group.citationRefs" :key="id" :dossier="dossier" :id="id" />

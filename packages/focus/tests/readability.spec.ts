@@ -617,26 +617,29 @@ describe("1.1.0 / 2.1.0 readability extensions & 11/11 anti-wall-of-text rules (
     expect(refusalCodes(quoteExemptDoc)).toEqual([]);
   });
 
-  it("A20: multi-sentence block lacking an 'En bref :' / 'In short:' takeaway first refuses in strict mode and passes under legacy profile", () => {
+  it("A20: multi-sentence block without an imposed takeaway label passes in strict mode (essential-first stays guidance only)", () => {
     const noTakeaway = mutate((d) => {
       d.sections[0].markdown =
         "The new shed needs a dry level base before winter. Both garden corners stay dry all year.";
     });
-    expect(refusalCodes(noTakeaway)).toContain("missing_en_bref_takeaway");
+    expect(refusalCodes(noTakeaway)).not.toContain("missing_en_bref_takeaway");
+    expect(refusalCodes(noTakeaway)).not.toContain("report_summary_first");
+    expect(validateDecisionDossierForPresentation(noTakeaway).ok).toBe(true);
     expect(validateDecisionDossierForPresentation(noTakeaway, { profile: "legacy" }).ok).toBe(true);
   });
 
-  it("A22: SKILL.md and READABILITY.md document { ref, kind, label? }, completionCriterion <= 22 words / <= 160 chars, and multi-sentence En bref takeaway", () => {
+  it("A22: SKILL.md and READABILITY.md document { ref, kind, label? }, completionCriterion <= 22 words / <= 160 chars, and essential-first guidance without an imposed label", () => {
     const skillMd = readFileSync(new URL("../skills/focus/SKILL.md", import.meta.url), "utf8");
     const readabilityMd = readFileSync(new URL("../READABILITY.md", import.meta.url), "utf8");
     expect(skillMd).toContain("{ ref, kind, label? }");
     expect(skillMd).not.toContain("{ ref, label, status }");
     expect(skillMd).toContain("1 sentence, ≤ 22 words, ≤ 160 characters");
     expect(skillMd).not.toContain("≤ 25 words");
-    expect(skillMd).toMatch(/every multi-sentence prose\s+block with an `En bref : `/);
+    expect(skillMd).not.toMatch(/En bref|In short/);
+    expect(skillMd).toMatch(/essential point first/);
     expect(readabilityMd).toContain("{ ref, kind, label? }");
     expect(readabilityMd).toContain("22 words (1 sentence, ≤ 160 characters)");
     expect(readabilityMd).not.toContain("25 words");
-    expect(readabilityMd).toMatch(/every\s+multi-sentence prose block begins with an `En bref : `/);
+    expect(readabilityMd).not.toMatch(/En bref|In short/);
   });
 });
