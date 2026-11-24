@@ -8,6 +8,7 @@ import test from "node:test";
 import { defaultPluginBridgeLockPath, provisionBridgeLock } from "../dist/registry/bridge-lock.js";
 import { registryPackageManifest } from "../dist/registry/manifest.js";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
+import { sharedPackCandidates } from "./helpers/shared-pack-candidates.mjs";
 
 const REPO = fileURLToPath(new URL("../../../", import.meta.url));
 const CANDIDATE_VERSION = JSON.parse(readFileSync(join(REPO, "packages", "h2a", "package.json"), "utf8")).version;
@@ -142,24 +143,38 @@ test("B-6 upgrade: N-1 (next tag) upgrades to built package (host+bridge+central
     const r = spawnSync(bin, ["registry", "bootstrap", "install", "--mechanism", "plugin", "--host", host, "--profile", "default", "--config", cfg, "--plugin-dir", plug], { encoding: "utf8", timeout: 60_000, env });
     assert.equal(r.status, 0, `N-1 bootstrap install ${host} must succeed: ${(r.stderr ?? "").slice(0, 1500)} ${(r.stdout ?? "").slice(0, 500)}`);
   }
-  // 3. Pack the built candidate and upgrade the prefix.
-  const outDir = join(isoBase, "candidate");
-  const pack = spawnSync(process.execPath, ["scripts/package-release.mjs", "--package", "@sentropic/h2a", "--output", outDir], { cwd: REPO, encoding: "utf8", timeout: 300_000, env: { ...process.env, ...env } });
-  assert.equal(pack.status, 0, `package-release candidate must succeed: ${(pack.stderr ?? "").slice(0, 2000)} ${(pack.stdout ?? "").slice(-1000)}`);
+  // 3. Reuse the once-per-run candidate, upgrade the prefix.
+  // Cause (run 45379165388 job 138401159720): the private
+  // `scripts/package-release.mjs` spawnSync (300 s timeout) was killed with
+  // status null after 418 s while shard 22/0 ran T-guard (496 s) + LOT-4B
+  // (484 s) + B-6 concurrently on one 4-vCPU runner. Build the candidate
+  // once per run and reuse it (helpers/shared-pack-candidates.mjs, warmed by
+  // scripts/warm-pack-candidates.mjs); fallback stays private so a missing
+  // share never skips the proof.
   let tarPath = "";
   try {
-    const parsed = JSON.parse(pack.stdout);
-    const items = Array.isArray(parsed) ? parsed : [parsed];
-    for (const item of items) {
-      const cand = item?.filename || item?.artifacts?.tarball || item?.tarball || "";
-      if (typeof cand === "string" && cand.endsWith(".tgz")) { tarPath = cand; break; }
-    }
-  } catch { /* fall through to glob */ }
-  if (!tarPath || !existsSync(tarPath)) {
-    const artDir = join(outDir, "artifacts");
-    if (existsSync(artDir)) {
-      const tgz = readdirSync(artDir).find((n) => n.endsWith(".tgz"));
-      if (tgz) tarPath = join(artDir, tgz);
+    const shared = await sharedPackCandidates();
+    const candidate = shared ? join(shared, `sentropic-h2a-${CANDIDATE_VERSION}.tgz`) : "";
+    if (candidate && existsSync(candidate)) tarPath = candidate;
+  } catch { /* fall through to private pack */ }
+  if (!tarPath) {
+    const outDir = join(isoBase, "candidate");
+    const pack = spawnSync(process.execPath, ["scripts/package-release.mjs", "--package", "@sentropic/h2a", "--output", outDir], { cwd: REPO, encoding: "utf8", timeout: 300_000, env: { ...process.env, ...env } });
+    assert.equal(pack.status, 0, `package-release candidate must succeed: ${(pack.stderr ?? "").slice(0, 2000)} ${(pack.stdout ?? "").slice(-1000)}`);
+    try {
+      const parsed = JSON.parse(pack.stdout);
+      const items = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of items) {
+        const cand = item?.filename || item?.artifacts?.tarball || item?.tarball || "";
+        if (typeof cand === "string" && cand.endsWith(".tgz")) { tarPath = cand; break; }
+      }
+    } catch { /* fall through to glob */ }
+    if (!tarPath || !existsSync(tarPath)) {
+      const artDir = join(outDir, "artifacts");
+      if (existsSync(artDir)) {
+        const tgz = readdirSync(artDir).find((n) => n.endsWith(".tgz"));
+        if (tgz) tarPath = join(artDir, tgz);
+      }
     }
   }
   assert.ok(tarPath.endsWith(".tgz") && existsSync(tarPath), `candidate tarball must exist (got ${tarPath})`);

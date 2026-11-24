@@ -68,9 +68,41 @@ try {
     : fs.mkdtempSync('/tmp/mh-l6-toolchain-');
   owned.push(native);
   const lock = JSON.parse(fs.readFileSync('scripts/release/native-toolchain.lock.json'));
+  // actions/cache for the native toolchain (CI run 45417614083: 8/8 shards
+  // timed out on ziglang.org, 6/6 attempts in 494 s). Keyed by URL+sha256 via
+  // the lock-file hash in the workflow; a cache hit never hits the network,
+  // the sha256 integrity check stays on both paths, and a miss that fails
+  // stays an explicit fixture_download_failed.
+  const toolchainCacheDir = process.env.H2A_TOOLCHAIN_CACHE_DIR || null;
+  if (toolchainCacheDir) fs.mkdirSync(toolchainCacheDir, { recursive: true, mode: 0o700 });
   for (const archive of lock.recipe.archives) {
-    const bytes = await downloadWithRetry(archive.url, { stage: `native-toolchain:${archive.name}` });
-    if (hash(bytes) !== archive.sha256) throw new Error('fixture_integrity_mismatch:' + archive.name);
+    let bytes = null;
+    if (toolchainCacheDir) {
+      try {
+        const cached = fs.readFileSync(join(toolchainCacheDir, archive.name));
+        if (hash(cached) === archive.sha256) {
+          bytes = cached;
+          process.stderr.write(`native-toolchain: cache hit ${archive.name}\n`);
+        } else if (cached.length) {
+          process.stderr.write(`native-toolchain: cache stale ${archive.name} (sha mismatch, redownloading)\n`);
+        }
+      } catch {
+        // Cache miss: fall through to the network, exactly as without cache.
+      }
+    }
+    if (!bytes) {
+      bytes = await downloadWithRetry(archive.url, { stage: `native-toolchain:${archive.name}` });
+      if (hash(bytes) !== archive.sha256) throw new Error('fixture_integrity_mismatch:' + archive.name);
+      if (toolchainCacheDir) {
+        try {
+          fs.writeFileSync(join(toolchainCacheDir, archive.name), bytes);
+        } catch {
+          // Cache write is best-effort; the verified bytes above are authoritative.
+        }
+      }
+    } else if (hash(bytes) !== archive.sha256) {
+      throw new Error('fixture_integrity_mismatch:' + archive.name);
+    }
     fs.writeFileSync(join(native, archive.name), bytes);
   }
   const primary = join(native, 'primary'); fs.mkdirSync(primary, { mode: 0o700 });

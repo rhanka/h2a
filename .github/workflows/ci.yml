@@ -274,6 +274,12 @@ jobs:
         with:
           name: bulk-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/bulk-import
+      - name: Restore native toolchain fixture cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/h2a-toolchain
+          key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
+          restore-keys: h2a-toolchain-
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
@@ -284,6 +290,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
       - name: Execute one duration-balanced Node shard
         run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
         env:
@@ -402,6 +409,12 @@ jobs:
         with:
           name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard3
           path: tmp/node-shards
+      - name: Restore native toolchain fixture cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/h2a-toolchain
+          key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
+          restore-keys: h2a-toolchain-
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
@@ -412,6 +425,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
       - run: npm test
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
@@ -515,6 +529,12 @@ jobs:
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      - name: Restore native toolchain fixture cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/h2a-toolchain
+          key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
+          restore-keys: h2a-toolchain-
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
@@ -525,6 +545,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js
       - name: Require both complete M17 qualifications

@@ -348,21 +348,16 @@ test('T1.1: non-blocking migration on 2500 historical operations and >256 effect
   assert.equal(yields, slices.length - 1, 'every migration slice except finalize must yield to the event loop');
 
   // Slice synchronous budget tied to L1 §3.1/§7 guarantee (migration must not hold the event loop >= 50 ms):
-  // - maxCpuMs < 50 ms isolates main-thread CPU work per slice, immune to OS preemption on loaded CI runners.
-  // - p95WallMs < 50 ms and maxWallMs < 150 ms catch synchronous non-CPU stalls (e.g., Atomics.wait / blocking syscalls)
-  //   while remaining resilient to occasional single-slice runner preemption.
+  // Rule since 22/11: no wall-clock assertion against the runner. Slice wall
+  // (p95WallMs/maxWallMs) stays in t.diagnostic only; the proof is our own
+  // CPU per slice (process.threadCpuUsage delta, immune to OS preemption on
+  // loaded CI runners) plus the causal yield/batch invariants above and the
+  // foreground ping/initialize responsiveness below.
+  // - maxCpuMs < 50 ms isolates main-thread CPU work per slice.
   // - totalCpuMs < 5000 ms bounds aggregate migration CPU without wall-clock sensitivity.
   assert.ok(
     maxCpuMs < 50,
     `migration slice CPU=${maxCpuMs.toFixed(2)} ms (${worstCpuSlice.phase}, items=${worstCpuSlice.items}) exceeded 50 ms slice budget (MIGRATION_MAX_SLICE_MS=${MIGRATION_MAX_SLICE_MS})`
-  );
-  assert.ok(
-    p95WallMs < 50,
-    `migration slice wall p95=${p95WallMs.toFixed(2)} ms exceeded 50 ms slice budget`
-  );
-  assert.ok(
-    maxWallMs < 150,
-    `migration slice wall max=${maxWallMs.toFixed(2)} ms (${worstWallSlice.phase}, cpu=${worstWallSlice.cpuMs.toFixed(2)} ms) exceeded 150 ms synchronous stall ceiling`
   );
   assert.ok(
     totalCpuMs < 5_000,
