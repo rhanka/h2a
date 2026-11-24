@@ -49,6 +49,7 @@ const nativeSessionLiveness = vi.hoisted(() => vi.fn());
 const prepareCentralMcpForLaunch = vi.hoisted(() => vi.fn());
 const prepareCentralMcpForRestore = vi.hoisted(() => vi.fn());
 const restoreLayout = vi.hoisted(() => vi.fn());
+const restoreStation = vi.hoisted(() => vi.fn());
 
 vi.mock("./attach.js", () => ({
   attach,
@@ -177,6 +178,7 @@ vi.mock("./native-host.js", async (importOriginal) => ({
 vi.mock("./restore.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./restore.js")>()),
   restore: restoreLayout,
+  restoreStation,
 }));
 
 const stderrWrite = vi
@@ -285,6 +287,8 @@ describe("main", () => {
     prepareCentralMcpForRestore.mockResolvedValue(undefined);
     restoreLayout.mockReset();
     restoreLayout.mockReturnValue({ total: 0 });
+    restoreStation.mockReset();
+    restoreStation.mockReturnValue(0);
     process.exitCode = undefined;
     stderrWrite.mockClear();
     stdoutWrite.mockClear();
@@ -480,7 +484,7 @@ describe("main", () => {
         registryConflicts: [],
       });
 
-      const exitCode = await main(["node", "remote", "restore"]);
+      const exitCode = await main(["node", "remote", "restore", "--windows"]);
 
       expect(exitCode).toBe(1);
       const out = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
@@ -493,23 +497,80 @@ describe("main", () => {
     }
   });
 
-  it("should refuse --lazy without --station and launch nothing (S2, plan 09-S2 P-1)", async () => {
+  it("should refuse --lazy under --windows and launch nothing (S6, plan 13-S6)", async () => {
     const prevLang = process.env.H2A_LANG;
     process.env.H2A_LANG = "en";
     try {
-      const exitCode = await main(["node", "h2a", "restore", "--lazy"]);
+      const exitCode = await main(["node", "h2a", "restore", "--windows", "--lazy"]);
 
       expect(exitCode).toBe(1);
       expect(process.exitCode).toBe(1);
       expect(restoreLayout).not.toHaveBeenCalled();
+      expect(restoreStation).not.toHaveBeenCalled();
       expect(prepareCentralMcpForRestore).not.toHaveBeenCalled();
       const out = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
-      expect(out).toContain("--lazy applies to the station only");
+      expect(out).toContain("--lazy does not apply to --windows");
       expect(out).toContain("nothing was launched");
     } finally {
       if (prevLang === undefined) delete process.env.H2A_LANG;
       else process.env.H2A_LANG = prevLang;
     }
+  });
+
+  describe("S6 — restore default is the station (plan 13-S6, step 1)", () => {
+    it("should open the station when restore runs without a flag on a TTY", async () => {
+      const exitCode = await main(["node", "h2a", "restore"]);
+
+      expect(exitCode).toBe(0);
+      expect(restoreStation).toHaveBeenCalledTimes(1);
+      expect(restoreStation).toHaveBeenCalledWith({});
+      expect(restoreLayout).not.toHaveBeenCalled();
+    });
+
+    it("should keep the historical restore under --windows, ledger and exit code included", async () => {
+      restoreLayout.mockReturnValue({
+        windows: [],
+        total: 0,
+        dropped: 0,
+        ledger: [],
+        exitCode: 3,
+        registryConflicts: [],
+      });
+
+      const exitCode = await main(["node", "h2a", "restore", "--windows"]);
+
+      expect(restoreLayout).toHaveBeenCalledTimes(1);
+      expect(restoreStation).not.toHaveBeenCalled();
+      expect(exitCode).toBe(3);
+      expect(process.exitCode).toBe(3);
+    });
+
+    it("should accept --station as an alias with no extra effect", async () => {
+      const exitCode = await main(["node", "h2a", "restore", "--station"]);
+
+      expect(exitCode).toBe(0);
+      expect(restoreStation).toHaveBeenCalledTimes(1);
+      expect(restoreStation).toHaveBeenCalledWith({});
+      expect(restoreLayout).not.toHaveBeenCalled();
+    });
+
+    it("should accept --station next to --windows without effect", async () => {
+      const exitCode = await main(["node", "h2a", "restore", "--windows", "--station"]);
+
+      expect(exitCode).toBe(0);
+      expect(restoreLayout).toHaveBeenCalledTimes(1);
+      expect(restoreStation).not.toHaveBeenCalled();
+    });
+
+    it("should print the plan preview and open neither a station nor a window with --dry-run", async () => {
+      const exitCode = await main(["node", "h2a", "restore", "--dry-run"]);
+
+      expect(exitCode).toBe(0);
+      expect(restoreLayout).toHaveBeenCalledTimes(1);
+      expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true });
+      expect(restoreStation).not.toHaveBeenCalled();
+    });
+
   });
 
   describe("WP6 — remote fan-out (--count N)", () => {
