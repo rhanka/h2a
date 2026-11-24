@@ -523,7 +523,9 @@ describe("restore CLI route (legacy enabled=true is not consent)", () => {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "live-token",
     });
-    const code = await main(["node", "h2a", "restore", "--gw"]);
+    // S6: bare restore opens the station (refused without a TTY here), so
+    // the prewarm assertion runs on the historical path behind --windows.
+    const code = await main(["node", "h2a", "restore", "--windows", "--gw"]);
     expect(code).toBe(0);
     expect(acquireLlmMeshSessionEnv).toHaveBeenCalled();
   });
