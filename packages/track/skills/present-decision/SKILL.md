@@ -14,7 +14,7 @@ Render it in small type in a thin band (at most 1.25rem), never a hero or a larg
 
 ## 1. Choose the right effort
 
-Start with what changes for the owner and what risk they bear. Keep their intention central;
+Start with what changes for the owner. Keep their intention central;
 an agent's technical inconvenience alone does not justify a dossier.
 
 - **Decide + trace:** local, readily reversible, clear existing pattern, no meaningful security,
@@ -40,12 +40,12 @@ Verify claims against sources. Do not edit other repos or global rules without a
 Quote the **literal owner request**, with date/source. Map demands to questions, options or
 acceptance criteria; flag departures. Use `assets/owner-criteria.template.md`.
 
-Complex design requires independent Codex + Opus reviews; surface disagreements. Missing required
-review means **Incomplete**: only reversible preparation continues, no final validation.
+Complex design needs independent Codex + Opus reviews; surface disagreements. Without a
+required review: **Incomplete**, reversible preparation only.
 
 ## 3. Write a short, self-contained question
 
-Use `assets/dossier-template.md` for content. In plain words, include:
+Use `assets/dossier-template.md`; in plain words, include:
 
 - the exact decision and boundary, the owner's expected benefit and risk;
 - representative context: current behavior, a concrete problem/scenario, affected people,
@@ -56,7 +56,7 @@ Use `assets/dossier-template.md` for content. In plain words, include:
 - the smallest answer needed and acceptance criteria tied to the owner's words.
 
 Explain acronyms; replace opaque codes with meaningful names and source links. Distinguish
-`[FACT]` (sourced) from `[JUDGMENT]`. Steelman alternatives. Separate presenter convenience from
+`[FACT]` (sourced) from `[JUDGMENT]`. Separate presenter convenience from
 owner value; include a brief failure scenario, no mandatory long appendix.
 
 ## 4. Audit, present, record
@@ -64,17 +64,16 @@ owner value; include a brief failure scenario, no mandatory long appendix.
 Owner gates: read `assets/owner-gates.md` first. Record their outcome only from the required session's answer.
 
 Run `assets/self-audit.md`, fix failures and re-check before presenting.
-If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
-not approval of the decision.
+If a fact, criterion or review is missing, label **Incomplete** and ask for that input,
+not approval.
 
 **Default dossier output: a bound-surface Focus artifact or standalone portable Focus HTML, never a claude.ai artifact.**
 Author the `DecisionDossierDocument` JSON (literal request, readable options, ecosystem diagram `source: "ecosystem:overview"`, `models`, `knowledge` or `interfaces`), validate it against the Focus gate, and deliver via the host's decision-dossier workflow.
 
-Refusals block output verbatim. Deliver the artifact URL or standalone HTML; check offline phone reading, light/dark, cards, response line and pinch zoom. See `docs/focus/portable-dossiers.md`.
-Before publishing, open the real output at 390 px and around 800 px — inside the artifact shell when publishing as an artifact. The wide layout must show around 800 px and the phone layout at 390 px, with no sideways scroll. Keep diagrams compact: they render at natural size and never stretch, so split an overflowing diagram instead of enlarging it.
+Refusals block output verbatim. Deliver the artifact URL or standalone HTML; check the real output at 390 and ~800 px in its shell — light/dark, cards, response line, pinch zoom, no sideways scroll. Wide near 800, phone at 390. Keep diagrams compact at natural size; split overflow instead of stretching. See `docs/focus/portable-dossiers.md`.
 Cards and response lines only prepare a local answer; they never record approval.
-Before asking, read `assets/native-questions.md`: use the exposed native question tool after a decision
-dossier with a diagram. If unavailable, leave consequential decisions pending. Decide-and-trace needs no ask.
+Before asking, read `assets/native-questions.md` and use the native question tool after a decision
+dossier with a diagram. If unavailable, leave consequential decisions pending.
 
 Record when `.track/` exists or the owner approves tracking:
 
@@ -91,7 +90,7 @@ Record when `.track/` exists or the owner approves tracking:
   negotiation evidence. Never fabricate `comprehension[]`: a chat reply is not a signed attestation.
   Never record a bridge/relay principal as the human decider.
 
-This is the agent's human-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
+Agent-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
 ## Embedded evidence (H1)
 
 Use the version 2 embedded-evidence Focus schema: original bytes/digests,
