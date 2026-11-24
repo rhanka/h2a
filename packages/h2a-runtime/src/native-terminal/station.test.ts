@@ -3467,11 +3467,91 @@ describe("S2 launch file: detached, one at a time, in plan order, never ahead of
     const live = {
       id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000,
     };
+    // B-11: the long label proves the state survives truncation at the
+    // default panel width (32): the state paints before the motif.
+    const dead = [
+      { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      { id: "h2a-k2", project: "h2a", label: "h2a-spec", host: "", mtime: 1_700_000_040_000, convId: S2C2 },
+    ];
+    const h = new Harness({ layoutConfig, sessions: [live], deadSessions: dead });
+    // k1 launches at startup (default issue); the capped h2a-spec relaunch fails.
+    h.execOutcomes = [
+      { ok: true, stdout: "{}" },
+      { ok: false, code: "exit-nonzero", stdout: "", stderr: "" },
+    ];
+    let releaseK2!: () => void;
+    const k2Held = new Promise<void>((resolve) => {
+      releaseK2 = resolve;
+    });
+    h.execGate = async (request) => {
+      const nameIndex = request.args.indexOf("--name");
+      if (request.args[nameIndex + 1] === "h2a-spec") await k2Held;
+    };
+    const cappedRow = () =>
+      h.lastSnapshot().workspaces.flatMap((w) => w.restorable ?? []).find((r) => r.key === "registry:h2a-k2");
+    // B-11: paint marks so each screen assertion only sees output painted
+    // after its own phase (the cumulative buffer already holds older rows).
+    let markLaunching = 0;
+    let markBeforeSettle = 0;
+    h.step(
+      (x) => {
+        walkToRestorableRow(x, "core", "registry:h2a-k2");
+      },
+      (x) => {
+        expect(squashed(x.stdout.text())).toContain("Relaunch h2a-spec?");
+        x.stdin.type("\r");
+        markLaunching = x.stdout.mark();
+      },
+      tick, tick, tick, tick, tick, tick, tick, tick,
+      (x) => {
+        // k1 settled from the launch file; h2a-spec is parked at the gate, launching.
+        expect(x.execCalls).toHaveLength(2);
+        expect(cappedRow()).toMatchObject({
+          reason: "launch-cap",
+          state: "launching",
+          stateText: "relaunching",
+        });
+        // B-11: the state paints before the motif, so it survives the
+        // 32-column truncation (motif-first would cut it off).
+        expect(squashed(x.stdout.since(markLaunching))).toContain("relaunching");
+        markBeforeSettle = x.stdout.mark();
+        releaseK2();
+      },
+      tick, tick, tick, tick, tick, tick, tick, tick,
+      (x) => {
+        expect(x.execCalls).toHaveLength(2);
+        expect(cappedRow()).toMatchObject({
+          reason: "launch-cap",
+          state: "failed",
+          code: "exit-nonzero",
+          stateText: "relaunch failed (exit-nonzero)",
+        });
+        // B-11 red: only output painted after the relaunch settled may prove
+        // the failed state is on screen (the buffer already holds older rows).
+        expect(squashed(x.stdout.since(markBeforeSettle))).toContain("relaunch failed");
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 2);
+    const code = await h.run();
+    expect(code).toBe(0);
+  });
+
+  it("should paint a capped row relaunch failure state-first in French (B-11)", async () => {
+    const layoutConfig = {
+      layout: {
+        maxPerWindow: 2,
+        sharedWindows: 1,
+        groups: [{ title: "core", projects: ["h2a"] }],
+      },
+    };
+    const live = {
+      id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000,
+    };
     const dead = [
       { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
       { id: "h2a-k2", project: "h2a", label: "k2", host: "", mtime: 1_700_000_040_000, convId: S2C2 },
     ];
-    const h = new Harness({ layoutConfig, sessions: [live], deadSessions: dead });
+    const h = new Harness({ layoutConfig, sessions: [live], deadSessions: dead, station: { locale: "fr" } });
     // k1 launches at startup (default issue); the capped k2 relaunch fails.
     h.execOutcomes = [
       { ok: true, stdout: "{}" },
@@ -3487,26 +3567,24 @@ describe("S2 launch file: detached, one at a time, in plan order, never ahead of
     };
     const cappedRow = () =>
       h.lastSnapshot().workspaces.flatMap((w) => w.restorable ?? []).find((r) => r.key === "registry:h2a-k2");
+    let markBeforeSettle = 0;
     h.step(
       (x) => {
         walkToRestorableRow(x, "core", "registry:h2a-k2");
       },
       (x) => {
-        expect(squashed(x.stdout.text())).toContain("Relaunch k2?");
+        expect(squashed(x.stdout.text())).toContain("Relancer k2 ?");
         x.stdin.type("\r");
       },
       tick, tick, tick, tick, tick, tick, tick, tick,
       (x) => {
-        // k1 settled from the launch file; k2 is parked at the gate, launching.
         expect(x.execCalls).toHaveLength(2);
         expect(cappedRow()).toMatchObject({
           reason: "launch-cap",
           state: "launching",
-          stateText: "relaunching",
+          stateText: "relance en cours",
         });
-        // The panel truncates the row to its width: the state prefix proves
-        // the file state paints instead of the motif alone.
-        expect(squashed(x.stdout.text())).toContain("launch cap · relaunch");
+        markBeforeSettle = x.stdout.mark();
         releaseK2();
       },
       tick, tick, tick, tick, tick, tick, tick, tick,
@@ -3516,11 +3594,10 @@ describe("S2 launch file: detached, one at a time, in plan order, never ahead of
           reason: "launch-cap",
           state: "failed",
           code: "exit-nonzero",
-          stateText: "relaunch failed (exit-nonzero)",
+          stateText: "relance en échec (exit-nonzero)",
         });
-        // Same truncation as above: the full state text lives on the row
-        // object; the screen proves it paints instead of the motif alone.
-        expect(squashed(x.stdout.text())).toContain("launch cap · relaunch");
+        // B-11 red (fr): motif-first would paint only the motif at 32 cols.
+        expect(squashed(x.stdout.since(markBeforeSettle))).toContain("relance en échec");
       },
     );
     h.afterStation = waitForExecCalls(h, 2);
@@ -3967,6 +4044,47 @@ describe("S2 D1: in-place relaunch of the process in place", () => {
       gesture: "respawn-in-place",
       sessionId: "h2a-ops",
       outcome: "timeout",
+    });
+  });
+
+  it("should name the port issue when readable restart JSON carries no failure (NB-23)", async () => {
+    const { h } = opsHarness("shell", { convId: S2C1, softRespawn: true });
+    // Readable JSON but no failure and no success: `unknown` must not mask
+    // the port code, exactly like `invalid-response`.
+    h.execDefaultOutcome = {
+      ok: false,
+      code: "exit-nonzero",
+      stdout: JSON.stringify({
+        kind: "h2a.restart.result",
+        ok: false,
+        sessions: [{ id: "h2a-ops", restarted: false }],
+      }),
+      stderr: "",
+    };
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-ops"]);
+        x.gesture("h2a-ops", "respawn-in-place");
+      },
+      (x) => {
+        x.stdin.type("\r");
+      },
+      tick, tick, tick,
+      (x) => {
+        expect(x.execCalls.map((call) => call.args)).toEqual([
+          ["restart", "h2a-ops", "--soft", "--json"],
+        ]);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 1);
+    await h.run();
+    expect(squashed(h.stdout.text())).toContain("relaunch in place failed (exit-nonzero)");
+    expect(squashed(h.stdout.text())).not.toContain("(unknown)");
+    expect(h.of("gesture")).toContainEqual({
+      type: "gesture",
+      gesture: "respawn-in-place",
+      sessionId: "h2a-ops",
+      outcome: "exit-nonzero",
     });
   });
 

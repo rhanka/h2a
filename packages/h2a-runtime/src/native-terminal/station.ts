@@ -2162,6 +2162,8 @@ class Station {
       // NB-20: the JSON code wins only when it comes from readable JSON.
       // Without readable JSON (`invalid-response`) the port code names the
       // issue: an uncertain `timeout` must stay readable as a timeout.
+      // NB-23: `unknown` (readable JSON with no failure and no success)
+      // names nothing, so the port code wins exactly like `invalid-response`.
       const parsed = this.#parseRestartResult(result.stdout, sessionId);
       if (!parsed.ok && parsed.code === "host-soft-restart-unsupported") {
         this.#refuseSoftThenArm(sessionId, {
@@ -2174,7 +2176,9 @@ class Station {
       }
       if (!result.ok) {
         throw new Error(
-          !parsed.ok && parsed.code !== "invalid-response" ? parsed.code : result.code,
+          !parsed.ok && parsed.code !== "invalid-response" && parsed.code !== "unknown"
+            ? parsed.code
+            : result.code,
         );
       }
       if (!parsed.ok) throw new Error(parsed.code);
@@ -2245,10 +2249,13 @@ class Station {
       // NB-1: the JSON issue is read even on `exit-nonzero` (r4 §5), so its
       // code wins over the bare exit code here too. NB-20: only when it
       // comes from readable JSON; otherwise the port code names the issue.
+      // NB-23: `unknown` names nothing, so the port code wins for it too.
       const parsed = this.#parseRestartResult(result.stdout, sessionId);
       if (!result.ok) {
         throw new Error(
-          !parsed.ok && parsed.code !== "invalid-response" ? parsed.code : result.code,
+          !parsed.ok && parsed.code !== "invalid-response" && parsed.code !== "unknown"
+            ? parsed.code
+            : result.code,
         );
       }
       if (!parsed.ok) throw new Error(parsed.code);
