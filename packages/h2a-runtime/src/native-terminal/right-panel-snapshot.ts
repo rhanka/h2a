@@ -1183,8 +1183,10 @@ function stationRestorableFromPlan(args: {
   plan: RestorePlanResult;
   hostView: HostViewSnapshot;
   forceGateway?: "gateway" | "direct";
+  /** Managed names carried as live lines: never listed as restorable (B-8). */
+  liveManagedNames?: ReadonlySet<string>;
 }): Map<string, RightPanelRestorableRow[]> {
-  const { layoutCfg, plan, hostView, forceGateway } = args;
+  const { layoutCfg, plan, hostView, forceGateway, liveManagedNames } = args;
   const launchOpts = forceGateway ? { forceGateway } : {};
   const titleOfProject = (project: string | undefined): string => {
     if (project !== undefined) {
@@ -1225,17 +1227,34 @@ function stationRestorableFromPlan(args: {
     const key = classification.key;
     const label = classification.label;
     const project = classification.project;
+    // B-8: a live line is never a restorable row — neither the selected
+    // native `attach` under an unknown tmux view nor a live line beyond
+    // the cap. The loader passes the managed names it carries as live.
+    // Table refusals (dual-host, unknown-view…) stay listed: only rows
+    // with a launch decision or a cap carry this guard.
+    if (classification.outcome !== "refused") {
+      const managedName =
+        classification.tab.managedName ?? classification.session?.managedName;
+      if (managedName !== undefined && liveManagedNames?.has(managedName) === true) {
+        continue;
+      }
+    }
     if (classification.outcome === "selected") {
       if (classification.tab.remoteId !== undefined || classification.tab.attachLive === true) {
         // Remote tabs open outside the station; attach-live tabs are live lines.
         continue;
       }
       const decision = decisionByTab.get(classification.tab);
-      if (decision?.kind === "attach" && hostView.tmux.known === false) {
+      if (
+        decision?.kind === "attach" &&
+        hostView.tmux.known === false &&
+        classification.tab.hostKind !== "local-native"
+      ) {
         // Under an unknown tmux view no attach decision names a provable live
         // line (local-tmux tabs and legacy tabs without a recorded host alike):
         // motif, never a gesture. With a known view an attach decision names
-        // a live line, never a row.
+        // a live line, never a row. A native `attach` names a live line of
+        // the photo, kept above by the live guard: never a row.
         push(titleOfProject(classification.project), {
           key, label, project, reason: "unknown-view", state: "ended",
         });
@@ -1285,9 +1304,22 @@ function stationRestorableFromPlan(args: {
           ? classification.groupTitle
           : titleOfProject(classification.project);
       const session = classification.session;
+      // B-8, second path: beyond the cap a dead tmux (or legacy) tab under
+      // an unknown view keeps the unknown-view motif, never `launch-cap`.
+      const overflowDecision = decideLayoutTab(classification.tab, hostView, launchOpts);
+      if (
+        overflowDecision.kind === "attach" &&
+        hostView.tmux.known === false &&
+        classification.tab.hostKind !== "local-native"
+      ) {
+        push(title, {
+          key, label, project, reason: "unknown-view", state: "ended",
+        });
+        continue;
+      }
       let relaunch: RightPanelRestorableRow["relaunch"];
       if (
-        decideLayoutTab(classification.tab, hostView, launchOpts).kind === "launch" &&
+        overflowDecision.kind === "launch" &&
         session?.tool &&
         resumeArgvVerified(session.tool)
       ) {
@@ -1778,9 +1810,13 @@ export async function buildLiveRightPanelSnapshot(
         if (!plan.ok) {
           restorablePlanRefused = plan.refusalDetail ?? "unknown";
         } else {
+          // B-8: the managed names carried as live lines above never become
+          // restorable rows, on the selected path or beyond the cap.
+          const liveManagedNames = new Set(liveCandidates.map((c) => c.id));
           restorableByTitle = stationRestorableFromPlan({
             layoutCfg,
             plan,
+            liveManagedNames,
             hostView,
             ...(opts.forceGateway !== undefined
               ? { forceGateway: opts.forceGateway }

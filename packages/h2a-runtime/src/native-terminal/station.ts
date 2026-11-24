@@ -387,6 +387,11 @@ type RelaunchEntry = {
   /** Pending display to drop when this entry settles outside `running`. */
   pendingName?: string | undefined;
   pendingSessionId?: string | undefined;
+  /**
+   * NB-16: guard re-read at the head of the file, before the effect runs.
+   * A refusal fails the entry with its code and never reaches the port.
+   */
+  beforeRun?: (() => Promise<{ ok: true } | { ok: false; code: string }>) | undefined;
 };
 
 /** S2 relaunch issue: the port output travels with every outcome. */
@@ -636,7 +641,10 @@ class Station {
   /** S2: harness clock of the last uncertain port issue, if any. */
   #uncertainSince: number | undefined;
   /** S2 D1: sessions whose hard relaunch confirmation is armed. */
-  #hardRespawnArmed = new Set<string>();
+  #hardRespawnArmed = new Map<
+    string,
+    { pid: number; group: number | null; generation: string; incarnation: string }
+  >();
   /** S2: relaunch targets watched for their first running observation. */
   #pendingDisplay: Array<{ sessionId?: string; name?: string; onlyIfIdle: boolean }> = [];
   /** S2: a human gesture already activated a line (no initial auto-display). */
@@ -1140,12 +1148,20 @@ class Station {
     const reasonText =
       row.reasonText ??
       (motifKey !== undefined ? this.#t(motifKey) : row.reason === "launch" ? undefined : row.reason);
+    // NB-14: outside --lazy a capped row with a gesture shows its motif
+    // alone: the deferred state text names --lazy. The row state stays
+    // `deferred`; only the painted text drops it (the view renders an
+    // empty state text as motif-only).
+    const cappedOutsideLazy =
+      row.reason === "launch-cap" && row.relaunch !== undefined && this.#options.lazy !== true;
     return {
       ...row,
       state,
       ...(code !== undefined ? { code } : {}),
       ...(reasonText !== undefined ? { reasonText } : {}),
-      stateText: this.#t(`station.restorable.state.${state}`, { code: code ?? "unknown" }),
+      stateText: cappedOutsideLazy
+        ? ""
+        : this.#t(`station.restorable.state.${state}`, { code: code ?? "unknown" }),
     };
   }
 
@@ -1292,12 +1308,38 @@ class Station {
     this.#pumpRelaunchFile();
   }
 
+  /**
+   * NB-15: true while a file entry already relaunches this session (queued
+   * or in flight). Row entries name the session through their row; hard
+   * entries carry it directly.
+   */
+  #fileTargetsSession(sessionId: string): boolean {
+    const rows = this.#rawSnapshot?.workspaces.flatMap((workspace) => workspace.restorable ?? []) ?? [];
+    const keyTargets = (key: string | undefined): boolean => {
+      if (key === undefined) return false;
+      if (key === sessionId) return true;
+      return rows.some((row) => row.key === key && row.relaunch?.name === sessionId);
+    };
+    if (keyTargets(this.#relaunchInFlight)) return true;
+    return this.#relaunchQueue.some(
+      (entry) =>
+        keyTargets(entry.key) ||
+        keyTargets(entry.restorableKey) ||
+        keyTargets(entry.pendingSessionId) ||
+        keyTargets(entry.pendingName),
+    );
+  }
+
   /** Drop the watched display of an entry that settles outside `running`. */
   #dropPendingDisplay(entry: RelaunchEntry): void {
     if (entry.pendingName === undefined && entry.pendingSessionId === undefined) return;
+    // NB-13: drop only this entry's own watch. The old conjunction dropped
+    // every other watch too (`undefined !== undefined` is false), so one
+    // failed relaunch cancelled the initial display and every later switch.
     this.#pendingDisplay = this.#pendingDisplay.filter(
       (pending) =>
-        pending.name !== entry.pendingName && pending.sessionId !== entry.pendingSessionId,
+        !(entry.pendingName !== undefined && pending.name === entry.pendingName) &&
+        !(entry.pendingSessionId !== undefined && pending.sessionId === entry.pendingSessionId),
     );
   }
 
@@ -1330,14 +1372,33 @@ class Station {
               continue;
             }
           }
+          const waiter = this.#relaunchWaiters.get(next.key);
+          this.#relaunchWaiters.delete(next.key);
+          // NB-16: the guard is re-read when the entry reaches the head of
+          // the file. A refusal fails the entry with its code before any
+          // port call; the waiter maps it to its card below.
+          if (next.beforeRun !== undefined) {
+            let gate: { ok: true } | { ok: false; code: string };
+            try {
+              gate = await next.beforeRun();
+            } catch {
+              gate = { ok: false, code: "spawn-error" };
+            }
+            if (!gate.ok) {
+              this.#relaunchStates.set(next.key, { state: "failed", code: gate.code });
+              this.#emit({ type: "relaunch", key: next.key, phase: "failed", code: gate.code });
+              this.#dropPendingDisplay(next);
+              if (!this.#ended) this.#redecorate();
+              waiter?.({ ok: false, code: gate.code, stdout: "", stderr: "" });
+              continue;
+            }
+          }
           this.#relaunchInFlight = next.key;
           this.#relaunchStates.set(next.key, { state: "launching" });
           this.#emit({ type: "relaunch", key: next.key, phase: "started" });
           if (!this.#ended) this.#redecorate();
           const result = await this.#execRelaunch(next);
           this.#relaunchInFlight = undefined;
-          const waiter = this.#relaunchWaiters.get(next.key);
-          this.#relaunchWaiters.delete(next.key);
           if (result.ok) {
             this.#relaunchStates.set(next.key, { state: "ended" });
             this.#emit({ type: "relaunch", key: next.key, phase: "done" });
@@ -1391,18 +1452,19 @@ class Station {
         }
         this.#launchAutoShown = true;
       }
-      // A hard relaunch replaces the PTY under the displayed view: only the
-      // dead lease of that view is abandoned, with the stale guard of this
-      // session. The shared link — and every other guard it carries — stays
-      // open, and the normal switch below takes a fresh lease on it.
-      if (this.#displayed?.id === target.id) {
-        const view = this.#liveView();
-        if (view !== undefined && view.sessionId === target.id) view.active = undefined;
-        if (this.#guards.get(target.id)?.socketPath === target.socketPath) {
-          this.#dropGuard(target.id, "stale");
-        }
+      // B-9: every automatic switch goes through the loop. The request is
+      // posed here and consumed there, never applied around the loop, so a
+      // human gesture and two pendings can never drive two overlapping
+      // switches. A pending human request wins; the automatic one waits
+      // for the next snapshot. Nothing here touches the live view: a hard
+      // relaunch under the displayed session is taken by the full switch,
+      // which leaves the old view through the t3 protocol (B-3).
+      if (this.#request !== undefined) {
+        remaining.push(pending);
+        continue;
       }
-      void this.#switchTo(target.id, {});
+      this.#request = { type: "activate", sessionId: target.id, takeover: false };
+      this.#wakeLoop();
     }
     this.#pendingDisplay = remaining;
   }
@@ -1727,7 +1789,7 @@ class Station {
     else if (rowId === "guard-keep") confirm("station.confirm.guardKeep", () => this.#keepGuard(sessionId));
     else if (rowId === "pin-set") confirm("station.confirm.pinSet", () => this.#setManualPin(sessionId, true));
     else if (rowId === "pin-remove") confirm("station.confirm.pinRemove", () => this.#setManualPin(sessionId, false));
-    else if (rowId === "respawn-in-place") this.#confirmRespawnInPlace(sessionId);
+    else if (rowId === "respawn-in-place") void this.#confirmRespawnInPlace(sessionId).catch(() => {});
     else if (rowId.startsWith("draft:")) void this.#openRecoveryView(sessionId, rowId).catch(() => {});
   }
 
@@ -1735,7 +1797,14 @@ class Station {
   #respawnAvailability(
     sessionId: string,
   ):
-    | { ok: true; kind: "shell" | "unknown"; pid: number; group: number | null }
+    | {
+        ok: true;
+        kind: "shell" | "unknown";
+        pid: number;
+        group: number | null;
+        generation: string;
+        incarnation: string;
+      }
     | { ok: false; reason: "argv" | "conversation" | "facet" | "state" } {
     const state = this.#inventory?.sessions.find((session) => session.id === sessionId);
     if (!state || state.status !== "running") return { ok: false, reason: "state" };
@@ -1753,25 +1822,39 @@ class Station {
       kind: facet === "shell" ? "shell" : "unknown",
       pid: state.pid,
       group: state.foregroundProcessGroup ?? null,
+      generation: state.generation,
+      incarnation: state.incarnation,
     };
   }
 
   /**
    * S2 D1: the refusal is shown alone; the hard relaunch needs its own
    * confirmation card. Arming survives the dismissal of the refusal.
+   * NB-4: the arm is bound to the incarnation that refused soft: a moved
+   * pid, group, generation or incarnation clears it instead of killing the
+   * wrong PTY.
    */
-  #refuseSoftThenArm(sessionId: string): void {
+  #refuseSoftThenArm(
+    sessionId: string,
+    stamp: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): void {
     const session = this.#sessionLabel(sessionId);
     this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
-    this.#hardRespawnArmed.add(sessionId);
+    this.#hardRespawnArmed.set(sessionId, stamp);
     this.#showCard(
       [this.#t("station.respawn.softUnsupported", { session })],
       this.#t("station.card.dismiss"),
     );
   }
 
-  /** S2 D1: confirm naming the process in place (pid, foreground state). */
-  #confirmRespawnInPlace(sessionId: string): void {
+  /**
+   * S2 D1: confirm naming the process in place (pid, foreground state).
+   * NB-4: the card names a fresh read, never the last snapshot: the
+   * inventory is re-read before the card is shown.
+   */
+  async #confirmRespawnInPlace(sessionId: string): Promise<void> {
+    await this.#freshInventory().catch(() => {});
+    if (this.#ended) return;
     const session = this.#sessionLabel(sessionId);
     const availability = this.#respawnAvailability(sessionId);
     if (!availability.ok) {
@@ -1793,13 +1876,29 @@ class Station {
     }
     // A refused soft respawn arms this session: the next gesture confirms
     // the hard relaunch on its own card, which names the lost PTY.
-    if (this.#hardRespawnArmed.has(sessionId)) {
+    const armed = this.#hardRespawnArmed.get(sessionId);
+    if (armed !== undefined) {
+      // NB-4: the arm names one incarnation. A move since the arming clears
+      // it: the gesture falls back to a fresh soft probe, zero port call.
+      if (
+        availability.pid !== armed.pid ||
+        availability.group !== armed.group ||
+        availability.generation !== armed.generation ||
+        availability.incarnation !== armed.incarnation
+      ) {
+        this.#hardRespawnArmed.delete(sessionId);
+        this.#showCard(
+          [`${session}: respawn-unavailable (moved)`],
+          this.#t("station.card.dismiss"),
+        );
+        return;
+      }
       this.#showCard(
         [this.#t("station.confirm.respawnHard", { session })],
         this.#t("station.confirm.prompt"),
         () => {
           this.#hardRespawnArmed.delete(sessionId);
-          void this.#respawnHard(sessionId).catch(() => {});
+          void this.#respawnHard(sessionId, armed).catch(() => {});
         },
       );
       return;
@@ -1808,6 +1907,12 @@ class Station {
       availability.kind === "shell" && availability.group !== null
         ? "station.confirm.respawnShell"
         : "station.confirm.respawnUnknown";
+    const stamp = {
+      pid: availability.pid,
+      group: availability.group,
+      generation: availability.generation,
+      incarnation: availability.incarnation,
+    };
     this.#showCard(
       [
         this.#t(confirmKey, {
@@ -1818,7 +1923,7 @@ class Station {
       ],
       this.#t("station.confirm.prompt"),
       () => {
-        void this.#respawnInPlace(sessionId).catch(() => {});
+        void this.#respawnInPlace(sessionId, stamp).catch(() => {});
       },
     );
   }
@@ -1895,36 +2000,118 @@ class Station {
     return { ok: true, strategy: row.strategy };
   }
 
+  /**
+   * NB-16: guard re-read when a D1 entry reaches the head of the file,
+   * before the effect runs. A refusal fails the entry with its code and
+   * never reaches the port.
+   */
+  async #rereadDraftGuard(
+    sessionId: string,
+  ): Promise<{ ok: true } | { ok: false; code: string }> {
+    try {
+      return (await this.#readDraftTerminal(sessionId))
+        ? { ok: true }
+        : { ok: false, code: "restoring-on-ready" };
+    } catch (error) {
+      return { ok: false, code: error instanceof Error ? singleLine(error.message) : "refused" };
+    }
+  }
+
+  /**
+   * NB-4: the card and Enter are apart in time. Re-read the inventory, then
+   * the line, and refuse when it moved (or its argv/conversation lapsed)
+   * since the card named it; the move shows a machine code, zero port call.
+   * A failed re-read refuses closed too. Returns the fresh stamp, or
+   * undefined once the refusal card is shown.
+   */
+  async #checkRespawnFresh(
+    sessionId: string,
+    session: string,
+    expected: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): Promise<
+    | {
+        ok: true;
+        kind: "shell" | "unknown";
+        pid: number;
+        group: number | null;
+        generation: string;
+        incarnation: string;
+      }
+    | undefined
+  > {
+    try {
+      await this.#freshInventory();
+    } catch {
+      this.#showCard(
+        [`${session}: respawn-unavailable (link-failed)`],
+        this.#t("station.card.dismiss"),
+      );
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    if (this.#ended) {
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    const fresh = this.#respawnAvailability(sessionId);
+    if (!fresh.ok) {
+      if (fresh.reason === "argv" || fresh.reason === "conversation") {
+        const key =
+          fresh.reason === "argv"
+            ? "station.restorable.reason.resumeArgvUnverified"
+            : "station.restorable.reason.unresolvedConversation";
+        this.#showCard([`${session}: ${this.#t(key)}`], this.#t("station.card.dismiss"));
+      } else {
+        this.#showCard(
+          [`${session}: respawn-unavailable (${fresh.reason})`],
+          this.#t("station.card.dismiss"),
+        );
+      }
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    const moved =
+      fresh.pid !== expected.pid ||
+      fresh.group !== expected.group ||
+      fresh.generation !== expected.generation ||
+      fresh.incarnation !== expected.incarnation;
+    if (moved) {
+      this.#showCard(
+        [`${session}: respawn-unavailable (moved)`],
+        this.#t("station.card.dismiss"),
+      );
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    return fresh;
+  }
+
   /** S2 D1: relaunch in place (soft), then watch or refuse per the issue. */
-  async #respawnInPlace(sessionId: string): Promise<void> {
+  async #respawnInPlace(
+    sessionId: string,
+    expected: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): Promise<void> {
     const session = this.#sessionLabel(sessionId);
     let outcome = "done";
     try {
       const owner = await this.#resolveOwner(sessionId, true);
       if (owner.state !== "found") throw new Error(owner.state);
       // The card and Enter are apart in time: re-read the line before any
-      // effect. A moved facet, pid or group refuses here, zero port call.
-      const fresh = this.#respawnAvailability(sessionId);
-      if (!fresh.ok) {
-        if (fresh.reason === "argv" || fresh.reason === "conversation") {
-          const key =
-            fresh.reason === "argv"
-              ? "station.restorable.reason.resumeArgvUnverified"
-              : "station.restorable.reason.unresolvedConversation";
-          this.#showCard([`${session}: ${this.#t(key)}`], this.#t("station.card.dismiss"));
-        } else {
-          this.#showCard(
-            [`${session}: respawn-unavailable (${fresh.reason})`],
-            this.#t("station.card.dismiss"),
-          );
-        }
+      // effect. A moved facet, pid, group or incarnation refuses here (NB-4),
+      // zero port call.
+      const fresh = await this.#checkRespawnFresh(sessionId, session, expected);
+      if (!fresh) {
         outcome = "refused";
-        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
         return;
       }
       const link = await this.#link(owner.socketPath);
       if (link.softRespawn !== true) {
-        this.#refuseSoftThenArm(sessionId);
+        this.#refuseSoftThenArm(sessionId, {
+          pid: fresh.pid,
+          group: fresh.group,
+          generation: fresh.generation,
+          incarnation: fresh.incarnation,
+        });
         return;
       }
       if (!(await this.#awaitDraftTerminal(sessionId))) {
@@ -1943,20 +2130,41 @@ class Station {
         args: ["restart", sessionId, "--soft", "--json"],
         cwd: process.cwd(),
         env: {},
+        beforeRun: () => this.#rereadDraftGuard(sessionId),
       });
-      // The JSON issue is readable even on `exit-nonzero` (r4 §5): an
-      // unsupported soft respawn arms the hard confirmation, not a failure.
-      const parsed = this.#parseRestartResult(result.stdout, sessionId);
-      if (!result.ok && (parsed.ok || parsed.code !== "host-soft-restart-unsupported")) {
+      // NB-16: the head-of-file refusal lands here, before any port call.
+      if (!result.ok && result.code === "restoring-on-ready") {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      if (
+        !result.ok &&
+        (result.code === "owner-gone" ||
+          result.code === "link-failed" ||
+          result.code === "draft-status-unreadable")
+      ) {
         throw new Error(result.code);
       }
-      if (!parsed.ok) {
-        if (parsed.code === "host-soft-restart-unsupported") {
-          this.#refuseSoftThenArm(sessionId);
-          return;
-        }
-        throw new Error(parsed.code);
+      // NB-1: the JSON issue is readable even on `exit-nonzero` (r4 §5): an
+      // unsupported soft respawn arms the hard confirmation, not a failure,
+      // and any other JSON code wins over the bare exit code.
+      const parsed = this.#parseRestartResult(result.stdout, sessionId);
+      if (!parsed.ok && parsed.code === "host-soft-restart-unsupported") {
+        this.#refuseSoftThenArm(sessionId, {
+          pid: fresh.pid,
+          group: fresh.group,
+          generation: fresh.generation,
+          incarnation: fresh.incarnation,
+        });
+        return;
       }
+      if (!result.ok) throw new Error(!parsed.ok ? parsed.code : result.code);
+      if (!parsed.ok) throw new Error(parsed.code);
       if (parsed.strategy !== "soft") throw new Error(`strategy: ${parsed.strategy}`);
     } catch (error) {
       outcome = error instanceof Error ? singleLine(error.message) : "refused";
@@ -1972,10 +2180,20 @@ class Station {
   }
 
   /** S2 D1 on an old host: hard relaunch after its own confirmation, then switch. */
-  async #respawnHard(sessionId: string): Promise<void> {
+  async #respawnHard(
+    sessionId: string,
+    expected: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): Promise<void> {
     const session = this.#sessionLabel(sessionId);
     let outcome = "done";
     try {
+      // NB-4: the hard card and its Enter are apart in time too: re-read
+      // the line before the effect, zero port call on a move.
+      const fresh = await this.#checkRespawnFresh(sessionId, session, expected);
+      if (!fresh) {
+        outcome = "refused";
+        return;
+      }
       if (!(await this.#awaitDraftTerminal(sessionId))) {
         this.#showCard(
           [this.#t("station.respawn.draftInFlight", { session })],
@@ -1991,9 +2209,30 @@ class Station {
         cwd: process.cwd(),
         env: {},
         pendingSessionId: sessionId,
+        beforeRun: () => this.#rereadDraftGuard(sessionId),
       });
-      if (!result.ok) throw new Error(result.code);
+      // NB-16: the head-of-file refusal lands here, before any port call.
+      if (!result.ok && result.code === "restoring-on-ready") {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      if (
+        !result.ok &&
+        (result.code === "owner-gone" ||
+          result.code === "link-failed" ||
+          result.code === "draft-status-unreadable")
+      ) {
+        throw new Error(result.code);
+      }
+      // NB-1: the JSON issue is read even on `exit-nonzero` (r4 §5), so its
+      // code wins over the bare exit code here too.
       const parsed = this.#parseRestartResult(result.stdout, sessionId);
+      if (!result.ok) throw new Error(!parsed.ok ? parsed.code : result.code);
       if (!parsed.ok) throw new Error(parsed.code);
       if (parsed.strategy !== "hard" && parsed.strategy !== "hard-fallback") {
         throw new Error(`strategy: ${parsed.strategy}`);
@@ -2591,15 +2830,27 @@ class Station {
   ): Promise<"displayed" | "refused" | "same"> {
     const from = this.#view;
     const fromLive = this.#liveView();
+    const fromLease = fromLive?.active;
     if (
       fromLive !== undefined &&
       fromLive.sessionId === sessionId &&
-      fromLive.active !== undefined &&
+      fromLease !== undefined &&
       fromLive.transportFailure === undefined
     ) {
-      this.#panel.focusCli();
-      this.#emit({ type: "same-session", sessionId });
-      return "same";
+      // A hard relaunch replaces the incarnation under the displayed view:
+      // the inventory then carries a newer generation than the held lease,
+      // and only a full switch takes the fresh lease (B-9). Otherwise this
+      // request is a no-op that keeps the focus on the CLI.
+      const known = this.#inventory?.sessions.find((session) => session.id === sessionId);
+      if (
+        known === undefined ||
+        (known.generation === fromLease.lease.generation &&
+          known.incarnation === fromLease.lease.incarnation)
+      ) {
+        this.#panel.focusCli();
+        this.#emit({ type: "same-session", sessionId });
+        return "same";
+      }
     }
     this.#freeze();
     try {
@@ -2727,7 +2978,10 @@ class Station {
       const row = this.#rawSnapshot?.workspaces
         .flatMap((workspace) => workspace.restorable ?? [])
         .find((candidate) => candidate.relaunch?.name === sessionId);
-      if (row?.relaunch) {
+      // NB-15: no end offer while a file entry already relaunches this
+      // session (a hard relaunch stops the old PTY before its own issue):
+      // the offer would double the in-flight relaunch.
+      if (row?.relaunch && !this.#fileTargetsSession(sessionId)) {
         this.#showCard(
           [text, this.#t("station.confirm.relaunch", { session: row.label })],
           this.#t("station.confirm.prompt"),

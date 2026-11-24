@@ -1477,7 +1477,9 @@ export class RightPanelController {
             // other row shows its motif with its file state.
             const motif = row.reason === "launch" ? undefined : (row.reasonText ?? row.reason);
             const state = row.stateText ?? row.state;
-            const detail = motif === undefined ? state : `${motif} · ${state}`;
+            // NB-14: an empty state text paints the motif alone (a capped
+            // row outside --lazy never claims to be deferred).
+            const detail = motif === undefined || state === "" ? (motif ?? state) : `${motif} · ${state}`;
             const body = truncate(`    · ${row.label} (${detail})`, width);
             rows.push({
               text: rowSelected ? `\x1b[7m${body}\x1b[0m` : body,
