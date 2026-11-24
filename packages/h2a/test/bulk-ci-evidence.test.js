@@ -24,9 +24,15 @@ function assertGraph(workflow) {
     'node scripts/test-sandbox.mjs --prepare-ci',
     'npm ci',
     'npm run build',
+    'echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache/h2a-toolchain" >> "$GITHUB_ENV"',
     'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js',
     'node scripts/test-sandbox.mjs -- node scripts/ci-bulk-proof.mjs',
   ]);
+  // The native toolchain fixtures (zig.tar.xz) are restored from actions/cache
+  // keyed by the lock file (URL+sha256); a hit never hits the network.
+  assert.ok(producer.steps.some((s) => s.uses === 'actions/cache@v4'
+    && String(s.with?.key ?? '').includes("hashFiles('scripts/release/native-toolchain.lock.json')")),
+    'bulk producer restores the native toolchain fixture cache keyed by the lock file');
   assert.deepEqual(producer.steps.find(s => s.uses === 'actions/upload-artifact@v4').with,
     {name:'bulk-${{ github.run_id }}-node${{ matrix.node }}',path:'tmp/bulk-export/proof.json','if-no-files-found':'error',overwrite:true,'retention-days':7});
   for (const name of ['build-and-test', 'npm-test-trust-root']) {
