@@ -1,0 +1,48 @@
+{
+  "receipt": {
+    "command": [
+      "/usr/bin/node",
+      "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/dist/bin.js",
+      "send",
+      "codex:recipient:57d313785037",
+      "idle",
+      "--from",
+      "codex:sender:8f7210c9d66d",
+      "--root",
+      "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/bus"
+    ],
+    "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/sender",
+    "status": 0,
+    "signal": null,
+    "stdout": "{\n  \"ok\": true,\n  \"from\": \"codex:sender:8f7210c9d66d\",\n  \"requestedRecipient\": \"codex:recipient:57d313785037\",\n  \"recipient\": \"codex:recipient:57d313785037\",\n  \"recipientLive\": true,\n  \"freshSessions\": 1,\n  \"resolution\": \"deliver\",\n  \"dormant\": false,\n  \"envelope\": {\n    \"protocol\": \"sentropic.h2a\",\n    \"version\": \"0.1\",\n    \"createdAt\": \"2026-10-20T20:15:32.149Z\",\n    \"id\": \"env:send:b9efab94-299f-4758-91ba-305a0e657725\",\n    \"type\": \"event\",\n    \"actor\": {\n      \"instance\": \"codex:sender:8f7210c9d66d\",\n      \"role\": \"AGENTS\",\n      \"scope\": \"scope:default\"\n    },\n    \"target\": {\n      \"instance\": \"codex:recipient:57d313785037\"\n    },\n    \"body\": {\n      \"kind\": \"message\",\n      \"topic\": \"MESSAGE\",\n      \"text\": \"idle\"\n    },\n    \"signatures\": [\n      {\n        \"by\": \"codex:sender:8f7210c9d66d\",\n        \"alg\": \"ed25519\",\n        \"value\": \"L1ZqJX94ACEnBFNzefAKrXcnOmKxbOr0wAJlRf/CAnI9Brigi6dimTWwg06rxin5q5yo4euGT1GogC9MOUPBBA==\"\n      }\n    ]\n  }\n}\n",
+    "stderr": "",
+    "expired": false
+  },
+  "attached": {
+    "id": "h2a-recipient",
+    "generation": "s5",
+    "incarnation": "0c66f619-47dd-4fc0-b22f-a671a71ee223",
+    "pid": 16327,
+    "status": "running",
+    "latestSeq": 2,
+    "exit": null,
+    "stopSignal": null,
+    "controlled": true,
+    "controllerEpoch": 1,
+    "controller": {
+      "pid": 16395,
+      "tty": "/dev/pts/3",
+      "since": "2026-10-20T20:15:31.485Z"
+    },
+    "lastHumanActivityAt": 1792527331485
+  },
+  "tui": {
+    "pid": 16329,
+    "tty": true,
+    "draft": "",
+    "lines": []
+  },
+  "failures": [
+    "Attached recipient wake line: deadline expired; last={\"pid\":16329,\"tty\":true,\"draft\":\"\",\"lines\":[]}"
+  ]
+}

@@ -1,0 +1,8 @@
+[h2a] restore skipped "sender": no resolved conversation id (convId missing is not a real conversation); attach it live with h2a attach sender
+[h2a] restore skipped "recipient": no resolved conversation id (convId missing is not a real conversation); attach it live with h2a attach recipient
+  fenêtre partagée 1 (1):
+    - human-two  claude (local) [registry]  /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6
+  fenêtre partagée 2 (1):
+    - human-one  codex (local) [registry]  /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6
+[h2a] 2 session(s) déjà visibles ou contrôlées ignorées (--reattach rouvre seulement les vues pouvant être attachées sans second contrôleur): human-two, human-one
+[h2a] 2 onglet(s) relancé(s)

@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "current": "0.98.7",
+  "latest": "9999.0.0",
+  "upgraded": true,
+  "verified": "9999.0.0",
+  "package": "@sentropic/h2a",
+  "hosts": {
+    "ok": true,
+    "entrypoint": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/dist/bin.js",
+    "version": "9999.0.0",
+    "reports": [
+      {
+        "host": "codex",
+        "ok": true,
+        "command": [
+          "/usr/bin/node",
+          "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/dist/bin.js",
+          "doctor",
+          "--repair",
+          "--host",
+          "codex",
+          "--root",
+          "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/bus"
+        ],
+        "result": "{\n  \"ok\": true,\n  \"agyClaudeQuota\": {\n    \"status\": \"unknown\"\n  },\n  \"root\": \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/bus\",\n  \"warnings\": [],\n  \"checks\": {\n    \"rootExists\": {\n      \"ok\": true\n    },\n    \"schemaSentinel\": {\n      \"ok\": true,\n      \"version\": \"1\"\n    },\n    \"liveSessions\": {\n      \"ok\": true,\n      \"count\": 0\n    },\n    \"cliBinary\": {\n      \"ok\": true\n    },\n    \"legacyAccountArtifacts\": {\n      \"ok\": true,\n      \"inert\": true,\n      \"inspected\": [\n        \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/.sentropic/accounts.json\",\n        \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/.sentropic/accounts-tokens.json\",\n        \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/.sentropic/session-bindings.json\",\n        \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/.sentropic/account-quota.json\",\n        \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/.sentropic/session-log.jsonl\"\n      ],\n      \"found\": [],\n      \"message\": \"no legacy H2A account-pool artifacts found\"\n    },\n    \"hostInstallations\": {\n      \"ok\": true,\n      \"repair\": true,\n      \"dryRun\": false,\n      \"sessionFreshnessGuarantee\": \"doctor guarantees the coherence of the repairs it performed. It does not detect installation changes made by other tools; after changing your installation by hand, restart your sessions.\",\n      \"nativeCommandFailureLimit\": \"If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it.\",\n      \"version\": \"9999.0.0\",\n      \"hosts\": [\n        {\n          \"host\": \"codex\",\n          \"ok\": true,\n          \"findings\": [\n            {\n              \"code\": \"host-not-installed\",\n              \"message\": \"Codex is not installed: its CLI is absent from PATH and no host configuration artifacts were found.\"\n            }\n          ],\n          \"diagnostics\": [],\n          \"changed\": [],\n          \"preserved\": [\n            {\n              \"code\": \"host-not-installed\",\n              \"message\": \"Codex is not installed: its CLI is absent from PATH and no host configuration artifacts were found.\"\n            }\n          ],\n          \"failures\": [],\n          \"unverifiable\": [],\n          \"unrepaired\": [],\n          \"coherencePaths\": [],\n          \"plannedActions\": [],\n          \"repairMarkerPath\": \"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/.codex/h2a-repair.json\"\n        }\n      ]\n    },\n    \"liveHostSessions\": {\n      \"ok\": true,\n      \"restartRequired\": []\n    },\n    \"nativeHostInstallations\": {\n      \"ok\": true,\n      \"hosts\": []\n    }\n  },\n  \"rootSource\": \"flag\"\n}\n",
+        "diagnostic": ""
+      }
+    ]
+  },
+  "log": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/h2a-upgrade.log"
+}

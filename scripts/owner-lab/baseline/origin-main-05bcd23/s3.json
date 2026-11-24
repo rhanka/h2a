@@ -1,0 +1,18 @@
+{
+  "baseline": "02dafce12b976da06751dc925eeda7e496d1c827",
+  "published": "6043f0dac68a3692d0796bb0dc4961e4cac56b11",
+  "head": "b1b519069544b1fa0a4eaf8b3e16760369948cd2",
+  "guarded": {
+    "command": [
+      "/bin/sh",
+      "-c",
+      "'/usr/bin/node' '/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs' '--host' 'claude' '--workspace' '/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s3/own/tmp/worktrees/lot' '--session' 's3'"
+    ],
+    "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s3/own/tmp/worktrees/lot",
+    "status": 2,
+    "signal": null,
+    "stdout": "{\"decision\":\"block\",\"code\":\"VERSION_BUMP\",\"reason\":\"[H2A_SCOPE:VERSION_BUMP] git.push refused. {\\\"repo\\\":\\\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s3/remote\\\",\\\"action\\\":\\\"git.push\\\",\\\"ref\\\":\\\"HEAD:feature\\\",\\\"session\\\":\\\"s3\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\",\"repo\":\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s3/remote\",\"action\":\"git.push\",\"ref\":\"HEAD:feature\",\"session\":\"s3\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[H2A_SCOPE:VERSION_BUMP] git.push refused. {\\\"repo\\\":\\\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s3/remote\\\",\\\"action\\\":\\\"git.push\\\",\\\"ref\\\":\\\"HEAD:feature\\\",\\\"session\\\":\\\"s3\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\"}}",
+    "stderr": "[H2A_SCOPE:VERSION_BUMP] git.push refused. {\"repo\":\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s3/remote\",\"action\":\"git.push\",\"ref\":\"HEAD:feature\",\"session\":\"s3\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\n",
+    "expired": false
+  }
+}

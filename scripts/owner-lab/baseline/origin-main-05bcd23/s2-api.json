@@ -1,0 +1,10 @@
+[
+  {
+    "method": "GET",
+    "url": "/repos/fixture/own/pulls/42.diff"
+  },
+  {
+    "method": "GET",
+    "url": "/repos/fixture/own/pulls/42.diff"
+  }
+]

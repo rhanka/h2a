@@ -1,0 +1,1774 @@
+TAP version 13
+# Subtest: own repository actions and quoted prose stay untouched
+ok 1 - own repository actions and quoted prose stay untouched
+  ---
+  duration_ms: 1095.869563
+  type: 'test'
+  ...
+# Subtest: foreign git, GitHub, npm and release mutations are denied and audited
+ok 2 - foreign git, GitHub, npm and release mutations are denied and audited
+  ---
+  duration_ms: 2609.722136
+  type: 'test'
+  ...
+# Subtest: a sibling worktree and a symlink to a foreign workspace remain foreign
+ok 3 - a sibling worktree and a symlink to a foreign workspace remain foreign
+  ---
+  duration_ms: 390.397901
+  type: 'test'
+  ...
+# Subtest: valid exact owner grant is accepted and its use audited
+ok 4 - valid exact owner grant is accepted and its use audited
+  ---
+  duration_ms: 314.477938
+  type: 'test'
+  ...
+# Subtest: a expired grant cannot authorize a foreign mutation
+ok 5 - a expired grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 209.075907
+  type: 'test'
+  ...
+# Subtest: a workspace grant cannot authorize a foreign mutation
+ok 6 - a workspace grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 206.762974
+  type: 'test'
+  ...
+# Subtest: a session grant cannot authorize a foreign mutation
+ok 7 - a session grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 209.954652
+  type: 'test'
+  ...
+# Subtest: a repository grant cannot authorize a foreign mutation
+ok 8 - a repository grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 210.964393
+  type: 'test'
+  ...
+# Subtest: a action grant cannot authorize a foreign mutation
+ok 9 - a action grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 197.465883
+  type: 'test'
+  ...
+# Subtest: a reference grant cannot authorize a foreign mutation
+ok 10 - a reference grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 200.653954
+  type: 'test'
+  ...
+# Subtest: a owner grant cannot authorize a foreign mutation
+ok 11 - a owner grant cannot authorize a foreign mutation
+  ---
+  duration_ms: 195.229113
+  type: 'test'
+  ...
+# Subtest: self-signed, tampered and malformed grants fail closed
+ok 12 - self-signed, tampered and malformed grants fail closed
+  ---
+  duration_ms: 483.136704
+  type: 'test'
+  ...
+# Subtest: published package version edits and release commands require release authorization
+ok 13 - published package version edits and release commands require release authorization
+  ---
+  duration_ms: 1137.481755
+  type: 'test'
+  ...
+# Subtest: already committed bumps cannot leave a feature branch
+ok 14 - already committed bumps cannot leave a feature branch
+  ---
+  duration_ms: 237.133714
+  type: 'test'
+  ...
+# Subtest: foreign edits and patches are denied; benign own edits pass
+ok 15 - foreign edits and patches are denied; benign own edits pass
+  ---
+  duration_ms: 502.601345
+  type: 'test'
+  ...
+# Subtest: owner command appends a verifiable grant without rewriting history
+ok 16 - owner command appends a verifiable grant without rewriting history
+  ---
+  duration_ms: 608.69631
+  type: 'test'
+  ...
+# Subtest: a remote PR bump requires a separate release grant even after scope authorization
+ok 17 - a remote PR bump requires a separate release grant even after scope authorization
+  ---
+  duration_ms: 1442.947108
+  type: 'test'
+  ...
+# Subtest: own release actions require and accept an exact owning-lane grant
+ok 18 - own release actions require and accept an exact owning-lane grant
+  ---
+  duration_ms: 246.328352
+  type: 'test'
+  ...
+# Subtest: multi-ref push, nested repositories, shell state writes and git config overrides cannot widen scope
+ok 19 - multi-ref push, nested repositories, shell state writes and git config overrides cannot widen scope
+  ---
+  duration_ms: 886.258006
+  type: 'test'
+  ...
+# Subtest: inline package patches and Codex command envelopes cannot bypass the guard
+ok 20 - inline package patches and Codex command envelopes cannot bypass the guard
+  ---
+  duration_ms: 623.403435
+  type: 'test'
+  ...
+# Subtest: tampering a signed grant, symlink journals and broken audit storage refuse
+ok 21 - tampering a signed grant, symlink journals and broken audit storage refuse
+  ---
+  duration_ms: 511.931067
+  type: 'test'
+  ...
+# Subtest: foreign URL grants normalize consistently and npm script aliases retain release restrictions
+ok 22 - foreign URL grants normalize consistently and npm script aliases retain release restrictions
+  ---
+  duration_ms: 655.037834
+  type: 'test'
+  ...
+# Subtest: own merge refuses an incoming committed package bump
+ok 23 - own merge refuses an incoming committed package bump
+  ---
+  duration_ms: 243.211005
+  type: 'test'
+  ...
+# Subtest: packaged session binding rejects missing or changed workspace binding
+ok 24 - packaged session binding rejects missing or changed workspace binding
+  ---
+  duration_ms: 648.184132
+  type: 'test'
+  ...
+# Subtest: heredocs refuse uncertainty while explicit own copies and null redirections pass
+ok 25 - heredocs refuse uncertainty while explicit own copies and null redirections pass
+  ---
+  duration_ms: 677.449532
+  type: 'test'
+  ...
+# Subtest: push default overrides and additional push destinations stay within the repository
+ok 26 - push default overrides and additional push destinations stay within the repository
+  ---
+  duration_ms: 413.871558
+  type: 'test'
+  ...
+# Subtest: pushed refs and the index are inspected even when the working file hides a bump
+ok 27 - pushed refs and the index are inspected even when the working file hides a bump
+  ---
+  duration_ms: 558.331823
+  type: 'test'
+  ...
+# Subtest: remote private package versions and dependency metadata do not cause false bump refusals
+ok 28 - remote private package versions and dependency metadata do not cause false bump refusals
+  ---
+  duration_ms: 1283.017052
+  type: 'test'
+  ...
+# Subtest: state mutation commands and inline URL rewrites cannot bypass authority
+ok 29 - state mutation commands and inline URL rewrites cannot bypass authority
+  ---
+  duration_ms: 670.298962
+  type: 'test'
+  ...
+# Subtest: foreign GitHub REST mutations and package-manager cwd flags are scoped
+ok 30 - foreign GitHub REST mutations and package-manager cwd flags are scoped
+  ---
+  duration_ms: 369.014489
+  type: 'test'
+  ...
+# Subtest: native argv, environment selectors and nested exec workdirs retain the session boundary
+ok 31 - native argv, environment selectors and nested exec workdirs retain the session boundary
+  ---
+  duration_ms: 967.013152
+  type: 'test'
+  ...
+# Subtest: literal Codex patch envelopes preserve ordinary own edits and scope foreign edits
+ok 32 - literal Codex patch envelopes preserve ordinary own edits and scope foreign edits
+  ---
+  duration_ms: 378.783699
+  type: 'test'
+  ...
+# Subtest: own monorepo workspace builds and release prose remain ordinary work
+ok 33 - own monorepo workspace builds and release prose remain ordinary work
+  ---
+  duration_ms: 517.026079
+  type: 'test'
+  ...
+# Subtest: the read-only npm version query remains allowed in the owning workspace
+ok 34 - the read-only npm version query remains allowed in the owning workspace
+  ---
+  duration_ms: 199.680181
+  type: 'test'
+  ...
+# Subtest: npm version on a private owning package does not require published-package release authority
+ok 35 - npm version on a private owning package does not require published-package release authority
+  ---
+  duration_ms: 232.062348
+  type: 'test'
+  ...
+# Subtest: a published workspace cannot inherit a private sibling release exemption
+ok 36 - a published workspace cannot inherit a private sibling release exemption
+  ---
+  duration_ms: 246.952979
+  type: 'test'
+  ...
+# Subtest: reading the owner helper is ordinary work, while manual session initialization is owner-only
+ok 37 - reading the owner helper is ordinary work, while manual session initialization is owner-only
+  ---
+  duration_ms: 197.741922
+  type: 'test'
+  ...
+# Subtest: agents cannot call the session initializer to establish a different workspace binding
+ok 38 - agents cannot call the session initializer to establish a different workspace binding
+  ---
+  duration_ms: 206.563228
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign cd double dash
+ok 39 - R2 should deny foreign cd double dash
+  ---
+  duration_ms: 236.532753
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign cd physical
+ok 40 - R2 should deny foreign cd physical
+  ---
+  duration_ms: 204.82739
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign cd logical
+ok 41 - R2 should deny foreign cd logical
+  ---
+  duration_ms: 212.733864
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign pushd
+ok 42 - R2 should deny foreign pushd
+  ---
+  duration_ms: 218.074917
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign subshell cwd
+ok 43 - R2 should deny foreign subshell cwd
+  ---
+  duration_ms: 231.006611
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign pipeline cwd
+ok 44 - R2 should deny foreign pipeline cwd
+  ---
+  duration_ms: 218.510117
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign absolute shell heredoc
+ok 45 - R2 should deny foreign absolute shell heredoc
+  ---
+  duration_ms: 201.901783
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign env shell heredoc
+ok 46 - R2 should deny foreign env shell heredoc
+  ---
+  duration_ms: 199.78612
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign piped shell heredoc
+ok 47 - R2 should deny foreign piped shell heredoc
+  ---
+  duration_ms: 193.863842
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign git namespace
+ok 48 - R2 should deny foreign git namespace
+  ---
+  duration_ms: 213.083682
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign pull
+ok 49 - R2 should deny foreign pull
+  ---
+  duration_ms: 204.225367
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign apply p.diff
+ok 50 - R2 should deny foreign apply p.diff
+  ---
+  duration_ms: 200.03518
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign am p.mbox
+ok 51 - R2 should deny foreign am p.mbox
+  ---
+  duration_ms: 214.763554
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign branch -f main HEAD~1
+ok 52 - R2 should deny foreign branch -f main HEAD~1
+  ---
+  duration_ms: 208.878908
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign branch --move old new
+ok 53 - R2 should deny foreign branch --move old new
+  ---
+  duration_ms: 225.684883
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign branch --copy old new
+ok 54 - R2 should deny foreign branch --copy old new
+  ---
+  duration_ms: 214.510999
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh short approve
+ok 55 - R2 should deny foreign gh short approve
+  ---
+  duration_ms: 219.463091
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh merge -t title
+ok 56 - R2 should deny foreign gh merge -t title
+  ---
+  duration_ms: 233.399796
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh merge -b body
+ok 57 - R2 should deny foreign gh merge -b body
+  ---
+  duration_ms: 194.81837
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh merge -F file
+ok 58 - R2 should deny foreign gh merge -F file
+  ---
+  duration_ms: 203.736277
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh merge --subject title
+ok 59 - R2 should deny foreign gh merge --subject title
+  ---
+  duration_ms: 201.208899
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh merge --body-file file
+ok 60 - R2 should deny foreign gh merge --body-file file
+  ---
+  duration_ms: 197.353461
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign gh close comment
+ok 61 - R2 should deny foreign gh close comment
+  ---
+  duration_ms: 200.649616
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign npm run-script
+ok 62 - R2 should deny foreign npm run-script
+  ---
+  duration_ms: 194.743719
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign pnpm -C shorthand
+ok 63 - R2 should deny foreign pnpm -C shorthand
+  ---
+  duration_ms: 200.182317
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign yarn --cwd shorthand
+ok 64 - R2 should deny foreign yarn --cwd shorthand
+  ---
+  duration_ms: 215.033703
+  type: 'test'
+  ...
+# Subtest: R2 should deny foreign bun --cwd shorthand
+ok 65 - R2 should deny foreign bun --cwd shorthand
+  ---
+  duration_ms: 202.228278
+  type: 'test'
+  ...
+# Subtest: R2 should inspect script alias npm run-script
+ok 66 - R2 should inspect script alias npm run-script
+  ---
+  duration_ms: 219.539755
+  type: 'test'
+  ...
+# Subtest: R2 should inspect script alias pnpm
+ok 67 - R2 should inspect script alias pnpm
+  ---
+  duration_ms: 196.907552
+  type: 'test'
+  ...
+# Subtest: R2 should inspect script alias yarn
+ok 68 - R2 should inspect script alias yarn
+  ---
+  duration_ms: 218.346389
+  type: 'test'
+  ...
+# Subtest: R2 should inspect script alias bun
+ok 69 - R2 should inspect script alias bun
+  ---
+  duration_ms: 224.270721
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: echo forged>.h2a/workspace-scope/grants.jsonl
+ok 70 - R3 should protect owner state: echo forged>.h2a/workspace-scope/grants.jsonl
+  ---
+  duration_ms: 220.662398
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: echo forged>>.h2a/workspace-scope/sessions.jsonl
+ok 71 - R3 should protect owner state: echo forged>>.h2a/workspace-scope/sessions.jsonl
+  ---
+  duration_ms: 209.878188
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: echo x >| .h2a/workspace-scope/grants.jsonl
+ok 72 - R3 should protect owner state: echo x >| .h2a/workspace-scope/grants.jsonl
+  ---
+  duration_ms: 212.283175
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: echo x &>.h2a/workspace-scope/grants.jsonl
+ok 73 - R3 should protect owner state: echo x &>.h2a/workspace-scope/grants.jsonl
+  ---
+  duration_ms: 209.727004
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: node -e "fs.appendFileSync('.h2a/workspace-scope/sessions.jsonl', 'x')"
+ok 74 - R3 should protect owner state: node -e "fs.appendFileSync('.h2a/workspace-scope/sessions.jsonl', 'x')"
+  ---
+  duration_ms: 196.611524
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: bun workspace-scope-grant.mjs --owner agent
+ok 75 - R3 should protect owner state: bun workspace-scope-grant.mjs --owner agent
+  ---
+  duration_ms: 205.767079
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: deno workspace-scope-grant.mjs --owner agent
+ok 76 - R3 should protect owner state: deno workspace-scope-grant.mjs --owner agent
+  ---
+  duration_ms: 215.553922
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: zsh workspace-scope-grant.mjs --owner agent
+ok 77 - R3 should protect owner state: zsh workspace-scope-grant.mjs --owner agent
+  ---
+  duration_ms: 205.546985
+  type: 'test'
+  ...
+# Subtest: R3 should protect owner state: npx workspace-scope-grant.mjs --owner agent
+ok 78 - R3 should protect owner state: npx workspace-scope-grant.mjs --owner agent
+  ---
+  duration_ms: 196.257398
+  type: 'test'
+  ...
+# Subtest: R3 should deny attached foreign redirections
+ok 79 - R3 should deny attached foreign redirections
+  ---
+  duration_ms: 211.927866
+  type: 'test'
+  ...
+# Subtest: R3 should inspect bracket exec envelopes
+ok 80 - R3 should inspect bracket exec envelopes
+  ---
+  duration_ms: 245.861945
+  type: 'test'
+  ...
+# Subtest: R4 should inspect repository root from a child cwd
+ok 81 - R4 should inspect repository root from a child cwd
+  ---
+  duration_ms: 264.658608
+  type: 'test'
+  ...
+# Subtest: R4 should refuse moving the version baseline
+ok 82 - R4 should refuse moving the version baseline
+  ---
+  duration_ms: 202.040574
+  type: 'test'
+  ...
+# Subtest: R4 should inspect path commits from the worktree
+ok 83 - R4 should inspect path commits from the worktree
+  ---
+  duration_ms: 229.796353
+  type: 'test'
+  ...
+# Subtest: R4 should inspect matching push refspecs
+ok 84 - R4 should inspect matching push refspecs
+  ---
+  duration_ms: 233.288506
+  type: 'test'
+  ...
+# Subtest: R4 should inspect MultiEdit versions
+ok 85 - R4 should inspect MultiEdit versions
+  ---
+  duration_ms: 209.71938
+  type: 'test'
+  ...
+# Subtest: R4 should require release authority after a foreign file grant
+ok 86 - R4 should require release authority after a foreign file grant
+  ---
+  duration_ms: 388.96298
+  type: 'test'
+  ...
+# Subtest: R5 should normalize grant fixture/foreign
+ok 87 - R5 should normalize grant fixture/foreign
+  ---
+  duration_ms: 456.058932
+  type: 'test'
+  ...
+# Subtest: R5 should normalize grant https://github.com/FIXTURE/foreign.git
+ok 88 - R5 should normalize grant https://github.com/FIXTURE/foreign.git
+  ---
+  duration_ms: 460.962743
+  type: 'test'
+  ...
+# Subtest: R5 should accept equals options
+ok 89 - R5 should accept equals options
+  ---
+  duration_ms: 220.937637
+  type: 'test'
+  ...
+# Subtest: R5 should use the startup owner key for packaged sessions
+ok 90 - R5 should use the startup owner key for packaged sessions
+  ---
+  duration_ms: 518.316728
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command git commit -m 'fix: handle $PATH'
+ok 91 - R6 should allow ordinary own command git commit -m 'fix: handle $PATH'
+  ---
+  duration_ms: 240.650885
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command git commit -m 'fix `foo`'
+ok 92 - R6 should allow ordinary own command git commit -m 'fix `foo`'
+  ---
+  duration_ms: 239.35721
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command git add --all
+ok 93 - R6 should allow ordinary own command git add --all
+  ---
+  duration_ms: 240.33495
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command git commit --all -m msg
+ok 94 - R6 should allow ordinary own command git commit --all -m msg
+  ---
+  duration_ms: 250.930095
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command node --test packages/h2a/test/publish-rehearsal.test.js
+ok 95 - R6 should allow ordinary own command node --test packages/h2a/test/publish-rehearsal.test.js
+  ---
+  duration_ms: 201.986452
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command node --test test/release-check.test.js
+ok 96 - R6 should allow ordinary own command node --test test/release-check.test.js
+  ---
+  duration_ms: 195.685061
+  type: 'test'
+  ...
+# Subtest: R6 should allow ordinary own command gh pr ready
+ok 97 - R6 should allow ordinary own command gh pr ready
+  ---
+  duration_ms: 472.356893
+  type: 'test'
+  ...
+# Subtest: T4 should request explicit form for dynamic own command git commit -m "$(cat <<'EOF'\\nfix: handle $PATH\\nEOF\\n)"
+ok 98 - T4 should request explicit form for dynamic own command git commit -m "$(cat <<'EOF'\\nfix: handle $PATH\\nEOF\\n)"
+  ---
+  duration_ms: 213.639418
+  type: 'test'
+  ...
+# Subtest: T4 should request explicit form for dynamic own command tmp=$(mktemp -d); HOME=$tmp npm run build
+ok 99 - T4 should request explicit form for dynamic own command tmp=$(mktemp -d); HOME=$tmp npm run build
+  ---
+  duration_ms: 182.595942
+  type: 'test'
+  ...
+# Subtest: R6 should allow foreign branch reads --show-current
+ok 100 - R6 should allow foreign branch reads --show-current
+  ---
+  duration_ms: 191.586966
+  type: 'test'
+  ...
+# Subtest: R6 should allow foreign branch reads --contains
+ok 101 - R6 should allow foreign branch reads --contains
+  ---
+  duration_ms: 208.851936
+  type: 'test'
+  ...
+# Subtest: R6 should allow foreign branch reads --merged
+ok 102 - R6 should allow foreign branch reads --merged
+  ---
+  duration_ms: 195.977912
+  type: 'test'
+  ...
+# Subtest: R6 should allow foreign branch reads --no-merged
+ok 103 - R6 should allow foreign branch reads --no-merged
+  ---
+  duration_ms: 210.010457
+  type: 'test'
+  ...
+# Subtest: R6 should allow foreign branch reads --color
+ok 104 - R6 should allow foreign branch reads --color
+  ---
+  duration_ms: 189.273061
+  type: 'test'
+  ...
+# Subtest: R6 should support literal patch envelope template
+ok 105 - R6 should support literal patch envelope template
+  ---
+  duration_ms: 350.763543
+  type: 'test'
+  ...
+# Subtest: R6 should support literal patch envelope object
+ok 106 - R6 should support literal patch envelope object
+  ---
+  duration_ms: 363.331451
+  type: 'test'
+  ...
+# Subtest: R7 should expose exact grant selectors in stdout and stderr
+ok 107 - R7 should expose exact grant selectors in stdout and stderr
+  ---
+  duration_ms: 200.562893
+  type: 'test'
+  ...
+# Subtest: R5 should bind each Vibe native session once in the profile and reject cwd rebinding
+ok 108 - R5 should bind each Vibe native session once in the profile and reject cwd rebinding
+  ---
+  duration_ms: 729.123273
+  type: 'test'
+  ...
+# Subtest: R2 should resolve executable heredocs and substitutions in their actual command cwd
+ok 109 - R2 should resolve executable heredocs and substitutions in their actual command cwd
+  ---
+  duration_ms: 378.400116
+  type: 'test'
+  ...
+# Subtest: R3 should reject dynamic redirection destinations and indirect tool references
+ok 110 - R3 should reject dynamic redirection destinations and indirect tool references
+  ---
+  duration_ms: 708.498109
+  type: 'test'
+  ...
+# Subtest: R4 should preserve the version baseline when a local main branch moves
+ok 111 - R4 should preserve the version baseline when a local main branch moves
+  ---
+  duration_ms: 392.09163
+  type: 'test'
+  ...
+# Subtest: R1/R5 should enforce own, foreign, signed grants and bumps for claude
+ok 112 - R1/R5 should enforce own, foreign, signed grants and bumps for claude
+  ---
+  duration_ms: 846.27366
+  type: 'test'
+  ...
+# Subtest: R1/R5 should enforce own, foreign, signed grants and bumps for codex
+ok 113 - R1/R5 should enforce own, foreign, signed grants and bumps for codex
+  ---
+  duration_ms: 842.382425
+  type: 'test'
+  ...
+# Subtest: R1/R5 should enforce own, foreign, signed grants and bumps for agy
+ok 114 - R1/R5 should enforce own, foreign, signed grants and bumps for agy
+  ---
+  duration_ms: 819.118582
+  type: 'test'
+  ...
+# Subtest: R1/R5 should enforce own, foreign, signed grants and bumps for muse
+ok 115 - R1/R5 should enforce own, foreign, signed grants and bumps for muse
+  ---
+  duration_ms: 836.747067
+  type: 'test'
+  ...
+# Subtest: R1/R5 should enforce own, foreign, signed grants and bumps for vibe
+ok 116 - R1/R5 should enforce own, foreign, signed grants and bumps for vibe
+  ---
+  duration_ms: 836.002074
+  type: 'test'
+  ...
+# Subtest: R1/R5 should enforce own, foreign, signed grants and bumps for gemini
+ok 117 - R1/R5 should enforce own, foreign, signed grants and bumps for gemini
+  ---
+  duration_ms: 868.172592
+  type: 'test'
+  ...
+# Subtest: R5 should authorize grants through the actual packaged claude hooks
+ok 118 - R5 should authorize grants through the actual packaged claude hooks
+  ---
+  duration_ms: 340.335233
+  type: 'test'
+  ...
+# Subtest: R5 should authorize grants through the actual packaged codex hooks
+ok 119 - R5 should authorize grants through the actual packaged codex hooks
+  ---
+  duration_ms: 360.208342
+  type: 'test'
+  ...
+# Subtest: R2 should preserve cwd and environment across wrappers and subshells
+ok 120 - R2 should preserve cwd and environment across wrappers and subshells
+  ---
+  duration_ms: 516.942811
+  type: 'test'
+  ...
+# Subtest: R6 should keep release scripts gated when a test-looking argument follows the script
+ok 121 - R6 should keep release scripts gated when a test-looking argument follows the script
+  ---
+  duration_ms: 204.824485
+  type: 'test'
+  ...
+# Subtest: R1/R4 should inspect native agy replacement chunks and protected file writes
+ok 122 - R1/R4 should inspect native agy replacement chunks and protected file writes
+  ---
+  duration_ms: 370.517829
+  type: 'test'
+  ...
+# Subtest: R3 should reject spread members in Codex command objects
+ok 123 - R3 should reject spread members in Codex command objects
+  ---
+  duration_ms: 192.133435
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for brace group
+ok 124 - T3 R2 should fail closed for brace group
+  ---
+  duration_ms: 218.723038
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for if
+ok 125 - T3 R2 should fail closed for if
+  ---
+  duration_ms: 207.130576
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for for
+ok 126 - T3 R2 should fail closed for for
+  ---
+  duration_ms: 204.538507
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for while
+ok 127 - T3 R2 should fail closed for while
+  ---
+  duration_ms: 210.561284
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for until
+ok 128 - T3 R2 should fail closed for until
+  ---
+  duration_ms: 195.621982
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for !
+ok 129 - T3 R2 should fail closed for !
+  ---
+  duration_ms: 229.573553
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for time
+ok 130 - T3 R2 should fail closed for time
+  ---
+  duration_ms: 208.581777
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for nice
+ok 131 - T3 R2 should fail closed for nice
+  ---
+  duration_ms: 237.77385
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for nice -n 2
+ok 132 - T3 R2 should fail closed for nice -n 2
+  ---
+  duration_ms: 226.507682
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for timeout 10
+ok 133 - T3 R2 should fail closed for timeout 10
+  ---
+  duration_ms: 225.990959
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for timeout -s TERM 10
+ok 134 - T3 R2 should fail closed for timeout -s TERM 10
+  ---
+  duration_ms: 229.349872
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for stdbuf -oL
+ok 135 - T3 R2 should fail closed for stdbuf -oL
+  ---
+  duration_ms: 214.216795
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for setsid
+ok 136 - T3 R2 should fail closed for setsid
+  ---
+  duration_ms: 237.391971
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for command --
+ok 137 - T3 R2 should fail closed for command --
+  ---
+  duration_ms: 215.079359
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for builtin
+ok 138 - T3 R2 should fail closed for builtin
+  ---
+  duration_ms: 222.094314
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for builtin cd
+ok 139 - T3 R2 should fail closed for builtin cd
+  ---
+  duration_ms: 225.265844
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for function parens
+ok 140 - T3 R2 should fail closed for function parens
+  ---
+  duration_ms: 225.072821
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for case parens
+ok 141 - T3 R2 should fail closed for case parens
+  ---
+  duration_ms: 224.087536
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for negated subshell
+ok 142 - T3 R2 should fail closed for negated subshell
+  ---
+  duration_ms: 210.405291
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for comment parens
+ok 143 - T3 R2 should fail closed for comment parens
+  ---
+  duration_ms: 241.406037
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for cd oldpwd
+ok 144 - T3 R2 should fail closed for cd oldpwd
+  ---
+  duration_ms: 239.89905
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for cd home
+ok 145 - T3 R2 should fail closed for cd home
+  ---
+  duration_ms: 218.318777
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for pushd swap
+ok 146 - T3 R2 should fail closed for pushd swap
+  ---
+  duration_ms: 233.985578
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for git continuation
+ok 147 - T3 R2 should fail closed for git continuation
+  ---
+  duration_ms: 209.330097
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for gh continuation
+ok 148 - T3 R2 should fail closed for gh continuation
+  ---
+  duration_ms: 209.394317
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for eval
+ok 149 - T3 R2 should fail closed for eval
+  ---
+  duration_ms: 198.464703
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for eval cwd state
+ok 150 - T3 R2 should fail closed for eval cwd state
+  ---
+  duration_ms: 207.401947
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for export repo state
+ok 151 - T3 R2 should fail closed for export repo state
+  ---
+  duration_ms: 204.616563
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for readonly repo state
+ok 152 - T3 R2 should fail closed for readonly repo state
+  ---
+  duration_ms: 192.090764
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for conditional cwd reset
+ok 153 - T3 R2 should fail closed for conditional cwd reset
+  ---
+  duration_ms: 254.348249
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for conditional repo reset
+ok 154 - T3 R2 should fail closed for conditional repo reset
+  ---
+  duration_ms: 212.494022
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for brace expansion subcommand
+ok 155 - T3 R2 should fail closed for brace expansion subcommand
+  ---
+  duration_ms: 215.730063
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for here string
+ok 156 - T3 R2 should fail closed for here string
+  ---
+  duration_ms: 203.102674
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for pipeline stdin
+ok 157 - T3 R2 should fail closed for pipeline stdin
+  ---
+  duration_ms: 215.411454
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for pipeline stage cwd
+ok 158 - T3 R2 should fail closed for pipeline stage cwd
+  ---
+  duration_ms: 249.300528
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for pipeline nested cwd
+ok 159 - T3 R2 should fail closed for pipeline nested cwd
+  ---
+  duration_ms: 226.273972
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for quoted shell heredoc
+ok 160 - T3 R2 should fail closed for quoted shell heredoc
+  ---
+  duration_ms: 197.402924
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for -ce
+ok 161 - T3 R2 should fail closed for -ce
+  ---
+  duration_ms: 192.439782
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for -cu
+ok 162 - T3 R2 should fail closed for -cu
+  ---
+  duration_ms: 204.097526
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for -cx
+ok 163 - T3 R2 should fail closed for -cx
+  ---
+  duration_ms: 201.508874
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for variable executable
+ok 164 - T3 R2 should fail closed for variable executable
+  ---
+  duration_ms: 191.983783
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for git dir over worktree
+ok 165 - T3 R2 should fail closed for git dir over worktree
+  ---
+  duration_ms: 222.412904
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for git dir over C
+ok 166 - T3 R2 should fail closed for git dir over C
+  ---
+  duration_ms: 211.721858
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for git attr source
+ok 167 - T3 R2 should fail closed for git attr source
+  ---
+  duration_ms: 230.857029
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for remote mutation before push
+ok 168 - T3 R2 should fail closed for remote mutation before push
+  ---
+  duration_ms: 213.655569
+  type: 'test'
+  ...
+# Subtest: T3 R2 should gate release { npm publish; }
+ok 169 - T3 R2 should gate release { npm publish; }
+  ---
+  duration_ms: 241.978204
+  type: 'test'
+  ...
+# Subtest: T3 R2 should gate release npm \\\\n publish
+ok 170 - T3 R2 should gate release npm \\\\n publish
+  ---
+  duration_ms: 230.185385
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from { rm -rf .h2a/workspace-scope; }
+ok 171 - T3 R3 should protect trust from { rm -rf .h2a/workspace-scope; }
+  ---
+  duration_ms: 214.787148
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from { node workspace-scope-grant.mjs --owner x; }
+ok 172 - T3 R3 should protect trust from { node workspace-scope-grant.mjs --owner x; }
+  ---
+  duration_ms: 215.038181
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from node --eval="fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+ok 173 - T3 R3 should protect trust from node --eval="fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+  ---
+  duration_ms: 207.322117
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from node -e"fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+ok 174 - T3 R3 should protect trust from node -e"fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+  ---
+  duration_ms: 213.878418
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from node --print="fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+ok 175 - T3 R3 should protect trust from node --print="fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+  ---
+  duration_ms: 207.790869
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from node -p"fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+ok 176 - T3 R3 should protect trust from node -p"fs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')"
+  ---
+  duration_ms: 193.942159
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from true;node <<'EOF'\\nfs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')\\nEOF
+ok 177 - T3 R3 should protect trust from true;node <<'EOF'\\nfs.appendFileSync('.h2a/workspace-scope/grants.jsonl','x')\\nEOF
+  ---
+  duration_ms: 198.779917
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from cp -t .h2a/workspace-scope package.json
+ok 178 - T3 R3 should protect trust from cp -t .h2a/workspace-scope package.json
+  ---
+  duration_ms: 206.457609
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from cp --target-directory=.h2a/workspace-scope package.json
+ok 179 - T3 R3 should protect trust from cp --target-directory=.h2a/workspace-scope package.json
+  ---
+  duration_ms: 197.80906
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from dd of=.h2a/workspace-scope/grants.jsonl
+ok 180 - T3 R3 should protect trust from dd of=.h2a/workspace-scope/grants.jsonl
+  ---
+  duration_ms: 182.643922
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from ln -sf package.json .h2a/workspace-scope/grants.jsonl
+ok 181 - T3 R3 should protect trust from ln -sf package.json .h2a/workspace-scope/grants.jsonl
+  ---
+  duration_ms: 201.658745
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from git clean -fdx .h2a/workspace-scope
+ok 182 - T3 R3 should protect trust from git clean -fdx .h2a/workspace-scope
+  ---
+  duration_ms: 233.132933
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from git clean -fdx
+ok 183 - T3 R3 should protect trust from git clean -fdx
+  ---
+  duration_ms: 193.8841
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect trust from git apply forged.diff
+ok 184 - T3 R3 should protect trust from git apply forged.diff
+  ---
+  duration_ms: 196.736811
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect project hook .muse/hooks.json
+ok 185 - T3 R3 should protect project hook .muse/hooks.json
+  ---
+  duration_ms: 210.923676
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect project hook .muse/.h2a-scope-install/manifest.json
+ok 186 - T3 R3 should protect project hook .muse/.h2a-scope-install/manifest.json
+  ---
+  duration_ms: 201.181989
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect project hook .claude/settings.json
+ok 187 - T3 R3 should protect project hook .claude/settings.json
+  ---
+  duration_ms: 237.262767
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect project hook .agents/hooks.json
+ok 188 - T3 R3 should protect project hook .agents/hooks.json
+  ---
+  duration_ms: 201.802306
+  type: 'test'
+  ...
+# Subtest: T3 R3 should protect project hook .vibe/hooks.toml
+ok 189 - T3 R3 should protect project hook .vibe/hooks.toml
+  ---
+  duration_ms: 200.063102
+  type: 'test'
+  ...
+# Subtest: T3 R3 should reject tool aliases and computed property names
+ok 190 - T3 R3 should reject tool aliases and computed property names
+  ---
+  duration_ms: 332.714336
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit --author "A <a@b.c>"
+ok 191 - T3 R4 should inspect the index with commit --author "A <a@b.c>"
+  ---
+  duration_ms: 225.506467
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit --date yesterday
+ok 192 - T3 R4 should inspect the index with commit --date yesterday
+  ---
+  duration_ms: 215.516091
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit -F message.txt
+ok 193 - T3 R4 should inspect the index with commit -F message.txt
+  ---
+  duration_ms: 204.569766
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit -C HEAD
+ok 194 - T3 R4 should inspect the index with commit -C HEAD
+  ---
+  duration_ms: 226.19845
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit -c HEAD
+ok 195 - T3 R4 should inspect the index with commit -c HEAD
+  ---
+  duration_ms: 231.849778
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit --cleanup strip
+ok 196 - T3 R4 should inspect the index with commit --cleanup strip
+  ---
+  duration_ms: 216.448647
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect the index with commit --trailer "X: y"
+ok 197 - T3 R4 should inspect the index with commit --trailer "X: y"
+  ---
+  duration_ms: 202.735012
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect every pushed ref with --branches
+ok 198 - T3 R4 should inspect every pushed ref with --branches
+  ---
+  duration_ms: 276.188873
+  type: 'test'
+  ...
+# Subtest: T3 R4 should inspect every pushed ref with --tags
+ok 199 - T3 R4 should inspect every pushed ref with --tags
+  ---
+  duration_ms: 244.222499
+  type: 'test'
+  ...
+# Subtest: T3 R4 should select exact manifest patch sections in a monorepo
+ok 200 - T3 R4 should select exact manifest patch sections in a monorepo
+  ---
+  duration_ms: 228.336685
+  type: 'test'
+  ...
+# Subtest: T3 R4 should honor agy line ranges false
+ok 201 - T3 R4 should honor agy line ranges false
+  ---
+  duration_ms: 197.882858
+  type: 'test'
+  ...
+# Subtest: T3 R4 should honor agy line ranges true
+ok 202 - T3 R4 should honor agy line ranges true
+  ---
+  duration_ms: 189.154768
+  type: 'test'
+  ...
+# Subtest: T3 R5 should allow tool names in JS strings and comments apply_patch
+ok 203 - T3 R5 should allow tool names in JS strings and comments apply_patch
+  ---
+  duration_ms: 505.272433
+  type: 'test'
+  ...
+# Subtest: T3 R5 should allow tool names in JS strings and comments exec_command
+ok 204 - T3 R5 should allow tool names in JS strings and comments exec_command
+  ---
+  duration_ms: 521.245561
+  type: 'test'
+  ...
+# Subtest: T3 matrix should enforce the reviewed shell and trust boundary on claude
+ok 205 - T3 matrix should enforce the reviewed shell and trust boundary on claude
+  ---
+  duration_ms: 9326.397624
+  type: 'test'
+  ...
+# Subtest: T3 matrix should enforce the reviewed shell and trust boundary on codex
+ok 206 - T3 matrix should enforce the reviewed shell and trust boundary on codex
+  ---
+  duration_ms: 9120.012772
+  type: 'test'
+  ...
+# Subtest: T3 matrix should enforce the reviewed shell and trust boundary on agy
+ok 207 - T3 matrix should enforce the reviewed shell and trust boundary on agy
+  ---
+  duration_ms: 9075.051927
+  type: 'test'
+  ...
+# Subtest: T3 matrix should enforce the reviewed shell and trust boundary on muse
+ok 208 - T3 matrix should enforce the reviewed shell and trust boundary on muse
+  ---
+  duration_ms: 9103.633649
+  type: 'test'
+  ...
+# Subtest: T3 matrix should enforce the reviewed shell and trust boundary on vibe
+ok 209 - T3 matrix should enforce the reviewed shell and trust boundary on vibe
+  ---
+  duration_ms: 9855.948059
+  type: 'test'
+  ...
+# Subtest: T3 R3 should reject reflective and escaped JS capabilities
+ok 210 - T3 R3 should reject reflective and escaped JS capabilities
+  ---
+  duration_ms: 344.975488
+  type: 'test'
+  ...
+# Subtest: T3 R2 should fail closed for unknown wrapper option operands
+ok 211 - T3 R2 should fail closed for unknown wrapper option operands
+  ---
+  duration_ms: 503.953901
+  type: 'test'
+  ...
+# Subtest: T3 R3 should not let git apply inspection flags authorize writes
+ok 212 - T3 R3 should not let git apply inspection flags authorize writes
+  ---
+  duration_ms: 638.988983
+  type: 'test'
+  ...
+# Subtest: T3 R3 should decode JS escapes before classifying commands: '
+ok 213 - T3 R3 should decode JS escapes before classifying commands: '
+  ---
+  duration_ms: 246.524242
+  type: 'test'
+  ...
+# Subtest: T3 R3 should decode JS escapes before classifying commands: `
+ok 214 - T3 R3 should decode JS escapes before classifying commands: `
+  ---
+  duration_ms: 208.610381
+  type: 'test'
+  ...
+# Subtest: T3 R2 should not erase the initial foreign cwd after a skipped cd
+ok 215 - T3 R2 should not erase the initial foreign cwd after a skipped cd
+  ---
+  duration_ms: 230.988987
+  type: 'test'
+  ...
+# Subtest: T3 R5 should allow own command data without treating it as shell state: true && NODE_ENV=production npm run build
+ok 216 - T3 R5 should allow own command data without treating it as shell state: true && NODE_ENV=production npm run build
+  ---
+  duration_ms: 218.344646
+  type: 'test'
+  ...
+# Subtest: T3 R5 should allow own command data without treating it as shell state: true && git commit -m cd
+ok 217 - T3 R5 should allow own command data without treating it as shell state: true && git commit -m cd
+  ---
+  duration_ms: 229.731049
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: comment heredoc
+ok 218 - T4 should refuse uncertainty: comment heredoc
+  ---
+  duration_ms: 214.811975
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: quoted heredoc
+ok 219 - T4 should refuse uncertainty: quoted heredoc
+  ---
+  duration_ms: 211.395765
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: comment trust heredoc
+ok 220 - T4 should refuse uncertainty: comment trust heredoc
+  ---
+  duration_ms: 203.129605
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: sh options
+ok 221 - T4 should refuse uncertainty: sh options
+  ---
+  duration_ms: 201.851809
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: bash options
+ok 222 - T4 should refuse uncertainty: bash options
+  ---
+  duration_ms: 196.25844
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin sh -s arg
+ok 223 - T4 should refuse uncertainty: stdin sh -s arg
+  ---
+  duration_ms: 197.183492
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin sh /dev/stdin
+ok 224 - T4 should refuse uncertainty: stdin sh /dev/stdin
+  ---
+  duration_ms: 199.526642
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin sh /proc/self/fd/0
+ok 225 - T4 should refuse uncertainty: stdin sh /proc/self/fd/0
+  ---
+  duration_ms: 197.29956
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin node
+ok 226 - T4 should refuse uncertainty: stdin node
+  ---
+  duration_ms: 187.869058
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin bun
+ok 227 - T4 should refuse uncertainty: stdin bun
+  ---
+  duration_ms: 187.363567
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin tsx
+ok 228 - T4 should refuse uncertainty: stdin tsx
+  ---
+  duration_ms: 182.916084
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: stdin ts-node
+ok 229 - T4 should refuse uncertainty: stdin ts-node
+  ---
+  duration_ms: 211.51537
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: deno eval
+ok 230 - T4 should refuse uncertainty: deno eval
+  ---
+  duration_ms: 222.663846
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: ts heredoc
+ok 231 - T4 should refuse uncertainty: ts heredoc
+  ---
+  duration_ms: 234.164404
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable git
+ok 232 - T4 should refuse uncertainty: variable git
+  ---
+  duration_ms: 215.470425
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: $"push"
+ok 233 - T4 should refuse uncertainty: $"push"
+  ---
+  duration_ms: 213.781115
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: $'push'
+ok 234 - T4 should refuse uncertainty: $'push'
+  ---
+  duration_ms: 209.599163
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: $(echo push)
+ok 235 - T4 should refuse uncertainty: $(echo push)
+  ---
+  duration_ms: 204.20589
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable gh
+ok 236 - T4 should refuse uncertainty: variable gh
+  ---
+  duration_ms: 207.554985
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable npm
+ok 237 - T4 should refuse uncertainty: variable npm
+  ---
+  duration_ms: 204.21078
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable shell flag
+ok 238 - T4 should refuse uncertainty: variable shell flag
+  ---
+  duration_ms: 199.17964
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable trust path
+ok 239 - T4 should refuse uncertainty: variable trust path
+  ---
+  duration_ms: 213.26274
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable foreign path
+ok 240 - T4 should refuse uncertainty: variable foreign path
+  ---
+  duration_ms: 227.716648
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable helper
+ok 241 - T4 should refuse uncertainty: variable helper
+  ---
+  duration_ms: 205.965543
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable eval
+ok 242 - T4 should refuse uncertainty: variable eval
+  ---
+  duration_ms: 200.995017
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: variable executable directory
+ok 243 - T4 should refuse uncertainty: variable executable directory
+  ---
+  duration_ms: 207.026901
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: conflicting git selectors
+ok 244 - T4 should refuse uncertainty: conflicting git selectors
+  ---
+  duration_ms: 212.889717
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: remote flags
+ok 245 - T4 should refuse uncertainty: remote flags
+  ---
+  duration_ms: 204.95958
+  type: 'test'
+  ...
+# Subtest: T4 should refuse uncertainty: send-pack
+ok 246 - T4 should refuse uncertainty: send-pack
+  ---
+  duration_ms: 194.274325
+  type: 'test'
+  ...
+# Subtest: T4 should protect explicit trust destination: cp package.json .h2a/workspace-scope/grants.jsonl -S .bak
+ok 247 - T4 should protect explicit trust destination: cp package.json .h2a/workspace-scope/grants.jsonl -S .bak
+  ---
+  duration_ms: 208.530651
+  type: 'test'
+  ...
+# Subtest: T4 should protect explicit trust destination: install package.json .h2a/workspace-scope/grants.jsonl -m 600
+ok 248 - T4 should protect explicit trust destination: install package.json .h2a/workspace-scope/grants.jsonl -m 600
+  ---
+  duration_ms: 257.984384
+  type: 'test'
+  ...
+# Subtest: T4 should protect explicit trust destination: ln -sf package.json .h2a/workspace-scope/grants.jsonl -S .bak
+ok 249 - T4 should protect explicit trust destination: ln -sf package.json .h2a/workspace-scope/grants.jsonl -S .bak
+  ---
+  duration_ms: 197.961476
+  type: 'test'
+  ...
+# Subtest: T4 should protect explicit trust destination: git clean -fdx -- .h2a/workspace-scope -n
+ok 250 - T4 should protect explicit trust destination: git clean -fdx -- .h2a/workspace-scope -n
+  ---
+  duration_ms: 208.23241
+  type: 'test'
+  ...
+# Subtest: T4 should protect foreign git restore .
+ok 251 - T4 should protect foreign git restore .
+  ---
+  duration_ms: 199.603387
+  type: 'test'
+  ...
+# Subtest: T4 should protect foreign git worktree remove wt
+ok 252 - T4 should protect foreign git worktree remove wt
+  ---
+  duration_ms: 197.370704
+  type: 'test'
+  ...
+# Subtest: T4 should protect foreign git config --unset user.name
+ok 253 - T4 should protect foreign git config --unset user.name
+  ---
+  duration_ms: 209.492662
+  type: 'test'
+  ...
+# Subtest: T4 should parse JS object comments // }\\n
+ok 254 - T4 should parse JS object comments // }\\n
+  ---
+  duration_ms: 201.011738
+  type: 'test'
+  ...
+# Subtest: T4 should parse JS object comments /* } */
+ok 255 - T4 should parse JS object comments /* } */
+  ---
+  duration_ms: 184.414425
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own operation: cp package.json .
+ok 256 - T4 should allow explicit own operation: cp package.json .
+  ---
+  duration_ms: 205.837783
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own operation: mv sub/file.txt .
+ok 257 - T4 should allow explicit own operation: mv sub/file.txt .
+  ---
+  duration_ms: 186.852764
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own operation: mkdir -p .
+ok 258 - T4 should allow explicit own operation: mkdir -p .
+  ---
+  duration_ms: 189.670999
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own operation: git status && cd . && git status
+ok 259 - T4 should allow explicit own operation: git status && cd . && git status
+  ---
+  duration_ms: 204.57239
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own operation: mkdir -p build && cd build && npm test
+ok 260 - T4 should allow explicit own operation: mkdir -p build && cd build && npm test
+  ---
+  duration_ms: 225.965221
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own operation: git status && cd sub && git push origin HEAD:feat/test
+ok 261 - T4 should allow explicit own operation: git status && cd sub && git push origin HEAD:feat/test
+  ---
+  duration_ms: 238.639169
+  type: 'test'
+  ...
+# Subtest: T4 should allow double quoted JS escape \\'
+ok 262 - T4 should allow double quoted JS escape \\'
+  ---
+  duration_ms: 195.632472
+  type: 'test'
+  ...
+# Subtest: T4 should allow double quoted JS escape \\x66
+ok 263 - T4 should allow double quoted JS escape \\x66
+  ---
+  duration_ms: 211.855991
+  type: 'test'
+  ...
+# Subtest: T4 should allow double quoted JS escape \\u0066
+ok 264 - T4 should allow double quoted JS escape \\u0066
+  ---
+  duration_ms: 213.241189
+  type: 'test'
+  ...
+# Subtest: T4 should allow double quoted JS escape \\v
+ok 265 - T4 should allow double quoted JS escape \\v
+  ---
+  duration_ms: 214.191688
+  type: 'test'
+  ...
+# Subtest: T4 should allow double quoted JS escape \\0
+ok 266 - T4 should allow double quoted JS escape \\0
+  ---
+  duration_ms: 217.716363
+  type: 'test'
+  ...
+# Subtest: T4 should allow double quoted JS escape \\\\n
+ok 267 - T4 should allow double quoted JS escape \\\\n
+  ---
+  duration_ms: 214.660671
+  type: 'test'
+  ...
+# Subtest: T4 should inspect explicit push refspecs together with tags
+ok 268 - T4 should inspect explicit push refspecs together with tags
+  ---
+  duration_ms: 226.215842
+  type: 'test'
+  ...
+# Subtest: T4 should diff full proposed manifest for patch false
+ok 269 - T4 should diff full proposed manifest for patch false
+  ---
+  duration_ms: 227.392307
+  type: 'test'
+  ...
+# Subtest: T4 should diff full proposed manifest for patch true
+ok 270 - T4 should diff full proposed manifest for patch true
+  ---
+  duration_ms: 225.304457
+  type: 'test'
+  ...
+# Subtest: T4 should retain baseline publication after private toggle: Write
+ok 271 - T4 should retain baseline publication after private toggle: Write
+  ---
+  duration_ms: 377.129114
+  type: 'test'
+  ...
+# Subtest: T4 should retain baseline publication after private toggle: Edit
+ok 272 - T4 should retain baseline publication after private toggle: Edit
+  ---
+  duration_ms: 379.208227
+  type: 'test'
+  ...
+# Subtest: T4 should retain baseline publication after private toggle: apply_patch
+ok 273 - T4 should retain baseline publication after private toggle: apply_patch
+  ---
+  duration_ms: 386.454869
+  type: 'test'
+  ...
+# Subtest: T4 should retain baseline publication after private toggle: npm
+ok 274 - T4 should retain baseline publication after private toggle: npm
+  ---
+  duration_ms: 415.377263
+  type: 'test'
+  ...
+# Subtest: T4 should refuse an unbound session before writing its baseline
+ok 275 - T4 should refuse an unbound session before writing its baseline
+  ---
+  duration_ms: 190.199965
+  type: 'test'
+  ...
+# Subtest: T4 should refuse symlink uncertainty: git -C own-link push
+ok 276 - T4 should refuse symlink uncertainty: git -C own-link push
+  ---
+  duration_ms: 246.049638
+  type: 'test'
+  ...
+# Subtest: T4 should refuse symlink uncertainty: cd own-link && git push
+ok 277 - T4 should refuse symlink uncertainty: cd own-link && git push
+  ---
+  duration_ms: 247.128209
+  type: 'test'
+  ...
+# Subtest: T4 should refuse symlink uncertainty: touch own-link/new-file
+ok 278 - T4 should refuse symlink uncertainty: touch own-link/new-file
+  ---
+  duration_ms: 234.552094
+  type: 'test'
+  ...
+# Subtest: T4 should refuse symlink uncertainty: echo ok > own-link/new-file
+ok 279 - T4 should refuse symlink uncertainty: echo ok > own-link/new-file
+  ---
+  duration_ms: 246.044498
+  type: 'test'
+  ...
+# Subtest: T4 should refuse symlink uncertainty: GIT_WORK_TREE=own-link git push
+ok 280 - T4 should refuse symlink uncertainty: GIT_WORK_TREE=own-link git push
+  ---
+  duration_ms: 249.832569
+  type: 'test'
+  ...
+# Subtest: T4 should check both own cwd alternatives before a relative git selector
+ok 281 - T4 should check both own cwd alternatives before a relative git selector
+  ---
+  duration_ms: 255.011027
+  type: 'test'
+  ...
+# Subtest: T4 should compare full PR manifests with a multiline version value
+ok 282 - T4 should compare full PR manifests with a multiline version value
+  ---
+  duration_ms: 708.515221
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: git push origin --all
+ok 283 - T4 should allow explicit own protected action: git push origin --all
+  ---
+  duration_ms: 263.146761
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: git merge main
+ok 284 - T4 should allow explicit own protected action: git merge main
+  ---
+  duration_ms: 245.958296
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: git tag local-test
+ok 285 - T4 should allow explicit own protected action: git tag local-test
+  ---
+  duration_ms: 229.904226
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: git branch -D old
+ok 286 - T4 should allow explicit own protected action: git branch -D old
+  ---
+  duration_ms: 209.897305
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: git rebase main && git push origin HEAD:feat/test
+ok 287 - T4 should allow explicit own protected action: git rebase main && git push origin HEAD:feat/test
+  ---
+  duration_ms: 258.135859
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: gh pr close 327
+ok 288 - T4 should allow explicit own protected action: gh pr close 327
+  ---
+  duration_ms: 235.261941
+  type: 'test'
+  ...
+# Subtest: T4 should allow explicit own protected action: gh pr review 327 --approve
+ok 289 - T4 should allow explicit own protected action: gh pr review 327 --approve
+  ---
+  duration_ms: 235.88313
+  type: 'test'
+  ...
+# Subtest: T4 should refuse a native symlink cwd
+ok 290 - T4 should refuse a native symlink cwd
+  ---
+  duration_ms: 243.897948
+  type: 'test'
+  ...
+# Subtest: T4 should refuse a native symlink file
+ok 291 - T4 should refuse a native symlink file
+  ---
+  duration_ms: 223.224621
+  type: 'test'
+  ...
+# Subtest: T4 should retain uncertainty across destination resolution: env -C own-link git push
+ok 292 - T4 should retain uncertainty across destination resolution: env -C own-link git push
+  ---
+  duration_ms: 249.904144
+  type: 'test'
+  ...
+# Subtest: T4 should retain uncertainty across destination resolution: npm --prefix own-link publish
+ok 293 - T4 should retain uncertainty across destination resolution: npm --prefix own-link publish
+  ---
+  duration_ms: 248.513275
+  type: 'test'
+  ...
+# Subtest: T4 should retain uncertainty across destination resolution: cp sub/file.txt .
+ok 294 - T4 should retain uncertainty across destination resolution: cp sub/file.txt .
+  ---
+  duration_ms: 236.601963
+  type: 'test'
+  ...
+1..294
+# tests 294
+# suites 0
+# pass 294
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 131819.837223
