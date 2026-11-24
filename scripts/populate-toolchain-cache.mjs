@@ -16,11 +16,18 @@
 // resumable ranges and its sha256 must match scripts/release/
 // native-toolchain.lock.json exactly, or the run fails explicitly.
 import fs from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { downloadWithResume } from './mh-l5-artifacts.mjs';
 
-const cacheDir = process.env.H2A_TOOLCHAIN_CACHE_DIR;
+// Normalize a leading ~/ (workflow `env:` values are literal strings: only
+// the shell and actions/cache expand ~, node never does). Without this the
+// download lands under <cwd>/~/... while restore/save look at $HOME.
+const rawCacheDir = process.env.H2A_TOOLCHAIN_CACHE_DIR || null;
+const cacheDir = rawCacheDir == null ? null
+  : rawCacheDir.startsWith('~/') ? join(homedir(), rawCacheDir.slice(2))
+  : rawCacheDir;
 if (!cacheDir) {
   process.stderr.write('toolchain-cache: H2A_TOOLCHAIN_CACHE_DIR is required\n');
   process.exitCode = 2;

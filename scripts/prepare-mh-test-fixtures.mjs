@@ -1,5 +1,6 @@
 // Public immutable inputs, private roots, no installation lifecycle scripts.
 import fs from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -73,7 +74,12 @@ try {
   // the lock-file hash in the workflow; a cache hit never hits the network,
   // the sha256 integrity check stays on both paths, and a miss that fails
   // stays an explicit fixture_download_failed.
-  const toolchainCacheDir = process.env.H2A_TOOLCHAIN_CACHE_DIR || null;
+  const rawCacheDir = process.env.H2A_TOOLCHAIN_CACHE_DIR || null;
+  // Normalize a leading ~/ (workflow `env:` values are literal: only the
+  // shell and actions/cache expand ~, node never does).
+  const toolchainCacheDir = rawCacheDir == null ? null
+    : rawCacheDir.startsWith('~/') ? join(homedir(), rawCacheDir.slice(2))
+    : rawCacheDir;
   // Best-effort: the unsandboxed populate step guarantees the dir in CI; a
   // read-only sandbox bind must never turn a usable cache into a crash.
   if (toolchainCacheDir) {
