@@ -36,8 +36,9 @@ import {
   type RemoteCliConfig,
 } from "../config.js";
 import type { HostViewSnapshot } from "../launch-layout.js";
-import { loadRegistry, type RegistryEntry } from "../registry.js";
+import { loadRegistry, type RawRow, type RegistryEntry } from "../registry.js";
 import {
+  discoverSessions,
   isRestorableDiscoveredSession,
   managedLiveLookupFromSnapshot,
   readConversationCustomTitle,
@@ -46,6 +47,16 @@ import {
   type DiscoveredSession,
   type LegacySessionEvidence,
 } from "../restore.js";
+import {
+  buildRestorePlan,
+  decideLayoutTab,
+  planLayoutLaunch,
+  resumeArgvVerified,
+  tabRunInvocation,
+  type LayoutTab,
+  type RestorePlanResult,
+  type TabLaunchDecision,
+} from "../restore-plan.js";
 import {
   projectDelegatedExecutions,
   readMcpAttestationsFromStore,
@@ -70,6 +81,7 @@ import {
   type RightPanelDraftCapabilityState,
   type RightPanelDraftRecoveryState,
   type RightPanelProjectDecisionsDegraded,
+  type RightPanelRestorableRow,
   type RightPanelSession,
   type RightPanelSessionStatus,
   type RightPanelSnapshot,
@@ -789,6 +801,8 @@ export type PanelLiveSession = Readonly<{
   status: RightPanelSessionStatus;
   displayedHere: boolean;
   controlledElsewhere: boolean;
+  /** S2: the registry `convId` equals the plan-resolved `sid`. */
+  resumeConversationVerified?: boolean | undefined;
   compatGuard: boolean;
   draftCapability: RightPanelDraftCapabilityState;
   draftRecovery: RightPanelDraftRecoveryState;
@@ -826,6 +840,9 @@ export function groupPanelSessions(
     draftCapability: s.draftCapability,
     draftRecovery: s.draftRecovery,
     mtimeMs: s.mtimeMs,
+    ...(s.resumeConversationVerified !== undefined
+      ? { resumeConversationVerified: s.resumeConversationVerified }
+      : {}),
     ...(s.delegatedNames !== undefined ? { delegatedNames: s.delegatedNames } : {}),
     ...(s.delegatedChildren !== undefined ? { delegatedChildren: s.delegatedChildren } : {}),
     ...(s.delegatedDegraded !== undefined ? { delegatedDegraded: s.delegatedDegraded } : {}),
@@ -935,6 +952,31 @@ export type RightPanelDraftDoubles = Readonly<{
   draftRecoveryForSession?: (sessionId: string) => RightPanelDraftRecoveryState;
 }>;
 
+/**
+ * S2 transcript-scan cache (plan 09-S2): the `discoverSessions` transcript
+ * scan serves the single « restaurable » expander, at most once per 60 s of
+ * injected clock. The station provides it; `h2a attach` does not, and its
+ * panel stays unchanged (S1.9).
+ */
+export class TranscriptScanCache {
+  #lastAtMs: number | undefined;
+  #lastScanned: DiscoveredSession[] = [];
+
+  read(
+    nowMs: number,
+    maxAgeMs: number,
+    home: string,
+    reader: (maxAgeMs: number, home: string) => DiscoveredSession[],
+  ): DiscoveredSession[] {
+    if (this.#lastAtMs !== undefined && nowMs - this.#lastAtMs < 60_000) {
+      return this.#lastScanned;
+    }
+    this.#lastAtMs = nowMs;
+    this.#lastScanned = reader(maxAgeMs, home);
+    return this.#lastScanned;
+  }
+}
+
 export type BuildLiveRightPanelSnapshotOptions = Readonly<{
   currentSessionId: string;
   home?: string;
@@ -949,6 +991,12 @@ export type BuildLiveRightPanelSnapshotOptions = Readonly<{
   trackCache?: TrackJournalCache;
   trackSources?: readonly TrackProjectSource[];
   draftDoubles?: RightPanelDraftDoubles;
+  /** S2: when present, the loader computes the station restore plan. */
+  scanCache?: TranscriptScanCache;
+  /** S2: transcript-scan reader (the station default is `discoverSessions`). */
+  scanReader?: (maxAgeMs: number, home: string) => DiscoveredSession[];
+  /** S2: gateway posture passed to the station plan decisions. */
+  forceGateway?: "gateway" | "direct";
 }>;
 
 function extractOwnerGateSession(title: string): string | undefined {
@@ -1126,6 +1174,191 @@ function delegatedLabelOf(entry: RegistryEntry | undefined, fallbackId: string):
 }
 
 /**
+ * S2 classement du plan → ligne (plan 09-S2, table fermée). Every dead
+ * session of the plan lands under `restorable` with one reason each; only
+ * the launch decisions the station may take carry relaunch tokens.
+ */
+function stationRestorableFromPlan(args: {
+  layoutCfg: LayoutConfig;
+  plan: RestorePlanResult;
+  hostView: HostViewSnapshot;
+  forceGateway?: "gateway" | "direct";
+  /** Managed names carried as live lines: never listed as restorable (B-8). */
+  liveManagedNames?: ReadonlySet<string>;
+}): Map<string, RightPanelRestorableRow[]> {
+  const { layoutCfg, plan, hostView, forceGateway, liveManagedNames } = args;
+  const launchOpts = forceGateway ? { forceGateway } : {};
+  const titleOfProject = (project: string | undefined): string => {
+    if (project !== undefined) {
+      for (const group of layoutCfg.groups) {
+        if (group.remote) continue;
+        if (group.projects?.includes(project)) return group.title;
+      }
+    }
+    return "other";
+  };
+
+  const decisionByTab = new Map<LayoutTab, TabLaunchDecision>();
+  for (const window of planLayoutLaunch(plan.windows, hostView, launchOpts).windows) {
+    for (const decision of window.decisions) decisionByTab.set(decision.tab, decision);
+  }
+
+  const relaunchTokens = (
+    tab: LayoutTab,
+  ): RightPanelRestorableRow["relaunch"] => {
+    const tokens = tabRunInvocation(tab, launchOpts);
+    if (!tokens) return undefined;
+    return {
+      args: [...tokens.args, "--no-attach"],
+      env: [...tokens.env],
+      cwd: tokens.cwd,
+      ...(tab.managedName !== undefined ? { name: tab.managedName } : {}),
+    };
+  };
+
+  const byTitle = new Map<string, RightPanelRestorableRow[]>();
+  const push = (title: string, row: RightPanelRestorableRow): void => {
+    const list = byTitle.get(title) ?? [];
+    list.push(row);
+    byTitle.set(title, list);
+  };
+
+  for (const classification of plan.classifications) {
+    const key = classification.key;
+    const label = classification.label;
+    const project = classification.project;
+    // B-8: a live line is never a restorable row — neither the selected
+    // native `attach` under an unknown tmux view nor a live line beyond
+    // the cap. The loader passes the managed names it carries as live.
+    // Table refusals (dual-host, unknown-view…) stay listed: only rows
+    // with a launch decision or a cap carry this guard.
+    if (classification.outcome !== "refused") {
+      const managedName =
+        classification.tab.managedName ?? classification.session?.managedName;
+      if (managedName !== undefined && liveManagedNames?.has(managedName) === true) {
+        continue;
+      }
+    }
+    if (classification.outcome === "selected") {
+      if (classification.tab.remoteId !== undefined || classification.tab.attachLive === true) {
+        // Remote tabs open outside the station; attach-live tabs are live lines.
+        continue;
+      }
+      const decision = decisionByTab.get(classification.tab);
+      if (
+        decision?.kind === "attach" &&
+        hostView.tmux.known === false &&
+        classification.tab.hostKind !== "local-native"
+      ) {
+        // Under an unknown tmux view no attach decision names a provable live
+        // line (local-tmux tabs and legacy tabs without a recorded host alike):
+        // motif, never a gesture. With a known view an attach decision names
+        // a live line, never a row. A native `attach` names a live line of
+        // the photo, kept above by the live guard: never a row.
+        push(titleOfProject(classification.project), {
+          key, label, project, reason: "unknown-view", state: "ended",
+        });
+        continue;
+      }
+      if (decision?.kind !== "launch") {
+        if (
+          decision?.kind === "refuse" &&
+          (decision.reason === "native-host-unknown" || decision.reason === "attach-live-gone")
+        ) {
+          push(titleOfProject(classification.project), { key, label, project, reason: "unknown-view", state: "ended" });
+        } else if (decision?.kind === "refuse" && decision.reason === "ambiguous-owner") {
+          push(titleOfProject(classification.project), { key, label, project, reason: "dual-host", state: "ended" });
+        } else if (decision?.kind === "refuse" && decision.reason === "ambiguous-slug") {
+          // Same family as a dual-host identity: no recorded host can be picked.
+          push(titleOfProject(classification.project), { key, label, project, reason: "dual-host", state: "ended" });
+        }
+        // attach, skip-live and defer decisions are live lines, never rows.
+        continue;
+      }
+      const session = classification.session;
+      if (!session?.tool || !resumeArgvVerified(session.tool)) {
+        push(titleOfProject(classification.project), {
+          key, label, project, reason: "resume-argv-unverified", state: "ended",
+        });
+        continue;
+      }
+      const relaunch = relaunchTokens(classification.tab);
+      if (!relaunch) {
+        // A launch without a resolvable sid: motif, never a guessed identifier.
+        push(titleOfProject(classification.project), {
+          key, label, project, reason: "unresolved-conversation", state: "ended",
+        });
+        continue;
+      }
+      push(titleOfProject(classification.project), {
+        key, label, project, reason: "launch", state: "queued", relaunch,
+      });
+      continue;
+    }
+    if (
+      classification.outcome === "explicit-overflow" ||
+      classification.outcome === "shared-overflow"
+    ) {
+      const title =
+        classification.outcome === "explicit-overflow"
+          ? classification.groupTitle
+          : titleOfProject(classification.project);
+      const session = classification.session;
+      // B-8, second path: beyond the cap a dead tmux (or legacy) tab under
+      // an unknown view keeps the unknown-view motif, never `launch-cap`.
+      const overflowDecision = decideLayoutTab(classification.tab, hostView, launchOpts);
+      if (
+        overflowDecision.kind === "attach" &&
+        hostView.tmux.known === false &&
+        classification.tab.hostKind !== "local-native"
+      ) {
+        push(title, {
+          key, label, project, reason: "unknown-view", state: "ended",
+        });
+        continue;
+      }
+      let relaunch: RightPanelRestorableRow["relaunch"];
+      if (
+        overflowDecision.kind === "launch" &&
+        session?.tool &&
+        resumeArgvVerified(session.tool)
+      ) {
+        relaunch = relaunchTokens(classification.tab) ?? undefined;
+      }
+      // Beyond the cap the gesture stays, but the launch file takes only
+      // `launch` rows: a capped row with tokens waits for its D2 gesture
+      // (`deferred`), one without tokens is listed without a gesture (`ended`).
+      push(title, {
+        key, label, project, reason: "launch-cap",
+        state: relaunch !== undefined ? "deferred" : "ended",
+        ...(relaunch !== undefined ? { relaunch } : {}),
+      });
+      continue;
+    }
+    // Refused rows: the seven of the last table row are never listed.
+    const reason = ((): string | undefined => {
+      switch (classification.reason) {
+        case "unresolved-conversation":
+          return "unresolved-conversation";
+        case "dual-host-ambiguous":
+          return "dual-host";
+        case "host-unknown":
+          return "unknown-view";
+        case "unclassified-scan":
+        case "per-project-scan-cap":
+          // The plan code is displayed as-is (`nt/station.ts:930`).
+          return classification.reason;
+        default:
+          return undefined;
+      }
+    })();
+    if (reason === undefined) continue;
+    push(titleOfProject(classification.project), { key, label, project, reason, state: "ended" });
+  }
+  return byTitle;
+}
+
+/**
  * Build the live right-panel snapshot in-process without calling `restore()` or
  * `spawnSync`. Never throws out of attach: unreadable sources degrade cleanly.
  */
@@ -1183,10 +1416,20 @@ export async function buildLiveRightPanelSnapshot(
         complete: nativeInventory.complete,
         sessions: nativeInventory.sessions
           .filter((s) => s.status === "running")
+          // S2: the facet enters the photo through `applicationForeground`,
+          // as in the parent photo (`rt/restore.ts:310`).
           .map((s) => ({
             name: s.id,
             controlled: s.controlled,
             socketPath: s.socketPath,
+            ...(typeof s.applicationFacet === "string"
+              ? {
+                  applicationFacet: s.applicationFacet,
+                  applicationIncarnation: s.applicationIncarnation ?? null,
+                  foregroundProcessGroup: s.foregroundProcessGroup ?? null,
+                  foregroundRevision: s.foregroundRevision ?? 0,
+                }
+              : {}),
           })),
       },
     };
@@ -1236,12 +1479,17 @@ export async function buildLiveRightPanelSnapshot(
       ambiguous: boolean;
       displayedHere: boolean;
       controlledElsewhere: boolean;
+      /** S2: the registry `convId` equals the plan-resolved `sid`. */
+      resumeConversationVerified: boolean;
       workStatus?: string;
       instances: string[];
     };
 
     const liveCandidates: LiveCandidate[] = [];
     const seenSessionIds = new Set<string>();
+    const convIdByRegistryId = new Map<string, string | undefined>(
+      registryEntries.map((entry) => [entry.id, entry.convId]),
+    );
 
     const pushCandidate = (
       session: DiscoveredSession,
@@ -1253,6 +1501,12 @@ export async function buildLiveRightPanelSnapshot(
       seenSessionIds.add(id);
       const recs = presenceBySession.get(id) ?? [];
       const workStatus = recs.find((r) => r.workStatus)?.workStatus;
+      // S2 D1 guard: the restart path resumes with the registry `convId`,
+      // so the gesture is offered only when it equals the plan-resolved `sid`.
+      const registryConvId =
+        session.registryId !== undefined
+          ? convIdByRegistryId.get(session.registryId)
+          : undefined;
       liveCandidates.push({
         id,
         label: session.label ?? session.project,
@@ -1263,6 +1517,11 @@ export async function buildLiveRightPanelSnapshot(
         ambiguous,
         displayedHere: id === opts.currentSessionId,
         controlledElsewhere: controlled && id !== opts.currentSessionId,
+        resumeConversationVerified:
+          registryConvId !== undefined &&
+          registryConvId !== "" &&
+          session.sid !== "" &&
+          registryConvId === session.sid,
         ...(workStatus ? { workStatus } : {}),
         instances: recs.map((r) => r.instance),
       });
@@ -1502,6 +1761,7 @@ export async function buildLiveRightPanelSnapshot(
         status,
         displayedHere: c.displayedHere,
         controlledElsewhere: c.controlledElsewhere,
+        resumeConversationVerified: c.resumeConversationVerified,
         compatGuard: opts.draftDoubles?.compatGuardForSession?.(c.id) ?? false,
         draftCapability:
           opts.draftDoubles?.draftCapabilityForSession?.(c.id) ??
@@ -1513,13 +1773,102 @@ export async function buildLiveRightPanelSnapshot(
       };
     });
 
+    // S2: one plan, one photo, in the station process. The scan reader is the
+    // transcript scan, cached by the station-provided `scanCache`; without it
+    // the snapshot carries no restorable row and the attach panel is unchanged.
+    let restorableByTitle = new Map<string, RightPanelRestorableRow[]>();
+    let restorablePlanRefused: string | undefined;
+    if (opts.scanCache !== undefined) {
+      if (registryRead.state === "unknown") {
+        restorablePlanRefused = registryRead.reason;
+      } else {
+        const maxAgeMs = layoutCfg.maxAgeHours * 3600 * 1000;
+        const scanned = opts.scanCache.read(
+          nowMs,
+          maxAgeMs,
+          home,
+          opts.scanReader ?? discoverSessions,
+        );
+        const plan = buildRestorePlan(
+          {
+            home,
+            config: layoutCfg,
+            registryRead: {
+              state: "ok",
+              entries: registryEntries,
+              unreadable: registryUnreadable,
+            },
+            scanned,
+            hostView,
+            evidence,
+            customTitleFor: (cwd, convId) =>
+              readConversationCustomTitle(home, cwd, convId),
+            remoteTabs: [],
+          },
+          {},
+        );
+        if (!plan.ok) {
+          restorablePlanRefused = plan.refusalDetail ?? "unknown";
+        } else {
+          // B-8: the managed names carried as live lines above never become
+          // restorable rows, on the selected path or beyond the cap.
+          const liveManagedNames = new Set(liveCandidates.map((c) => c.id));
+          restorableByTitle = stationRestorableFromPlan({
+            layoutCfg,
+            plan,
+            liveManagedNames,
+            hostView,
+            ...(opts.forceGateway !== undefined
+              ? { forceGateway: opts.forceGateway }
+              : {}),
+          });
+        }
+      }
+    }
+
     const groups = groupPanelSessions(liveSessions, layoutCfg);
+    if (restorableByTitle.size > 0) {
+      // A tab exists only when it carries a live line or a restorable row:
+      // attach the station plan rows, keep config order, deduplicate titles,
+      // drop config groups with neither, and sort `other` last.
+      const byTitle = new Map(groups.map((workspace) => [workspace.title, workspace]));
+      const liveTitles = new Set(byTitle.keys());
+      const configTitles = layoutCfg.groups
+        .filter((group) => !group.remote)
+        .map((group) => group.title);
+      const orderedTitles = [
+        ...configTitles.filter((title) => liveTitles.has(title) || restorableByTitle.has(title)),
+        ...[...restorableByTitle.keys()]
+          .filter((title) => !liveTitles.has(title) && !configTitles.includes(title))
+          .sort((a, b) =>
+            a === "other" ? 1 : b === "other" ? -1 : a.localeCompare(b, "en"),
+          ),
+      ];
+      const merged: RightPanelWorkspace[] = [];
+      for (const title of orderedTitles) {
+        const workspace = byTitle.get(title) ?? { title, sessions: [] };
+        const restorable = restorableByTitle.get(title);
+        merged.push(
+          restorable !== undefined ? { ...workspace, restorable } : workspace,
+        );
+        byTitle.delete(title);
+      }
+      for (const workspace of byTitle.values()) {
+        const restorable = restorableByTitle.get(workspace.title);
+        merged.push(
+          restorable !== undefined ? { ...workspace, restorable } : workspace,
+        );
+      }
+      groups.length = 0;
+      groups.push(...merged);
+    }
     return buildRightPanelSnapshot({
       currentSessionId: opts.currentSessionId,
       groups,
       decisions,
       ...(decisionsDegraded.length > 0 ? { decisionsDegraded } : {}),
       ...(unattributedDelegatedDegraded ? { unattributedDelegatedDegraded: true } : {}),
+      ...(restorablePlanRefused !== undefined ? { restorablePlanRefused } : {}),
       ...(opts.seenDecisionKeys ? { seenDecisionKeys: opts.seenDecisionKeys } : {}),
       degraded,
     });
@@ -1592,6 +1941,10 @@ export class RightPanelSnapshotRefresher {
         : {}),
       ...(this.#snapshot.unattributedDelegatedDegraded
         ? { unattributedDelegatedDegraded: true }
+        : {}),
+      // S2: the station plan refusal survives a seen-marking rebuild.
+      ...(this.#snapshot.restorablePlanRefused !== undefined
+        ? { restorablePlanRefused: this.#snapshot.restorablePlanRefused }
         : {}),
       seenDecisionKeys: this.#seenDecisionKeys,
       degraded: this.#snapshot.degraded,

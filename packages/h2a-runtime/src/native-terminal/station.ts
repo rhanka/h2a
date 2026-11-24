@@ -18,7 +18,9 @@
  * that is never written to nor resized. The manual pin, the broker and the
  * draft vault live in the host; the station only calls them.
  *
- * This module never spawns a process and never starts or stops a PTY.
+ * The station never spawns a process itself and never starts or stops a PTY:
+ * every relaunch goes through the `execH2a` effect port of its runtime
+ * (`nt/op.ts`), one call at a time, as detached `h2a` tokens.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -53,12 +55,15 @@ import {
   type RightPanelForwardedMouse,
   type RightPanelHandleResult,
   type RightPanelOverlay,
+  type RightPanelRestorableRow,
   type RightPanelSession,
   type RightPanelSnapshot,
 } from "./right-panel.js";
+import { resumeArgvVerified, titleMatches } from "../restore-plan.js";
 import {
   RightPanelSnapshotRefresher,
   TrackJournalCache,
+  TranscriptScanCache,
   buildLiveRightPanelSnapshot,
   type BuildLiveRightPanelSnapshotOptions,
 } from "./right-panel-snapshot.js";
@@ -227,6 +232,24 @@ export type StationStatusBar = SessionViewStatusBar & {
   restoreChildStateSequence(): string;
 };
 
+/** S2 effect port: one detached `h2a` call, tokens after the binary. */
+export type StationCliRequest = Readonly<{
+  args: readonly string[];
+  cwd: string;
+  /** Plan pins, added to the station environment. */
+  env?: Readonly<Record<string, string>>;
+}>;
+
+export type StationCliResult =
+  | Readonly<{ ok: true; stdout: string }>
+  | Readonly<{
+      ok: false;
+      code: "binary-missing" | "timeout" | "exit-nonzero" | "spawn-error";
+      exitCode?: number;
+      stdout: string;
+      stderr: string;
+    }>;
+
 export type StationRuntime = {
   stdin: NodeJS.ReadStream;
   stdout: NodeJS.WriteStream;
@@ -243,6 +266,12 @@ export type StationRuntime = {
   connect(socketPath: string): Promise<StationHostClient>;
   /** Proof that an unreachable endpoint is absent rather than unknown. */
   proveAbsent?(socketPath: string, failure: unknown): Promise<boolean>;
+  /**
+   * S2 relaunch effect (launch file and D1/D2 gestures share one queue).
+   * Never throws. Absent ⇒ every relaunch gesture reports
+   * `relaunch-unavailable` on its line.
+   */
+  execH2a?(request: StationCliRequest): Promise<StationCliResult>;
 };
 
 export type StationRefusalReason =
@@ -286,6 +315,12 @@ export type StationEvent =
   | { type: "lease-released"; sessionId: string }
   | { type: "reconnected"; sessionId: string }
   | { type: "gesture"; gesture: string; sessionId: string; outcome: string }
+  | {
+      type: "relaunch";
+      key: string;
+      phase: "queued" | "started" | "done" | "failed";
+      code?: string;
+    }
   | { type: "closed"; reason: "detach" | "stdin-end" | "terminate" };
 
 export type StationPanelOptions = {
@@ -311,8 +346,12 @@ export type StationOptions = {
   readonly statePath?: string;
   /** Private directory of raw draft exports (default: next to the state). */
   readonly exportDir?: string;
-  /** Dead sessions of the restore plan: displayed as a number before S2. */
-  readonly deadCount?: number;
+  /** S2: a group title matched to the initial tab. */
+  readonly group?: string;
+  /** S2: list the relaunchable sessions without launching them. */
+  readonly lazy?: boolean;
+  /** S2: gateway posture passed to the station plan. */
+  readonly forceGateway?: "gateway" | "direct";
   readonly locale?: string;
   readonly tty?: string;
   readonly pid?: number;
@@ -330,8 +369,52 @@ type HostLink = {
   client: StationHostClient;
   /** INJ L2 host: the legacy automation lease is closed server-side. */
   brokerProtected: boolean;
+  /** S2 D1: the host can respawn a session in place (`softRespawn` ping). */
+  softRespawn: boolean;
   generation: string;
 };
+
+type RelaunchEntry = {
+  key: string;
+  args: readonly string[];
+  cwd: string;
+  env: Readonly<Record<string, string>>;
+  /**
+   * Restorable row this entry was taken from, when any: the pump skips the
+   * entry once the current snapshot withdraws its gesture (refused plan).
+   */
+  restorableKey?: string | undefined;
+  /** Pending display to drop when this entry settles outside `running`. */
+  pendingName?: string | undefined;
+  pendingSessionId?: string | undefined;
+  /**
+   * NB-16: guard re-read at the head of the file, before the effect runs.
+   * A refusal fails the entry with its code and never reaches the port.
+   */
+  beforeRun?: (() => Promise<{ ok: true } | { ok: false; code: string }>) | undefined;
+};
+
+/** S2 relaunch issue: the port output travels with every outcome. */
+type RelaunchIssue =
+  | Readonly<{ ok: true; stdout: string }>
+  | Readonly<{ ok: false; code: string; stdout: string; stderr: string }>;
+
+/**
+ * S2 reason id → catalogued motif key. A `launch` row shows its file state
+ * instead of a motif; any other code shows as-is.
+ */
+const RESTORABLE_REASON_TEXT_KEYS: Readonly<Record<string, string>> = {
+  "launch-cap": "station.restorable.reason.launchCap",
+  "resume-argv-unverified": "station.restorable.reason.resumeArgvUnverified",
+  "unresolved-conversation": "station.restorable.reason.unresolvedConversation",
+  "dual-host": "station.restorable.reason.dualHost",
+  "unknown-view": "station.restorable.reason.unknownView",
+};
+
+/** S2 D-guard bound: terminal draft state waited at most this long. */
+const DRAFT_TERMINAL_WAIT_MS = 2_000;
+/** S2 D-guard poll slice on the harness clock. */
+const DRAFT_TERMINAL_POLL_MS = 250;
 
 type GuardLease = {
   lease: NativeTerminalControllerLease;
@@ -546,6 +629,28 @@ class Station {
   #titlePushed = false;
   #recoveryView: { view: DraftRecoveryView; ref: StationDraftRef } | undefined;
   #trackCache: TrackJournalCache | undefined;
+  /** S2: the station provides the transcript-scan cache (single 60 s slot). */
+  #scanCache = new TranscriptScanCache();
+  /** S2 relaunch file: one call in flight for the whole station. */
+  #relaunchQueue: RelaunchEntry[] = [];
+  #relaunchStates = new Map<string, { state: RightPanelRestorableRow["state"]; code?: string }>();
+  #relaunchInFlight: string | undefined;
+  #pumpRunning = false;
+  /** S2: D1 effects wait behind the file like every other relaunch. */
+  #relaunchWaiters = new Map<string, (result: RelaunchIssue) => void>();
+  /** S2: harness clock of the last uncertain port issue, if any. */
+  #uncertainSince: number | undefined;
+  /** S2 D1: sessions whose hard relaunch confirmation is armed. */
+  #hardRespawnArmed = new Map<
+    string,
+    { pid: number; group: number | null; generation: string; incarnation: string }
+  >();
+  /** S2: relaunch targets watched for their first running observation. */
+  #pendingDisplay: Array<{ sessionId?: string; name?: string; onlyIfIdle: boolean }> = [];
+  /** S2: a human gesture already activated a line (no initial auto-display). */
+  #humanActivatedLine = false;
+  /** S2: the launch file already showed its first running session. */
+  #launchAutoShown = false;
   /** Nothing is painted before the launch decided what to display. */
   #started = false;
   /** Set when the station is leaving: no connection may be opened or kept. */
@@ -643,6 +748,8 @@ class Station {
           client,
           // Absent or not understood ⇒ compatibility guard (r4 §3.1, §4).
           brokerProtected: ping.composerBrokerVersion === 1,
+          // S2 D1: in-place respawn needs the host soft-respawn capability.
+          softRespawn: ping.softRespawn === true,
           generation: ping.generation,
         };
         this.#links.set(socketPath, link);
@@ -850,6 +957,16 @@ class Station {
         nowMs: this.#runtime.now(),
         seenDecisionKeys,
         ...(this.#trackCache !== undefined ? { trackCache: this.#trackCache } : {}),
+        // S2: the station never reads tmux: the photo scope is
+        // `known: false`, never "known and empty", so tmux sessions and
+        // legacy tabs list under "view unknown" instead of relaunching.
+        listTmux: async () => ({ known: false as const }),
+        // S2: the station always provides the scan cache and the gateway
+        // posture; the loader computes the restore plan from its own photo.
+        scanCache: this.#scanCache,
+        ...(this.#options.forceGateway !== undefined
+          ? { forceGateway: this.#options.forceGateway }
+          : {}),
         // One inventory feeds the panel rows, the owners and the guard checks.
         collectNative: () => this.#collectInventory(),
       });
@@ -950,6 +1067,37 @@ class Station {
         activatable: true,
       });
     }
+    // S2 D1: in-place relaunch of the process in place, confirmed and naming
+    // what is terminated. Facets `cli` and `other` never offer it: the CLI is
+    // alive there, this is not a D1 (r2 `:271`). Unverified argv or
+    // conversation shows the motif instead of the gesture (r2 `:279`).
+    if (link !== undefined && state?.status === "running") {
+      const facet = state.applicationFacet;
+      // A `shell` first plane is the fallback shell by construction (r2 `:241`).
+      if (facet === "shell") extraBadges.push(this.#t("station.badge.shellExited"));
+      if (facet === "shell" || facet === undefined || facet === "unknown") {
+        if (!row.tool || !resumeArgvVerified(row.tool)) {
+          extraRows.push({
+            id: "respawn-unavailable",
+            text: this.#t("station.restorable.reason.resumeArgvUnverified"),
+            whenSelected: true,
+          });
+        } else if (row.resumeConversationVerified !== true) {
+          extraRows.push({
+            id: "respawn-unavailable",
+            text: this.#t("station.restorable.reason.unresolvedConversation"),
+            whenSelected: true,
+          });
+        } else {
+          extraRows.push({
+            id: "respawn-in-place",
+            text: this.#t("station.row.respawn"),
+            activatable: true,
+            whenSelected: true,
+          });
+        }
+      }
+    }
     // Contextual gestures: shown under the selected row, always confirmed.
     if (link !== undefined && state?.status === "running") {
       if (!link.brokerProtected && !displayedHere) {
@@ -992,16 +1140,64 @@ class Station {
     };
   }
 
+  #decorateRestorableRow(row: RightPanelRestorableRow): RightPanelRestorableRow {
+    const progress = this.#relaunchStates.get(row.key);
+    const state = progress?.state ?? row.state;
+    const code = progress?.code ?? row.code;
+    const motifKey = RESTORABLE_REASON_TEXT_KEYS[row.reason];
+    const reasonText =
+      row.reasonText ??
+      (motifKey !== undefined ? this.#t(motifKey) : row.reason === "launch" ? undefined : row.reason);
+    // NB-14: outside --lazy a capped row with a gesture shows its motif
+    // alone while it waits: the deferred state text names --lazy. The row
+    // state stays `deferred`; only the painted text drops it (the view
+    // renders an empty state text as motif-only).
+    // B-10: only the waiting state drops its text. Once the file owns the
+    // row (queued, launching) or settles it (ended, failed), the file state
+    // paints: a failure must never look like a neutral motif.
+    const cappedOutsideLazy =
+      row.reason === "launch-cap" &&
+      row.relaunch !== undefined &&
+      state === "deferred" &&
+      this.#options.lazy !== true;
+    return {
+      ...row,
+      state,
+      ...(code !== undefined ? { code } : {}),
+      ...(reasonText !== undefined ? { reasonText } : {}),
+      stateText: cappedOutsideLazy
+        ? ""
+        : this.#t(`station.restorable.state.${state}`, { code: code ?? "unknown" }),
+    };
+  }
+
   #decorate(snapshot: RightPanelSnapshot): RightPanelSnapshot {
-    const dead = this.#options.deadCount ?? 0;
+    // S2: the parent no longer counts dead sessions; the station plan lists
+    // them under `restorable`, one row each. The relaunch file progress and
+    // the localised motif/state lines merge here.
     return {
       ...snapshot,
       workspaces: snapshot.workspaces.map((workspace) => ({
         title: workspace.title,
         sessions: workspace.sessions.map((row) => this.#decorateRow(row)),
+        ...(workspace.restorable !== undefined
+          ? {
+              restorable: workspace.restorable.map((row) => this.#decorateRestorableRow(row)),
+              restorableHeader: this.#t("station.restorable.header", {
+                count: workspace.restorable.length,
+              }),
+            }
+          : {}),
       })),
-      ...(dead > 0
-        ? { footerRows: [this.#t("station.dead.count", { count: dead })] }
+      // S2: a refused restore plan says its reason once, in the foot.
+      ...(snapshot.restorablePlanRefused !== undefined
+        ? {
+            footerRows: [
+              this.#t("station.restorable.planRefused", {
+                reason: singleLine(snapshot.restorablePlanRefused),
+              }),
+            ],
+          }
         : {}),
     };
   }
@@ -1012,11 +1208,271 @@ class Station {
     this.#panel.setSnapshot(decorated);
     this.#bar?.paint(false);
     this.#emit({ type: "snapshot", snapshot: decorated });
+    // S2: a watched relaunch target switches at its first running observation.
+    void this.#maybePendingDisplay();
   }
 
   /** Re-derive the station marks (displayed, guards, drafts) without a reload. */
   #redecorate(): void {
     if (this.#rawSnapshot) this.#applySnapshot(this.#rawSnapshot);
+  }
+
+  // --- S2 relaunch file -------------------------------------------------------
+
+  /**
+   * One detached `h2a` call; absent port or throw ⇒ a named issue, never a
+   * throw. The port output travels with every outcome so a JSON issue stays
+   * readable on `exit-nonzero` too (r4 §5).
+   */
+  async #execRelaunch(entry: {
+    args: readonly string[];
+    cwd: string;
+    env: Readonly<Record<string, string>>;
+  }): Promise<RelaunchIssue> {
+    const exec = this.#runtime.execH2a;
+    if (!exec) return { ok: false, code: "relaunch-unavailable", stdout: "", stderr: "" };
+    try {
+      const result = await exec({ args: entry.args, cwd: entry.cwd, env: entry.env });
+      return result.ok
+        ? { ok: true, stdout: result.stdout }
+        : { ok: false, code: result.code, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    } catch {
+      return { ok: false, code: "spawn-error", stdout: "", stderr: "" };
+    }
+  }
+
+  #enqueueRelaunch(
+    entry: RelaunchEntry,
+    front: boolean,
+    onSettled?: (result: RelaunchIssue) => void,
+  ): boolean {
+    if (
+      this.#relaunchQueue.some((queued) => queued.key === entry.key) ||
+      this.#relaunchInFlight === entry.key
+    ) {
+      return false;
+    }
+    if (front) this.#relaunchQueue.unshift(entry);
+    else this.#relaunchQueue.push(entry);
+    if (onSettled !== undefined) this.#relaunchWaiters.set(entry.key, onSettled);
+    this.#relaunchStates.set(entry.key, { state: "queued" });
+    this.#emit({ type: "relaunch", key: entry.key, phase: "queued" });
+    this.#pumpRelaunchFile();
+    if (!this.#ended) this.#redecorate();
+    return true;
+  }
+
+  /**
+   * S2 D1: an effect behind the file, awaited by its gesture. The loop never
+   * awaits the file itself (r2 `:281`): the waiter settles with the entry.
+   */
+  #enqueueRelaunchAndWait(entry: RelaunchEntry): Promise<RelaunchIssue> {
+    if (this.#ended) {
+      return Promise.resolve({ ok: false, code: "station-closing", stdout: "", stderr: "" });
+    }
+    return new Promise((resolve) => {
+      if (!this.#enqueueRelaunch(entry, true, resolve)) {
+        resolve({ ok: false, code: "already-queued", stdout: "", stderr: "" });
+      }
+    });
+  }
+
+  /**
+   * S2 launch file at station start: exactly the `launch` decisions of the
+   * plan, in plan order. Capped rows keep their D2 gesture outside the file.
+   */
+  #startRelaunchFile(rows: readonly RightPanelRestorableRow[]): void {
+    for (const row of rows) {
+      if (row.relaunch === undefined || row.reason !== "launch") continue;
+      if (this.#options.lazy === true) {
+        this.#relaunchStates.set(row.key, { state: "deferred" });
+        continue;
+      }
+      const env: Record<string, string> = {};
+      for (const pin of row.relaunch.env) {
+        const at = pin.indexOf("=");
+        if (at > 0) env[pin.slice(0, at)] = pin.slice(at + 1);
+      }
+      if (this.#relaunchQueue.some((queued) => queued.key === row.key)) continue;
+      this.#relaunchQueue.push({
+        key: row.key,
+        args: [...row.relaunch.args],
+        cwd: row.relaunch.cwd,
+        env,
+        restorableKey: row.key,
+        ...(row.relaunch.name !== undefined ? { pendingName: row.relaunch.name } : {}),
+      });
+      this.#relaunchStates.set(row.key, { state: "queued" });
+      this.#emit({ type: "relaunch", key: row.key, phase: "queued" });
+      // At launch the station shows the first relaunched session running —
+      // once, only while nothing is displayed and no gesture was made.
+      if (row.relaunch.name !== undefined) {
+        this.#pendingDisplay.push({ name: row.relaunch.name, onlyIfIdle: true });
+      }
+    }
+    if (!this.#ended) this.#redecorate();
+    this.#pumpRelaunchFile();
+  }
+
+  /**
+   * NB-15: true while a file entry already relaunches this session (queued
+   * or in flight). Row entries name the session through their row; hard
+   * entries carry it directly.
+   */
+  #fileTargetsSession(sessionId: string): boolean {
+    const rows = this.#rawSnapshot?.workspaces.flatMap((workspace) => workspace.restorable ?? []) ?? [];
+    const keyTargets = (key: string | undefined): boolean => {
+      if (key === undefined) return false;
+      if (key === sessionId) return true;
+      return rows.some((row) => row.key === key && row.relaunch?.name === sessionId);
+    };
+    if (keyTargets(this.#relaunchInFlight)) return true;
+    return this.#relaunchQueue.some(
+      (entry) =>
+        keyTargets(entry.key) ||
+        keyTargets(entry.restorableKey) ||
+        keyTargets(entry.pendingSessionId) ||
+        keyTargets(entry.pendingName),
+    );
+  }
+
+  /** Drop the watched display of an entry that settles outside `running`. */
+  #dropPendingDisplay(entry: RelaunchEntry): void {
+    if (entry.pendingName === undefined && entry.pendingSessionId === undefined) return;
+    // NB-13: drop only this entry's own watch. The old conjunction dropped
+    // every other watch too (`undefined !== undefined` is false), so one
+    // failed relaunch cancelled the initial display and every later switch.
+    this.#pendingDisplay = this.#pendingDisplay.filter(
+      (pending) =>
+        !(entry.pendingName !== undefined && pending.name === entry.pendingName) &&
+        !(entry.pendingSessionId !== undefined && pending.sessionId === entry.pendingSessionId),
+    );
+  }
+
+  /**
+   * One call in flight for the whole station, relaunches of the launch file
+   * and gestures confounded. The loop never awaits it (r2 `:281`): an entry
+   * settles, a typed keystroke is served, then the next entry starts. A
+   * failed entry marks its line and lets the next one go.
+   */
+  #pumpRelaunchFile(): void {
+    if (this.#pumpRunning) return;
+    this.#pumpRunning = true;
+    void (async () => {
+      try {
+        for (;;) {
+          if (this.#ended) return;
+          const next = this.#relaunchQueue.shift();
+          if (!next) return;
+          // A snapshot taken after the entry was queued can withdraw its
+          // gesture (refused plan): skip it, never run a stale row.
+          if (next.restorableKey !== undefined) {
+            const fresh = this.#rawSnapshot?.workspaces
+              .flatMap((workspace) => workspace.restorable ?? [])
+              .find((row) => row.key === next.restorableKey);
+            if (fresh?.relaunch === undefined) {
+              this.#relaunchStates.set(next.key, { state: "failed", code: "plan-refused" });
+              this.#emit({ type: "relaunch", key: next.key, phase: "failed", code: "plan-refused" });
+              this.#dropPendingDisplay(next);
+              if (!this.#ended) this.#redecorate();
+              continue;
+            }
+          }
+          const waiter = this.#relaunchWaiters.get(next.key);
+          this.#relaunchWaiters.delete(next.key);
+          // NB-16: the guard is re-read when the entry reaches the head of
+          // the file. A refusal fails the entry with its code before any
+          // port call; the waiter maps it to its card below.
+          if (next.beforeRun !== undefined) {
+            let gate: { ok: true } | { ok: false; code: string };
+            try {
+              gate = await next.beforeRun();
+            } catch {
+              gate = { ok: false, code: "spawn-error" };
+            }
+            if (!gate.ok) {
+              this.#relaunchStates.set(next.key, { state: "failed", code: gate.code });
+              this.#emit({ type: "relaunch", key: next.key, phase: "failed", code: gate.code });
+              this.#dropPendingDisplay(next);
+              if (!this.#ended) this.#redecorate();
+              waiter?.({ ok: false, code: gate.code, stdout: "", stderr: "" });
+              continue;
+            }
+          }
+          this.#relaunchInFlight = next.key;
+          this.#relaunchStates.set(next.key, { state: "launching" });
+          this.#emit({ type: "relaunch", key: next.key, phase: "started" });
+          if (!this.#ended) this.#redecorate();
+          const result = await this.#execRelaunch(next);
+          this.#relaunchInFlight = undefined;
+          if (result.ok) {
+            this.#relaunchStates.set(next.key, { state: "ended" });
+            this.#emit({ type: "relaunch", key: next.key, phase: "done" });
+          } else {
+            this.#relaunchStates.set(next.key, { state: "failed", code: result.code });
+            this.#emit({ type: "relaunch", key: next.key, phase: "failed", code: result.code });
+            // A failed relaunch never switches later to a same-named session.
+            this.#dropPendingDisplay(next);
+            if (result.code === "timeout" || result.code === "spawn-error") {
+              // Uncertain issue (r4 §5): re-read the effect before any
+              // repetition, then let gestures decide on the fresh snapshot.
+              this.#uncertainSince = this.#runtime.now();
+              await this.#refresher.maybeRefresh(true)?.catch(() => {});
+            }
+          }
+          waiter?.(result);
+          if (!this.#ended) {
+            this.#redecorate();
+            await this.#maybePendingDisplay();
+          }
+          await this.#runtime.delay(0);
+        }
+      } finally {
+        this.#pumpRunning = false;
+      }
+    })().catch(() => {
+      this.#pumpRunning = false;
+    });
+  }
+
+  /** Switch to a watched relaunch target at its first running observation. */
+  async #maybePendingDisplay(): Promise<void> {
+    if (this.#ended || !this.#inventory) return;
+    const remaining: Array<{ sessionId?: string; name?: string; onlyIfIdle: boolean }> = [];
+    for (const pending of this.#pendingDisplay) {
+      const id = pending.sessionId ?? pending.name;
+      const target =
+        id !== undefined
+          ? this.#inventory.sessions.find(
+              (session) => session.id === id && session.status === "running",
+            )
+          : undefined;
+      if (!target) {
+        remaining.push(pending);
+        continue;
+      }
+      if (pending.onlyIfIdle) {
+        if (this.#displayed !== undefined || this.#humanActivatedLine || this.#launchAutoShown) {
+          remaining.push(pending);
+          continue;
+        }
+        this.#launchAutoShown = true;
+      }
+      // B-9: every automatic switch goes through the loop. The request is
+      // posed here and consumed there, never applied around the loop, so a
+      // human gesture and two pendings can never drive two overlapping
+      // switches. A pending human request wins; the automatic one waits
+      // for the next snapshot. Nothing here touches the live view: a hard
+      // relaunch under the displayed session is taken by the full switch,
+      // which leaves the old view through the t3 protocol (B-3).
+      if (this.#request !== undefined) {
+        remaining.push(pending);
+        continue;
+      }
+      this.#request = { type: "activate", sessionId: target.id, takeover: false };
+      this.#wakeLoop();
+    }
+    this.#pendingDisplay = remaining;
   }
 
   // --- input ----------------------------------------------------------------
@@ -1189,7 +1645,13 @@ class Station {
           if (remembered !== undefined) this.#panel.selectSessionById(remembered);
         }
       } else if (action.type === "activate-extra-row") {
+        this.#humanActivatedLine = true;
         this.#activateExtraRow(action.sessionId, action.rowId);
+      } else if (action.type === "toggle-restorable-expander") {
+        // Panel-internal: the controller already toggled its section.
+      } else if (action.type === "activate-restorable-row") {
+        this.#humanActivatedLine = true;
+        this.#relaunchFromRow(action.key);
       }
     }
     for (const mouse of handled.forwardedMouse ?? []) {
@@ -1333,7 +1795,549 @@ class Station {
     else if (rowId === "guard-keep") confirm("station.confirm.guardKeep", () => this.#keepGuard(sessionId));
     else if (rowId === "pin-set") confirm("station.confirm.pinSet", () => this.#setManualPin(sessionId, true));
     else if (rowId === "pin-remove") confirm("station.confirm.pinRemove", () => this.#setManualPin(sessionId, false));
+    else if (rowId === "respawn-in-place") void this.#confirmRespawnInPlace(sessionId).catch(() => {});
     else if (rowId.startsWith("draft:")) void this.#openRecoveryView(sessionId, rowId).catch(() => {});
+  }
+
+  /** S2 D1 availability, re-checked at gesture time (never a guessed identifier). */
+  #respawnAvailability(
+    sessionId: string,
+  ):
+    | {
+        ok: true;
+        kind: "shell" | "unknown";
+        pid: number;
+        group: number | null;
+        generation: string;
+        incarnation: string;
+      }
+    | { ok: false; reason: "argv" | "conversation" | "facet" | "state" } {
+    const state = this.#inventory?.sessions.find((session) => session.id === sessionId);
+    if (!state || state.status !== "running") return { ok: false, reason: "state" };
+    const facet = state.applicationFacet;
+    if (facet !== "shell" && facet !== undefined && facet !== "unknown") {
+      return { ok: false, reason: "facet" };
+    }
+    const row = this.#rawSnapshot?.workspaces
+      .flatMap((workspace) => workspace.sessions)
+      .find((candidate) => candidate.id === sessionId);
+    if (!row?.tool || !resumeArgvVerified(row.tool)) return { ok: false, reason: "argv" };
+    if (row.resumeConversationVerified !== true) return { ok: false, reason: "conversation" };
+    return {
+      ok: true,
+      kind: facet === "shell" ? "shell" : "unknown",
+      pid: state.pid,
+      group: state.foregroundProcessGroup ?? null,
+      generation: state.generation,
+      incarnation: state.incarnation,
+    };
+  }
+
+  /**
+   * S2 D1: the refusal is shown alone; the hard relaunch needs its own
+   * confirmation card. Arming survives the dismissal of the refusal.
+   * NB-4: the arm is bound to the incarnation that refused soft: a moved
+   * pid, group, generation or incarnation clears it instead of killing the
+   * wrong PTY.
+   */
+  #refuseSoftThenArm(
+    sessionId: string,
+    stamp: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): void {
+    const session = this.#sessionLabel(sessionId);
+    this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+    this.#hardRespawnArmed.set(sessionId, stamp);
+    this.#showCard(
+      [this.#t("station.respawn.softUnsupported", { session })],
+      this.#t("station.card.dismiss"),
+    );
+  }
+
+  /**
+   * S2 D1: confirm naming the process in place (pid, foreground state).
+   * NB-4: the card names a fresh read, never the last snapshot: the
+   * inventory is re-read before the card is shown.
+   */
+  async #confirmRespawnInPlace(sessionId: string): Promise<void> {
+    await this.#freshInventory().catch(() => {});
+    if (this.#ended) return;
+    const session = this.#sessionLabel(sessionId);
+    const availability = this.#respawnAvailability(sessionId);
+    if (!availability.ok) {
+      // No port call: argv and conversation name their motif; a facet or
+      // state that moved under the gesture shows its machine code as-is.
+      if (availability.reason === "argv" || availability.reason === "conversation") {
+        const key =
+          availability.reason === "argv"
+            ? "station.restorable.reason.resumeArgvUnverified"
+            : "station.restorable.reason.unresolvedConversation";
+        this.#showCard([`${session}: ${this.#t(key)}`], this.#t("station.card.dismiss"));
+      } else {
+        this.#showCard(
+          [`${session}: respawn-unavailable (${availability.reason})`],
+          this.#t("station.card.dismiss"),
+        );
+      }
+      return;
+    }
+    // A refused soft respawn arms this session: the next gesture confirms
+    // the hard relaunch on its own card, which names the lost PTY.
+    const armed = this.#hardRespawnArmed.get(sessionId);
+    if (armed !== undefined) {
+      // NB-4: the arm names one incarnation. A move since the arming clears
+      // it: the gesture falls back to a fresh soft probe, zero port call.
+      if (
+        availability.pid !== armed.pid ||
+        availability.group !== armed.group ||
+        availability.generation !== armed.generation ||
+        availability.incarnation !== armed.incarnation
+      ) {
+        this.#hardRespawnArmed.delete(sessionId);
+        this.#showCard(
+          [`${session}: respawn-unavailable (moved)`],
+          this.#t("station.card.dismiss"),
+        );
+        return;
+      }
+      this.#showCard(
+        [this.#t("station.confirm.respawnHard", { session })],
+        this.#t("station.confirm.prompt"),
+        () => {
+          this.#hardRespawnArmed.delete(sessionId);
+          void this.#respawnHard(sessionId, armed).catch(() => {});
+        },
+      );
+      return;
+    }
+    const confirmKey =
+      availability.kind === "shell" && availability.group !== null
+        ? "station.confirm.respawnShell"
+        : "station.confirm.respawnUnknown";
+    const stamp = {
+      pid: availability.pid,
+      group: availability.group,
+      generation: availability.generation,
+      incarnation: availability.incarnation,
+    };
+    this.#showCard(
+      [
+        this.#t(confirmKey, {
+          session,
+          pid: availability.pid,
+          group: availability.group ?? "unknown",
+        }),
+      ],
+      this.#t("station.confirm.prompt"),
+      () => {
+        void this.#respawnInPlace(sessionId, stamp).catch(() => {});
+      },
+    );
+  }
+
+  /**
+   * S2 step 6: the D1/D-hard effect waits for a terminal draft state first.
+   * A read failure refuses with a named code (zero port call); only a host
+   * without the D port carries no draft, so only it passes the guard.
+   */
+  async #readDraftTerminal(sessionId: string): Promise<boolean> {
+    const owner = this.#inventory?.sessions.find((session) => session.id === sessionId);
+    if (!owner) throw new Error("owner-gone");
+    let link: HostLink;
+    try {
+      link = await this.#link(owner.socketPath);
+    } catch {
+      throw new Error("link-failed");
+    }
+    // A host without the D port carries no draft: the guard passes.
+    if (typeof link.client.draftStatus !== "function") return true;
+    let statuses: Record<string, StationSessionDraftStatus | undefined>;
+    try {
+      statuses = (await link.client.draftStatus([sessionId])) as Record<
+        string,
+        StationSessionDraftStatus | undefined
+      >;
+    } catch {
+      throw new Error("draft-status-unreadable");
+    }
+    const drafts = statuses[sessionId]?.drafts ?? [];
+    return !drafts.some((draft) => draft.draft === "restoring-on-ready");
+  }
+
+  async #awaitDraftTerminal(sessionId: string): Promise<boolean> {
+    const start = this.#runtime.now();
+    for (;;) {
+      if (await this.#readDraftTerminal(sessionId)) return true;
+      if (this.#runtime.now() - start >= DRAFT_TERMINAL_WAIT_MS) return false;
+      await this.#runtime.delay(DRAFT_TERMINAL_POLL_MS);
+    }
+  }
+
+  /** Read the `h2a restart --json` issue (`h2a.restart.result`). */
+  #parseRestartResult(
+    stdout: string,
+    sessionId: string,
+  ): { ok: true; strategy: string } | { ok: false; code: string } {
+    let parsed: {
+      kind?: unknown;
+      ok?: unknown;
+      sessions?: Array<{
+        id?: unknown;
+        name?: unknown;
+        restarted?: unknown;
+        strategy?: unknown;
+        failure?: unknown;
+      }>;
+    };
+    try {
+      parsed = JSON.parse(stdout) as typeof parsed;
+    } catch {
+      return { ok: false, code: "invalid-response" };
+    }
+    const row = parsed?.sessions?.find(
+      (candidate) => candidate.id === sessionId || candidate.name === sessionId,
+    );
+    if (parsed?.kind !== "h2a.restart.result" || !row) {
+      return { ok: false, code: "invalid-response" };
+    }
+    if (typeof row.failure === "string") return { ok: false, code: row.failure };
+    if (parsed.ok !== true || row.restarted !== true || typeof row.strategy !== "string") {
+      return { ok: false, code: "unknown" };
+    }
+    return { ok: true, strategy: row.strategy };
+  }
+
+  /**
+   * NB-16: guard re-read when a D1 entry reaches the head of the file,
+   * before the effect runs. A refusal fails the entry with its code and
+   * never reaches the port.
+   */
+  async #rereadDraftGuard(
+    sessionId: string,
+  ): Promise<{ ok: true } | { ok: false; code: string }> {
+    try {
+      return (await this.#readDraftTerminal(sessionId))
+        ? { ok: true }
+        : { ok: false, code: "restoring-on-ready" };
+    } catch (error) {
+      return { ok: false, code: error instanceof Error ? singleLine(error.message) : "refused" };
+    }
+  }
+
+  /**
+   * NB-4: the card and Enter are apart in time. Re-read the inventory, then
+   * the line, and refuse when it moved (or its argv/conversation lapsed)
+   * since the card named it; the move shows a machine code, zero port call.
+   * A failed re-read refuses closed too. Returns the fresh stamp, or
+   * undefined once the refusal card is shown.
+   */
+  async #checkRespawnFresh(
+    sessionId: string,
+    session: string,
+    expected: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): Promise<
+    | {
+        ok: true;
+        kind: "shell" | "unknown";
+        pid: number;
+        group: number | null;
+        generation: string;
+        incarnation: string;
+      }
+    | undefined
+  > {
+    try {
+      await this.#freshInventory();
+    } catch {
+      this.#showCard(
+        [`${session}: respawn-unavailable (link-failed)`],
+        this.#t("station.card.dismiss"),
+      );
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    if (this.#ended) {
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    const fresh = this.#respawnAvailability(sessionId);
+    if (!fresh.ok) {
+      if (fresh.reason === "argv" || fresh.reason === "conversation") {
+        const key =
+          fresh.reason === "argv"
+            ? "station.restorable.reason.resumeArgvUnverified"
+            : "station.restorable.reason.unresolvedConversation";
+        this.#showCard([`${session}: ${this.#t(key)}`], this.#t("station.card.dismiss"));
+      } else {
+        this.#showCard(
+          [`${session}: respawn-unavailable (${fresh.reason})`],
+          this.#t("station.card.dismiss"),
+        );
+      }
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    const moved =
+      fresh.pid !== expected.pid ||
+      fresh.group !== expected.group ||
+      fresh.generation !== expected.generation ||
+      fresh.incarnation !== expected.incarnation;
+    if (moved) {
+      this.#showCard(
+        [`${session}: respawn-unavailable (moved)`],
+        this.#t("station.card.dismiss"),
+      );
+      this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome: "refused" });
+      return undefined;
+    }
+    return fresh;
+  }
+
+  /** S2 D1: relaunch in place (soft), then watch or refuse per the issue. */
+  async #respawnInPlace(
+    sessionId: string,
+    expected: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): Promise<void> {
+    const session = this.#sessionLabel(sessionId);
+    let outcome = "done";
+    try {
+      const owner = await this.#resolveOwner(sessionId, true);
+      if (owner.state !== "found") throw new Error(owner.state);
+      // The card and Enter are apart in time: re-read the line before any
+      // effect. A moved facet, pid, group or incarnation refuses here (NB-4),
+      // zero port call.
+      const fresh = await this.#checkRespawnFresh(sessionId, session, expected);
+      if (!fresh) {
+        outcome = "refused";
+        return;
+      }
+      const link = await this.#link(owner.socketPath);
+      if (link.softRespawn !== true) {
+        this.#refuseSoftThenArm(sessionId, {
+          pid: fresh.pid,
+          group: fresh.group,
+          generation: fresh.generation,
+          incarnation: fresh.incarnation,
+        });
+        return;
+      }
+      if (!(await this.#awaitDraftTerminal(sessionId))) {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      // One call in flight for the whole station: the D1 effect files behind
+      // the launch file instead of doubling it.
+      const result = await this.#enqueueRelaunchAndWait({
+        key: sessionId,
+        args: ["restart", sessionId, "--soft", "--json"],
+        cwd: process.cwd(),
+        env: {},
+        beforeRun: () => this.#rereadDraftGuard(sessionId),
+      });
+      // NB-16: the head-of-file refusal lands here, before any port call.
+      if (!result.ok && result.code === "restoring-on-ready") {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      if (
+        !result.ok &&
+        (result.code === "owner-gone" ||
+          result.code === "link-failed" ||
+          result.code === "draft-status-unreadable")
+      ) {
+        throw new Error(result.code);
+      }
+      // NB-1: the JSON issue is readable even on `exit-nonzero` (r4 §5): an
+      // unsupported soft respawn arms the hard confirmation, not a failure,
+      // and any other JSON code wins over the bare exit code.
+      // NB-20: the JSON code wins only when it comes from readable JSON.
+      // Without readable JSON (`invalid-response`) the port code names the
+      // issue: an uncertain `timeout` must stay readable as a timeout.
+      // NB-23: `unknown` (readable JSON with no failure and no success)
+      // names nothing, so the port code wins exactly like `invalid-response`.
+      const parsed = this.#parseRestartResult(result.stdout, sessionId);
+      if (!parsed.ok && parsed.code === "host-soft-restart-unsupported") {
+        this.#refuseSoftThenArm(sessionId, {
+          pid: fresh.pid,
+          group: fresh.group,
+          generation: fresh.generation,
+          incarnation: fresh.incarnation,
+        });
+        return;
+      }
+      if (!result.ok) {
+        throw new Error(
+          !parsed.ok && parsed.code !== "invalid-response" && parsed.code !== "unknown"
+            ? parsed.code
+            : result.code,
+        );
+      }
+      if (!parsed.ok) throw new Error(parsed.code);
+      if (parsed.strategy !== "soft") throw new Error(`strategy: ${parsed.strategy}`);
+    } catch (error) {
+      outcome = error instanceof Error ? singleLine(error.message) : "refused";
+      this.#showCard(
+        [this.#t("station.respawn.failed", { session, code: outcome })],
+        this.#t("station.card.dismiss"),
+      );
+    }
+    this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+    // Soft keeps incarnation, lease and scrollback: no switch, just re-read.
+    await this.#refresher.maybeRefresh(true);
+    this.#redecorate();
+  }
+
+  /** S2 D1 on an old host: hard relaunch after its own confirmation, then switch. */
+  async #respawnHard(
+    sessionId: string,
+    expected: { pid: number; group: number | null; generation: string; incarnation: string },
+  ): Promise<void> {
+    const session = this.#sessionLabel(sessionId);
+    let outcome = "done";
+    try {
+      // NB-4: the hard card and its Enter are apart in time too: re-read
+      // the line before the effect, zero port call on a move.
+      const fresh = await this.#checkRespawnFresh(sessionId, session, expected);
+      if (!fresh) {
+        outcome = "refused";
+        return;
+      }
+      if (!(await this.#awaitDraftTerminal(sessionId))) {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      const result = await this.#enqueueRelaunchAndWait({
+        key: sessionId,
+        args: ["restart", sessionId, "--soft", "--allow-hard", "--json"],
+        cwd: process.cwd(),
+        env: {},
+        pendingSessionId: sessionId,
+        beforeRun: () => this.#rereadDraftGuard(sessionId),
+      });
+      // NB-16: the head-of-file refusal lands here, before any port call.
+      if (!result.ok && result.code === "restoring-on-ready") {
+        this.#showCard(
+          [this.#t("station.respawn.draftInFlight", { session })],
+          this.#t("station.card.dismiss"),
+        );
+        outcome = "refused";
+        this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+        return;
+      }
+      if (
+        !result.ok &&
+        (result.code === "owner-gone" ||
+          result.code === "link-failed" ||
+          result.code === "draft-status-unreadable")
+      ) {
+        throw new Error(result.code);
+      }
+      // NB-1: the JSON issue is read even on `exit-nonzero` (r4 §5), so its
+      // code wins over the bare exit code here too. NB-20: only when it
+      // comes from readable JSON; otherwise the port code names the issue.
+      // NB-23: `unknown` names nothing, so the port code wins for it too.
+      const parsed = this.#parseRestartResult(result.stdout, sessionId);
+      if (!result.ok) {
+        throw new Error(
+          !parsed.ok && parsed.code !== "invalid-response" && parsed.code !== "unknown"
+            ? parsed.code
+            : result.code,
+        );
+      }
+      if (!parsed.ok) throw new Error(parsed.code);
+      if (parsed.strategy !== "hard" && parsed.strategy !== "hard-fallback") {
+        throw new Error(`strategy: ${parsed.strategy}`);
+      }
+      // A new incarnation starts: switch at its first running observation.
+      this.#pendingDisplay.push({ sessionId, onlyIfIdle: false });
+      await this.#refresher.maybeRefresh(true);
+      this.#redecorate();
+    } catch (error) {
+      outcome = error instanceof Error ? singleLine(error.message) : "refused";
+      this.#showCard(
+        [this.#t("station.respawn.failed", { session, code: outcome })],
+        this.#t("station.card.dismiss"),
+      );
+    }
+    this.#emit({ type: "gesture", gesture: "respawn-in-place", sessionId, outcome });
+    if (outcome === "done") {
+      await this.#refresher.maybeRefresh(true);
+      this.#redecorate();
+    }
+  }
+
+  /** S2: read a restorable row from the current snapshot, by key. */
+  #readRelaunchRow(key: string): RightPanelRestorableRow | undefined {
+    return this.#rawSnapshot?.workspaces
+      .flatMap((workspace) => workspace.restorable ?? [])
+      .find((candidate) => candidate.key === key);
+  }
+
+  /** S2 D2 from a restorable row: confirmed relaunch of the dead session. */
+  #relaunchFromRow(key: string): void {
+    const row = this.#readRelaunchRow(key);
+    // A line without tokens offers nothing: zero calls, never a guessed name.
+    if (!row?.relaunch) return;
+    this.#humanActivatedLine = true;
+    this.#showCard(
+      [this.#t("station.confirm.relaunch", { session: row.label })],
+      this.#t("station.confirm.prompt"),
+      () => {
+        if (this.#uncertainSince !== undefined) {
+          // An uncertain port issue is outstanding (r4 §5): re-read the
+          // effect first, then decide on the fresh snapshot — never repeat
+          // on a row the new snapshot withdrew.
+          void (async () => {
+            await this.#refresher.maybeRefresh(true)?.catch(() => {});
+            const fresh = this.#readRelaunchRow(key);
+            this.#uncertainSince = undefined;
+            if (!fresh?.relaunch) return;
+            this.#enqueueRowRelaunch(fresh);
+          })();
+          return;
+        }
+        this.#enqueueRowRelaunch(row);
+      },
+    );
+  }
+
+  /** S2: confirmed D2 effect shared by the row gesture and the end card. */
+  #enqueueRowRelaunch(row: RightPanelRestorableRow): void {
+    const relaunch = row.relaunch;
+    if (!relaunch) return;
+    const env: Record<string, string> = {};
+    for (const pin of relaunch.env) {
+      const at = pin.indexOf("=");
+      if (at > 0) env[pin.slice(0, at)] = pin.slice(at + 1);
+    }
+    this.#enqueueRelaunch(
+      {
+        key: row.key,
+        args: [...relaunch.args],
+        cwd: relaunch.cwd,
+        env,
+        restorableKey: row.key,
+        ...(relaunch.name !== undefined ? { pendingName: relaunch.name } : {}),
+      },
+      true,
+    );
+    if (relaunch.name !== undefined) {
+      this.#pendingDisplay.push({ name: relaunch.name, onlyIfIdle: false });
+    }
   }
 
   async #releaseGuard(sessionId: string): Promise<void> {
@@ -1573,6 +2577,8 @@ class Station {
 
   /** t0, synchronously with the gesture that asks for the switch. */
   #requestActivation(sessionId: string, takeover: boolean): void {
+    // S2: a human gesture activated a line: no initial auto-display afterwards.
+    this.#humanActivatedLine = true;
     const view = this.#liveView();
     if (
       view !== undefined &&
@@ -1849,15 +2855,27 @@ class Station {
   ): Promise<"displayed" | "refused" | "same"> {
     const from = this.#view;
     const fromLive = this.#liveView();
+    const fromLease = fromLive?.active;
     if (
       fromLive !== undefined &&
       fromLive.sessionId === sessionId &&
-      fromLive.active !== undefined &&
+      fromLease !== undefined &&
       fromLive.transportFailure === undefined
     ) {
-      this.#panel.focusCli();
-      this.#emit({ type: "same-session", sessionId });
-      return "same";
+      // A hard relaunch replaces the incarnation under the displayed view:
+      // the inventory then carries a newer generation than the held lease,
+      // and only a full switch takes the fresh lease (B-9). Otherwise this
+      // request is a no-op that keeps the focus on the CLI.
+      const known = this.#inventory?.sessions.find((session) => session.id === sessionId);
+      if (
+        known === undefined ||
+        (known.generation === fromLease.lease.generation &&
+          known.incarnation === fromLease.lease.incarnation)
+      ) {
+        this.#panel.focusCli();
+        this.#emit({ type: "same-session", sessionId });
+        return "same";
+      }
     }
     this.#freeze();
     try {
@@ -1977,6 +2995,32 @@ class Station {
     view.dispose();
     this.#bar = undefined;
     this.#emit({ type: "card", kind, sessionId, text });
+    // S2 D2: the end card of a relaunched-able session offers the relaunch.
+    if (kind === "ended") {
+      // The plan is re-read first: the session just ended, so no snapshot
+      // taken before is allowed to decide whether it is relaunchable.
+      await this.#refresher.maybeRefresh(true);
+      const row = this.#rawSnapshot?.workspaces
+        .flatMap((workspace) => workspace.restorable ?? [])
+        .find((candidate) => candidate.relaunch?.name === sessionId);
+      // NB-15: no end offer while a file entry already relaunches this
+      // session (a hard relaunch stops the old PTY before its own issue):
+      // the offer would double the in-flight relaunch.
+      if (row?.relaunch && !this.#fileTargetsSession(sessionId)) {
+        this.#showCard(
+          [text, this.#t("station.confirm.relaunch", { session: row.label })],
+          this.#t("station.confirm.prompt"),
+          () => {
+            this.#humanActivatedLine = true;
+            this.#enqueueRowRelaunch(row);
+          },
+        );
+        this.#panel.paint();
+        this.#redecorate();
+        void this.#refresher.maybeRefresh(true);
+        return;
+      }
+    }
     this.#panel.paint();
     this.#redecorate();
     void this.#refresher.maybeRefresh(true);
@@ -2198,7 +3242,7 @@ class Station {
   }
 
   /** Persisted session, else the most recent of the first group, then the rest. */
-  #initialCandidates(snapshot: RightPanelSnapshot): string[] {
+  #initialCandidates(snapshot: RightPanelSnapshot, preferredTab?: string): string[] {
     const candidates: string[] = [];
     const live = new Set(snapshot.workspaces.flatMap((w) => w.sessions.map((s) => s.id)));
     const push = (id: string | undefined): void => {
@@ -2206,7 +3250,15 @@ class Station {
     };
     const tab = this.#state.activeTab;
     if (tab !== undefined) push(this.#state.lastSessionByTab[tab]);
-    for (const workspace of snapshot.workspaces) {
+    // S2: the bridge group opens on its tab: that tab's sessions lead.
+    const ordered =
+      preferredTab !== undefined
+        ? [
+            ...snapshot.workspaces.filter((workspace) => workspace.title === preferredTab),
+            ...snapshot.workspaces.filter((workspace) => workspace.title !== preferredTab),
+          ]
+        : snapshot.workspaces;
+    for (const workspace of ordered) {
       const byRecency = [...workspace.sessions].sort(
         (a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0) || a.id.localeCompare(b.id, "en"),
       );
@@ -2269,8 +3321,27 @@ class Station {
     // One inventory, one plan, before the terminal is touched.
     await this.#refresher.maybeRefresh(true);
     const snapshot = this.#rawSnapshot;
-    const candidates = snapshot ? this.#initialCandidates(snapshot) : [];
-    if (candidates.length === 0) {
+    // S2: the bridge group becomes the initial tab; without a matching tab
+    // the station warns and opens on the remembered tab instead.
+    let preferredTab: string | undefined;
+    if (this.#options.group !== undefined && snapshot) {
+      const titles = snapshot.workspaces.map((workspace) => workspace.title);
+      const initial = titles.find((title) =>
+        titleMatches(title, this.#options.group as string),
+      );
+      if (initial !== undefined) {
+        this.#persist(withActiveTab(this.#state, initial));
+        preferredTab = initial;
+      } else {
+        this.#emit({ type: "notice", key: "station.notice.groupUnknown" });
+        this.#stdout.write(
+          `[h2a] ${this.#t("station.notice.groupUnknown", { group: this.#options.group })}\r\n`,
+        );
+      }
+    }
+    const candidates = snapshot ? this.#initialCandidates(snapshot, preferredTab) : [];
+    const restorable = snapshot?.workspaces.flatMap((workspace) => workspace.restorable ?? []) ?? [];
+    if (candidates.length === 0 && restorable.length === 0) {
       const key =
         this.#inventory !== undefined && !this.#inventory.complete
           ? "station.refusal.inventoryUnknown"
@@ -2341,6 +3412,9 @@ class Station {
       }
 
       await this.#reacquireAllGuards();
+      // S2 launch file: the loop never awaits it; entries settle on their own
+      // while keystrokes keep flowing to the displayed session.
+      this.#startRelaunchFile(restorable);
       let shown = false;
       this.#quietRefusals = true;
       try {

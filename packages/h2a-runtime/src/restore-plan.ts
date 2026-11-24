@@ -1335,6 +1335,70 @@ export function buildRestorePlan(
 }
 
 /**
+ * S2 pré-porte argv (plan 09-S2) : the restore path emits `--resume`, and
+ * only a dedicated alignment PR (outside S2) can prove the agy resume argv.
+ * Neither D qualification nor the mere presence of `--resume` in a source
+ * lifts it: removing the profile from this function is the only way.
+ */
+export function resumeArgvVerified(tool: string): boolean {
+  return tool !== "agy" && tool !== "antigravity";
+}
+
+export type TabRunTokens = Readonly<{
+  /** `KEY=VALUE` pins prepended to the environment, one per element. */
+  env: readonly string[];
+  /** Tokens after the binary, one per element, never a shell string. */
+  args: readonly string[];
+  cwd: string;
+}>;
+
+/**
+ * S2 relaunch tokens (plan 09-S2): the token form of `tabCommand` for a DEAD
+ * local tab. Nothing for a remote tab, an `attachLive` tab or a tab without
+ * `sid` — those are never relaunched by the station. `tabCommand` is
+ * untouched: the oracle is token-by-token against its single-quote rule.
+ */
+export function tabRunInvocation(
+  tab: LayoutTab,
+  opts: {
+    forceGateway?: "gateway" | "direct";
+  } = {},
+): TabRunTokens | undefined {
+  if (tab.remoteId !== undefined || tab.attachLive === true || !tab.sid) {
+    return undefined;
+  }
+  const pinned =
+    tab.gatewayMode === "direct"
+      ? "direct"
+      : tab.gatewayProvenance === "explicit"
+        ? tab.gatewayMode
+        : undefined;
+  const posture = opts.forceGateway ?? pinned;
+  const flags: string[] = [];
+  if (posture === "gateway") flags.push("--gw");
+  else if (posture === "direct") flags.push("--no-gw");
+  if (tab.bare === true) flags.push("--bare");
+  else if (tab.bare === false) flags.push("--no-bare");
+  if (tab.hostKind === "local-tmux") flags.push("--tmux");
+  const env: string[] = [];
+  if (tab.hostKind === "local-native") env.push("H2A_SESSION_HOST=native");
+  return {
+    env,
+    args: [
+      "run",
+      tab.tool ?? "shell",
+      tab.cwd,
+      "--resume",
+      tab.sid,
+      "--name",
+      tab.label,
+      ...flags,
+    ],
+    cwd: tab.cwd,
+  };
+}
+
+/**
  * Per-tab command for an ABSENT local session: create it via `remote run …
  * --resume …` (which attaches by default). Live sessions are deliberately
  * handled by `launchLayout`, which knows their exact tmux names and whether they

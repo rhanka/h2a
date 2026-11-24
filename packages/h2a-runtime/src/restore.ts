@@ -675,81 +675,9 @@ export function stationStatePath(): string {
   return join(dirname(resolveConfigPath()), STATION_STATE_FILE_NAME);
 }
 
-export type RestoreStationPlan =
-  | { readonly ok: true; readonly live: number; readonly dead: number }
-  | { readonly ok: false; readonly reason: string };
-
-/**
- * Refusals that name a dead session restore knows about. An unknown host view
- * or an identity present on two hosts is not "dead": it is never counted (I7).
- */
-const STATION_DEAD_REFUSALS: ReadonlySet<RestoreRefusalReason> = new Set([
-  "unresolved-conversation",
-  "per-project-scan-cap",
-  "unclassified-scan",
-]);
-
-/**
- * Live and dead sessions of the pure restore plan. Before S2 the station
- * neither lists nor relaunches a dead session: it displays their number. An
- * unknown host view never reads as dead sessions.
- */
-export function summarizeStationPlan(
-  plan: Pick<RestorePlanResult, "ok" | "refusalDetail" | "classifications">,
-  hostView: HostViewSnapshot,
-): RestoreStationPlan {
-  if (!plan.ok) return { ok: false, reason: plan.refusalDetail ?? "unknown" };
-  if (!hostView.native.known) return { ok: true, live: 0, dead: 0 };
-  const native = new Set(hostView.native.sessions.map((session) => session.name));
-  const tmux = new Set(
-    hostView.tmux.known ? hostView.tmux.sessions.map((session) => session.name) : [],
-  );
-  let live = 0;
-  let dead = 0;
-  for (const classification of plan.classifications) {
-    if (classification.outcome === "refused") {
-      if (!STATION_DEAD_REFUSALS.has(classification.reason)) continue;
-      // The plan refuses a dead registry row whose conversation is unresolved
-      // without building a session for it: it is dead all the same.
-      if (classification.session === undefined) {
-        dead += 1;
-        continue;
-      }
-    }
-    const session = classification.session;
-    if (session === undefined) continue;
-    const name = session.managedName;
-    const isLive =
-      name !== undefined &&
-      (session.hostKind === "local-tmux" ? tmux.has(name) : native.has(name));
-    if (isLive) live += 1;
-    else dead += 1;
-  }
-  return { ok: true, live, dead };
-}
-
-/** The same plan as `restore()`, read-only: nothing is written or launched. */
-export function planRestoreStation(): RestoreStationPlan {
-  const home = homedir();
-  const registryRead = loadRegistry();
-  if (registryRead.state === "unknown") return { ok: false, reason: registryRead.reason };
-  const cfg = getLayoutConfig();
-  const hostView = captureHostViewSnapshot();
-  const plan = buildRestorePlan(
-    {
-      home,
-      config: cfg,
-      registryRead,
-      scanned: discoverSessions(cfg.maxAgeHours * 3600 * 1000),
-      hostView,
-      evidence: legacySessionEvidence(home),
-      customTitleFor: (cwd, convId) => readConversationCustomTitle(home, cwd, convId),
-      remoteTabs: [],
-    },
-    {},
-  );
-  return summarizeStationPlan(plan, hostView);
-}
+export type RestoreStationRegistryRead =
+  | { readonly state: "ok" }
+  | { readonly state: "unknown"; readonly reason: string };
 
 /**
  * Internal op entry of the station bridge. Same resolution as the attach
@@ -779,12 +707,16 @@ function launchStationBridge(args: readonly string[]): number {
 }
 
 export type RestoreStationOptions = {
-  /** Accepted, not used before S2 (it becomes the initial tab there). */
+  /** The initial tab of the station (a group title, matched by title). */
   group?: string;
+  /** List the relaunchable sessions without launching them. */
+  lazy?: boolean;
+  /** Gateway posture passed to the station plan. */
+  forceGateway?: "gateway" | "direct";
   stdinIsTTY?: boolean;
   stdoutIsTTY?: boolean;
   stderr?: { write(chunk: string): unknown };
-  plan?: () => RestoreStationPlan;
+  registry?: () => RestoreStationRegistryRead;
   launch?: (args: readonly string[]) => number;
   statePath?: string;
   locale?: string;
@@ -810,19 +742,19 @@ export function restoreStation(opts: RestoreStationOptions = {}): number {
     say("station.refusal.notTty");
     return 1;
   }
-  if (opts.group !== undefined) say("station.notice.groupIgnored", { group: opts.group });
-  const plan = (opts.plan ?? planRestoreStation)();
-  if (!plan.ok) {
+  // S2: the parent takes no photo and computes no plan for the station. Its
+  // only read is the registry; the station process computes one plan on one
+  // photo. The group travels over the bridge and becomes the initial tab.
+  const registryRead = (opts.registry ?? (() => loadRegistry()))();
+  if (registryRead.state === "unknown") {
     stderr.write(
-      `[h2a] restore refused: the local registry is unreadable (${plan.reason}); nothing was launched (fail closed).\n`,
+      `[h2a] restore refused: the local registry is unreadable (${registryRead.reason}); nothing was launched (fail closed).\n`,
     );
     return 1;
   }
-  return (opts.launch ?? launchStationBridge)([
-    "station",
-    "--state-file",
-    opts.statePath ?? stationStatePath(),
-    "--dead-count",
-    String(plan.dead),
-  ]);
+  const bridge: string[] = ["station", "--state-file", opts.statePath ?? stationStatePath()];
+  if (opts.group !== undefined) bridge.push("--group", opts.group);
+  if (opts.lazy === true) bridge.push("--lazy");
+  if (opts.forceGateway !== undefined) bridge.push("--force-gateway", opts.forceGateway);
+  return (opts.launch ?? launchStationBridge)(bridge);
 }

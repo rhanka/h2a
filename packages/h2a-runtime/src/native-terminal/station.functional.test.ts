@@ -80,6 +80,14 @@ type FixtureSession = {
   script: string;
 };
 
+type FixtureDeadSession = {
+  id: string;
+  label: string;
+  mtime: number;
+  /** Resolved resume conversation: present ⇒ relaunchable launch row. */
+  convId: string;
+};
+
 /** A child that says it is ready, reports every resize and echoes its input. */
 const echoChild = (tag: string, prelude = ""): string => `
   process.stdin.setRawMode(true);
@@ -98,6 +106,8 @@ async function createStationFixture(opts: {
   cols: number;
   rows: number;
   sessions: readonly FixtureSession[];
+  /** Registry-only dead rows (NB-17): listed under `restorable`, never live. */
+  deadSessions?: readonly FixtureDeadSession[];
   statusBar?: boolean;
   replayBytes?: number;
 }) {
@@ -128,18 +138,33 @@ async function createStationFixture(opts: {
     join(configDir, "registry.json"),
     JSON.stringify({
       version: 1,
-      entries: opts.sessions.map((session) => ({
-        id: session.id,
-        tool: "claude",
-        kind: "local-native",
-        cwd: projectDir,
-        label: session.label,
-        tmuxSession: session.id,
-        source: "run",
-        sessionClass: "human",
-        lastSeenAt: new Date(session.mtime).toISOString(),
-        enrolledAt: new Date(session.mtime).toISOString(),
-      })),
+      entries: [
+        ...opts.sessions.map((session) => ({
+          id: session.id,
+          tool: "claude",
+          kind: "local-native",
+          cwd: projectDir,
+          label: session.label,
+          tmuxSession: session.id,
+          source: "run",
+          sessionClass: "human",
+          lastSeenAt: new Date(session.mtime).toISOString(),
+          enrolledAt: new Date(session.mtime).toISOString(),
+        })),
+        ...(opts.deadSessions ?? []).map((session) => ({
+          id: session.id,
+          tool: "claude",
+          kind: "local-native",
+          cwd: projectDir,
+          label: session.label,
+          tmuxSession: session.id,
+          convId: session.convId,
+          source: "run",
+          sessionClass: "human",
+          lastSeenAt: new Date(session.mtime).toISOString(),
+          enrolledAt: new Date(session.mtime).toISOString(),
+        })),
+      ],
     }),
   );
   await writeFile(
@@ -194,7 +219,10 @@ async function createStationFixture(opts: {
   }
   const statePath = join(configDir, STATION_STATE_FILE_NAME);
 
-  const station = (protectedByParent = false) => {
+  // NB-18: extra station args stay opt-in per test. A fixture with a
+  // resolved dead row must pass --lazy, or the launch file would really
+  // relaunch it through the production port during an S1 list test.
+  const station = (protectedByParent = false, extraStationArgs: readonly string[] = []) => {
     const stationArgs = [
       "--import",
       loader,
@@ -204,8 +232,7 @@ async function createStationFixture(opts: {
       socketPath,
       "--state-file",
       statePath,
-      "--dead-count",
-      "1",
+      ...extraStationArgs,
     ];
     const recovery = new URL("./attach-recovery.ts", import.meta.url).href;
     const args = protectedByParent
@@ -373,14 +400,23 @@ describe.skipIf(process.platform !== "linux")(
           { id: "h2a-alpha", label: "alpha", mtime: 1_700_000_900_000, script: echoChild("ALPHA") },
           { id: "h2a-bravo", label: "bravo", mtime: 1_700_000_100_000, script: echoChild("BRAVO") },
         ],
+        // NB-17: a registry-only dead row with a resolved conversation.
+        deadSessions: [
+          { id: "h2a-dead", label: "dead", mtime: 1_700_000_050_000, convId: "55555555-5555-4555-8555-555555555555" },
+        ],
       });
       const before = await Promise.all(["h2a-alpha", "h2a-bravo"].map((id) => f.client.state(id)));
-      const outer = f.station();
+      // NB-18: --lazy lists the resolved dead row without relaunching it.
+      const outer = f.station(false, ["--lazy"]);
       // Launch: the most recent session of the first group, panel open, one window.
       await until(() => outer.output().includes("ALPHA_READY"), 20_000, "launch");
       await until(() => outer.output().includes("[demo]"), 10_000, "panel");
       expect(outer.output()).toContain("\x1b[?1000h\x1b[?1006h");
-      expect(outer.output()).toContain("1 dead");
+      // S2 retired the dead count: a registry row without convId lists its
+      // D1-unavailable motif instead of offering a gesture (plan 09-S2).
+      expect(outer.output()).toContain("conversation not resolved");
+      // The dead row lists under `restorable` with its launch gesture (NB-17).
+      expect(outer.output()).toContain("1 restorable");
       // Panel open ⇒ the displayed PTY has the columns left of the panel.
       await until(() => outer.output().includes("ALPHA_WINCH:88x30"), 10_000, "child resize");
       await outer.inputOpen(1);

@@ -29,7 +29,7 @@
  *                                     (becomes observer with banner under remote
  *                                     control; first keystroke takes back;
  *                                     detach: Ctrl-\\ ; exits when session exits)
- *   station [--state-file F] [--dead-count N]
+ *   station [--state-file F] [--group G] [--lazy] [--force-gateway gateway|direct]
  *                                     every live session on this terminal, one
  *                                     displayed at a time (`h2a restore --station`;
  *                                     detach: Ctrl-\\ ; sessions keep running)
@@ -39,7 +39,13 @@ import { existsSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  execFile,
+  type ChildProcess,
+  type ExecFileOptionsWithStringEncoding,
+} from "node:child_process";
 import { NativeTerminalClient, NativeTerminalRequestTimeoutError } from "./client.js";
+import { coreSpawnTarget } from "../identity-operator-break.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
@@ -80,7 +86,13 @@ import {
   sessionExitCrashEntry,
   type NativeTerminalAttachClient,
 } from "./session-view.js";
-import { runStation, type StationRuntime, type StationStatusBar } from "./station.js";
+import {
+  runStation,
+  type StationCliRequest,
+  type StationCliResult,
+  type StationRuntime,
+  type StationStatusBar,
+} from "./station.js";
 import { appendCrashLog, installCrashHandlers } from "../crash-log.js";
 import type {
   NativeStatusBarLinkState,
@@ -112,8 +124,8 @@ function parseArgv(argv: ReadonlyArray<string>): Parsed {
       break;
     }
     if (!arg.startsWith("--")) throw new Error(`unexpected argument: ${arg}`);
-    if (arg === "--takeover") {
-      flags.set("takeover", "true");
+    if (arg === "--takeover" || arg === "--lazy") {
+      flags.set(arg.slice(2), "true");
       continue;
     }
     const value = argv[index + 1];
@@ -439,12 +451,103 @@ function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
  * Station runtime: every owner endpoint of this machine, one untracked
  * connection per request of the station (it owns and closes them).
  */
+/**
+ * S2 product bound per `execH2a` call. It covers both legs of the `restart`
+ * path (20 s + 20 s). It is not a criterion: the oracle is the issue.
+ */
+export const STATION_CLI_TIMEOUT_MS = 60_000;
+
+/**
+ * S2 relaunch effect (plan 09-S2): async `execFile` without a shell, tokens
+ * after the binary. The child is detached with a closed standard input and
+ * captured outputs: it neither reads nor writes the station terminal, and
+ * closing the station never cuts a relaunch in flight. Never throws.
+ */
+function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
+  const target = coreSpawnTarget(process.env);
+  return new Promise((resolve) => {
+    let settled = false;
+    let killedByTimeout = false;
+    let child: ChildProcess | undefined;
+    const done = (result: StationCliResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      killedByTimeout = true;
+      try {
+        child?.kill();
+      } catch {
+        /* already gone: the callback settles below */
+      }
+      done({ ok: false, code: "timeout", stdout: "", stderr: "" });
+    }, STATION_CLI_TIMEOUT_MS);
+    // The timer never holds the station open on its own: the child carries
+    // the relaunch, and closing the station never cuts a relaunch in flight.
+    timer.unref?.();
+    try {
+      child = execFile(
+        target.command,
+        [...target.prefixArgs, ...request.args],
+        {
+          cwd: request.cwd,
+          env: { ...process.env, ...(request.env ?? {}) },
+          // Absent from the execFile overloads but forwarded to `spawn`
+          // at runtime (verified here): own process group for the child.
+          detached: true,
+        } as ExecFileOptionsWithStringEncoding & { detached: boolean },
+        (error, stdout, stderr) => {
+          if (!error) {
+            done({ ok: true, stdout });
+            return;
+          }
+          if (killedByTimeout) {
+            done({ ok: false, code: "timeout", stdout, stderr });
+            return;
+          }
+          const code = (error as NodeJS.ErrnoException | { code?: unknown }).code;
+          if (code === "ENOENT") {
+            // A missing working directory reports ENOENT too: only a
+            // present cwd with an unresolvable binary is `binary-missing`.
+            const cwdOk = existsSync(request.cwd);
+            done({ ok: false, code: cwdOk ? "binary-missing" : "spawn-error", stdout, stderr });
+            return;
+          }
+          if (typeof code === "number") {
+            done({ ok: false, code: "exit-nonzero", exitCode: code, stdout, stderr });
+            return;
+          }
+          done({ ok: false, code: "spawn-error", stdout, stderr });
+        },
+      );
+      // The child never reads the station terminal; closing the station
+      // never cuts a relaunch in flight.
+      try {
+        child.stdin?.end();
+      } catch {
+        /* already closed */
+      }
+      child.unref();
+    } catch (error) {
+      done({
+        ok: false,
+        code: "spawn-error",
+        stdout: "",
+        stderr: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
+
 function defaultStationRuntime(pinnedSocket?: string): StationRuntime {
   return {
     ...defaultTerminalRuntime(),
     endpoints: () => (pinnedSocket ? [pinnedSocket] : knownNativeTerminalSocketPaths()),
     connect: (socketPath) => connectExisting(socketPath, false),
     proveAbsent: proveNativeTerminalEndpointAbsent,
+    execH2a: stationExecH2a,
   };
 }
 
@@ -2840,14 +2943,18 @@ export async function runNativeTerminalOp(
     }
     case "station": {
       // Internal entry of `h2a restore --station` (no new CLI verb).
-      const rawDead = Number(parsed.flags.get("dead-count") ?? 0);
       const statePath = parsed.flags.get("state-file");
+      const group = parsed.flags.get("group");
+      const lazy = parsed.flags.get("lazy") === "true";
+      const forceGateway = parsed.flags.get("force-gateway");
       let tty = "not-a-tty";
       try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
       return runStation(defaultStationRuntime(parsed.flags.get("socket")), {
         createStatusBar: (id) => createNativeStatusBar(id, process.stdout, () => Date.now()),
         ...(statePath ? { statePath } : {}),
-        deadCount: Number.isSafeInteger(rawDead) && rawDead > 0 ? rawDead : 0,
+        ...(group !== undefined ? { group } : {}),
+        ...(lazy ? { lazy: true as const } : {}),
+        ...(forceGateway === "gateway" || forceGateway === "direct" ? { forceGateway } : {}),
         tty,
       });
     }
