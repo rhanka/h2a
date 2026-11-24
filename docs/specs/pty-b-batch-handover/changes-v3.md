@@ -1,0 +1,29 @@
+# PTY B — v3 finale : remarque → traitement
+
+Preuve : `/home/antoinefa/src/h2a`, **`origin/main` =
+`7670fbed6870fb7e5b985a1315ff55776b362fd8`**, lu exclusivement par
+`git show origin/main:<path>`. Le checkout local, déjà modifié, ne sert
+pas de preuve. Les chemins de code sont relatifs au dépôt ; `src/` et
+`native-terminal/` abrègent respectivement `packages/h2a-runtime/src/` et
+`packages/h2a-runtime/src/native-terminal/` dans la table.
+
+Revues traitées : `../revpty3a-last.md` (Astra max, A1–A4) et
+`../revpty3s-last.md` (Sol max, S1–S3). **7 remarques, 4 racines ; toutes
+confirmées**, aucune rejetée. A/S désignent ici ces seules revues finales,
+pas les numéros des revues de v1 dans `changes-v2.md`.
+
+| Remarque | Vérification sur la base / trou de v2 | Traitement v3 et RED exigé |
+|---|---|---|
+| **A1 + S1 — P1 : CAS écrasable par un écrivain concurrent** | `packages/h2a-runtime/src/registry.ts:1066` transmet un verrou éventuellement absent ; `runUnderRegistryLock` charge puis sauvegarde le registre entier (`1120–1135`). `src/file-lock.ts:13–16` exclut explicitement une garantie de sûreté ; `61–63` casse le verrou selon l'âge seul ; `95–105` libère sans vérifier un successeur. Un CAS strict isolé reste écrasable. | **D23, L3/L4** : exclusion stricte partagée par tous les écrivains, chargement frais sous verrou, aucun callback d'écriture après échec, aucune reprise par âge seul, libération limitée au verrou détenu. Mutation ordinaire : préserver le propriétaire/epoch frais. Écrivain ancien/inconnu non clôturé : transfert différé, y compris processus/hooks déjà lancés. Une seule transaction valide toutes les lignes puis publie le lot entier ; comparaison 2 en échec ⇒ aucune ligne modifiée. Périmètre L3 étendu explicitement à `file-lock.ts` et `registry.test.ts`. RED : contention, écrivain suspendu au-delà de l'âge, reprise d'une mutation ancienne après commit/sortie puis réconciliation sans signal, deuxième comparaison échouée sans modification partielle. |
+| **A2 + S2 — P1 : entrées acquittées après OFFER/PREPARED absentes du transfert** | V2 D22 importe le snapshot à PREPARE ; D26 continue d'acquitter ; D25 passe au commit sans delta. L3 interdit même les copies préparées qu'exige D22. Sur `origin/main`, `native-terminal/host.ts:1234–1240` écrit directement au PTY ; aucun mécanisme de transfert d'une telle file n'existe à réutiliser implicitement. | **D8/D22/D25/D26, §4, L3, §7** : distinguer garde autoritative chez le cédant et copies inertes chez le receveur. Après PREPARED, fermer l'admission et fixer les frontières finales ; transférer le delta identifié/ordonné avec octets et offsets ; obtenir FINAL_READY complet **avant** la transaction durable puis COMMIT. Garder les écritures post-barrière chez le client sans ACK ; ouvrir la route inscriptible après vidange scellée ; le cédant conserve sa copie jusqu'à confirmation d'activation. Réserver aussi la capacité du delta. RED : snapshot à 40, entrée 41 ACKée après PREPARED, entrée 42 à la barrière, commit réussi puis sortie normale du cédant, octets exacts ; delta incomplet/frontière différente ⇒ aucun commit. |
+| **A3 — P1 : `.owner` réécrit mais pathname encore supprimable** | `native-terminal/server.ts:577–595` : `rollbackEndpoint` appelle d'abord `unlinkOwnedPath(socketPath, owned)` sur l'inode seul, puis compare pid/start-time pour `.owner`. Conserver l'inode conserve donc l'ancien droit de suppression ; la phrase v2 invoquant les « existing semantics » est fausse. | **§2, D24, L4, §7** : révoquer explicitement l'autorité de publication/nettoyage du cédant ; vérifier l'autorité courante **avant tout unlink partagé**, sous exclusion commune avec la succession, jusque dans les callbacks retardés rollback/close/abort. Le scope L4 autorise ces changements de nettoyage et la régression `server.test.ts` sur Linux ; le fichier fonctionnel de redémarrage porte aussi la preuve keeper. RED : cleanup normal et retardé du cédant après re-stamp, socket et sidecar conservés ; connexion servie sur le même inode après sortie du cédant et remplacement du frontal. |
+| **A4 + S3 — P2 : absence de référence vivante ≠ cible de rollback libérable** | `packages/h2a/src/runtime/upgrade/index.ts:1538` supprime le prev-dir après succès ; `437` supprime des sauvegardes au sweep. V2 D28 ne protège ensuite que les références vivantes, incompatible avec le rollback disponible « at any time » de §7 lorsque le dernier ancien composant disparaît. | **D28, B4, §7** : pin persistant d'au moins un frontal B précédent qualifié compatible avec chaque propriétaire courant, indépendant des PID vivants. Swap et sweep conservent toute installation référencée **ou** épinglée ; métadonnées indécidables ⇒ conserver. Libération uniquement après pin/qualification d'un remplaçant compatible, ou abandon B après drainage/retrait complet ; sinon switch différé. RED : disparition des anciens composants → sweep → lancement effectif du frontal précédent contre le propriétaire courant et échange CLI ; qualification de la règle de libération. |
+
+| Périmètre et preuve | État |
+|---|---|
+| Livrables | `SPEC_EVOL_PTY_B_BATCH_HANDOVER.v3.md`, cette table, `summary.md` actualisé |
+| Conservation | V2 et `changes-v2.md` conservés ; but, ordre des lots, autres lots, plateformes et chiffrage v2 inchangés |
+| Code / commits poussés | Aucun : tâche exclusivement documentaire, scratchpad hors dépôt Git |
+| Tests applicatifs exécutés / RED→GREEN | Aucun ; les régressions ci-dessus sont **spécifiées pour les lots**, aucune preuve verte produit revendiquée |
+| Non couvert | Implémentation des quatre correctifs et leur qualification ; limites de §8 inchangées (crash au commit, migration rétroactive, macOS avant BM, etc.) |
+| Écart à la demande | Aucun ; les extensions de périmètre nommées ci-dessus servent uniquement les quatre remarques restantes |

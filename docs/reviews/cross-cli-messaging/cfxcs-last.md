@@ -1,0 +1,6 @@
+CORRECTIONS-REQUISES
+Reviewer: sol-max
+Spec: /home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/xclifix/SPEC_EVOL_CROSS_CLI_MESSAGING.v2.md
+Spec-SHA256: 8f2ef6efb27796eea97c45703d040b676428920ec53d52330efde303af3137a9
+
+- **P1 restant — Le contrôle de fusion exclut les lignes R2 devenues obligatoires.** [§7.1, ligne 1005](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/xclifix/SPEC_EVOL_CROSS_CLI_MESSAGING.v2.md:1005) limite `merge` à R1 et réserve R2 à la release, contrairement à §5.4 qui impose que toute ligne obligatoire bloque aussi la fusion. Un reçu R1 vert ne suffit donc pas après promotion d’une ligne boucle ou négociation à R2. Le P1 précédent sur les critères de clôture reste partiellement ouvert : inclure les lignes R2 obligatoires dans le contrôle de fusion et tester le refus lorsqu’elles sont absentes ou `blocked`, même avec R1 entièrement vert.

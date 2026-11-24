@@ -1,0 +1,2 @@
+GO-CODE  
+Spec relue : [SPEC_EVOL_VELOCITY_ESTIMATOR.v2.md](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/velo/SPEC_EVOL_VELOCITY_ESTIMATOR.v2.md) — sha256 : `4388546e0c488212efdfb3402595ed14a33c568ae3fa1d3a3287a61569858ccb`

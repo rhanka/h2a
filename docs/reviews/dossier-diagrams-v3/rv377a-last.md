@@ -1,0 +1,15 @@
+NON-FUSIONNABLE — SHA relu : `4dec3d35014df846c582e1e7f89a4d5206b6c965`
+
+- **P1 — Le nouveau test H4-H1 casse `npm test` sous HOME isolé.** [distribution-fixture.mjs:10](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/test/distribution-fixture.mjs:10) cherche les tarballs dans `process.env.HOME/.npm`, alors que ce HOME temporaire ne contient pas le cache d’installation. Résultat : `ENOENT` lors de la copie ligne 68. Reproduit localement et confirmé par le [check `npm-test-trust-root`](https://github.com/rhanka/h2a/actions/runs/39169250066/job/117798672424). Fournir explicitement le cache préparé au témoin, en conservant l’isolation.
+
+- **P2 — Une recherche ancienne peut écraser une navigation de citation plus récente.** [SourceViewer.svelte:19](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/src/SourceViewer.svelte:19) invalide les recherches sur changement de requête/source, mais pas de locateur. Reproduction : lancer « preuve » sur une source de 200 000 lignes, puis ouvrir sa citation finale pendant la recherche. À son achèvement, l’interface annonce toujours « plage citée : 200000–200001 », mais affiche les lignes 1–80. Inclure la navigation dans le contrôle des résultats obsolètes et ajouter ce témoin d’atomicité.
+
+- **P2 — L’activation d’une citation ne rend pas sa plage visible à l’écran.** [SourceViewer.svelte:12](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/src/SourceViewer.svelte:12) défile dans la source puis applique `focus({ preventScroll: true })`, sans amener la plage dans la fenêtre. Sur le corpus existant de 20 000 lignes, après stabilisation, la ligne citée commence à **1325, 1301 et 1225 px**, pour une fenêtre haute de **900 px**, aux largeurs 320/390/1440. Les tests vérifient sa présence dans le DOM, ce qui laisse passer ce défaut du gate G5a. Vérifier et assurer sa visibilité effective.
+
+- **P2 — Le retour conserve le mauvais contexte après une seconde citation.** [Evidence.svelte:14](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/src/Evidence.svelte:14) ne mémorise l’appelant que si aucune source n’est ouverte. Ouvrir une citation depuis une section, puis une autre depuis une autre section, puis « Retour au contexte » ramène le focus à la première. Reproduit en navigateur. Actualiser le contexte lorsqu’une nouvelle navigation part du dossier.
+
+**P3 : aucun autre constat retenu.**
+
+Vérifications locales : **254 tests ciblés passent**, sans skip ; le test de distribution échoue comme en CI. `gh pr checks 377` : **14 réussites, 1 échec**, dont `portable-focus` vert. La qualification G5a d’environ 30,9 Mo reste une preuve CI, non relancée localement.
+
+Le schéma v1, les comportements historiques testés, les empreintes des assets et la conservation du précédent HTML après refus/écriture partielle sont vérifiés. H2/H3 et leurs capacités DS/CDN sont correctement déclarés bloqués, sans simulation. Aucun fichier du dépôt modifié.
