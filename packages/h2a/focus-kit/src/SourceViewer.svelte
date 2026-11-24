@@ -2,11 +2,11 @@
   import { tick, onMount } from 'svelte';
   import { decodeEvidence, evidenceText, evidenceLines } from '../../../focus/src/validation/evidence-bytes.ts';
   import { searchSource } from './evidence-search.js';
-  let { source, locator, visit, onback } = $props();
+  let { source, locator, visit, onback, target = 'document' } = $props();
   let lines = $derived(source.mediaType.startsWith('image/') ? [] : evidenceLines(evidenceText(decodeEvidence(source.data))));
   let start = $state(0), jump = $state(1);
   let query = $state(''), matches = $state([]), searching = $state(false), serial = 0, matchIndex = $state(0);
-  let scroller = $state(null), target = $state(null), heading, navigation = 0;
+  let scroller = $state(null), scrollTarget = $state(null), heading, navigation = 0;
   onMount(() => heading.focus());
   const windowSize = 80, lineHeight = 24;
   async function go(line, focus = true) {
@@ -19,7 +19,7 @@
       // Keep clearance from viewport edges: document scroll positions are rounded,
       // while font layout can put the cited line on a fractional pixel.
       scroller.querySelector(`[data-line="${n}"]`)?.scrollIntoView({ block: 'center', inline: 'nearest' });
-      target?.focus({ preventScroll: true });
+      scrollTarget?.focus({ preventScroll: true });
     }
   }
   // Reopening the same citation is a new navigation even if its locator is unchanged.
@@ -46,7 +46,11 @@
   <details><summary>Empreinte des octets</summary><code>{source.sha256}</code></details>
   <div class="evidence-actions">
     <button onclick={onback}>Retour au contexte</button>
-    <button onclick={download}>Télécharger les octets originaux</button>
+    {#if target === 'artifact'}
+      <a href={`data:application/octet-stream;base64,${source.data}`} target="_blank" rel="noopener">Ouvrir les octets originaux (nouvel onglet)</a>
+    {:else}
+      <button onclick={download}>Télécharger les octets originaux</button>
+    {/if}
   </div>
   {#if source.mediaType.startsWith('image/')}
     <figure><img src={`data:${source.mediaType};base64,${source.data}`} alt={source.alt} width={source.width} height={source.height} /><figcaption>{locator?.caption ?? source.alt}</figcaption></figure>
@@ -58,7 +62,7 @@
     <button onclick={() => go(jump)}>Atteindre</button>
     <p>{lines.length} lignes · plage citée : {locator?.start ?? '—'}–{locator?.end ?? '—'}</p>
     <div class="source-scroll" bind:this={scroller} onscroll={() => { start = Math.max(0, Math.floor(scroller.scrollTop / lineHeight) - 8); }}>
-      <div role="list" aria-label="Lignes de la source" tabindex="-1" bind:this={target}>
+      <div role="list" aria-label="Lignes de la source" tabindex="-1" bind:this={scrollTarget}>
         <div aria-hidden="true" style={`height:${start * lineHeight}px`}></div>
         {#each lines.slice(start, start + windowSize) as line, offset}
           <div role="listitem" class="source-line" class:cited={start + offset + 1 >= locator?.start && start + offset + 1 <= locator?.end}

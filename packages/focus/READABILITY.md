@@ -29,8 +29,8 @@ stakes and plain language; string validation cannot establish those properties.
 
 Opaque codes and acronyms in reader-facing content need definitions in the visible
 glossary. Transport IDs and provenance bindings are not interpreted as prose.
-The readability gate also enforces the 11/11 anti-wall-of-text rules: every
-multi-sentence prose block begins with an `En bref : ` (or `In short: `) takeaway;
+The readability gate also enforces the 11/11 anti-wall-of-text rules: putting
+the essential point first stays author guidance, never an imposed opening label;
 each prose cell or lead-and-bullet block, question block and option block stays
 within 60 words; each sentence stays within 22 words and expresses a single idea
 (no semicolons, no parentheses, at most one colon, no inline enumerations); and

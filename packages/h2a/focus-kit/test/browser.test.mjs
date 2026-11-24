@@ -31,11 +31,11 @@ for (const renderer of ['portable', 'generic']) {
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       await page.goto(pathToFileURL(output).href);
-      const glossary = page.locator('details').filter({ has: page.locator('summary', { hasText: /(?:En mots simples|Glossary)/ }) });
+      const glossary = page.locator('details').filter({ has: page.locator('summary', { hasText: /(?:Glossaire|Glossary)/ }) });
       assert.equal(await glossary.count(), 1);
       assert.equal(await glossary.evaluate(el => el.open), false);
       const summary = glossary.locator('summary');
-      assert.equal(await summary.innerText(), renderer === 'portable' ? 'En mots simples (47 termes)' : 'Glossary (47 terms)');
+      assert.equal(await summary.innerText(), renderer === 'portable' ? 'Glossaire (47 termes)' : 'Glossary (47 terms)');
       assert.equal(await glossary.locator('dt').count(), 47, 'terms remain in the DOM');
       assert.equal(await glossary.locator('dd').first().isVisible(), false);
       await summary.focus();
@@ -138,7 +138,10 @@ test('portable Focus works offline on desktop and phone with responsive r7 inlin
     browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
     for (const width of [1366, 390, 320]) {
       const mobile = width < 600;
-      const variant = width < 1200 ? 'narrow' : 'wide';
+      // The template ecosystem scene is drawn 3334 units wide: in the DS lg container the stage
+      // never offers its 0.36 readability scale (1200 px), so the measured fit shows the column
+      // variant at every width. The phone/desktop split is covered by the artifact-shell test.
+      const variant = 'narrow';
       const context = await browser.newContext({ offline: true, viewport: { width, height: mobile ? 844 : 1000 },
         isMobile: mobile, hasTouch: mobile, colorScheme: 'light' });
       const page = await context.newPage(), errors = [], network = [];
@@ -149,7 +152,7 @@ test('portable Focus works offline on desktop and phone with responsive r7 inlin
       const activeSvg = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
       await activeSvg.waitFor({ state: 'visible' });
       assert.equal(await page.title(), await page.locator('h1').innerText());
-      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'En mots simples (1 terme)');
+      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'Glossaire (1 terme)');
       assert.equal(await page.locator('.focus-glossary').evaluate(el => el.open), false);
       assert.equal(await page.locator('img').count(), 0);
       assert.match(await page.locator('main').innerText(), /<img src=x onerror=alert\(1\)>/);
@@ -288,5 +291,171 @@ test('a payload without views draws the DC-1 cards from its scene, and a refused
     assert.equal(await page.locator('.ds-diagram-svg').count(), 0, 'a refused diagram draws no empty SVG');
     assert.deepEqual(errors, [], 'no browser runtime errors');
     assert.deepEqual(network, [], 'no network requests');
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('artifact fragment renders at 390 and 800 px inside an artifact shell with the phone/desktop variants', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-artifact-shell-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    // Small drawn scene (1213 units, readability scale 437 px): the measured fit shows the column
+    // variant at 390 px and the horizontal one at 800 px inside the artifact panel.
+    Object.assign(doc.sections.find(s => s.kind === 'diagram'), { alt: 'La rédaction transmet le dossier à la lecture.',
+      source: 'flowchart LR\nwriter["Rédaction"]\nreader["Lecture"]\nwriter -->|transmet| reader' });
+    const { buildFocusDossier } = await import('../../dist/focus-build.js');
+    const fragment = buildFocusDossier(doc, { target: 'artifact' });
+    assert.doesNotMatch(fragment, /<!doctype|<html[\s>]|<head[\s>]|<body[\s>]/i);
+    // Minimal artifact-shell stub: the host owns the document shell and the CSP.
+    const shell = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shell</title></head><body><div class="artifact-panel" style="max-width:60rem;margin:0 auto">${fragment}</div></body></html>`;
+    const file = join(root, 'shell.html');
+    writeFileSync(file, shell);
+    browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
+    for (const [width, variant] of [[390, 'narrow'], [800, 'wide']]) {
+      const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, colorScheme: 'light' });
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(file).href);
+      const active = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
+      await active.waitFor({ state: 'visible' });
+      const hidden = variant === 'wide' ? 'narrow' : 'wide';
+      assert.equal(await page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${hidden}"] .ds-diagram-svg`).isVisible(), false);
+      assert.equal(await page.locator('h1').innerText(), doc.title);
+      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'Glossaire (1 terme)');
+      assert.equal(await page.locator('.focus-glossary').evaluate(el => el.open), false);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `no horizontal page overflow at ${width}px`);
+      const box = await active.boundingBox();
+      assert.ok(box && box.width > 0 && box.height > 0, `${variant} r7 SVG has non-zero rendered bounds at ${width}px`);
+      assert.ok(box.width <= width, `diagram keeps its natural size at ${width}px`);
+      assert.deepEqual(errors, [], 'no browser runtime errors');
+      await context.close();
+    }
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+// Owner regression « trop de marge sur le côté »: the DS Container owns the only side gutter
+// (max-inline-size lg + 1rem padding), main only centers and pads vertically. A doubled gutter
+// would put 16 px of main padding on top of the 16 px container gutter.
+test('the DS container owns a single side gutter: main content is 358 px at 390 and 992 px at 1440', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const root = mkdtempSync(join(tmpdir(), 'focus-gutter-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const output = join(root, 'gutter.html');
+    writeFileSync(output, buildFocusDossier(doc));
+    browser = await chromium.launch({ headless: true });
+    for (const [width, mainWidth] of [[390, 358], [1440, 992]]) {
+      const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, colorScheme: 'light' });
+      const page = await context.newPage(), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(output).href);
+      await page.locator('main').waitFor();
+      const measured = await page.evaluate(() => {
+        const main = document.querySelector('main');
+        const style = getComputedStyle(main);
+        const box = main.getBoundingClientRect();
+        const first = main.querySelector('.reading-meta');
+        const gap = first.getBoundingClientRect().left - box.left;
+        return { mainWidth: box.width, padLeft: style.paddingLeft, padRight: style.paddingRight, gap };
+      });
+      assert.equal(Math.round(measured.mainWidth), mainWidth, `${width}px viewport: DS lg content width`);
+      assert.equal(measured.padLeft, '0px', `${width}px viewport: main adds no side padding`);
+      assert.equal(measured.padRight, '0px', `${width}px viewport: main adds no side padding`);
+      assert.ok(Math.abs(measured.gap) < 1, `${width}px viewport: text starts at the container edge (gap ${measured.gap})`);
+      assert.deepEqual(errors, [], 'no browser runtime errors');
+      await context.close();
+    }
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+// Owner regression « diagramme trop zoomé »: the r7 scene is drawn in large fixed units and must
+// always be shown reduced. Before the fix every viewport under 1200 px showed the single-column
+// drawing almost at scale 1 (620 x 1194 px, 31 px titles, for four boxes at 800 px).
+test('a four-step LR flowchart keeps a sane rendered size on phone, tablet and desktop', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const { pickDiagramVariant, displayWidth, WIDE_MIN_READABLE_SCALE } = await import('../src/diagram-fit.js');
+  assert.equal(pickDiagramVariant(1126, 2501), 'wide');
+  assert.equal(pickDiagramVariant(2501 * WIDE_MIN_READABLE_SCALE - 1, 2501), 'narrow');
+  assert.equal(pickDiagramVariant(700, 1900), 'wide', 'a three-step flow stays horizontal on a 700 px stage');
+  assert.equal(pickDiagramVariant(1126, 3334), 'wide', 'a large scene stays horizontal on a desktop stage');
+  assert.equal(pickDiagramVariant(742, 3334), 'narrow');
+  assert.equal(displayWidth('narrow', 640), 320);
+  const root = mkdtempSync(join(tmpdir(), 'focus-diagram-size-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    Object.assign(doc.sections.find(s => s.kind === 'diagram'), { alt: 'Quatre étapes de la demande à la livraison.',
+      source: ['flowchart LR', 'a["Demande"]', 'b["Analyse"]', 'c["Décision"]', 'd["Livraison"]',
+        'a -->|envoie| b', 'b -->|propose| c', 'c -->|lance| d'].join('\n') });
+    const output = join(root, 'flow.html');
+    writeFileSync(output, buildFocusDossier(doc));
+    browser = await chromium.launch({ headless: true });
+    const expected = { 390: { variant: 'narrow', width: [240, 330], height: [300, 700], title: [14, 17] },
+      800: { variant: 'narrow', width: [240, 760], height: [80, 700], title: [11, 21] },
+      1440: { variant: 'wide', width: [700, 1152], height: [80, 220], title: [11, 21] } };
+    for (const [viewport, bounds] of Object.entries(expected)) {
+      const width = Number(viewport), mobile = width < 600;
+      const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, isMobile: mobile, hasTouch: mobile });
+      const page = await context.newPage();
+      await page.goto(pathToFileURL(output).href);
+      const stage = page.locator('[data-renderer="r7"]');
+      await stage.locator(`.ds-diagram-mount[data-variant="${bounds.variant}"] .ds-diagram-svg`).waitFor({ state: 'visible' });
+      const seen = await stage.evaluate(el => {
+        const shown = [...el.querySelectorAll('.ds-diagram-svg')].filter(svg => svg.getBoundingClientRect().width > 0);
+        const box = shown[0].getBoundingClientRect(), scale = box.width / shown[0].viewBox.baseVal.width;
+        return { count: shown.length, variant: shown[0].dataset.variant, width: box.width, height: box.height, scale,
+          title: parseFloat(getComputedStyle(shown[0].querySelector('.st-diagramCard-title')).fontSize) * scale };
+      });
+      assert.equal(seen.count, 1, `${width}px: exactly one variant is displayed`);
+      assert.equal(seen.variant, bounds.variant, `${width}px: displayed variant`);
+      for (const key of ['width', 'height', 'title']) {
+        assert.ok(seen[key] >= bounds[key][0] && seen[key] <= bounds[key][1],
+          `${width}px: ${key} ${seen[key].toFixed(1)} px outside [${bounds[key]}] (${JSON.stringify(seen)})`);
+      }
+      assert.ok(seen.scale <= 0.63, `${width}px: the drawing is never shown near scale 1, got ${seen.scale.toFixed(2)}`);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}px: no horizontal page overflow`);
+      await context.close();
+    }
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+// Owner regression « en bref en bref en bref »: legacy dossiers may still carry the marker the gate
+// used to require; the reader no longer sees it. The embedded document must stay untouched (it is
+// re-validated at load).
+test('the takeaway marker carried by legacy dossiers is not displayed', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const { withoutTakeawayMarker } = await import('../src/takeaway.js');
+  assert.equal(withoutTakeawayMarker('En bref : le fichier suffit. Il se partage.'), 'Le fichier suffit. Il se partage.');
+  assert.equal(withoutTakeawayMarker('In short: écrire court.\nEn bref :  Déjà en capitale.'), 'Écrire court.\nDéjà en capitale.');
+  assert.equal(withoutTakeawayMarker('Fichier portable — En bref : il se lit hors connexion.'), 'Fichier portable — Il se lit hors connexion.');
+  assert.equal(withoutTakeawayMarker('Le résumé, en bref : inchangé.'), 'Le résumé, en bref : inchangé.');
+  assert.equal(withoutTakeawayMarker(undefined), undefined);
+  const root = mkdtempSync(join(tmpdir(), 'focus-takeaway-'));
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    for (const name of ['decision', 'evidence']) {
+      const doc = JSON.parse(readFileSync(new URL(`./fixtures/renderer-parity/${name}.input.json`, import.meta.url), 'utf8'));
+      // Fixtures and templates are clean since the requirement was dropped: inject one legacy marker.
+      const prose = doc.sections.find(s => s.kind === 'prose');
+      prose.markdown = `En bref : ${prose.markdown.charAt(0).toLowerCase()}${prose.markdown.slice(1)}`;
+      const marked = JSON.stringify(doc).match(/En bref\s*:|In short:/g)?.length ?? 0;
+      assert.equal(marked, 1, `${name}: the legacy marker was injected`);
+      const html = buildFocusDossier(doc), output = join(root, `${name}.html`);
+      assert.equal(html.match(/data-focus-document>([\s\S]*?)<\/script>/)[1].match(/En bref\s*:|In short:/g).length, marked,
+        `${name}: the embedded document keeps every marker`);
+      writeFileSync(output, html);
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 }, offline: true }), errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(output).href);
+      await page.locator('.dossier-section').first().waitFor();
+      for (const details of await page.locator('details').all()) await details.evaluate(el => { el.open = true; });
+      const text = await page.locator('body').innerText();
+      assert.doesNotMatch(text, /En bref\s*:|In short:/, `${name}: no marker in the displayed text`);
+      assert.match(await page.locator('p.prose').first().innerText(), /^\p{Lu}/u, `${name}: the takeaway sentence starts with a capital`);
+      assert.deepEqual(errors, [], `${name}: the document still validates at load`);
+      await page.close();
+    }
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });

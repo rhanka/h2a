@@ -160,6 +160,27 @@ export interface FocusBuildOptions {
   readonly renderer?: 'svelte' | 'vue';
   /** Report is a read-only presentation of the same validated dossier. */
   readonly mode?: 'decision' | 'report';
+  /**
+   * Output shell. `document` (default) emits the full standalone HTML document
+   * for `file://` use, with the offline CSP meta in `<head>`. `artifact`
+   * emits a shell-safe fragment (`<title>` + `<style>` + body content, no
+   * doctype/html/head/body): claude.ai artifacts wrap pages in their own shell,
+   * where a nested document shell breaks rendering and the CSP meta in `<body>`
+   * is ignored. The artifact host owns the CSP; see docs/focus/portable-dossiers.md.
+   */
+  readonly target?: 'document' | 'artifact';
+}
+
+/** Shell-safe fragment for artifact publishing: `<title>` + `<style>` + body content. */
+function toArtifactFragment(html: string): string {
+  const titleStart = html.indexOf('<title>'), titleEnd = html.indexOf('</title>');
+  const styleStart = html.indexOf('<style>'), styleEnd = html.indexOf('</style>');
+  const bodyStart = html.indexOf('<body>'), bodyEnd = html.lastIndexOf('</body>');
+  if ([titleStart, titleEnd, styleStart, styleEnd, bodyStart, bodyEnd].some(i => i < 0) ||
+    !(titleStart < titleEnd && titleEnd < styleStart && styleStart < styleEnd && styleEnd < bodyStart && bodyStart < bodyEnd)) {
+    throw new Error('Invalid Focus renderer asset for artifact target; rebuild the kit');
+  }
+  return `${html.slice(titleStart, titleEnd + '</title>'.length)}\n${html.slice(styleStart, styleEnd + '</style>'.length)}\n${html.slice(bodyStart + '<body>'.length, bodyEnd)}`;
 }
 
 export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {}): string {
@@ -167,6 +188,8 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   if (!['svelte', 'vue'].includes(backend)) throw new Error('Unknown Focus renderer');
   if (options.mode !== undefined && !['decision', 'report'].includes(options.mode)) throw new Error('Unknown Focus presentation mode');
   if (backend !== 'vue' && options.mode === 'report') throw new Error('Report presentation requires the opt-in Vue renderer');
+  const target = options.target ?? 'document';
+  if (!['document', 'artifact'].includes(target)) throw new Error('Unknown Focus build target');
   // Refuse closed-schema, R2/R5/R6 anchor, doc.ref and bindingName violations before interpreting
   // diagram references, and compute the canonical documentDigest BEFORE any section enrichment.
   // BLOCKED(FA-H1 step 4): enforcing the 1 048 576-byte ceiling inside buildFocusDossier contradicts
@@ -245,9 +268,10 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
     rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
     documentDigest: canonicalDocumentDigest,
     envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
-  return renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
-    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, diagrams, build,
+  const html = renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
+    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, diagrams, build, target,
       ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
+  return target === 'artifact' ? toArtifactFragment(html) : html;
 }
 
 /** Same-directory atomic rename is the only write point; failures preserve the previous file. */
@@ -308,19 +332,19 @@ function runFocusCheckSubcommand(args: readonly string[], streams: { stdout: Nod
 }
 
 export function runFocusBuildCli(args: readonly string[], streams = { stdout: process.stdout, stderr: process.stderr }): number {
-  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report]\n       h2a focus check <dossier.json> [--previous-manifest <manifest.json>]\n       h2a focus template [--evidence] -o <dossier.json>\n';
+  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report] [--target document|artifact]\n       h2a focus check <dossier.json> [--previous-manifest <manifest.json>]\n       h2a focus template [--evidence] -o <dossier.json>\n';
   if (args[0] === 'check') return runFocusCheckSubcommand(args, streams);
   if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
   const template = args[0] === 'template';
   const buildOptions: FocusBuildOptions = {};
   if (!template) {
-    const parsed: { renderer?: 'svelte' | 'vue'; mode?: 'decision' | 'report' } = {};
+    const parsed: { renderer?: 'svelte' | 'vue'; mode?: 'decision' | 'report'; target?: 'document' | 'artifact' } = {};
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i++) {
       const flag = args[i];
-      if (flag === '--renderer' || flag === '--mode') {
-        const key = flag === '--renderer' ? 'renderer' : 'mode', value = args[++i];
-        const allowed = key === 'renderer' ? ['svelte', 'vue'] : ['decision', 'report'];
+      if (flag === '--renderer' || flag === '--mode' || flag === '--target') {
+        const key = flag === '--renderer' ? 'renderer' : flag === '--mode' ? 'mode' : 'target', value = args[++i];
+        const allowed = key === 'renderer' ? ['svelte', 'vue'] : key === 'mode' ? ['decision', 'report'] : ['document', 'artifact'];
         if (parsed[key] !== undefined || !allowed.includes(value)) { streams.stderr.write(usage); return 2; }
         Object.assign(parsed, { [key]: value });
       } else remaining.push(flag);

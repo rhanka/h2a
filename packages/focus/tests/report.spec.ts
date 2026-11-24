@@ -45,9 +45,14 @@ describe('explicit benchmark reports', () => {
       [(d: any) => { d.sections[0].citationRefs = ['absent']; }, 'unresolved_citation'],
       [(d: any) => { d.sections[0].markdown = 'En bref : API reste disponible.'; }, 'undefined_code'],
       [(d: any) => { d.sections[0].markdown = 'En bref : WP1 reste disponible.'; }, 'no_internal_id_or_lot_code_in_prose'],
-      [(d: any) => { d.sections[0].markdown = 'Résumé sans introduction.'; }, 'report_summary_first'],
       [(d: any) => { d.sections[0].markdown = 'En bref : ' + 'mot '.repeat(65) + '.'; }, 'cell_max_60_words'],
     ] as const) { const d = fixture(); change(d); expect(codes(d)).toContain(code); }
+  });
+  it('should accept a report summary without an imposed takeaway label', () => {
+    for (const markdown of ['Résumé sans introduction.', 'Le jardin reste utilisable. Les deux coins restent secs.']) {
+      const d = fixture(); d.sections[0].markdown = markdown;
+      expect(validate(d)).toEqual({ ok: true, value: d });
+    }
   });
   it('should count shared text without requiring a question reading time', () => {
     const d = fixture();

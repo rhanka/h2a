@@ -59,8 +59,8 @@ Do not duplicate `present-decision`'s owner-criteria table or self-audit here; f
   `readability.glossary` with a meaning the owner understands. The renderers show
   this glossary. Each definition must stand alone in plain words, with no
   self-reference or other code, even one defined elsewhere in the glossary.
-- Enforce the 11/11 anti-wall-of-text rules: start every multi-sentence prose
-  block with an `En bref : ` (or `In short: `) takeaway sentence; keep each prose
+- Enforce the 11/11 anti-wall-of-text rules: put the essential point first
+  (plain guidance, never an imposed opening label); keep each prose
   cell or lead-and-bullet block, question block and option block to at most 60
   words; keep each sentence to at most 22 words and one idea (no `;`, no `(...)`,
   at most one `:`, and no inline enumeration); never place ULIDs, SHA hashes,

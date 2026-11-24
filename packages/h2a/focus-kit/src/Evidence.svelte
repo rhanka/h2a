@@ -5,7 +5,8 @@
   import Citation, { citationCallers } from './Citation.svelte';
   import { evidenceVolume, bibliography } from '../../../focus/src/render/evidence.ts';
   import { decodeEvidence } from '../../../focus/src/validation/evidence-bytes.ts';
-  let { dossier } = $props();
+  import { withoutTakeawayMarker as shown } from './takeaway.js';
+  let { dossier, target = 'document' } = $props();
   let active = $state(null), locator = $state(null), visit = $state(0), opener, scroll;
   const expanded = new SvelteSet();
   const volume = $derived(evidenceVolume(dossier));
@@ -53,19 +54,23 @@
     <h3>Sources</h3>
     <ol>{#each bibliography(dossier) as entry}<li id={entry.anchorId} tabindex="-1">
       {entry.citation.label} · {entry.source.title} · <button class="source-location" onclick={() => openSource(entry.source.id, entry.citation.locator)}>{entry.location}</button> ·
-      <a href={`#${entry.anchorId}`} onclick={event => download(event, entry.source)}>Télécharger</a> ·
+      {#if target === 'artifact'}
+        <a href={`data:application/octet-stream;base64,${entry.source.data}`} target="_blank" rel="noopener">Ouvrir dans un nouvel onglet</a> ·
+      {:else}
+        <a href={`#${entry.anchorId}`} onclick={event => download(event, entry.source)}>Télécharger</a> ·
+      {/if}
       <button class="citation-return" onclick={() => returnToCitation(entry.anchorId)}>Retour au texte</button>
     </li>{/each}</ol>
   </section>
   <details open><summary>Catalogue des sources</summary><ul>{#each dossier.sources as source}<li><button onclick={() => openSource(source.id)}>Consulter {source.title}</button> · {source.size} octets</li>{/each}</ul></details>
-  {#each dossier.evidenceGroups as group}<article><p>{group.summary}</p>
+  {#each dossier.evidenceGroups as group}<article><p>{shown(group.summary)}</p>
     {#each group.citationRefs as id}<Citation {dossier} {id} />{/each}
     {#each group.sourceRefs as id}<button onclick={() => openSource(id)}>Source : {dossier.sources.find(s => s.id === id).title}</button>{/each}
   </article>{/each}
-  {#each dossier.annexes as annex}<details ontoggle={e => { if (e.currentTarget.open) expanded.add(annex.id); else expanded.delete(annex.id); }}><summary><span>{annex.title}</span> — {annex.summary}</summary>
+  {#each dossier.annexes as annex}<details ontoggle={e => { if (e.currentTarget.open) expanded.add(annex.id); else expanded.delete(annex.id); }}><summary><span>{annex.title}</span> — {shown(annex.summary)}</summary>
     {#if expanded.has(annex.id)}
     {#each annex.blocks as block}
-      {#if block.kind === 'text'}<p>{block.text}</p>
+      {#if block.kind === 'text'}<p>{shown(block.text)}</p>
       {:else if block.kind === 'code'}<pre><code>{block.text}</code></pre>
       {:else if block.kind === 'table'}<div class="evidence-table"><table><thead><tr>{#each block.columns as column}<th>{column}</th>{/each}</tr></thead><tbody>{#each block.rows as row}<tr>{#each row as cell}<td>{cell}</td>{/each}</tr>{/each}</tbody></table></div>
       {:else if block.kind === 'references'}{#each block.citationRefs as id}<Citation {dossier} {id} />{/each}{/if}
@@ -73,5 +78,5 @@
     {#each annex.backRefs as id}<button onclick={() => returnTo(id)}>Retour : {referenceTarget(id).label}</button>{/each}
     {/if}
   </details>{/each}
-  {#if active}{#key active.id}<SourceViewer source={active} {locator} {visit} onback={back} />{/key}{/if}
+  {#if active}{#key active.id}<SourceViewer source={active} {locator} {visit} {target} onback={back} />{/key}{/if}
 </section>

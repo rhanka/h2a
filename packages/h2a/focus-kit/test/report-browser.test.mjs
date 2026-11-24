@@ -55,7 +55,7 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
         await page.getByRole('img', { name: `Emplacement du graphique ${theme}`, exact: true }).waitFor();
       }
       await page.locator('summary').filter({ hasText: 'Annexe de méthode' }).click();
-      await page.getByText('En bref : chaque mesure provient du même corpus de référence.', { exact: true }).waitFor();
+      await page.getByText('Chaque mesure provient du même corpus de référence.', { exact: true }).waitFor();
       assert.equal(await page.locator('table').count(), 2);
       assert.deepEqual(errors, []); assert.deepEqual(network, []);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));

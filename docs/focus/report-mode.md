@@ -18,11 +18,12 @@ inventing a question or recommendation.
 - `validateFocusDocument` / `validateFocusForPresentation` dispatch explicitly.
   Existing `validateDecisionDossier*` / `assertDecisionDossier*` APIs remain
   decision-only, including the mandatory question at presentation time.
-- Reports start with an “En bref :” (or “In short:”) prose summary. All source
-  integrity, citation, glossary, owner traceability and 11/11 readability gates
-  remain active. Reports always use strict readability, even with historical
-  fixture identifiers. The implicit-choice wording guard remains active too;
-  describe observations without introducing alternatives for the reader.
+- Reports open with a plain prose summary (essential point first; no imposed
+  opening label). All source integrity, citation, glossary, owner traceability
+  and 11/11 readability gates remain active. Reports always use strict
+  readability, even with historical fixture identifiers. The implicit-choice
+  wording guard remains active too; describe observations without introducing
+  alternatives for the reader.
 - Reading time is the existing shared-text sum at 180 words/minute: prose,
   chart labels, glossary and evidence/appendix summaries, with no question time.
   Raw source bytes and appendix blocks keep their separate consultation budget.

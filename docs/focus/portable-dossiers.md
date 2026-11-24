@@ -14,6 +14,32 @@ In a source checkout, after `npm ci` and `npm run build`, use the same arguments
 `build` requires `-o` (or `--output`); validation failures leave existing output untouched.
 Output cannot be the input file. `template` exports the complete editable example.
 
+## Artifact publishing
+
+`h2a focus build dossier.json -o fragment.html --target artifact` publishes
+into a claude.ai artifact instead of a standalone file. The artifact host wraps
+pages in its own document shell, so the artifact output is a fragment: the
+`<title>` element, the `<style>` element and the body content, with no
+doctype, `html`, `head` or `body` tags. The default `--target document`
+output stays the full standalone document for `file://` use.
+
+Content Security Policy is handled per target. The standalone document keeps
+the offline CSP meta tag in `<head>`. The artifact fragment carries no CSP
+meta tag (a meta tag in `<body>` is ignored): the artifact host owns the
+policy. The payload records its target (`document` or `artifact`) so the
+renderers branch on it.
+
+Attachments behave per target too. The standalone document downloads original
+bytes through a same-page download. The artifact viewer grants no download
+permission, so the artifact rendering instead opens the original bytes in a
+new tab through a data link, with a label that says so. The present-decision
+skill requires opening the real output at 390 px and around 800 px inside the
+artifact shell before publishing, with the phone layout at 390 px and no
+sideways scroll: each diagram is picked from the room it really has (horizontal
+while it stays readable, column otherwise) and shown reduced, never upscaled,
+so an overflowing diagram is split rather than stretched. The glossary is labelled “Glossaire”, folded by
+default, and the reading column follows the design-system `lg` container.
+
 ## Contract and readability
 
 Input is exactly `@sentropic/focus`'s closed `DecisionDossierDocument`, not the reference kit's

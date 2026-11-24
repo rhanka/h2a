@@ -64,7 +64,9 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       const evidence = page.getByRole('region', { name: 'Pièces justificatives', exact: true });
       assert.equal(await evidence.count(), 1, 'H1 must expose the evidence index');
       await page.getByRole('button', { name: /Fichier portable/ }).click();
-      const variant = width < 1200 ? 'narrow' : 'wide';
+      // The evidence scene is drawn 3334 units wide: in the DS lg container the stage never offers
+      // its 0.36 readability scale (1200 px), so the measured fit shows the column variant at every width.
+      const variant = 'narrow';
       const diagramSvg = page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`);
       await diagramSvg.waitFor({ state: 'visible' });
       const diagramViewBox = await diagramSvg.getAttribute('viewBox');
