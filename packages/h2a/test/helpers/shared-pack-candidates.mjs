@@ -12,9 +12,11 @@
 //
 // CORRECTNESS. The cache key binds the exact pack inputs: HEAD, the tracked
 // tree state (`git status --porcelain`), the producer scripts and the five
-// packed package versions. Any change repacks. The cache lives under
-// os.tmpdir(), which CI confines to the disposable per-run TMPDIR, so
-// entries never leak across runs; a foreign key is repacked, never reused.
+// packed package versions. Any change repacks. Under D16 the cache lives
+// under $H2A_TEST_STATE_ROOT/tmp so the run warmer and every isolated
+// test-file worker share one directory across per-worker TMPDIRs; outside
+// D16 it falls back to os.tmpdir(). Entries never leak across runs; a
+// foreign key is repacked, never reused.
 // Consumers only read the shared directory (extractions go to their own lab
 // dirs). Concurrent processes serialize on an mkdir lock with stale-owner
 // takeover; waiters observe completion through complete.json.
@@ -156,7 +158,10 @@ export async function sharedPackCandidates() {
   const frozen = process.env.H2A_SHARED_PACK_KEY;
   const key = (typeof frozen === 'string' && /^[a-f0-9]{64}$/.test(frozen)) ? frozen : cacheKey();
   if (key === null) return null;
-  const root = join(tmpdir(), 'h2a-shared-pack-candidates', key);
+  const cacheBase = process.env.H2A_TEST_STATE_ROOT
+    ? join(process.env.H2A_TEST_STATE_ROOT, 'tmp')
+    : tmpdir();
+  const root = join(cacheBase, 'h2a-shared-pack-candidates', key);
   const lockDir = join(root, 'lock');
   const tarballs = join(root, 'tarballs');
   mkdirSync(root, { recursive: true });
@@ -186,7 +191,10 @@ export async function sharedPackCandidates() {
     }
   }
   try {
-    if (readComplete(tarballs, key)) return tarballs;
+    if (readComplete(tarballs, key)) {
+      process.stderr.write(`shared-pack-candidates: reused ${tarballs}\n`);
+      return tarballs;
+    }
     // A killed packer leaves its staging behind; reclaim it under the lock.
     for (const entry of readdirSync(root)) {
       if (entry.startsWith('tarballs.stage-')) rmSync(join(root, entry), { recursive: true, force: true });

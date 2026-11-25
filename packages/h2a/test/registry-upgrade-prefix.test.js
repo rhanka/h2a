@@ -152,14 +152,14 @@ test("B-6 upgrade: N-1 (next tag) upgrades to built package (host+bridge+central
   // scripts/warm-pack-candidates.mjs); fallback stays private so a missing
   // share never skips the proof.
   let tarPath = "";
-  try {
-    const shared = await sharedPackCandidates();
-    const candidate = shared ? join(shared, `sentropic-h2a-${CANDIDATE_VERSION}.tgz`) : "";
-    if (candidate && existsSync(candidate)) tarPath = candidate;
-  } catch { /* fall through to private pack */ }
-  if (!tarPath) {
+  const shared = await sharedPackCandidates();
+  if (shared !== null) {
+    const candidate = join(shared, `sentropic-h2a-${CANDIDATE_VERSION}.tgz`);
+    assert.ok(existsSync(candidate), `shared candidate tarball must exist: ${candidate}`);
+    tarPath = candidate;
+  } else {
     const outDir = join(isoBase, "candidate");
-    const pack = spawnSync(process.execPath, ["scripts/package-release.mjs", "--package", "@sentropic/h2a", "--output", outDir], { cwd: REPO, encoding: "utf8", timeout: 300_000, env: { ...process.env, ...env } });
+    const pack = spawnSync(process.execPath, ["scripts/package-release.mjs", "--package", "@sentropic/h2a", "--output", outDir], { cwd: REPO, encoding: "utf8", timeout: 550_000, env: { ...process.env, ...env } });
     assert.equal(pack.status, 0, `package-release candidate must succeed: ${(pack.stderr ?? "").slice(0, 2000)} ${(pack.stdout ?? "").slice(-1000)}`);
     try {
       const parsed = JSON.parse(pack.stdout);

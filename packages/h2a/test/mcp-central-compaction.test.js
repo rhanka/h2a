@@ -265,12 +265,11 @@ test('T1.1: non-blocking migration on 2500 historical operations and >256 effect
   assert.equal(central.kind, 'started');
   const marker = readState(central.markerPath, 'marker').value;
 
-  // Ping and initialize must respond in < 300 ms while migration is still running or before it blocks.
+  // Ping and initialize must complete while background migration is still running (diagnostic wall times only).
   const pingStart = performance.now();
   const pingRes = await fetch(new URL('/_h2a-central/ping', central.endpoint));
   const pingMs = performance.now() - pingStart;
   assert.equal(pingRes.status, 200);
-  assert.ok(pingMs < 300, `ping took ${pingMs.toFixed(1)} ms (expected < 300 ms)`);
 
   const statusBefore = await authenticatedHttpRequest(central.markerPath, marker, new URL('/_h2a-central/status', central.endpoint));
   const statusBeforeJson = await statusBefore.json();
@@ -293,18 +292,24 @@ test('T1.1: non-blocking migration on 2500 historical operations and >256 effect
     });
     return { status: res.status, ms: performance.now() - t0 };
   };
-  // First initialize warms V8/MCP SDK transport paths; second measures steady initialize latency
+  // First initialize warms V8/MCP SDK transport paths; second proves causal interleaving
   // while background migration is actively running (ledgerMigrationComplete === false).
   const warmupInit = await doInitialize(1);
   assert.equal(warmupInit.status, 200);
   const statusMidRes = await authenticatedHttpRequest(central.markerPath, marker, new URL('/_h2a-central/status', central.endpoint));
   const statusMid = await statusMidRes.json();
   assert.equal(statusMid.ledgerMigrationComplete, false, 'migration should still be in progress during initialize check');
+  collectEntries(sliceObserver.takeRecords());
+  const slicesBeforeInit = rawSlices.filter(s => s.directory === marker.stateDirectory).length;
+  assert.ok(slicesBeforeInit > 0, `expected background migration slices to advance before initialize (got ${slicesBeforeInit})`);
+
   const measuredInit = await doInitialize(2);
   const initMs = measuredInit.ms;
   assert.equal(measuredInit.status, 200);
-  assert.ok(initMs < 300, `initialize took ${initMs.toFixed(1)} ms (expected < 300 ms)`);
-  assert.ok(performance.now() - startMs < 5_000);
+  const totalWallMs = performance.now() - startMs;
+  const statusAfterInitRes = await authenticatedHttpRequest(central.markerPath, marker, new URL('/_h2a-central/status', central.endpoint));
+  const statusAfterInit = await statusAfterInitRes.json();
+  assert.equal(statusAfterInit.ledgerMigrationComplete, false, 'initialize must complete while background migration is still running');
 
   // Wait for background migration to complete, then flush PerformanceObserver records for our migration slices.
   await waitForStatus(central.markerPath, marker, central.endpoint, s => s.ledgerMigrationComplete === true, 30_000);
@@ -314,6 +319,10 @@ test('T1.1: non-blocking migration on 2500 historical operations and >256 effect
 
   const slices = rawSlices.filter(s => s.directory === marker.stateDirectory);
   assert.ok(slices.length > 0, 'expected PerformanceObserver to capture background migration slices');
+  assert.ok(
+    slices.length > slicesBeforeInit,
+    `expected background migration slices to advance after initialize (before=${slicesBeforeInit}, after=${slices.length})`
+  );
   const scanSlices = slices.filter(s => s.phase === 'scan');
   const selectSlices = slices.filter(s => s.phase === 'select');
   const commitSlices = slices.filter(s => s.phase === 'commit');
@@ -330,10 +339,10 @@ test('T1.1: non-blocking migration on 2500 historical operations and >256 effect
   const totalCpuMs = slices.reduce((sum, s) => sum + s.cpuMs, 0);
 
   t.diagnostic(
-    `T1.1 migration slices=${slices.length} (scan=${scanSlices.length}, select=${selectSlices.length}, commit=${commitSlices.length}, finalize=${finalizeSlices.length}) ` +
+    `T1.1 migration slices=${slices.length} (beforeInit=${slicesBeforeInit}, scan=${scanSlices.length}, select=${selectSlices.length}, commit=${commitSlices.length}, finalize=${finalizeSlices.length}) ` +
     `yields=${yields} maxSliceCpu=${maxCpuMs.toFixed(2)}ms (${worstCpuSlice.phase}) ` +
     `p95SliceWall=${p95WallMs.toFixed(2)}ms maxSliceWall=${maxWallMs.toFixed(2)}ms (${worstWallSlice.phase}) ` +
-    `totalMigrationCpu=${totalCpuMs.toFixed(1)}ms ping=${pingMs.toFixed(1)}ms init=${initMs.toFixed(1)}ms`
+    `totalMigrationCpu=${totalCpuMs.toFixed(1)}ms ping=${pingMs.toFixed(1)}ms init=${initMs.toFixed(1)}ms totalWall=${totalWallMs.toFixed(1)}ms`
   );
 
   // Structural slicing & yield invariants tied to L1 §3.1/§3.2 constants.
@@ -348,11 +357,11 @@ test('T1.1: non-blocking migration on 2500 historical operations and >256 effect
   assert.equal(yields, slices.length - 1, 'every migration slice except finalize must yield to the event loop');
 
   // Slice synchronous budget tied to L1 §3.1/§7 guarantee (migration must not hold the event loop >= 50 ms):
-  // Rule since 22/11: no wall-clock assertion against the runner. Slice wall
-  // (p95WallMs/maxWallMs) stays in t.diagnostic only; the proof is our own
-  // CPU per slice (process.threadCpuUsage delta, immune to OS preemption on
-  // loaded CI runners) plus the causal yield/batch invariants above and the
-  // foreground ping/initialize responsiveness below.
+  // Rule since 22/11: no wall-clock assertion against the runner. All wall
+  // timings (p95WallMs, maxWallMs, pingMs, initMs, totalWallMs) stay in
+  // t.diagnostic only; the proof is our own CPU per slice
+  // (process.threadCpuUsage delta, immune to OS preemption on loaded CI
+  // runners) plus the causal yield/batch and interleaving invariants above.
   // - maxCpuMs < 50 ms isolates main-thread CPU work per slice.
   // - totalCpuMs < 5000 ms bounds aggregate migration CPU without wall-clock sensitivity.
   assert.ok(
