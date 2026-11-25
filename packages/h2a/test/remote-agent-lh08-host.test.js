@@ -327,18 +327,27 @@ function setupRealBridge(fx, sockets) {
   });
   const rangeIndex = new CoalescedRangeIndex();
   const audits = [];
-  const readOutputCountsByClient = [];
+  const readOutputCountsByCh = new Map();
+  let currentAvailableOutputCh = null;
   const bridge = createTerminalBridge({
     catalogue: projector,
     rangeIndex,
     connectNativeClient: async (socketPath, opts) => {
       const client = await defaultConnectNativeObserverClient(socketPath, opts);
-      const counter = { readOutputCalls: 0 };
-      readOutputCountsByClient.push(counter);
+      const counter = { readOutputCalls: 0, ch: null };
       return {
         attachObserver: (id) => client.attachObserver(id),
         state: (id) => client.state(id),
         readOutput: (id, afterSeq, timeoutMs) => {
+          const ch = currentAvailableOutputCh;
+          currentAvailableOutputCh = null;
+          assert.notEqual(ch, null, "readOutput must follow channel credit check");
+          if (counter.ch === null) {
+            counter.ch = ch;
+            readOutputCountsByCh.set(ch, counter);
+          } else {
+            assert.equal(counter.ch, ch, `client counter bound to ch=${counter.ch}, got ch=${ch}`);
+          }
           counter.readOutputCalls += 1;
           return client.readOutput(id, afterSeq, timeoutMs);
         },
@@ -347,6 +356,28 @@ function setupRealBridge(fx, sockets) {
     },
     onAudit: (ev) => audits.push(ev)
   });
+  // `connectNativeClient` receives only `socketPath`, while concurrent opens on
+  // the same `sid` can resolve out of order. Capture `open.ch` from the
+  // synchronous `ctx.availableOutput()` check immediately preceding each
+  // `client.readOutput(...)` call in `performReadAndEmit` so counters bind to
+  // their channel deterministically without serializing channel opens.
+  const terminalConsumer = {
+    onOpen(open, ctx) {
+      return bridge.onOpen(open, {
+        ...ctx,
+        availableOutput: () => {
+          currentAvailableOutputCh = open.ch;
+          return ctx.availableOutput();
+        }
+      });
+    },
+    onCredit: (ch, available) => bridge.onCredit(ch, available),
+    onRecord: (ch, record) => bridge.onRecord(ch, record),
+    onClose: (ch, reason) => bridge.onClose(ch, reason),
+    onLinkLost: (info) => bridge.onLinkLost(info),
+    onLinkTerminated: (info) => bridge.onLinkTerminated(info),
+    ...(bridge.onLinkReady ? { onLinkReady: (info) => bridge.onLinkReady(info) } : {})
+  };
   const client = new TrunkClient({
     root: fx.storeDir,
     env: fx.env,
@@ -362,11 +393,11 @@ function setupRealBridge(fx, sockets) {
     contract,
     clock,
     catalogue: projector,
-    terminalConsumer: bridge
+    terminalConsumer
   });
   assert.equal(client.start().ok, true);
   const conn = peer.allConnections()[0];
-  return { key, contract, peer, projector, rangeIndex, audits, readOutputCountsByClient, bridge, client, conn };
+  return { key, contract, peer, projector, rangeIndex, audits, readOutputCountsByCh, bridge, client, conn };
 }
 
 function sendChildCommand(cmdFile, id, action, extra = {}) {
@@ -520,8 +551,11 @@ test("LH-08 host e2e: >=60s real monotonic pause on ch=2 while ch=3 continues, t
 
   // Pause ch=2 for >= 60 s real monotonic clock while child emits start/mid/end lines
   await delay(60); // let any in-flight poll settle after 1-record credit exhaustion
-  const ch2ClientCounter = stack.readOutputCountsByClient[0];
-  const ch3ClientCounter = stack.readOutputCountsByClient[1];
+  const ch2ClientCounter = stack.readOutputCountsByCh.get(2);
+  const ch3ClientCounter = stack.readOutputCountsByCh.get(3);
+  assert.ok(ch2ClientCounter, "ch=2 client counter must be registered");
+  assert.ok(ch3ClientCounter, "ch=3 client counter must be registered");
+  assert.notEqual(ch2ClientCounter, ch3ClientCounter, "ch=2 and ch=3 must have distinct client counters");
   const ch2ReadsAtPauseStart = ch2ClientCounter.readOutputCalls;
   const ch3ReadsAtPauseStart = ch3ClientCounter.readOutputCalls;
   let prevChildSeq = readChildStatus(child.statusFile)?.seq ?? 0;
