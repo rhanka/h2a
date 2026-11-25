@@ -43,7 +43,10 @@ try {
     fs.mkdirSync(env[name], { mode: 0o700 });
   }
   const prepared = spawnSync(process.execPath, ['scripts/prepare-mh-test-fixtures.mjs'], {
-    cwd: root, env, encoding: 'utf8', timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
+    // 1800 s admits a first-time throttled population (zig 49 MB: ~650 s
+    // typical, ~1300 s worst observed 2026-11-24); cache hits after that take
+    // seconds. Job timeout is 35 min, leaving room for the suites.
+    cwd: root, env, encoding: 'utf8', timeout: 1_800_000, maxBuffer: 8 * 1024 * 1024,
   });
   assert.equal(prepared.error, undefined);
   assert.equal(prepared.signal, null);
