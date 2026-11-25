@@ -14,6 +14,10 @@ import { readLlmMeshConfig } from "./gateway-host/config-file.js";
 import { projectRemoteAgents, type RemoteAgentProjection } from "./agents-projection.js";
 import { resolveResumedGatewayMode } from "./protocol-local.js";
 import {
+  formatArchiveAlertLine,
+  readClaudeArchiveAlerts,
+} from "./session-archive-alerts.js";
+import {
   loadRegistryWithDiagnostics,
   listJobs,
   listLive,
@@ -632,6 +636,13 @@ export async function projectStatusForH2a(
       agents = uniqueManagedWork(
         projectRemoteAgents({ jobs: listJobs(), localRows: rows }).agents,
       );
+      try {
+        for (const alert of readClaudeArchiveAlerts()) {
+          warnings.push(formatArchiveAlertLine(alert));
+        }
+      } catch {
+        // Archive alert check stays best-effort and never breaks status projection.
+      }
     }
   } catch {
     degraded = true;

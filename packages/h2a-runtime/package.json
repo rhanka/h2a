@@ -23,6 +23,10 @@
       "types": "./dist/human-output.d.ts",
       "import": "./dist/human-output.js"
     },
+    "./session-archive-alerts": {
+      "types": "./dist/session-archive-alerts.d.ts",
+      "import": "./dist/session-archive-alerts.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {

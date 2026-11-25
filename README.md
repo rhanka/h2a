@@ -311,3 +311,27 @@ it does not guarantee that the receiver has processed or awakened.
 
 See [the messaging contract](docs/specs/2026-09-15-SPEC_EVOL_cluster-mesh-send.md)
 for deployment, key identity and rejection/retry behavior.
+
+---
+
+### Claude session archives (keep-only, Lot 1)
+
+`h2a archive` stores keep-only verified `.tar.gz` snapshots of inactive Claude Code sessions under `$XDG_DATA_HOME/h2a/session-archives/claude/<YYYY-MM>/<session-id>.<epoch>.tar.gz` (mode `0600`). Original files under `$CLAUDE_CONFIG_DIR/projects` (`~/.claude/projects` by default) are never deleted or quarantined.
+
+Commands:
+- `h2a archive scan` — inspect sessions, Claude purge dates (`cleanupPeriodDays`, default `30`), `<14d` unarchived warnings, orphan companion directories, free space reserve (`min(10 GiB, 5%)`), and host PID guard status.
+- `h2a archive run [--older-than 14d] [--dry-run] [--once]` — build staged `.tar.gz` archives (never in `/tmp`), re-read and verify tarball + per-file SHA-256 digests, check pre/post source stability, commit atomically into `claude/index.json` (refusing to overwrite a corrupt or unknown-schema index), and skip unchanged sessions idempotently.
+- `h2a archive verify [<id>]` — decompress and verify tarball + manifest + per-file SHA-256 checksums.
+- `h2a archive list` — list stored archives alongside their `originCwd` for `claude --resume <id>`.
+- `h2a archive restore <id> [--version <archiveId>] [--on-conflict refuse|backup]` — verify SHA-256 digests before writing back to Claude's project folder with refreshed `mtime` so Claude does not immediately purge the restored transcript.
+- `h2a archive rebuild-index [--force]` — verify stored `.tar.gz` archives from their embedded `manifest.json` and reconstruct `claude/index.json` (backing up the existing index first; requires `--force` over an unknown schema version).
+- `h2a archive unlock [--force]` — inspect the single-writer lock record at `$XDG_DATA_HOME/h2a/session-archives/archive.lock` and clear it only when `--force` is given.
+
+Single-writer lock recovery:
+- `archive.lock` is never broken by elapsed time alone; an unreadable record, unknown schema version, missing `machineId`/`pidNamespace`, or foreign host/namespace lock fails closed (`last-run.json` `status: "locked"`, surfaced by `h2a status`).
+- Before clearing an orphaned lock (either via `h2a archive unlock --force` or manual removal of `$XDG_DATA_HOME/h2a/session-archives/archive.lock`), verify that no `h2a archive` process is active on the current host or any other host sharing `$XDG_DATA_HOME`.
+
+Automatic resume & status integration:
+- `h2a resume`, `h2a claude --resume <id>`, and `h2a run claude --resume <id>` check on disk first; if the transcript is missing and a verified archive exists, `h2a` verifies SHA-256 and restores missing files (preserving any surviving companion files) before launching Claude.
+- `h2a status` and `h2a status --human` compute `<14d` unarchived purge warnings, unreadable index warnings, `H2A_ARCHIVE_OFF` state, pass failure/lock/staleness alerts (`last-run.json`), and operational guard alerts on the fly.
+- External schedulers invoke `h2a archive pass` (or `h2a archive run --once`), which acquires the ownership single-writer lock, honors `H2A_ARCHIVE_OFF=1` kill switch (`exit 0`, status `skipped`), atomically writes versioned `last-run.json` (including `status: "locked"` on contention), and exits `4` when active alerts remain or `2` on operational errors.

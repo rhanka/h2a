@@ -1,5 +1,5 @@
 {
-  "commandCount": 53,
+  "commandCount": 54,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -235,6 +235,11 @@
       "group": "Recover & supervise sessions (advanced):",
       "term": "lineage",
       "description": "Manage local lineage incarnation lifecycle"
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "archive",
+      "description": "Manage verified local Claude session archives"
     },
     {
       "group": "Transport & bridges (compatibility — not the session front door):",

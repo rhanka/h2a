@@ -363,5 +363,42 @@ if (argv[0] === "__operator-break") {
 } else {
   const result = runCli(argv);
   if (result instanceof Promise) runAsync(argv[0] ?? "", result);
-  else process.exitCode = result;
+  else {
+    process.exitCode = result;
+    if (
+      result === 0 &&
+      argv[0] === "status" &&
+      !argv.includes("--help") &&
+      !argv.includes("-h")
+    ) {
+      runAsync(
+        "status:archive-alerts",
+        (async () => {
+          try {
+            const alertsPkg: string = "@sentropic/h2a-runtime/session-archive-alerts";
+            const mod = (await import(alertsPkg)) as {
+              readClaudeArchiveAlerts?: () => Array<{
+                readonly severity: "warning" | "error";
+                readonly message: string;
+              }>;
+              formatArchiveAlertLine?: (alert: {
+                readonly severity: "warning" | "error";
+                readonly message: string;
+              }) => string;
+            };
+            const alerts = mod.readClaudeArchiveAlerts?.() ?? [];
+            for (const alert of alerts) {
+              const formatted = mod.formatArchiveAlertLine
+                ? mod.formatArchiveAlertLine(alert)
+                : alert.message;
+              process.stderr.write(`h2a status: ${formatted}\n`);
+            }
+          } catch {
+            // Optional peer runtime or read error never breaks core status exit 0.
+          }
+          return result;
+        })(),
+      );
+    }
+  }
 }
