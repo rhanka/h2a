@@ -1,7 +1,13 @@
 /** Portable dossier adapter. Focus owns the document and the presentation gate. */
-import { readFileSync, writeFileSync, realpathSync, mkdtempSync, openSync, closeSync, fsyncSync, renameSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync, statSync, mkdtempSync, openSync, closeSync, fsyncSync, renameSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
+import {
+  FOCUS_THEME_MAX_CSS_BYTES,
+  extractRootThemeCustomProperties,
+  validateThemeCss,
+  validateThemeId,
+} from '@sentropic/focus';
 import type { FocusDocument } from '@sentropic/focus';
 import { assertFocusArtifact, checkFocusArtifact } from '@sentropic/focus/artifact';
 
@@ -169,18 +175,27 @@ export interface FocusBuildOptions {
    * is ignored. The artifact host owns the CSP; see docs/focus/portable-dossiers.md.
    */
   readonly target?: 'document' | 'artifact';
+  /** Validated theme CSS text inlined into `<style data-focus-theme>` after base styles. */
+  readonly themeCss?: string;
+  /** Optional theme identifier set as `data-theme="<id>"` on the document root. */
+  readonly themeId?: string;
 }
 
 /** Shell-safe fragment for artifact publishing: `<title>` + `<style>` + body content. */
-function toArtifactFragment(html: string): string {
+function toArtifactFragment(html: string, themeId?: string, themeStyleBlocks = ''): string {
   const titleStart = html.indexOf('<title>'), titleEnd = html.indexOf('</title>');
-  const styleStart = html.indexOf('<style>'), styleEnd = html.indexOf('</style>');
-  const bodyStart = html.indexOf('<body>'), bodyEnd = html.lastIndexOf('</body>');
-  if ([titleStart, titleEnd, styleStart, styleEnd, bodyStart, bodyEnd].some(i => i < 0) ||
-    !(titleStart < titleEnd && titleEnd < styleStart && styleStart < styleEnd && styleEnd < bodyStart && bodyStart < bodyEnd)) {
+  const headEnd = html.indexOf('</head>');
+  const styleStart = html.indexOf('<style>');
+  const styleEnd = headEnd >= 0 ? html.lastIndexOf('</style>', headEnd) : html.indexOf('</style>');
+  const bodyStart = headEnd >= 0 ? html.indexOf('<body>', headEnd) : -1;
+  const bodyEnd = html.lastIndexOf('</body>');
+  if ([titleStart, titleEnd, headEnd, styleStart, styleEnd, bodyStart, bodyEnd].some(i => i < 0) ||
+    !(titleStart < titleEnd && titleEnd < styleStart && styleStart < styleEnd && styleEnd < headEnd && headEnd < bodyStart && bodyStart < bodyEnd)) {
     throw new Error('Invalid Focus renderer asset for artifact target; rebuild the kit');
   }
-  return `${html.slice(titleStart, titleEnd + '</title>'.length)}\n${html.slice(styleStart, styleEnd + '</style>'.length)}\n${html.slice(bodyStart + '<body>'.length, bodyEnd)}`;
+  const body = html.slice(bodyStart + '<body>'.length, bodyEnd);
+  const wrappedBody = themeId !== undefined ? `<div data-theme="${escapeHtml(themeId)}">${body}</div>` : body;
+  return `${html.slice(titleStart, titleEnd + '</title>'.length)}\n${html.slice(styleStart, styleEnd + '</style>'.length)}${themeStyleBlocks}\n${wrappedBody}`;
 }
 
 export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {}): string {
@@ -190,6 +205,8 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   if (backend !== 'vue' && options.mode === 'report') throw new Error('Report presentation requires the opt-in Vue renderer');
   const target = options.target ?? 'document';
   if (!['document', 'artifact'].includes(target)) throw new Error('Unknown Focus build target');
+  const themeId = options.themeId !== undefined ? validateThemeId(options.themeId) : undefined;
+  const themeCss = options.themeCss !== undefined ? validateThemeCss(options.themeCss) : undefined;
   // Refuse closed-schema, R2/R5/R6 anchor, doc.ref and bindingName violations before interpreting
   // diagram references, and compute the canonical documentDigest BEFORE any section enrichment.
   // BLOCKED(FA-H1 step 4): enforcing the 1 048 576-byte ceiling inside buildFocusDossier contradicts
@@ -268,10 +285,37 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
     rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
     documentDigest: canonicalDocumentDigest,
     envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
-  const html = renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
+  let html = renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
     .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, diagrams, build, target,
       ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
-  return target === 'artifact' ? toArtifactFragment(html) : html;
+  if (themeId !== undefined && !html.includes('<html lang="fr">')) {
+    throw new Error('Invalid Focus renderer asset: missing root <html> element');
+  }
+  let themeStyleBlocks = '';
+  if (themeCss !== undefined) {
+    const rootProps = extractRootThemeCustomProperties(themeCss, themeId);
+    const bridgeSelector = themeId !== undefined ? `[data-theme="${themeId}"] [data-st-theme]` : ':root [data-st-theme]';
+    const bridgeStyle = rootProps.length > 0
+      ? `<style data-focus-theme-bridge>${bridgeSelector}{${rootProps.map(prop => `${prop}:inherit`).join(';')}}</style>`
+      : '';
+    themeStyleBlocks = `${bridgeStyle}<style data-focus-theme>${themeCss}</style>`;
+  }
+  // Slice the artifact fragment from the un-themed renderer HTML before inserting theme blocks
+  // so comments or rules inside themeCss (e.g. `/* <body> */`) can never alter the boundary.
+  if (target === 'artifact') {
+    return toArtifactFragment(html, themeId, themeStyleBlocks);
+  }
+  if (themeId !== undefined) {
+    html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
+  }
+  if (themeStyleBlocks !== '') {
+    const headCloseIndex = html.indexOf('</head>');
+    if (headCloseIndex < 0) {
+      throw new Error('Invalid Focus renderer asset: missing </head>');
+    }
+    html = `${html.slice(0, headCloseIndex)}${themeStyleBlocks}${html.slice(headCloseIndex)}`;
+  }
+  return html;
 }
 
 /** Same-directory atomic rename is the only write point; failures preserve the previous file. */
@@ -332,24 +376,38 @@ function runFocusCheckSubcommand(args: readonly string[], streams: { stdout: Nod
 }
 
 export function runFocusBuildCli(args: readonly string[], streams = { stdout: process.stdout, stderr: process.stderr }): number {
-  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report] [--target document|artifact]\n       h2a focus check <dossier.json> [--previous-manifest <manifest.json>]\n       h2a focus template [--evidence] -o <dossier.json>\n';
+  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report] [--target document|artifact] [--theme-css <path>] [--theme-id <id>]\n       h2a focus check <dossier.json> [--previous-manifest <manifest.json>]\n       h2a focus template [--evidence] -o <dossier.json>\n';
   if (args[0] === 'check') return runFocusCheckSubcommand(args, streams);
   if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
   const template = args[0] === 'template';
-  const buildOptions: FocusBuildOptions = {};
+  const buildOptions: { renderer?: 'svelte' | 'vue'; mode?: 'decision' | 'report'; target?: 'document' | 'artifact'; themeId?: string; themeCss?: string } = {};
+  let themeCssPath: string | undefined;
   if (!template) {
-    const parsed: { renderer?: 'svelte' | 'vue'; mode?: 'decision' | 'report'; target?: 'document' | 'artifact' } = {};
+    const parsed: { renderer?: 'svelte' | 'vue'; mode?: 'decision' | 'report'; target?: 'document' | 'artifact'; themeCssPath?: string; themeId?: string } = {};
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i++) {
       const flag = args[i];
-      if (flag === '--renderer' || flag === '--mode' || flag === '--target') {
-        const key = flag === '--renderer' ? 'renderer' : flag === '--mode' ? 'mode' : 'target', value = args[++i];
-        const allowed = key === 'renderer' ? ['svelte', 'vue'] : key === 'mode' ? ['decision', 'report'] : ['document', 'artifact'];
-        if (parsed[key] !== undefined || !allowed.includes(value)) { streams.stderr.write(usage); return 2; }
+      if (flag === '--renderer' || flag === '--mode' || flag === '--target' || flag === '--theme-css' || flag === '--theme-id') {
+        const key = flag === '--renderer' ? 'renderer'
+          : flag === '--mode' ? 'mode'
+          : flag === '--target' ? 'target'
+          : flag === '--theme-css' ? 'themeCssPath'
+          : 'themeId';
+        const value = args[++i];
+        if (parsed[key] !== undefined || !value || value.startsWith('-')) { streams.stderr.write(usage); return 2; }
+        if (key === 'renderer' || key === 'mode' || key === 'target') {
+          const allowed = key === 'renderer' ? ['svelte', 'vue'] : key === 'mode' ? ['decision', 'report'] : ['document', 'artifact'];
+          if (!allowed.includes(value)) { streams.stderr.write(usage); return 2; }
+        }
         Object.assign(parsed, { [key]: value });
       } else remaining.push(flag);
     }
-    Object.assign(buildOptions, parsed); args = remaining;
+    themeCssPath = parsed.themeCssPath;
+    if (parsed.renderer !== undefined) buildOptions.renderer = parsed.renderer;
+    if (parsed.mode !== undefined) buildOptions.mode = parsed.mode;
+    if (parsed.target !== undefined) buildOptions.target = parsed.target;
+    if (parsed.themeId !== undefined) buildOptions.themeId = parsed.themeId;
+    args = remaining;
   }
   const evidenceTemplate = template && args[1] === '--evidence';
   if (evidenceTemplate) args = [args[0], ...args.slice(2)];
@@ -363,6 +421,17 @@ export function runFocusBuildCli(args: readonly string[], streams = { stdout: pr
       let existingOutput = output;
       try { existingOutput = realpathSync(output); } catch { /* New output file. */ }
       if (realpathSync(args[1]) === existingOutput) throw new Error('Output must differ from the input dossier');
+      if (themeCssPath !== undefined) {
+        const resolvedCss = resolve(themeCssPath);
+        const cssRealPath = realpathSync(resolvedCss);
+        if (cssRealPath === existingOutput) throw new Error('Output must differ from the theme CSS file');
+        const cssStat = statSync(cssRealPath);
+        if (!cssStat.isFile()) throw new Error(`Theme CSS path is not a regular file: ${themeCssPath}`);
+        if (cssStat.size > FOCUS_THEME_MAX_CSS_BYTES) {
+          throw new Error(`Theme CSS exceeds maximum size of ${FOCUS_THEME_MAX_CSS_BYTES} bytes (256 KiB): got ${cssStat.size} bytes.`);
+        }
+        buildOptions.themeCss = readFileSync(cssRealPath, 'utf8');
+      }
     }
     const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')), buildOptions);
     writeFocusArtifactFile(output, html);

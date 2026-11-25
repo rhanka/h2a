@@ -10,6 +10,7 @@
 
 import { preparePresentation } from "./presentation.js";
 import { evidenceIndex, bibliography, reportAnnexes } from './evidence.js';
+import { validateThemeCss, validateThemeId } from "./theme.js";
 
 import type {
   Affordance,
@@ -19,6 +20,14 @@ import type {
   SectionInput,
 } from "../model.js";
 import type { HtmlRenderHooks } from "./hooks.js";
+
+/** Optional configuration for {@link renderHtml}. */
+export interface HtmlRenderOptions {
+  /** Validated CSS text inlined into `<style data-focus-theme>` after base styles. */
+  readonly themeCss?: string;
+  /** Optional theme identifier set as `data-theme="<id>"` on the root `<article>`. */
+  readonly themeId?: string;
+}
 
 /** Minimal HTML text escaping for attribute/text content the renderer itself emits. */
 const escapeHtml = (value: string): string =>
@@ -141,7 +150,10 @@ const renderAffordances = (affordances: readonly Affordance[]): string => {
 export const renderHtml = (
   doc: FocusDocument,
   hooks: HtmlRenderHooks,
+  options: HtmlRenderOptions = {},
 ): string => {
+  const themeId = options.themeId !== undefined ? validateThemeId(options.themeId) : undefined;
+  const themeCss = options.themeCss !== undefined ? validateThemeCss(options.themeCss) : undefined;
   doc = preparePresentation(doc);
   const r = doc.readability!;
   const readability = `<section class="focus-readability"><h2>Owner request</h2><blockquote>${escapeHtml(r.ownerRequestQuote!)}</blockquote>` +
@@ -169,9 +181,11 @@ export const renderHtml = (
   }).join('')}</ol></section>` : '';
   const amendment = renderAmendmentTrace(doc.amendmentTrace);
   const affordances = renderAffordances(doc.interactions);
+  const themeAttr = themeId !== undefined ? ` data-theme="${escapeHtml(themeId)}"` : "";
+  const themeStyle = themeCss !== undefined ? `<style data-focus-theme>${themeCss}</style>` : "";
 
   const html =
-    `<article class="focus-document" data-ref="${escapeHtml(doc.ref)}">` +
+    `<article class="focus-document" data-ref="${escapeHtml(doc.ref)}"${themeAttr}>` +
     header +
     readability +
     sections +
@@ -180,6 +194,7 @@ export const renderHtml = (
     sources +
     (evidenceIndex(doc) ? `<section class="focus-evidence"><pre>${escapeHtml(evidenceIndex(doc))}</pre></section>` : '') +
     reportAnnexes(doc, 'html') +
+    themeStyle +
     "</article>";
 
   return hooks.sanitizeHtml(html);

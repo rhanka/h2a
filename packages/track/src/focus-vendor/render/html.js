@@ -9,6 +9,7 @@
  */
 import { preparePresentation } from "./presentation.js";
 import { evidenceIndex, bibliography, reportAnnexes } from './evidence.js';
+import { validateThemeCss, validateThemeId } from "./theme.js";
 /** Minimal HTML text escaping for attribute/text content the renderer itself emits. */
 const escapeHtml = (value) => value
     .replace(/&/g, "&amp;")
@@ -96,7 +97,9 @@ const renderAffordances = (affordances) => {
     return `<section class="focus-affordances"><h3>Affordances (read-only snapshot)</h3><ul>${items.join("")}</ul></section>`;
 };
 /** Render a decision-dossier document to a sanitized HTML string. */
-export const renderHtml = (doc, hooks) => {
+export const renderHtml = (doc, hooks, options = {}) => {
+    const themeId = options.themeId !== undefined ? validateThemeId(options.themeId) : undefined;
+    const themeCss = options.themeCss !== undefined ? validateThemeCss(options.themeCss) : undefined;
     doc = preparePresentation(doc);
     const r = doc.readability;
     const readability = `<section class="focus-readability"><h2>Owner request</h2><blockquote>${escapeHtml(r.ownerRequestQuote)}</blockquote>` +
@@ -123,7 +126,9 @@ export const renderHtml = (doc, hooks) => {
     }).join('')}</ol></section>` : '';
     const amendment = renderAmendmentTrace(doc.amendmentTrace);
     const affordances = renderAffordances(doc.interactions);
-    const html = `<article class="focus-document" data-ref="${escapeHtml(doc.ref)}">` +
+    const themeAttr = themeId !== undefined ? ` data-theme="${escapeHtml(themeId)}"` : "";
+    const themeStyle = themeCss !== undefined ? `<style data-focus-theme>${themeCss}</style>` : "";
+    const html = `<article class="focus-document" data-ref="${escapeHtml(doc.ref)}"${themeAttr}>` +
         header +
         readability +
         sections +
@@ -132,6 +137,7 @@ export const renderHtml = (doc, hooks) => {
         sources +
         (evidenceIndex(doc) ? `<section class="focus-evidence"><pre>${escapeHtml(evidenceIndex(doc))}</pre></section>` : '') +
         reportAnnexes(doc, 'html') +
+        themeStyle +
         "</article>";
     return hooks.sanitizeHtml(html);
 };

@@ -14,11 +14,12 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { Track, EventStore } from "@sentropic/track";
 
+import { FOCUS_THEME_MAX_CSS_BYTES } from "../src/index.js";
 import { run } from "../src/cli/index.js";
 import { validateDecisionDossierForPresentation } from "../src/validation/index.js";
 
@@ -178,5 +179,76 @@ describe("focus CLI — --format json (U-19)", () => {
     expect(validateDecisionDossierForPresentation(doc).ok).toBe(true);
     expect(validateV1Schema(doc), JSON.stringify(validateV1Schema.errors)).toBe(true);
     expect(readFileSync(path, "utf8")).toBe(before);
+  });
+});
+
+describe("focus CLI — --theme-css & --theme-id", () => {
+  it("inlines validated theme CSS after base styles, sets data-theme with --theme-id, and keeps default output identical when absent", async () => {
+    const dir = mkdtempSync(join(fixtureDir, "theme-cli-"));
+    const events = join(dir, "events.jsonl");
+    const track = new Track(new EventStore(events), { by: "owner" });
+    const target = track.createItem({ kind: "feature", title: "Garden shed", workspace: "garden" });
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const id = track.createDecision({ decisionKind: "orientation", title: "Choose the garden shed location", workspace: "garden", targets: [target], dossier });
+
+    const baseline = capture();
+    expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html"], baseline.deps)).toBe(0);
+    expect(baseline.out).not.toContain("data-focus-theme");
+    expect(baseline.out).not.toContain("data-theme=");
+
+    const cssPath = join(dir, "devmtl.css");
+    const css = `:root, [data-theme="devmtl"] { --st-semantic-surface-default: #0b0e14; }`;
+    writeFileSync(cssPath, css, "utf8");
+
+    const noId = capture();
+    expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css", cssPath], noId.deps)).toBe(0);
+    expect(noId.out).toContain(`<style data-focus-theme>${css}</style>`);
+    expect(noId.out.indexOf("<style>")).toBeGreaterThan(-1);
+    expect(noId.out.indexOf("<style data-focus-theme>")).toBeGreaterThan(noId.out.indexOf("<style>"));
+    expect(noId.out.match(/<article\b[^>]*>/)?.[0]).not.toContain("data-theme=");
+
+    const withId = capture();
+    expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css", cssPath, "--theme-id", "devmtl"], withId.deps)).toBe(0);
+    expect(withId.out.indexOf("<style>")).toBeGreaterThan(-1);
+    expect(withId.out.indexOf("<style data-focus-theme>")).toBeGreaterThan(withId.out.indexOf("<style>"));
+    expect(withId.out.match(/<article\b[^>]*>/)?.[0]).toContain('data-theme="devmtl"');
+    expect(withId.out).toContain(`<style data-focus-theme>${css}</style>`);
+  });
+
+  it("exits non-zero with clear stderr on unsafe, missing, or oversized CSS", async () => {
+    const dir = mkdtempSync(join(fixtureDir, "theme-cli-bad-"));
+    const events = join(dir, "events.jsonl");
+    const track = new Track(new EventStore(events), { by: "owner" });
+    const target = track.createItem({ kind: "feature", title: "Garden shed", workspace: "garden" });
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const id = track.createDecision({ decisionKind: "orientation", title: "Choose the garden shed location", workspace: "garden", targets: [target], dossier });
+
+    for (const [name, content] of [
+      ["import.css", `@import "https://evil.example/x.css";`],
+      ["ext-url.css", `body { background: url(https://evil.example/bg.png); }`],
+      ["image-set.css", `body{background-image:image-set("https://example.invalid/a.png" 1x)}`],
+      ["webkit-image-set.css", `main{background-image:-webkit-image-set("https://example.invalid/b.png" 1x)}`],
+      ["image-set-var.css", `:root{--leak:"https://example.invalid/c.png"} body{background-image:image-set(var(--leak) 1x)}`],
+      ["image-fn.css", `body{background-image:image("https://example.invalid/d.png")}`],
+      ["cross-fade.css", `body{background-image:cross-fade("https://example.invalid/e.png", "data:image/png;base64,AA")}`],
+      ["src-fn.css", `body{background-image:src("https://example.invalid/f.png")}`],
+      ["escaped-image-set.css", `body{background-image:\\69 mage-set("https://example.invalid/a.png" 1x)}`],
+      ["close-style.css", `body { color: red; }</style><script>alert(1)</script>`],
+      ["huge.css", `/* ${"x".repeat(FOCUS_THEME_MAX_CSS_BYTES)} */`],
+    ] as const) {
+      const badPath = join(dir, name);
+      writeFileSync(badPath, content, "utf8");
+      const c = capture();
+      expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css", badPath], c.deps)).toBe(1);
+      expect(c.out).toBe("");
+      expect(c.err.length).toBeGreaterThan(0);
+    }
+
+    const missing = capture();
+    expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css", join(dir, "missing.css")], missing.deps)).toBe(1);
+    expect(missing.out).toBe("");
+
+    const missingVal = capture();
+    expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css"], missingVal.deps)).toBe(2);
   });
 });

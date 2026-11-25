@@ -64,6 +64,8 @@ const html = renderHtml(doc, {
 });
 ```
 
+Portable HTML builds and `renderHtml` also accept `--theme-css <path>` / `themeCss` (validated offline CSS up to 256 KiB; no `@import`, external `url(...)`, or external `image-set()`/`image()`/`cross-fade()`/`src()`) and `--theme-id <id>` / `themeId` (sets `data-theme="<id>"` on the page root). Portable DS builds also emit `<style data-focus-theme-bridge>` before `<style data-focus-theme>` so root `--st-*` tokens inherit into `[data-st-theme]` wrappers.
+
 ## Build / checks
 
 ```

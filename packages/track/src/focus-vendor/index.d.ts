@@ -14,6 +14,10 @@ export { renderTerminal } from "./render/terminal.js";
 export type { TerminalRenderOptions } from "./render/terminal.js";
 export { renderMd } from "./render/md.js";
 export { renderHtml } from "./render/html.js";
+export type { HtmlRenderOptions } from "./render/html.js";
+export { FOCUS_THEME_MAX_CSS_BYTES, validateThemeCss, validateThemeId, } from "./render/theme.js";
+/** @internal Host-bridge helper consumed by `@sentropic/h2a`. */
+export { extractRootThemeCustomProperties } from "./render/theme.js";
 export { evidenceVolume } from './render/evidence.js';
 export type { FocusEditingManifest, FocusReturn, ParagraphChange, EditTransaction } from './editing/contract.js';
 export { FOCUS_ARTIFACT_TYPE, FOCUS_BINDING_NAME_PREFIX, FOCUS_DEFAULT_MAX_BINDING_NAME_LENGTH, FOCUS_DOCUMENT_PATH, FOCUS_DOSSIER_CONTRACT, FOCUS_MANIFEST_PATH, FOCUS_MAX_ANCHOR_LENGTH, FOCUS_MAX_DOCUMENT_BYTES, FOCUS_TEMPLATE_ID, FOCUS_VIEWS_CONTRACT, FOCUS_VIEWS_PATH, assertFocusArtifact, bindingNameForDocumentRef, buildDerivedFileEntry, buildFocusArtifactManifest, buildFocusViewsDocument, canonicalByteLength, canonicalJsonBytes, canonicalJsonString, checkFocusArtifact, computeNextRevisionAndRetiredRefs, digestBytes, documentDigest, extractDocumentAnchors, extractDocumentAnchorsWithPaths, isAnchorableId, isSafeBundleRelativePath, rendererManifestDigest, resolveDocumentSchemaId, validateFocusArtifactManifest, validateFocusViewsDocument, } from "./artifact/index.js";

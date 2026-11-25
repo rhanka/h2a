@@ -56,6 +56,14 @@ export { renderTerminal } from "./render/terminal.js";
 export type { TerminalRenderOptions } from "./render/terminal.js";
 export { renderMd } from "./render/md.js";
 export { renderHtml } from "./render/html.js";
+export type { HtmlRenderOptions } from "./render/html.js";
+export {
+  FOCUS_THEME_MAX_CSS_BYTES,
+  validateThemeCss,
+  validateThemeId,
+} from "./render/theme.js";
+/** @internal Host-bridge helper consumed by `@sentropic/h2a`. */
+export { extractRootThemeCustomProperties } from "./render/theme.js";
 export { evidenceVolume } from './render/evidence.js';
 export type { FocusEditingManifest, FocusReturn, ParagraphChange, EditTransaction } from './editing/contract.js';
 export {

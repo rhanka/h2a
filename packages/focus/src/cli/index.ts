@@ -19,9 +19,17 @@
  * required (a decision lives in a per-workspace canevas; there is no safe default).
  */
 
+import { readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 
-import { renderHtml, renderMd, renderTerminal } from "../index.js";
+import {
+  FOCUS_THEME_MAX_CSS_BYTES,
+  renderHtml,
+  renderMd,
+  renderTerminal,
+  validateThemeCss,
+  validateThemeId,
+} from "../index.js";
 import type { HtmlRenderHooks } from "../index.js";
 import {
   DecisionNotFoundError,
@@ -52,6 +60,8 @@ interface ParsedArgs {
   readonly workspace: string;
   readonly baselineCommit: string;
   readonly eventsPath: string;
+  readonly themeCssPath?: string;
+  readonly themeId?: string;
 }
 
 /** A parse failure carrying the message to print on stderr (exit code 2 = usage error). */
@@ -59,7 +69,8 @@ class UsageError extends Error {}
 
 const USAGE =
   "Usage: stp focus <decision-id> [--format terminal|md|html|json] " +
-  "[--workspace <ws>] [--baseline-commit <sha>] [--events-path <path>]\n" +
+  "[--workspace <ws>] [--baseline-commit <sha>] [--events-path <path>] " +
+  "[--theme-css <path>] [--theme-id <id>]\n" +
   "Render a track decision dossier read-only. Defaults: --format terminal, " +
   `--events-path ${DEFAULT_EVENTS_PATH}. --workspace is required.`;
 
@@ -82,6 +93,8 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
   let workspace: string | undefined;
   let baselineCommit = "";
   let eventsPath = DEFAULT_EVENTS_PATH;
+  let themeCssPath: string | undefined;
+  let themeId: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -113,6 +126,20 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
         eventsPath = takeValue(argv, i, "--events-path");
         i += 1;
         break;
+      case "--theme-css":
+        if (themeCssPath !== undefined) {
+          throw new UsageError(`Duplicate option "--theme-css".\n${USAGE}`);
+        }
+        themeCssPath = takeValue(argv, i, "--theme-css");
+        i += 1;
+        break;
+      case "--theme-id":
+        if (themeId !== undefined) {
+          throw new UsageError(`Duplicate option "--theme-id".\n${USAGE}`);
+        }
+        themeId = takeValue(argv, i, "--theme-id");
+        i += 1;
+        break;
       default:
         if (arg.startsWith("--")) {
           throw new UsageError(`Unknown option "${arg}".\n${USAGE}`);
@@ -140,6 +167,8 @@ const parseArgs = (argv: readonly string[]): ParsedArgs => {
     workspace,
     baselineCommit,
     eventsPath,
+    ...(themeCssPath !== undefined ? { themeCssPath } : {}),
+    ...(themeId !== undefined ? { themeId } : {}),
   };
 };
 
@@ -199,6 +228,21 @@ export const run = async (
   }
 
   try {
+    const themeId = parsed.themeId !== undefined ? validateThemeId(parsed.themeId) : undefined;
+    let themeCss: string | undefined;
+    if (parsed.themeCssPath !== undefined) {
+      const stat = statSync(parsed.themeCssPath);
+      if (!stat.isFile()) {
+        throw new Error(`Theme CSS path is not a regular file: ${parsed.themeCssPath}`);
+      }
+      if (stat.size > FOCUS_THEME_MAX_CSS_BYTES) {
+        throw new Error(
+          `Theme CSS exceeds maximum size of ${FOCUS_THEME_MAX_CSS_BYTES} bytes (256 KiB): got ${stat.size} bytes.`,
+        );
+      }
+      themeCss = validateThemeCss(readFileSync(parsed.themeCssPath, "utf8"));
+    }
+
     const doc = readDecisionDossier(
       parsed.eventsPath,
       {
@@ -217,7 +261,12 @@ export const run = async (
         out(renderMd(doc));
         break;
       case "html":
-        out(renderHtml(doc, defaultHtmlHooks));
+        out(
+          renderHtml(doc, defaultHtmlHooks, {
+            ...(themeCss !== undefined ? { themeCss } : {}),
+            ...(themeId !== undefined ? { themeId } : {}),
+          }),
+        );
         break;
       case "json": {
         // No renderer: validate through the SAME presentation gate (readability included) and
