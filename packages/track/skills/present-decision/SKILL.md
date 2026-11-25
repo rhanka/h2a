@@ -1,6 +1,6 @@
 ---
 name: present-decision
-description: Present consequential human decisions with a readable dossier, or choose decide-and-trace or a quick ask for smaller stakes. Covers irreversible, costly, security, contract, cross-owner and genuinely balanced choices; records the outcome in track. Agent-to-human, not h2a inter-agent negotiation.
+description: Present consequential human decisions with a readable dossier, or decide and trace reversible choices. Covers irreversible, costly, security, contract, cross-owner and genuinely balanced choices; records the outcome in track. Agent-to-human, not h2a inter-agent negotiation.
 ---
 
 # Present Decision
@@ -17,12 +17,11 @@ Render it in small type in a thin band (at most 1.25rem), never a hero or a larg
 Start with what changes for the owner. Keep their intention central;
 an agent's technical inconvenience alone does not justify a dossier.
 
-- **Decide + trace:** local, readily reversible, clear existing pattern, no meaningful security,
-  privacy, data-loss, frozen-contract or cross-owner impact, no genuinely balanced alternatives.
-  State the assumption and proceed within existing authorization.
-- **Quick ask:** one missing owner preference, 2–3 clear options, cheap rollback, no hard trigger.
-  Give each option a one-line consequence.
-- **Dossier:** irreversible or costly rollback; public/frozen contract or data-schema change;
+- **Decide + trace:** local, readily reversible, no hard trigger (no meaningful security,
+  privacy, data-loss, frozen-contract or cross-owner impact). When an owner preference is
+  missing, decide alone (or make the choice configurable), state the assumption within
+  existing authorization, and ask for option confirmation at the end of the task if needed.
+- **Full dossier:** irreversible or costly rollback; public/frozen contract or data-schema change;
   security, privacy, access control, migration or retention; cross-repo/owner/agent impact;
   meaningful cost, schedule or scope impact; strong disagreement or balanced alternatives;
   unknown validation criteria that could change the outcome; or explicit owner request.

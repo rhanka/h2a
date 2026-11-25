@@ -33,6 +33,19 @@ Record it for async review, with no native question and no reminders. For the re
 cross-session rules, evidence and closure, apply **Owner gates across sessions** in the h2a skill.
 Continue independent work while a gate is pending.
 
+## Reversible and irreversible decisions
+
+1. **Take reversible decisions alone on the AI side (option confirmation at the end of the task if needed)** — *« prendre les décisions réversibles seul côté IA (confirmation d'option en fin de tâche si besoin) »*:
+   Decide a reversible choice alone without interrupting the owner. Ask for option confirmation at the end of the task only if needed.
+2. **Batch irreversible questions before stopping** — *« allotir les questions irréversibles par lot avant de s'arrêter »*:
+   Do not stop for each isolated irreversible question. Group irreversible questions into a single batch before pausing work.
+3. **Favor configurability rather than hardcoding or asking an unnecessary question** — *« favoriser la configurabilité plutôt que hardcoder ou poser une question inutile »*:
+   When a value or behavior can vary, make it configurable instead of hardcoding it in code. This avoids interrupting the owner with an unnecessary question.
+
+**Irreversible criterion:** treat a choice as irreversible when it is destructive, causes externally visible disruption, or breaks a public contract, security, or shared history (examples: force-push, merge to `main`, manual edit of the Track event log, data deletion). A publication is not irreversible by nature: it is reversible when it activates no untested function and removes none (passive code, or an A/B test that does not impose a disruption on everyone).
+
+ASD-STE100 is separate from this decision pattern and is absent from this repository.
+
 `@sentropic/harness` is the native dev-discipline layer for sentropic repos. Its verbs and `harness/*`
 skills are the SINGLE front door for code-work and PR-workflow. This skill is the index — load it
 before any other so the replacement directive below is in effect.
