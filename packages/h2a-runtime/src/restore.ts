@@ -25,9 +25,11 @@ import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
 import {
   launchLayout,
   launchLayoutWithOutcomes,
+  launchStationWindow,
   planLayoutLaunch,
   tabCommand,
   type HostViewSnapshot,
+  type StationWindowLaunch,
   type TabLaunchOutcome,
 } from "./launch-layout.js";
 import {
@@ -80,7 +82,7 @@ import { listNativeSessions } from "./native-host.js";
 import { applicationForeground } from "./native-terminal/protocol.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { STATION_STATE_FILE_NAME } from "./native-terminal/station-state.js";
-import { humanOutputText } from "./human-output.js";
+import { humanOutputText, resolveHumanOutputLocale } from "./human-output.js";
 import type { RestorePlanResult, RestoreRefusalReason } from "./restore-plan.js";
 
 // Compatibility re-exports: the layout renderer lives in launch-layout.ts and
@@ -718,14 +720,52 @@ export type RestoreStationOptions = {
   stderr?: { write(chunk: string): unknown };
   registry?: () => RestoreStationRegistryRead;
   launch?: (args: readonly string[]) => number;
+  launchWindow?: (window: StationWindowLaunch) => void;
+  env?: NodeJS.ProcessEnv;
   statePath?: string;
   locale?: string;
 };
 
+/** Marker set on the environment of a station window (S6): it forbids a second window. */
+export const STATION_WINDOW_MARKER = "H2A_STATION_WINDOW";
+
 /**
- * `h2a restore --station`: every live native session in this terminal, with
- * the side panel. TTY only in S1: without one the refusal is clear and has no
- * effect (no inventory, no plan, no file). Returns the process exit code.
+ * S6 display proof (owner Q-2, option A): a pure environment read, before any
+ * launch and without a probe process. A stale variable still relays the
+ * launcher error after the fact; cron (no display at all) refuses cleanly.
+ */
+export function hasGraphicalDisplay(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return (env.DISPLAY ?? "") !== "" || (env.WAYLAND_DISPLAY ?? "") !== "";
+}
+
+/**
+ * S6: the exact station command a new window runs for this caller. It always
+ * carries the window marker (a window without a TTY must refuse, never loop),
+ * the group quoted with the single-quote rule of `tabCommand`, then `--lazy`,
+ * `--gw` or `--no-gw` when they were passed.
+ */
+export function stationWindowCommand(opts: {
+  group?: string;
+  lazy?: boolean;
+  forceGateway?: "gateway" | "direct";
+}): string {
+  const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
+  let command = `${STATION_WINDOW_MARKER}=1 h2a restore --station`;
+  if (opts.group !== undefined) command += ` ${q(opts.group)}`;
+  if (opts.lazy === true) command += " --lazy";
+  if (opts.forceGateway === "gateway") command += " --gw";
+  else if (opts.forceGateway === "direct") command += " --no-gw";
+  return command;
+}
+
+/**
+ * `h2a restore` (S6 default) and `h2a restore --station`: every live native
+ * session in this terminal, with the side panel. Without an interactive
+ * terminal the station opens in a new terminal window when a display is
+ * proven, and otherwise refuses by name with zero effect (no inventory, no
+ * plan, no file, no process). Returns the process exit code.
  */
 export function restoreStation(opts: RestoreStationOptions = {}): number {
   const stderr = opts.stderr ?? process.stderr;
@@ -736,11 +776,40 @@ export function restoreStation(opts: RestoreStationOptions = {}): number {
     );
     stderr.write(`[h2a] ${text}\n`);
   };
+  const env = opts.env ?? process.env;
   const stdinIsTTY = opts.stdinIsTTY ?? process.stdin.isTTY === true;
   const stdoutIsTTY = opts.stdoutIsTTY ?? process.stdout.isTTY === true;
   if (!stdinIsTTY || !stdoutIsTTY) {
-    say("station.refusal.notTty");
-    return 1;
+    // Inside a station window without a TTY: refuse, never open a second one.
+    if ((env[STATION_WINDOW_MARKER] ?? "") !== "") {
+      say("station.refusal.notTty");
+      return 1;
+    }
+    if (!hasGraphicalDisplay(env)) {
+      const locale = opts.locale ?? resolveHumanOutputLocale(env);
+      say("station.refusal.noDisplay", {
+        probe:
+          locale === "fr"
+            ? "DISPLAY et WAYLAND_DISPLAY absents ou vides"
+            : "DISPLAY and WAYLAND_DISPLAY unset or empty",
+      });
+      return 1;
+    }
+    try {
+      (opts.launchWindow ?? launchStationWindow)(
+        {
+          cwd: process.cwd(),
+          title: "h2a",
+          command: stationWindowCommand(opts),
+        },
+        stderr as NodeJS.WriteStream,
+      );
+    } catch {
+      // The launcher already relayed the gnome-terminal error on stderr.
+      return 1;
+    }
+    say("station.notice.windowOpened");
+    return 0;
   }
   // S2: the parent takes no photo and computes no plan for the station. Its
   // only read is the registry; the station process computes one plan on one

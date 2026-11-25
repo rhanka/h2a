@@ -3242,6 +3242,35 @@ class Station {
   }
 
   /** Persisted session, else the most recent of the first group, then the rest. */
+  /**
+   * S6 step 4: one notice per foreign (pid, tty) pair holding sessions in the
+   * first inventory. Own pair excluded. Read-only: takes no lock, no lease.
+   */
+  #noticeOtherControllers(): void {
+    const inventory = this.#inventory;
+    if (inventory === undefined) return;
+    const pairs = new Map<string, { count: number; pid: string; tty: string }>();
+    for (const session of inventory.sessions) {
+      const holder = session.controller;
+      if (holder === undefined || holder === null) continue;
+      if (holder.pid === this.#pid && holder.tty === this.#tty) continue;
+      const pid = holder.pid === null ? "unknown" : String(holder.pid);
+      const key = `${pid} ${holder.tty}`;
+      const known = pairs.get(key);
+      if (known !== undefined) known.count += 1;
+      else pairs.set(key, { count: 1, pid, tty: holder.tty });
+    }
+    const ordered = [...pairs.values()].sort(
+      (a, b) => a.tty.localeCompare(b.tty, "en") || a.pid.localeCompare(b.pid, "en"),
+    );
+    for (const pair of ordered) {
+      this.#emit({ type: "notice", key: "station.notice.otherController" });
+      this.#stdout.write(
+        `[h2a] ${this.#t("station.notice.otherController", { count: pair.count, tty: pair.tty, pid: pair.pid })}\r\n`,
+      );
+    }
+  }
+
   #initialCandidates(snapshot: RightPanelSnapshot, preferredTab?: string): string[] {
     const candidates: string[] = [];
     const live = new Set(snapshot.workspaces.flatMap((w) => w.sessions.map((s) => s.id)));
@@ -3354,6 +3383,10 @@ class Station {
       for (const socketPath of [...this.#links.keys()]) this.#dropLink(socketPath);
       return 1;
     }
+    // S6 step 4: after the first inventory, say which other terminal holds
+    // sessions. A pure read of the published controller states: no lock,
+    // no lease, no takeover. A station holding no lease yet is not visible.
+    this.#noticeOtherControllers();
 
     const stdin = this.#stdin;
     const isRawCapable = stdin.isTTY === true;

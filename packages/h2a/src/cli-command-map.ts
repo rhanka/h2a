@@ -314,7 +314,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SPECIALIST", verb: "identity", summary: "Inspect identity bindings or unlock identity/.lock by expected token." },
   { group: "SPECIALIST", verb: "lock", summary: "Recover a succession lock by expected token; never kill a PID." },
 
-  { group: "SESSION_RECOVERY", verb: "restore", summary: "Relaunch the dev sessions in their recorded layout." },
+  { group: "SESSION_RECOVERY", verb: "restore", summary: "Open the station: every dev session in one terminal, dead ones relaunched (--windows: one window per group)." },
   { group: "SESSION_RECOVERY", verb: "restart", summary: "Restart managed native CLIs (or --soft respawn in the same PTY) with a gateway change, or inject a live MCP relaunch instruction." },
   { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Recover an idle CLI, or force-restart one session or a guarded fleet from its registry conversation." },
   { group: "SESSION_RECOVERY", verb: "resume-throttled", summary: "Nudge rate-limited, detached sessions back to life." },

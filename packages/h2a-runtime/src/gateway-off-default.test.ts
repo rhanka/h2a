@@ -502,7 +502,9 @@ describe("restore CLI route (legacy enabled=true is not consent)", () => {
       ANTHROPIC_AUTH_TOKEN: "live-token",
     });
     for (const argv of [
-      ["node", "h2a", "restore"],
+      // S6: bare restore opens the station (refused without a TTY here), so
+      // the layout path this gate watches is now behind --windows.
+      ["node", "h2a", "restore", "--windows"],
       ["node", "h2a", "restore", "--dry-run"],
     ]) {
       acquireLlmMeshSessionEnv.mockClear();
@@ -521,9 +523,34 @@ describe("restore CLI route (legacy enabled=true is not consent)", () => {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "live-token",
     });
-    const code = await main(["node", "h2a", "restore", "--gw"]);
+    // S6: bare restore opens the station (refused without a TTY here), so
+    // the prewarm assertion runs on the historical path behind --windows.
+    const code = await main(["node", "h2a", "restore", "--windows", "--gw"]);
     expect(code).toBe(0);
     expect(acquireLlmMeshSessionEnv).toHaveBeenCalled();
+  });
+
+  it("bare restore --gw refuses without a TTY before any gateway effect (S6 B-1)", async () => {
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+    // No TTY and no display in this runner: the station refuses by name.
+    const prevDisplay = process.env.DISPLAY;
+    const prevWayland = process.env.WAYLAND_DISPLAY;
+    delete process.env.DISPLAY;
+    delete process.env.WAYLAND_DISPLAY;
+    try {
+      const code = await main(["node", "h2a", "restore", "--gw"]);
+      expect(code).toBe(1);
+      expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+      expect(startGateway).not.toHaveBeenCalled();
+    } finally {
+      if (prevDisplay === undefined) delete process.env.DISPLAY;
+      else process.env.DISPLAY = prevDisplay;
+      if (prevWayland === undefined) delete process.env.WAYLAND_DISPLAY;
+      else process.env.WAYLAND_DISPLAY = prevWayland;
+    }
   });
 });
 

@@ -10238,12 +10238,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("restore [group]")
     .description(
-      'Restaure les sessions dev dans leur layout (fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `h2a restore "full remote"`). Groupes LOCAUX = sessions claude/codex sous ~/src/* hébergées par le PTY natif (défaut) ou tmux legacy; une PTY vivante non contrôlée est rattachée et une PTY déjà contrôlée reste protégée contre un second terminal. Groupes REMOTE = sessions SCW (`h2a attach <id> --exec`). Layout: champ `layout` de la config.',
+      'Ouvre le poste: toutes les sessions dev natives dans CE terminal, mortes relancées (--windows: mode historique, une fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `h2a restore "full remote"`). Groupes LOCAUX = sessions claude/codex sous ~/src/* hébergées par le PTY natif (défaut) ou tmux legacy; une PTY vivante non contrôlée est rattachée et une PTY déjà contrôlée reste protégée contre un second terminal. Groupes REMOTE = sessions SCW (`h2a attach <id> --exec`). Layout: champ `layout` de la config.',
     )
     .option("--dry-run", "affiche le layout calculé sans ouvrir de terminaux")
     .option(
       "--station",
-      "ouvre le poste: toutes les sessions natives vivantes dans CE terminal, une affichée à la fois, avec le panneau latéral (TTY requis; aucune session relancée ni arrêtée; Ctrl-\\ ferme le poste)",
+      "accepté sans effet: le poste est le défaut (ouvre les sessions natives vivantes dans CE terminal, une affichée à la fois, avec le panneau latéral; Ctrl-\\ ferme le poste)",
+    )
+    .option(
+      "--windows",
+      "mode historique: une fenêtre par groupe, onglet par session, avec ou sans TTY (le poste est le défaut; --lazy y est refusé)",
     )
     .option(
       "--lazy",
@@ -10269,6 +10273,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           dryRun?: boolean;
           station?: boolean;
+          windows?: boolean;
           lazy?: boolean;
           reattach?: boolean;
           llmGateway?: boolean;
@@ -10277,11 +10282,43 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noGw?: boolean;
         },
       ) => {
-        // S2: --lazy only ever lists for the station; anywhere else it
-        // refuses with zero effect (the old mode is untouched by the option).
-        if (opts.lazy && !opts.station) {
+        // S6: --lazy never applies to the historical --windows mode; it
+        // refuses with zero effect. --dry-run always wins below with the
+        // plan preview, whatever else was passed.
+        if (opts.windows && opts.lazy && !opts.dryRun) {
           process.stderr.write(`[h2a] ${humanOutputText("restore.refusal.lazyWindows")}\n`);
           process.exitCode = 1;
+          return;
+        }
+        // Optional restore-launch gateway override. "auto" (no flag) leaves
+        // each session on its pinned posture; an existing live session is only
+        // attached so restore never replaces it to change gateway posture.
+        // Pure read of the flags: no config touch, no process, no network.
+        let forceGateway: "gateway" | "direct" | undefined;
+        try {
+          const mode = gatewayModeFromOptions(opts);
+          if (mode !== "auto") forceGateway = mode;
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
+        // S6 amendment (B-1): off a TTY (stdin or stdout not a TTY) and
+        // without --windows or --dry-run, reach the station BEFORE
+        // getLayoutConfig, the central MCP preparation and the --gw prewarm.
+        // The no-display refusal is then free of any effect, and the window
+        // process runs its own preparation with its own TTY. The TTY path
+        // below keeps the S2 order.
+        if (
+          !opts.windows &&
+          !opts.dryRun &&
+          (process.stdin.isTTY !== true || process.stdout.isTTY !== true)
+        ) {
+          process.exitCode = restoreStation({
+            ...(group ? { group } : {}),
+            ...(opts.lazy ? { lazy: true } : {}),
+            ...(forceGateway ? { forceGateway } : {}),
+          });
           return;
         }
         const norm = (s: string) =>
@@ -10298,18 +10335,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
 
-        // Optional restore-launch gateway override. "auto" (no flag) leaves
-        // each session on its pinned posture; an existing live session is only
-        // attached so restore never replaces it to change gateway posture.
-        let forceGateway: "gateway" | "direct" | undefined;
-        try {
-          const mode = gatewayModeFromOptions(opts);
-          if (mode !== "auto") forceGateway = mode;
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
-          process.exitCode = 1;
-          return;
-        }
         if (forceGateway) restoreOpts.forceGateway = forceGateway;
 
         const centralMcp = await prepareCentralMcpForRestore({ root: process.cwd() });
@@ -10319,10 +10344,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
         }
 
-        // The remote listing stays out of the station path (S2): the station
-        // is a native-terminal process and never opens the window layout.
-        // The plan preview (--dry-run) keeps the full picture instead.
-        if (needRemote && !(opts.station && !opts.dryRun)) {
+        // The remote listing stays out of the station path (S2/S6): the
+        // station is a native-terminal process and never opens the window
+        // layout. The plan preview (--dry-run) keeps the full picture instead.
+        if (needRemote && (opts.windows || opts.dryRun)) {
           const url = getConfiguredRemote();
           await ensureConnected(url);
           const sessions = await listRemoteSessions(url);
@@ -10353,11 +10378,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
-        // S2 station branch: after the central MCP preparation and the
-        // gateway prewarm (a station relaunch may carry a gateway pin), at
-        // the place of the window-layout call. With --dry-run the usual plan
-        // preview is printed instead (same plan).
-        if (opts.station && !opts.dryRun) {
+        // S6 default: on a TTY the station opens after the central MCP
+        // preparation and the gateway prewarm (a station relaunch may carry
+        // a gateway pin), at the place of the window-layout call. Off a TTY
+        // the station was already reached above, before any effect.
+        // --station stays accepted without effect; --windows keeps the
+        // historical mode below. With --dry-run the usual plan preview is
+        // printed instead (same plan).
+        if (!opts.windows && !opts.dryRun) {
           process.exitCode = restoreStation({
             ...(group ? { group } : {}),
             ...(opts.lazy ? { lazy: true } : {}),

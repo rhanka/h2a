@@ -167,7 +167,9 @@ test('L0 R2: packaged real restore dispatches twenty conversations through flock
   const targets = Array.from({ length: 20 }, (_, i) => ({ ...f.row('target-' + i), cwd: project }));
   f.save([...f.saved, ...targets]);
   writeFileSync(join(f.config, 'config.json'), JSON.stringify({ layout: { maxPerWindow: 20, groups: [{ title: 'cleanse', projects: ['project'] }] } }));
-  const result = await f.start(['restore']).done;
+  // S6: bare restore opens the station; the historical window mode this R2
+  // measures is now behind --windows.
+  const result = await f.start(['restore', '--windows']).done;
   assert.equal(result.code, 0, JSON.stringify(result));
   await eventually(f.transcripts, rows => targets.every(target => rows.some(r => r.id === target.convId)), 30000);
   const inventory = await f.inventory();
