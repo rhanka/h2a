@@ -27,6 +27,7 @@ import { registerArchiveCommand } from "./archive-cli.js";
 import {
   emitResumeArchiveNotices,
   ensureClaudeSessionRestoredForResume,
+  SessionArchiveError,
 } from "./session-archive.js";
 
 import {
@@ -767,13 +768,21 @@ function prepareClaudeResumeRestore(
   explicitResume: unknown,
   commandArgs: ReadonlyArray<string>,
   cwd: string,
-): void {
+): boolean {
   const normalized = toolOrProfile?.trim().toLowerCase();
-  if (normalized !== "claude" && normalized !== "claude-code") return;
+  if (normalized !== "claude" && normalized !== "claude-code") return true;
   const convId = extractResumeConvId(explicitResume, commandArgs);
-  if (!convId) return;
-  const outcome = ensureClaudeSessionRestoredForResume({ convId, cwd });
-  emitResumeArchiveNotices(outcome);
+  if (!convId) return true;
+  try {
+    const outcome = ensureClaudeSessionRestoredForResume({ convId, cwd });
+    emitResumeArchiveNotices(outcome);
+    return true;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`h2a resume: archive auto-restore failed for ${convId}: ${msg}\n`);
+    process.exitCode = error instanceof SessionArchiveError ? error.exitCode : 2;
+    return false;
+  }
 }
 
 async function runProfile(
@@ -918,7 +927,9 @@ async function runProfile(
     await attachSession.finished;
     return;
   }
-  prepareClaudeResumeRestore(profileName, opts.resume, commandArgs, process.cwd());
+  if (!prepareClaudeResumeRestore(profileName, opts.resume, commandArgs, process.cwd())) {
+    return;
+  }
   const runOptions: import("./run.js").RunOptions = {
     profile: profileName,
     ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
@@ -6000,8 +6011,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        if (entry.convId) {
-          prepareClaudeResumeRestore(entry.tool, entry.convId, [], entry.cwd);
+        if (entry.convId && !prepareClaudeResumeRestore(entry.tool, entry.convId, [], entry.cwd)) {
+          return;
         }
         if (
           liveActTarget &&
@@ -6611,8 +6622,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
         if (opts.resume) {
-          if (typeof opts.resume === "string") {
-            prepareClaudeResumeRestore(profile, opts.resume, [], cwd);
+          if (
+            typeof opts.resume === "string" &&
+            !prepareClaudeResumeRestore(profile, opts.resume, [], cwd)
+          ) {
+            return;
           }
           // Reuse this operation's certified name verdict for that SAME
           // session. Other conversation owners still require their own probe.

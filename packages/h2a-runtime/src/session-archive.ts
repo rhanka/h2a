@@ -24,8 +24,8 @@ import {
   copyFileSync,
   existsSync,
   fsyncSync,
-  futimesSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -40,11 +40,16 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { convOwners } from "./conv-guard.js";
 import { encodeCwd } from "./convsync.js";
-import { LOCK_STALE_MS, releaseFileLock, tryAcquireFileLock } from "./file-lock.js";
+import { LOCK_STALE_MS } from "./file-lock.js";
+import {
+  classifyDurableProcFrame,
+  readProcessFrame,
+  readProcessStartTime,
+} from "./proc-identity.js";
 import { loadRegistry } from "./registry.js";
 import { isSessionLeaseAlive, SessionLeaseStore } from "./session-lease.js";
 import { readFleetProcView } from "./tmux.js";
@@ -53,14 +58,16 @@ import {
   ARCHIVE_SCHEMA_VERSION,
   contentMatchesManifest,
   computePurgeDeadline,
+  createEmptyArchiveIndex,
   DAY_MS,
   DEFAULT_ALERT_WINDOW_DAYS,
   extractOriginCwdHint,
   formatArchiveAlertLine,
+  isArchiveKillSwitchEnabled,
   isUuidFileStem,
-  loadArchiveIndex,
   loadLastRunWitness,
   loadPersistedAlerts,
+  readArchiveIndexState,
   readClaudeArchiveAlerts,
   readClaudeCleanupPeriodDays,
   resolveArchivePaths,
@@ -83,16 +90,18 @@ export * from "./session-archive-alerts.js";
 
 export const DEFAULT_OLDER_THAN_DAYS = 14;
 export const DEFAULT_GRACE_HOURS = 24;
+export const ARCHIVE_ALERT_EXIT_CODE = 4;
 export const DISK_RESERVE_CAP_BYTES = 10_000_000_000;
 export const DISK_RESERVE_FRACTION = 0.05;
 const HOST_INIT_PID_NS = "pid:[4026531836]";
 const CONTAINER_CGROUP_RE = /(?:user\.slice|docker|containerd|kubepods|lxc|podman|bwrap)/i;
-const LOCK_TOUCH_INTERVAL_MS = Math.max(1_000, Math.floor(LOCK_STALE_MS / 3));
+const LOCK_BREAK_STALE_MS = 5_000;
 
 export type ArchiveErrorCode =
   | "PID_NAMESPACE_GUARD"
   | "DISK_SPACE_LOW"
   | "ARCHIVE_LOCKED"
+  | "INDEX_UNREADABLE"
   | "ARCHIVE_NOT_FOUND"
   | "ARCHIVE_CORRUPTED"
   | "RESTORE_TARGET_EXISTS"
@@ -142,6 +151,17 @@ export interface ClaudeLiveSessionFile {
   readonly verifiedAlive: boolean;
 }
 
+export interface ArchiveLockRecord {
+  readonly schemaVersion: 1;
+  readonly token: string;
+  readonly pid: number;
+  readonly startTime?: number;
+  readonly pidNamespace?: string;
+  readonly bootId?: string;
+  readonly machineId?: string;
+  readonly acquiredAt: string;
+}
+
 export interface ArchiveDeps {
   readonly nowMs?: () => number;
   readonly probeHostPidNamespace?: () => HostPidNamespaceProbeResult;
@@ -150,6 +170,7 @@ export interface ArchiveDeps {
   readonly leasesPath?: string;
   readonly readProcView?: () => ProcView;
   readonly isPidAlive?: (pid: number, startedAtMs?: number) => boolean;
+  readonly isLockHolderAlive?: (record: ArchiveLockRecord) => boolean;
   readonly tmuxHasSession?: (name: string) => boolean;
   readonly nativeSessionLiveness?: (name: string) => true | false | "unknown";
   readonly onBeforeCommit?: (sessionId: string) => void;
@@ -210,6 +231,8 @@ export interface ArchiveScanResult {
   readonly cli: ArchiveCliKind;
   readonly scannedAt: string;
   readonly paths: ArchivePaths;
+  readonly indexStatus: "absent" | "ok" | "unreadable";
+  readonly indexError?: string;
   readonly olderThanDays: number;
   readonly graceHours: number;
   readonly disk: DiskSpaceCheck;
@@ -224,12 +247,14 @@ export interface ArchiveScanOptions extends ArchivePathOptions {
   readonly olderThanDays?: number;
   readonly graceHours?: number;
   readonly alertWindowDays?: number;
+  readonly maxPassAgeHours?: number;
   readonly deps?: ArchiveDeps;
 }
 
 export interface ArchiveRunOptions extends ArchiveScanOptions {
   readonly dryRun?: boolean;
   readonly sessionId?: string;
+  readonly suppressWitnessAlerts?: boolean;
 }
 
 export interface ArchivedSessionOutcome {
@@ -241,6 +266,12 @@ export interface ArchivedSessionOutcome {
   readonly version: number;
   readonly originCwd: string;
   readonly copyNotes: ReadonlyArray<string>;
+}
+
+export interface FailedSessionOutcome {
+  readonly sessionId: string;
+  readonly errorCode?: ArchiveErrorCode;
+  readonly error: string;
 }
 
 export interface ArchiveRunResult {
@@ -261,6 +292,7 @@ export interface ArchiveRunResult {
   readonly skippedIdempotent: ReadonlyArray<string>;
   readonly refreshedIndexStats: ReadonlyArray<string>;
   readonly skippedBlocked: ReadonlyArray<{ readonly sessionId: string; readonly reasons: ReadonlyArray<string> }>;
+  readonly failedSessions: ReadonlyArray<FailedSessionOutcome>;
   readonly alerts: ReadonlyArray<ArchiveAlert>;
 }
 
@@ -305,7 +337,7 @@ export interface ArchiveVerifyResult {
 export interface RestoreArchiveOptions extends ArchivePathOptions {
   readonly id: string;
   readonly version?: string;
-  readonly onConflict?: "refuse" | "backup";
+  readonly onConflict?: "refuse" | "backup" | "merge-missing";
   readonly claudeConfigDir?: string;
   readonly deps?: ArchiveDeps;
 }
@@ -317,9 +349,24 @@ export interface RestoreArchiveResult {
   readonly originCwd: string;
   readonly targetProjectDir: string;
   readonly restoredFiles: ReadonlyArray<string>;
+  readonly skippedExistingFiles: ReadonlyArray<string>;
   readonly backedUpPaths: ReadonlyArray<string>;
   readonly restoredAt: string;
   readonly alerts: ReadonlyArray<ArchiveAlert>;
+}
+
+export interface RebuildArchiveIndexOptions extends ArchivePathOptions {
+  readonly force?: boolean;
+  readonly deps?: ArchiveDeps;
+}
+
+export interface RebuildArchiveIndexResult {
+  readonly ok: boolean;
+  readonly indexPath: string;
+  readonly backupPath?: string;
+  readonly sessionsCount: number;
+  readonly versionsCount: number;
+  readonly skippedCorrupted: ReadonlyArray<{ readonly archiveRelPath: string; readonly error: string }>;
 }
 
 export interface EnsureResumeRestoreOptions extends ArchivePathOptions {
@@ -341,6 +388,7 @@ export interface PassOnceResult {
   readonly exitCode: number;
   readonly witness: ArchiveLastRunWitness;
   readonly runResult?: ArchiveRunResult;
+  readonly alerts: ReadonlyArray<ArchiveAlert>;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,38 +480,264 @@ function cleanTarEnv(stagingDir: string, baseEnv: NodeJS.ProcessEnv = process.en
   };
 }
 
-function startLockHeartbeat(lockTargetPath: string): NodeJS.Timeout {
-  const timer = setInterval(() => {
-    try {
-      const now = new Date();
-      utimesSync(`${lockTargetPath}.lock`, now, now);
-    } catch {
-      // Best-effort heartbeat; main lock release handles cleanup.
+export interface ArchiveLockHandle {
+  readonly lockPath: string;
+  readonly token: string;
+}
+
+function tryWriteExclusiveLockRecord(lockPath: string, record: ArchiveLockRecord): boolean {
+  const nonce = randomBytes(6).toString("hex");
+  const tmpPath = join(dirname(lockPath), `.tmp-${basename(lockPath)}-${process.pid}-${nonce}`);
+  writeFileSync(tmpPath, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
+  try {
+    chmodSync(tmpPath, 0o600);
+    fsyncFile(tmpPath);
+    linkSync(tmpPath, lockPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "EEXIST") {
+      return false;
     }
-  }, LOCK_TOUCH_INTERVAL_MS);
-  timer.unref();
-  return timer;
+    throw error;
+  } finally {
+    try {
+      rmSync(tmpPath, { force: true });
+    } catch {
+      // Ignore temp cleanup failure.
+    }
+  }
+}
+
+function parseArchiveLockRecord(raw: string): ArchiveLockRecord | undefined {
+  try {
+    const parsed = JSON.parse(raw) as ArchiveLockRecord;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.schemaVersion === 1 &&
+      typeof parsed.token === "string" &&
+      parsed.token.length > 0 &&
+      typeof parsed.pid === "number" &&
+      Number.isSafeInteger(parsed.pid) &&
+      parsed.pid > 0
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Non-JSON or truncated lock content.
+  }
+  return undefined;
+}
+
+function defaultIsLockHolderAlive(record: ArchiveLockRecord): boolean {
+  if (process.platform === "linux") {
+    const current = readProcessFrame();
+    if (record.machineId && current.machineId && record.machineId !== current.machineId) {
+      // Written by a different host; fail closed.
+      return true;
+    }
+    if (
+      record.pidNamespace &&
+      current.pidNamespace &&
+      record.bootId &&
+      current.bootId &&
+      record.machineId &&
+      current.machineId
+    ) {
+      const verdict = classifyDurableProcFrame(
+        {
+          pidNamespace: record.pidNamespace,
+          bootId: record.bootId,
+          machineId: record.machineId,
+        },
+        current,
+      );
+      if (verdict === "stale-boot") {
+        return false;
+      }
+    } else if (
+      record.bootId &&
+      current.bootId &&
+      record.bootId !== current.bootId &&
+      (!record.machineId || !current.machineId || record.machineId === current.machineId)
+    ) {
+      return false;
+    }
+
+    if (record.pidNamespace && current.pidNamespace && record.pidNamespace !== current.pidNamespace) {
+      // Cannot inspect foreign PID namespace; fail closed.
+      return true;
+    }
+
+    try {
+      const statContent = readFileSync(`/proc/${record.pid}/stat`, "utf8");
+      const close = statContent.lastIndexOf(") ");
+      if (close < 0) return true;
+      const stateChar = statContent.slice(close + 2).trimStart()[0];
+      if (stateChar === "Z" || stateChar === "X") {
+        return false;
+      }
+      const actualStartTime = readProcessStartTime(record.pid);
+      if (record.startTime !== undefined && actualStartTime !== undefined) {
+        return actualStartTime === record.startTime;
+      }
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "ENOENT" || code === "ESRCH") {
+        return false;
+      }
+      // Permission or transient /proc error: fail closed (never break an unverified lock).
+      return true;
+    }
+  }
+
+  try {
+    process.kill(record.pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    return code !== "ESRCH";
+  }
+}
+
+function inspectExistingArchiveLock(
+  lockPath: string,
+  nowMs: number,
+  deps: ArchiveDeps,
+): { readonly exists: boolean; readonly dead: boolean; readonly raw?: string } {
+  let lst;
+  try {
+    lst = lstatSync(lockPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return { exists: false, dead: false };
+    }
+    return { exists: true, dead: false };
+  }
+  if (lst.isSymbolicLink() || !lst.isFile()) {
+    return { exists: true, dead: false };
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(lockPath, "utf8");
+  } catch {
+    return { exists: true, dead: false };
+  }
+  if (raw.trim().length === 0) {
+    // Legacy 0-byte lockfile from `file-lock.ts`: treat as stale only past LOCK_STALE_MS.
+    const dead = nowMs - lst.mtimeMs > LOCK_STALE_MS;
+    return { exists: true, dead, raw };
+  }
+  const record = parseArchiveLockRecord(raw);
+  if (!record) {
+    const dead = nowMs - lst.mtimeMs > LOCK_STALE_MS;
+    return { exists: true, dead, raw };
+  }
+  const isAlive = deps.isLockHolderAlive ?? defaultIsLockHolderAlive;
+  return { exists: true, dead: !isAlive(record), raw };
+}
+
+function releaseOwnedLockFile(lockPath: string, expectedToken: string): void {
+  try {
+    const raw = readFileSync(lockPath, "utf8");
+    const parsed = parseArchiveLockRecord(raw);
+    if (parsed && parsed.token === expectedToken) {
+      rmSync(lockPath, { force: true });
+    }
+  } catch {
+    // Already removed or owned by another process.
+  }
+}
+
+export function tryAcquireArchiveLock(
+  lockTargetPath: string,
+  deps: ArchiveDeps = {},
+): ArchiveLockHandle | undefined {
+  const lockPath = `${lockTargetPath}.lock`;
+  ensurePrivateDir(dirname(lockPath));
+  const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
+  const frame = readProcessFrame();
+  const record: ArchiveLockRecord = {
+    schemaVersion: 1,
+    token: randomBytes(16).toString("hex"),
+    pid: process.pid,
+    ...(frame.startTime !== undefined ? { startTime: frame.startTime } : {}),
+    ...(frame.pidNamespace !== undefined ? { pidNamespace: frame.pidNamespace } : {}),
+    ...(frame.bootId !== undefined ? { bootId: frame.bootId } : {}),
+    ...(frame.machineId !== undefined ? { machineId: frame.machineId } : {}),
+    acquiredAt: new Date(nowMs).toISOString(),
+  };
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (tryWriteExclusiveLockRecord(lockPath, record)) {
+      return { lockPath, token: record.token };
+    }
+    const checkNowMs = deps.nowMs ? deps.nowMs() : Date.now();
+    const status = inspectExistingArchiveLock(lockPath, checkNowMs, deps);
+    if (!status.exists) {
+      continue;
+    }
+    if (!status.dead) {
+      return undefined;
+    }
+
+    const breakPath = `${lockPath}.break`;
+    if (!tryWriteExclusiveLockRecord(breakPath, record)) {
+      const breakStatus = inspectExistingArchiveLock(breakPath, checkNowMs, deps);
+      let breakOld = false;
+      try {
+        breakOld = checkNowMs - statSync(breakPath).mtimeMs > LOCK_BREAK_STALE_MS;
+      } catch {
+        breakOld = false;
+      }
+      if (breakStatus.dead && breakOld) {
+        try {
+          if (breakStatus.raw !== undefined && readFileSync(breakPath, "utf8") === breakStatus.raw) {
+            rmSync(breakPath, { force: true });
+          }
+        } catch {
+          // Another process raced us cleanly.
+        }
+      }
+      return undefined;
+    }
+
+    try {
+      const recheck = inspectExistingArchiveLock(lockPath, checkNowMs, deps);
+      if (recheck.exists && recheck.dead && recheck.raw === status.raw) {
+        rmSync(lockPath, { force: true });
+      }
+    } finally {
+      releaseOwnedLockFile(breakPath, record.token);
+    }
+  }
+
+  return undefined;
+}
+
+export function releaseArchiveLock(handle: ArchiveLockHandle): void {
+  releaseOwnedLockFile(handle.lockPath, handle.token);
 }
 
 function withArchiveLock<T>(
   paths: ArchivePaths,
+  deps: ArchiveDeps,
   fn: () => T,
 ): T {
   ensurePrivateDir(paths.root);
-  const lockFd = tryAcquireFileLock(paths.lockTargetPath);
-  if (lockFd === undefined) {
+  const handle = tryAcquireArchiveLock(paths.lockTargetPath, deps);
+  if (!handle) {
     throw new SessionArchiveError(
       "ARCHIVE_LOCKED",
       `another h2a archive process holds ${paths.lockPath}; refusing overlapping write`,
       2,
     );
   }
-  const timer = startLockHeartbeat(paths.lockTargetPath);
   try {
     return fn();
   } finally {
-    clearInterval(timer);
-    releaseFileLock(lockFd, paths.lockTargetPath);
+    releaseArchiveLock(handle);
   }
 }
 
@@ -830,28 +1104,65 @@ function walkCompanionChecked(
   absDir: string,
   relPrefix: string,
   snapshots: ArchiveFileSnapshot[],
-  state: { lastActivityMs: number; totalBytes: number; hasSymlink: boolean },
+  state: { lastActivityMs: number; totalBytes: number; hasSymlink: boolean; transientMissing: boolean },
 ): void {
-  const dirStat = lstatSync(absDir);
+  let dirStat;
+  try {
+    dirStat = lstatSync(absDir);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      state.transientMissing = true;
+      return;
+    }
+    throw error;
+  }
   if (dirStat.isSymbolicLink()) {
     state.hasSymlink = true;
     return;
   }
-  const entries = readdirSync(absDir, { withFileTypes: true }).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  let entries;
+  try {
+    entries = readdirSync(absDir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      state.transientMissing = true;
+      return;
+    }
+    throw error;
+  }
   for (const entry of entries) {
     const absPath = join(absDir, entry.name);
     const relPath = `${relPrefix}/${entry.name}`;
-    const lst = lstatSync(absPath);
+    let lst;
+    try {
+      lst = lstatSync(absPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+        state.transientMissing = true;
+        return;
+      }
+      throw error;
+    }
     if (lst.isSymbolicLink()) {
       state.hasSymlink = true;
       continue;
     }
     if (lst.isDirectory()) {
       walkCompanionChecked(absPath, relPath, snapshots, state);
+      if (state.transientMissing) return;
     } else if (lst.isFile()) {
-      const big = statSync(absPath, { bigint: true });
+      let big;
+      try {
+        big = statSync(absPath, { bigint: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+          state.transientMissing = true;
+          return;
+        }
+        throw error;
+      }
       state.lastActivityMs = Math.max(state.lastActivityMs, Math.floor(lst.mtimeMs));
       state.totalBytes += lst.size;
       snapshots.push({
@@ -871,8 +1182,15 @@ function collectDetailedSessionFiles(
   sessionId: string,
 ): DetailedSourceCollection | undefined {
   const jsonlPath = join(projectDir, `${sessionId}.jsonl`);
-  if (!existsSync(jsonlPath)) return undefined;
-  const lst = lstatSync(jsonlPath);
+  let lst;
+  try {
+    lst = lstatSync(jsonlPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
   if (lst.isSymbolicLink()) {
     return {
       snapshots: [],
@@ -883,7 +1201,15 @@ function collectDetailedSessionFiles(
     };
   }
   if (!lst.isFile()) return undefined;
-  const big = statSync(jsonlPath, { bigint: true });
+  let big;
+  try {
+    big = statSync(jsonlPath, { bigint: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
   const snapshots: ArchiveFileSnapshot[] = [
     {
       relPath: `${sessionId}.jsonl`,
@@ -898,15 +1224,23 @@ function collectDetailedSessionFiles(
     lastActivityMs: Math.floor(lst.mtimeMs),
     totalBytes: lst.size,
     hasSymlink: false,
+    transientMissing: false,
   };
   const companionDir = join(projectDir, sessionId);
-  if (existsSync(companionDir)) {
+  try {
     const compStat = lstatSync(companionDir);
     if (compStat.isSymbolicLink()) {
       state.hasSymlink = true;
     } else if (compStat.isDirectory()) {
       walkCompanionChecked(companionDir, sessionId, snapshots, state);
     }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+  if (state.transientMissing) {
+    return undefined;
   }
   snapshots.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return {
@@ -954,7 +1288,8 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
 
   const paths = resolveArchivePaths(options);
   const configDirs = resolveClaudeConfigDirs(options);
-  const index = loadArchiveIndex(paths.indexPath);
+  const indexState = readArchiveIndexState(paths.indexPath);
+  const index = indexState.state === "unreadable" ? createEmptyArchiveIndex() : indexState.index;
   const pidGuard = (deps.probeHostPidNamespace ?? probeHostPidNamespace)();
   const disk = checkDiskSpaceGuard(paths.root, 0, deps);
   const h2aState = loadH2aLivenessState(options, nowMs, deps);
@@ -968,14 +1303,24 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
     const { cleanupPeriodDays } = readClaudeCleanupPeriodDays(configDir);
     const claudeLiveFiles = readClaudeSessionsFiles(configDir, deps);
 
-    const projectDirs = readdirSync(projectsRoot, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.isSymbolicLink())
-      .map((d) => d.name)
-      .sort();
+    let projectDirs: string[];
+    try {
+      projectDirs = readdirSync(projectsRoot, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.isSymbolicLink())
+        .map((d) => d.name)
+        .sort();
+    } catch {
+      continue;
+    }
 
     for (const projectDirName of projectDirs) {
       const projectDir = join(projectsRoot, projectDirName);
-      const entries = readdirSync(projectDir, { withFileTypes: true });
+      let entries;
+      try {
+        entries = readdirSync(projectDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
       const jsonlStems = new Set<string>();
 
       for (const entry of entries) {
@@ -1000,17 +1345,34 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
       }
 
       for (const sessionId of [...jsonlStems].sort()) {
-        const collected = collectDetailedSessionFiles(projectDir, sessionId);
-        if (!collected) continue;
+        let collected: DetailedSourceCollection | undefined;
+        let scanErrorCode: string | undefined;
+        try {
+          collected = collectDetailedSessionFiles(projectDir, sessionId);
+        } catch (error) {
+          const errCode = (error as NodeJS.ErrnoException | undefined)?.code;
+          scanErrorCode = errCode ?? (error instanceof Error ? error.message : String(error));
+        }
+        if (!collected && !scanErrorCode) continue;
 
-        const indexed = index.sessions[sessionId];
+        const indexed = Object.hasOwn(index.sessions, sessionId)
+          ? index.sessions[sessionId]
+          : undefined;
         const originCwd =
           h2aState.registryEntriesByConv.get(sessionId) ??
           indexed?.originCwd ??
           extractOriginCwdHint(join(projectDir, `${sessionId}.jsonl`), projectDirName);
 
+        const safeCollected: DetailedSourceCollection = collected ?? {
+          snapshots: [],
+          transcriptMtimeMs: nowMs,
+          lastActivityMs: nowMs,
+          totalBytes: 0,
+          hasSymlink: false,
+        };
+
         const deadline = computePurgeDeadline(
-          collected.transcriptMtimeMs,
+          safeCollected.transcriptMtimeMs,
           cleanupPeriodDays,
           nowMs,
           alertWindowDays,
@@ -1019,17 +1381,20 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
         const blockers: string[] = [];
         const copyNotes: string[] = [];
 
-        if (collected.hasSymlink) {
+        if (scanErrorCode) {
+          blockers.push(`scan-error:${scanErrorCode}`);
+        }
+        if (safeCollected.hasSymlink) {
           blockers.push("symlink-unsupported");
         }
 
         const graceMs = Math.max(0, graceHours) * 3600 * 1000;
-        if (graceMs > 0 && nowMs - collected.lastActivityMs < graceMs) {
+        if (graceMs > 0 && nowMs - safeCollected.lastActivityMs < graceMs) {
           blockers.push(`recent-activity-grace-${graceHours}h`);
         }
 
         const olderThanMs = Math.max(0, olderThanDays) * DAY_MS;
-        if (olderThanMs > 0 && nowMs - collected.lastActivityMs < olderThanMs) {
+        if (olderThanMs > 0 && nowMs - safeCollected.lastActivityMs < olderThanMs) {
           blockers.push(`within-older-than-${olderThanDays}d`);
         }
 
@@ -1039,15 +1404,14 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
 
         const latest = indexed?.versions[indexed.versions.length - 1];
         let archiveState: CandidateArchiveState;
-        let computedManifestFiles: ArchiveFileManifestEntry[] | undefined;
 
         if (!latest || latest.status !== "committed") {
           archiveState = "needed-new";
         } else if (!existsSync(join(paths.cliRoot, latest.archiveRelPath))) {
           archiveState = "needed-missing-tarball";
-        } else if (statSnapshotMatches(collected.snapshots, latest.sourceSnapshot)) {
+        } else if (!scanErrorCode && statSnapshotMatches(safeCollected.snapshots, latest.sourceSnapshot)) {
           archiveState = "up-to-date-stat";
-        } else if (contentMatchesManifest(projectDir, collected.snapshots, latest.filesManifest)) {
+        } else if (!scanErrorCode && contentMatchesManifest(projectDir, safeCollected.snapshots, latest.filesManifest)) {
           archiveState = "up-to-date-content";
         } else {
           archiveState = "needed-modified";
@@ -1065,9 +1429,9 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
           claudeProjectDirName: projectDirName,
           originCwd,
           cleanupPeriodDays,
-          totalBytes: collected.totalBytes,
-          transcriptMtimeMs: collected.transcriptMtimeMs,
-          lastActivityMs: collected.lastActivityMs,
+          totalBytes: safeCollected.totalBytes,
+          transcriptMtimeMs: safeCollected.transcriptMtimeMs,
+          lastActivityMs: safeCollected.lastActivityMs,
           purgeAt: deadline.purgeAt,
           purgeAtMs: deadline.purgeAtMs,
           daysUntilPurge: deadline.daysRemaining,
@@ -1076,8 +1440,7 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
           blockers,
           copyNotes,
           eligibleForArchive: needsArchive && blockers.length === 0,
-          snapshots: collected.snapshots,
-          ...(computedManifestFiles ? { computedManifestFiles } : {}),
+          snapshots: safeCollected.snapshots,
           ...(latest ? { latestArchive: latest } : {}),
         });
       }
@@ -1088,6 +1451,8 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
     cli: "claude",
     scannedAt: new Date(nowMs).toISOString(),
     paths,
+    indexStatus: indexState.state,
+    ...(indexState.state === "unreadable" ? { indexError: indexState.detail } : {}),
     olderThanDays,
     graceHours,
     disk,
@@ -1107,7 +1472,14 @@ export function scanClaudeSessions(options: ArchiveScanOptions = {}): ArchiveSca
 // Tarball packaging & verification inside `.staging/`
 // ---------------------------------------------------------------------------
 
-function checkTarListingSafe(archivePath: string, stagingDir: string, expectedFiles?: Set<string>): void {
+function isSafeRelArchivePath(relPath: string): boolean {
+  if (typeof relPath !== "string" || relPath.length === 0) return false;
+  if (relPath.startsWith("/") || relPath.includes("\0")) return false;
+  const segs = relPath.split("/");
+  return segs.every((s) => s.length > 0 && s !== "." && s !== "..");
+}
+
+function checkTarListingSafe(archivePath: string, stagingDir: string): void {
   const verboseRes = spawnSync("tar", ["-tvzf", archivePath], {
     encoding: "utf8",
     env: cleanTarEnv(stagingDir),
@@ -1143,7 +1515,6 @@ function checkTarListingSafe(archivePath: string, stagingDir: string, expectedFi
       2,
     );
   }
-  const seenEntries = new Set<string>();
   for (const rawLine of (listRes.stdout ?? "").split("\n")) {
     const rawEntryPath = rawLine.replace(/\r$/, "");
     if (!rawEntryPath) continue;
@@ -1157,29 +1528,6 @@ function checkTarListingSafe(archivePath: string, stagingDir: string, expectedFi
         `unsafe path in archive ${archivePath}: ${rawEntryPath}`,
         2,
       );
-    }
-    const normalized = rawEntryPath.replace(/^\.\//, "").replace(/\/+$/, "");
-    if (normalized) seenEntries.add(normalized);
-  }
-  if (expectedFiles) {
-    for (const expected of expectedFiles) {
-      if (!seenEntries.has(expected)) {
-        throw new SessionArchiveError(
-          "ARCHIVE_CORRUPTED",
-          `missing expected entry ${expected} inside ${archivePath}`,
-          2,
-        );
-      }
-    }
-    for (const seen of seenEntries) {
-      const isDirPrefix = [...expectedFiles].some((f) => f.startsWith(`${seen}/`));
-      if (!expectedFiles.has(seen) && !isDirPrefix) {
-        throw new SessionArchiveError(
-          "ARCHIVE_CORRUPTED",
-          `unexpected extra entry ${seen} inside ${archivePath}`,
-          2,
-        );
-      }
     }
   }
 }
@@ -1217,7 +1565,7 @@ function collectRegularFilesRelative(
 function verifyTarballAgainstIndex(
   archiveAbsPath: string,
   stagingDir: string,
-  expectedSessionId: string,
+  expectedSessionId?: string,
   expectedRecord?: ArchiveVersionRecord,
 ): ArchiveManifest {
   if (!existsSync(archiveAbsPath)) {
@@ -1248,13 +1596,10 @@ function verifyTarballAgainstIndex(
 
   ensurePrivateDir(stagingDir);
   const nonce = randomBytes(6).toString("hex");
-  const extractDir = join(stagingDir, `verify-${expectedSessionId}-${process.pid}-${nonce}`);
+  const extractDir = join(stagingDir, `verify-${expectedSessionId ?? "rebuild"}-${process.pid}-${nonce}`);
   ensurePrivateDir(extractDir);
   try {
-    const expectedSet = expectedRecord
-      ? new Set<string>(["manifest.json", ...expectedRecord.filesManifest.map((f) => f.relPath)])
-      : undefined;
-    checkTarListingSafe(archiveAbsPath, stagingDir, expectedSet);
+    checkTarListingSafe(archiveAbsPath, stagingDir);
 
     const extractRes = spawnSync(
       "tar",
@@ -1289,10 +1634,19 @@ function verifyTarballAgainstIndex(
       );
     }
 
+    const validSessionId = expectedSessionId
+      ? manifest.sessionId === expectedSessionId
+      : typeof manifest.sessionId === "string" && isUuidFileStem(manifest.sessionId);
     if (
+      !manifest ||
+      typeof manifest !== "object" ||
       manifest.schemaVersion !== ARCHIVE_SCHEMA_VERSION ||
-      manifest.sessionId !== expectedSessionId ||
+      !validSessionId ||
       manifest.cli !== "claude" ||
+      typeof manifest.archiveId !== "string" ||
+      manifest.archiveId.length === 0 ||
+      manifest.archiveId.includes("/") ||
+      manifest.archiveId.includes("\\") ||
       !Array.isArray(manifest.files)
     ) {
       throw new SessionArchiveError(
@@ -1310,19 +1664,64 @@ function verifyTarballAgainstIndex(
       );
     }
 
+    // Walk real extracted filesystem to verify exact filenames (independent of tar listing escaping).
     const extractedFiles = new Map<string, number>();
     collectRegularFilesRelative(extractDir, "", extractedFiles);
 
-    const expectedManifestSet = new Set<string>([
-      "manifest.json",
-      ...manifest.files.map((f) => f.relPath),
-    ]);
+    const expectedManifestSet = new Set<string>(["manifest.json"]);
+    for (const fileEntry of manifest.files) {
+      if (
+        !fileEntry ||
+        typeof fileEntry.relPath !== "string" ||
+        !isSafeRelArchivePath(fileEntry.relPath) ||
+        fileEntry.relPath === "manifest.json" ||
+        expectedManifestSet.has(fileEntry.relPath)
+      ) {
+        throw new SessionArchiveError(
+          "ARCHIVE_CORRUPTED",
+          `invalid or duplicate manifest file entry "${String(fileEntry?.relPath)}" in ${archiveAbsPath}`,
+          2,
+        );
+      }
+      expectedManifestSet.add(fileEntry.relPath);
+    }
+
     if (extractedFiles.size !== expectedManifestSet.size) {
       throw new SessionArchiveError(
         "ARCHIVE_CORRUPTED",
         `extracted file count (${extractedFiles.size}) does not match manifest (${expectedManifestSet.size})`,
         2,
       );
+    }
+    for (const extractedRel of extractedFiles.keys()) {
+      if (!expectedManifestSet.has(extractedRel)) {
+        throw new SessionArchiveError(
+          "ARCHIVE_CORRUPTED",
+          `unexpected extra entry ${extractedRel} inside ${archiveAbsPath}`,
+          2,
+        );
+      }
+    }
+
+    if (expectedRecord) {
+      if (manifest.files.length !== expectedRecord.filesManifest.length) {
+        throw new SessionArchiveError(
+          "ARCHIVE_CORRUPTED",
+          `manifest file count (${manifest.files.length}) differs from index (${expectedRecord.filesManifest.length})`,
+          2,
+        );
+      }
+      const manifestByRel = new Map(manifest.files.map((f) => [f.relPath, f]));
+      for (const expectedFile of expectedRecord.filesManifest) {
+        const mf = manifestByRel.get(expectedFile.relPath);
+        if (!mf || mf.size !== expectedFile.size || mf.sha256 !== expectedFile.sha256) {
+          throw new SessionArchiveError(
+            "ARCHIVE_CORRUPTED",
+            `manifest entry mismatch against index for ${expectedFile.relPath} in ${archiveAbsPath}`,
+            2,
+          );
+        }
+      }
     }
 
     for (const fileEntry of manifest.files) {
@@ -1541,6 +1940,8 @@ function persistOperationalAlerts(
     readonly clearDiskAlert?: boolean;
     readonly runErrorAlert?: ArchiveAlert;
     readonly clearRunError?: boolean;
+    readonly indexUnreadableAlert?: ArchiveAlert;
+    readonly clearIndexUnreadable?: boolean;
   },
 ): void {
   const existing = loadPersistedAlerts(paths.alertsPath);
@@ -1572,12 +1973,42 @@ function persistOperationalAlerts(
   } else if (updates.clearRunError) {
     byKind.delete("guard:last-run");
   }
+  if (updates.indexUnreadableAlert) {
+    byKind.set("guard:index-unreadable", updates.indexUnreadableAlert);
+  } else if (updates.clearIndexUnreadable) {
+    byKind.delete("guard:index-unreadable");
+  }
   const payload: PersistedAlertsFile = {
     schemaVersion: ARCHIVE_SCHEMA_VERSION,
     updatedAt: nowIso,
     alerts: [...byKind.values()],
   };
   writeAtomicPrivateJson(paths.alertsPath, payload, paths.stagingDir);
+}
+
+function requireReadableArchiveIndex(
+  paths: ArchivePaths,
+  nowIso: string,
+  persistAlert: boolean,
+): SessionArchiveIndex {
+  const indexState = readArchiveIndexState(paths.indexPath);
+  if (indexState.state === "unreadable") {
+    const message = `Archive index at ${paths.indexPath} is unreadable (${indexState.detail}); refusing to overwrite catalog. Inspect or run \`h2a archive rebuild-index\`.`;
+    if (persistAlert) {
+      persistOperationalAlerts(paths, nowIso, {
+        indexUnreadableAlert: {
+          id: "guard:index-unreadable",
+          kind: "archive-index-unreadable",
+          severity: "error",
+          cli: "claude",
+          message,
+          updatedAt: nowIso,
+        },
+      });
+    }
+    throw new SessionArchiveError("INDEX_UNREADABLE", message, 2);
+  }
+  return indexState.index;
 }
 
 // ---------------------------------------------------------------------------
@@ -1591,11 +2022,14 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
   const dryRun = options.dryRun === true;
   const paths = resolveArchivePaths(options);
 
+  // B-1: Fail closed immediately before any write or scan if index.json is corrupt or unknown schema.
+  const index = requireReadableArchiveIndex(paths, startedAt, !dryRun);
+
   const pidGuard = (deps.probeHostPidNamespace ?? probeHostPidNamespace)();
   const initialDisk = checkDiskSpaceGuard(paths.root, 0, deps);
 
   if (!dryRun && !pidGuard.ok) {
-    persistOperationalAlerts(paths, startedAt, { pidGuard });
+    persistOperationalAlerts(paths, startedAt, { pidGuard, clearIndexUnreadable: true });
     const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
     return {
       ok: false,
@@ -1615,6 +2049,7 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
       skippedIdempotent: [],
       refreshedIndexStats: [],
       skippedBlocked: [],
+      failedSessions: [],
       alerts: readClaudeArchiveAlerts({ ...options, nowMs }),
     };
   }
@@ -1629,7 +2064,7 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
       updatedAt: startedAt,
     };
     if (!dryRun) {
-      persistOperationalAlerts(paths, startedAt, { pidGuard, diskAlert });
+      persistOperationalAlerts(paths, startedAt, { pidGuard, diskAlert, clearIndexUnreadable: true });
     }
     const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
     return {
@@ -1650,6 +2085,7 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
       skippedIdempotent: [],
       refreshedIndexStats: [],
       skippedBlocked: [],
+      failedSessions: [],
       alerts: readClaudeArchiveAlerts({ ...options, nowMs }),
     };
   }
@@ -1664,11 +2100,11 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
   const skippedIdempotent: string[] = [];
   const refreshedIndexStats: string[] = [];
   const skippedBlocked: Array<{ readonly sessionId: string; readonly reasons: ReadonlyArray<string> }> = [];
+  const failedSessions: FailedSessionOutcome[] = [];
   let stoppedForDiskGuard = false;
   let diskGuardError: string | undefined;
   let lastDiskCheck = scan.disk;
 
-  const index = loadArchiveIndex(paths.indexPath);
   const mutableSessions: Record<string, SessionArchiveIndexEntry> = { ...index.sessions };
   let indexDirty = false;
 
@@ -1680,7 +2116,9 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
     if (session.archiveState === "up-to-date-content") {
       skippedIdempotent.push(session.sessionId);
       if (!dryRun && session.latestArchive) {
-        const entry = mutableSessions[session.sessionId];
+        const entry = Object.hasOwn(mutableSessions, session.sessionId)
+          ? mutableSessions[session.sessionId]
+          : undefined;
         if (entry && entry.versions.length > 0) {
           const versions = [...entry.versions];
           const lastIdx = versions.length - 1;
@@ -1728,7 +2166,9 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
       continue;
     }
 
-    const existingEntry = mutableSessions[session.sessionId];
+    const existingEntry = Object.hasOwn(mutableSessions, session.sessionId)
+      ? mutableSessions[session.sessionId]
+      : undefined;
     const existingVersions = existingEntry?.versions ?? [];
 
     try {
@@ -1778,45 +2218,80 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
         });
         continue;
       }
-      throw error;
+      // NB-1: Isolate per-session failures so subsequent sessions still get archived.
+      failedSessions.push({
+        sessionId: session.sessionId,
+        ...(error instanceof SessionArchiveError ? { errorCode: error.code } : {}),
+        error: msg,
+      });
     }
   }
 
+  const hasFailures = failedSessions.length > 0;
+  const sessionFailureMessage = hasFailures
+    ? `${failedSessions.length} session(s) failed during archive run (${failedSessions.map((f) => `${f.sessionId}: ${f.error}`).join("; ")})`
+    : undefined;
+
   if (!dryRun) {
     const updateMs = deps.nowMs ? deps.nowMs() : Date.now();
+    const updateIso = new Date(updateMs).toISOString();
     if (indexDirty) {
       writeAtomicPrivateJson(
         paths.indexPath,
         {
           schemaVersion: ARCHIVE_SCHEMA_VERSION,
           cli: "claude",
-          updatedAt: new Date(updateMs).toISOString(),
+          updatedAt: updateIso,
           sessions: mutableSessions,
         } satisfies SessionArchiveIndex,
         paths.stagingDir,
       );
     }
-    if (!stoppedForDiskGuard) {
-      persistOperationalAlerts(paths, new Date(updateMs).toISOString(), {
+    if (hasFailures) {
+      persistOperationalAlerts(paths, updateIso, {
+        pidGuard,
+        clearIndexUnreadable: true,
+        ...(!stoppedForDiskGuard ? { clearDiskAlert: true } : {}),
+        runErrorAlert: {
+          id: "guard:last-run",
+          kind: "archive-run-failed",
+          severity: "error",
+          cli: "claude",
+          message: sessionFailureMessage!,
+          updatedAt: updateIso,
+        },
+      });
+    } else if (!stoppedForDiskGuard) {
+      persistOperationalAlerts(paths, updateIso, {
         pidGuard,
         clearDiskAlert: true,
         clearRunError: true,
+        clearIndexUnreadable: true,
       });
     }
   }
 
   const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
+  const ok = !stoppedForDiskGuard && !hasFailures;
+  const errorCode: ArchiveErrorCode | undefined = stoppedForDiskGuard
+    ? "DISK_SPACE_LOW"
+    : hasFailures
+      ? (failedSessions[0]?.errorCode ?? "TAR_FAILED")
+      : undefined;
+  const errorMessage = stoppedForDiskGuard
+    ? (sessionFailureMessage ? `${diskGuardError}; ${sessionFailureMessage}` : diskGuardError)
+    : sessionFailureMessage;
+
   return {
-    ok: !stoppedForDiskGuard,
+    ok,
     dryRun,
     cli: "claude",
     startedAt,
     finishedAt: new Date(finishedMs).toISOString(),
     durationMs: Math.max(0, finishedMs - nowMs),
     stoppedForDiskGuard,
-    ...(stoppedForDiskGuard && diskGuardError !== undefined
-      ? { errorCode: "DISK_SPACE_LOW" as const, errorMessage: diskGuardError }
-      : {}),
+    ...(errorCode !== undefined ? { errorCode } : {}),
+    ...(errorMessage !== undefined ? { errorMessage } : {}),
     disk: lastDiskCheck,
     pidGuard,
     scannedCount: candidates.length,
@@ -1825,7 +2300,27 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
     skippedIdempotent,
     refreshedIndexStats,
     skippedBlocked,
-    alerts: readClaudeArchiveAlerts({ ...options, nowMs: finishedMs }),
+    failedSessions,
+    alerts: options.suppressWitnessAlerts
+      ? readClaudeArchiveAlerts({
+          ...options,
+          nowMs: finishedMs,
+          lastRunOverride: {
+            schemaVersion: ARCHIVE_SCHEMA_VERSION,
+            cli: "claude",
+            status: ok ? "ok" : stoppedForDiskGuard && archived.length > 0 ? "partial" : "error",
+            startedAt,
+            finishedAt: new Date(finishedMs).toISOString(),
+            durationMs: Math.max(0, finishedMs - nowMs),
+            scanned: candidates.length,
+            archived: archived.length,
+            skippedIdempotent: skippedIdempotent.length,
+            skippedLiveOrRecent: 0,
+            skippedBlocked: skippedBlocked.length,
+            alertsCount: 0,
+          },
+        })
+      : readClaudeArchiveAlerts({ ...options, nowMs: finishedMs }),
   };
 }
 
@@ -1834,7 +2329,8 @@ export function runSessionArchive(options: ArchiveRunOptions = {}): ArchiveRunRe
     return executeArchiveRunUnlocked(options);
   }
   const paths = resolveArchivePaths(options);
-  return withArchiveLock(paths, () => executeArchiveRunUnlocked(options));
+  const deps = options.deps ?? {};
+  return withArchiveLock(paths, deps, () => executeArchiveRunUnlocked(options));
 }
 
 // ---------------------------------------------------------------------------
@@ -1843,11 +2339,11 @@ export function runSessionArchive(options: ArchiveRunOptions = {}): ArchiveRunRe
 
 export function listSessionArchives(options: ArchivePathOptions = {}): ArchiveListRow[] {
   const paths = resolveArchivePaths(options);
-  const index = loadArchiveIndex(paths.indexPath);
+  const index = requireReadableArchiveIndex(paths, new Date().toISOString(), false);
   const rows: ArchiveListRow[] = [];
 
   for (const sessionId of Object.keys(index.sessions).sort()) {
-    const entry = index.sessions[sessionId];
+    const entry = Object.hasOwn(index.sessions, sessionId) ? index.sessions[sessionId] : undefined;
     if (!entry) continue;
     for (const v of entry.versions) {
       const archiveAbsPath = join(paths.cliRoot, v.archiveRelPath);
@@ -1884,7 +2380,7 @@ function resolveTargetVersions(
   const targets: Array<{ readonly session: SessionArchiveIndexEntry; readonly version: ArchiveVersionRecord }> = [];
   if (!id) {
     for (const key of Object.keys(index.sessions).sort()) {
-      const entry = index.sessions[key];
+      const entry = Object.hasOwn(index.sessions, key) ? index.sessions[key] : undefined;
       if (!entry) continue;
       for (const v of entry.versions) {
         targets.push({ session: entry, version: v });
@@ -1893,7 +2389,7 @@ function resolveTargetVersions(
     return targets;
   }
 
-  const direct = index.sessions[id];
+  const direct = Object.hasOwn(index.sessions, id) ? index.sessions[id] : undefined;
   if (direct) {
     for (const v of direct.versions) {
       targets.push({ session: direct, version: v });
@@ -1915,7 +2411,7 @@ export function verifySessionArchives(
   options: ArchivePathOptions & { readonly id?: string } = {},
 ): ArchiveVerifyResult {
   const paths = resolveArchivePaths(options);
-  const index = loadArchiveIndex(paths.indexPath);
+  const index = requireReadableArchiveIndex(paths, new Date().toISOString(), false);
   const targets = resolveTargetVersions(index, options.id);
 
   if (options.id && targets.length === 0) {
@@ -1972,6 +2468,171 @@ export function verifySessionArchives(
   };
 }
 
+function collectTarballsRecursive(rootDir: string, currentDir: string, out: string[]): void {
+  if (!existsSync(currentDir)) return;
+  for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue;
+    const abs = join(currentDir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith(".")) continue;
+      collectTarballsRecursive(rootDir, abs, out);
+    } else if (entry.isFile() && entry.name.endsWith(".tar.gz")) {
+      out.push(abs);
+    }
+  }
+}
+
+/**
+ * Verify stored `.tar.gz` archives from their embedded `manifest.json` and
+ * reconstruct `claude/index.json` atomically without touching existing tarballs.
+ */
+export function rebuildArchiveIndex(
+  options: RebuildArchiveIndexOptions = {},
+): RebuildArchiveIndexResult {
+  const deps = options.deps ?? {};
+  const paths = resolveArchivePaths(options);
+
+  return withArchiveLock(paths, deps, () => {
+    const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const currentState = readArchiveIndexState(paths.indexPath);
+    if (
+      currentState.state === "unreadable" &&
+      currentState.reason === "unknown-schema" &&
+      options.force !== true
+    ) {
+      throw new SessionArchiveError(
+        "INDEX_UNREADABLE",
+        `refusing to rebuild over unknown schema (${currentState.detail}) without --force`,
+        2,
+      );
+    }
+
+    let backupPath: string | undefined;
+    if (existsSync(paths.indexPath)) {
+      const epoch = Math.floor(nowMs / 1000);
+      backupPath = `${paths.indexPath}.bak-${epoch}`;
+      if (existsSync(backupPath)) {
+        backupPath = `${paths.indexPath}.bak-${nowMs}-${randomBytes(2).toString("hex")}`;
+      }
+      copyFileSync(paths.indexPath, backupPath);
+      chmodSync(backupPath, 0o600);
+      fsyncFile(backupPath);
+    }
+
+    const tarballs: string[] = [];
+    collectTarballsRecursive(paths.cliRoot, paths.cliRoot, tarballs);
+    tarballs.sort();
+
+    const bySession = new Map<
+      string,
+      {
+        readonly claudeConfigDir: string;
+        readonly claudeProjectDirName: string;
+        readonly originCwd: string;
+        readonly records: ArchiveVersionRecord[];
+      }
+    >();
+    const skippedCorrupted: Array<{ readonly archiveRelPath: string; readonly error: string }> = [];
+
+    for (const absPath of tarballs) {
+      const archiveRelPath = relative(paths.cliRoot, absPath).replaceAll("\\", "/");
+      try {
+        const manifest = verifyTarballAgainstIndex(absPath, paths.stagingDir);
+        const archiveBytes = statSync(absPath).size;
+        const archiveSha256 = sha256File(absPath);
+        const parsedCreatedMs = Date.parse(manifest.createdAt);
+        const createdAtMs = Number.isFinite(parsedCreatedMs) ? parsedCreatedMs : 0;
+        const transcriptEntry = manifest.files.find(
+          (f) => f.relPath === `${manifest.sessionId}.jsonl`,
+        );
+        const transcriptMtimeMs = transcriptEntry ? transcriptEntry.mtimeMs : 0;
+
+        const record: ArchiveVersionRecord = {
+          archiveId: manifest.archiveId,
+          version: 1,
+          status: "committed",
+          archiveRelPath,
+          archiveBytes,
+          archiveSha256,
+          createdAt: manifest.createdAt,
+          createdAtMs,
+          originCwd: manifest.originCwd,
+          claudeConfigDir: manifest.claudeConfigDir,
+          claudeProjectDirName: manifest.claudeProjectDirName,
+          cleanupPeriodDays: manifest.cleanupPeriodDays,
+          transcriptMtimeMs,
+          purgeAt: manifest.purgeAt,
+          copyNotes: ["rebuilt-from-archive"],
+          sourceSnapshot: [],
+          filesManifest: manifest.files,
+        };
+
+        let bucket = bySession.get(manifest.sessionId);
+        if (!bucket) {
+          bucket = {
+            claudeConfigDir: manifest.claudeConfigDir,
+            claudeProjectDirName: manifest.claudeProjectDirName,
+            originCwd: manifest.originCwd,
+            records: [],
+          };
+          bySession.set(manifest.sessionId, bucket);
+        }
+        bucket.records.push(record);
+      } catch (error) {
+        skippedCorrupted.push({
+          archiveRelPath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const sessions: Record<string, SessionArchiveIndexEntry> = {};
+    let versionsCount = 0;
+    for (const sessionId of [...bySession.keys()].sort()) {
+      const bucket = bySession.get(sessionId)!;
+      bucket.records.sort(
+        (a, b) => a.createdAtMs - b.createdAtMs || a.archiveId.localeCompare(b.archiveId),
+      );
+      const numbered: ArchiveVersionRecord[] = bucket.records.map((rec, idx) => ({
+        ...rec,
+        version: idx + 1,
+      }));
+      const latest = numbered[numbered.length - 1]!;
+      versionsCount += numbered.length;
+      sessions[sessionId] = {
+        sessionId,
+        cli: "claude",
+        claudeConfigDir: latest.claudeConfigDir || bucket.claudeConfigDir,
+        claudeProjectDirName: latest.claudeProjectDirName || bucket.claudeProjectDirName,
+        originCwd: latest.originCwd || bucket.originCwd,
+        versions: numbered,
+      };
+    }
+
+    writeAtomicPrivateJson(
+      paths.indexPath,
+      {
+        schemaVersion: ARCHIVE_SCHEMA_VERSION,
+        cli: "claude",
+        updatedAt: nowIso,
+        sessions,
+      } satisfies SessionArchiveIndex,
+      paths.stagingDir,
+    );
+    persistOperationalAlerts(paths, nowIso, { clearIndexUnreadable: true });
+
+    return {
+      ok: skippedCorrupted.length === 0,
+      indexPath: paths.indexPath,
+      ...(backupPath ? { backupPath } : {}),
+      sessionsCount: Object.keys(sessions).length,
+      versionsCount,
+      skippedCorrupted,
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Restore (`h2a archive restore <id>` + auto-restore on resume)
 // ---------------------------------------------------------------------------
@@ -1987,17 +2648,31 @@ function touchTreeMtime(absPath: string, atDate: Date): void {
   utimesSync(absPath, atDate, atDate);
 }
 
+function pathExistsNoFollow(targetPath: string): boolean {
+  try {
+    lstatSync(targetPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      return false;
+    }
+    return true;
+  }
+}
+
 export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreArchiveResult {
   const deps = options.deps ?? {};
   const paths = resolveArchivePaths(options);
 
-  return withArchiveLock(paths, () => {
+  return withArchiveLock(paths, deps, () => {
     const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
     const nowDate = new Date(nowMs);
     const onConflict = options.onConflict ?? "refuse";
-    const index = loadArchiveIndex(paths.indexPath);
+    const index = requireReadableArchiveIndex(paths, nowDate.toISOString(), true);
 
-    let entry = index.sessions[options.id];
+    let entry = Object.hasOwn(index.sessions, options.id)
+      ? index.sessions[options.id]
+      : undefined;
     let targetVersion: ArchiveVersionRecord | undefined;
 
     if (entry) {
@@ -2061,24 +2736,46 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
     }
 
     const epochTag = Math.floor(nowMs / 1000);
-    const existingTargets = [
-      join(targetProjectDir, `${entry.sessionId}.jsonl`),
-      join(targetProjectDir, entry.sessionId),
-    ].filter((p) => existsSync(p));
+    const transcriptTarget = join(targetProjectDir, `${entry.sessionId}.jsonl`);
+    const companionRoot = join(targetProjectDir, entry.sessionId);
+    const versionHint = options.version ? ` --version ${targetVersion.archiveId}` : "";
+    const manualHint = `h2a archive restore ${entry.sessionId}${versionHint} --on-conflict backup`;
 
-    if (existingTargets.length > 0 && onConflict !== "backup") {
-      throw new SessionArchiveError(
-        "RESTORE_TARGET_EXISTS",
-        `restore target already exists on disk (${existingTargets.join(", ")}); rerun with --on-conflict backup`,
-        2,
-      );
+    if (onConflict === "refuse") {
+      const existingTargets = [transcriptTarget, companionRoot].filter(pathExistsNoFollow);
+      if (existingTargets.length > 0) {
+        throw new SessionArchiveError(
+          "RESTORE_TARGET_EXISTS",
+          `restore target already exists on disk (${existingTargets.join(", ")}); rerun with \`${manualHint}\``,
+          2,
+        );
+      }
+    } else if (onConflict === "merge-missing") {
+      if (pathExistsNoFollow(transcriptTarget)) {
+        throw new SessionArchiveError(
+          "RESTORE_TARGET_EXISTS",
+          `transcript already exists on disk (${transcriptTarget}); run \`${manualHint}\``,
+          2,
+        );
+      }
+      if (pathExistsNoFollow(companionRoot)) {
+        const compStat = lstatSync(companionRoot);
+        if (compStat.isSymbolicLink() || !compStat.isDirectory()) {
+          throw new SessionArchiveError(
+            "RESTORE_TARGET_EXISTS",
+            `companion path exists and is not a regular directory (${companionRoot}); run \`${manualHint}\``,
+            2,
+          );
+        }
+      }
     }
 
     const backedUpPaths: string[] = [];
     if (onConflict === "backup") {
+      const existingTargets = [transcriptTarget, companionRoot].filter(pathExistsNoFollow);
       for (const existing of existingTargets) {
         let backupPath = `${existing}.bak-${epochTag}`;
-        if (existsSync(backupPath)) {
+        if (pathExistsNoFollow(backupPath)) {
           backupPath = `${existing}.bak-${nowMs}-${randomBytes(2).toString("hex")}`;
         }
         renameSync(existing, backupPath);
@@ -2093,6 +2790,7 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
     ensurePrivateDir(unpackDir);
 
     const restoredFiles: string[] = [];
+    const skippedExistingFiles: string[] = [];
     try {
       const extractRes = spawnSync(
         "tar",
@@ -2107,10 +2805,13 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
         );
       }
 
-      const companionRoot = join(targetProjectDir, entry.sessionId);
       for (const fileMeta of manifest.files) {
         const src = join(unpackDir, fileMeta.relPath);
         const dest = join(targetProjectDir, fileMeta.relPath);
+        if (onConflict === "merge-missing" && pathExistsNoFollow(dest)) {
+          skippedExistingFiles.push(dest);
+          continue;
+        }
         ensurePrivateDir(dirname(dest));
         const tmpDest = join(
           dirname(dest),
@@ -2123,7 +2824,11 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
         renameSync(tmpDest, dest);
         restoredFiles.push(dest);
       }
-      if (existsSync(companionRoot)) {
+      if (onConflict === "merge-missing") {
+        if (existsSync(companionRoot)) {
+          utimesSync(companionRoot, nowDate, nowDate);
+        }
+      } else if (existsSync(companionRoot)) {
         touchTreeMtime(companionRoot, nowDate);
       }
       fsyncDirBestEffort(targetProjectDir);
@@ -2162,6 +2867,7 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
       originCwd: targetVersion.originCwd || entry.originCwd,
       targetProjectDir,
       restoredFiles,
+      skippedExistingFiles,
       backedUpPaths,
       restoredAt,
       alerts: readClaudeArchiveAlerts({ ...options, nowMs }),
@@ -2200,7 +2906,7 @@ function findClaudeTranscriptOnDisk(
 
 /**
  * Q2-A resume hook: if Claude session `convId` is absent from disk but exists
- * in local verified archives, verify SHA-256 and restore it before launching Claude.
+ * in local verified archives, verify SHA-256 and restore missing files before launching Claude.
  * Also reads current `<14d` archive alerts on the fly so callers can surface them.
  */
 export function ensureClaudeSessionRestoredForResume(
@@ -2219,18 +2925,23 @@ export function ensureClaudeSessionRestoredForResume(
   }
 
   const paths = resolveArchivePaths(options);
-  const index = loadArchiveIndex(paths.indexPath);
-  if (!index.sessions[options.convId] || index.sessions[options.convId]!.versions.length === 0) {
+  const index = requireReadableArchiveIndex(paths, new Date(nowMs).toISOString(), true);
+  const indexed = Object.hasOwn(index.sessions, options.convId)
+    ? index.sessions[options.convId]
+    : undefined;
+  if (!indexed || indexed.versions.length === 0) {
     return {
       status: "not-archived",
       alerts: readClaudeArchiveAlerts({ ...options, nowMs }),
     };
   }
 
+  // NB-3: Transcript is missing while a surviving `<uuid>/` companion dir may exist;
+  // restore transcript + missing companion files without overwriting surviving ones.
   const restored = restoreSessionArchive({
     ...options,
     id: options.convId,
-    onConflict: "refuse",
+    onConflict: "merge-missing",
   });
   return {
     status: "restored",
@@ -2259,11 +2970,6 @@ export function emitResumeArchiveNotices(
 // External-scheduler one-shot entrypoint (`runArchivePassOnce`)
 // ---------------------------------------------------------------------------
 
-function isKillSwitchEnabled(env: NodeJS.ProcessEnv): boolean {
-  const raw = env.H2A_ARCHIVE_OFF?.trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-}
-
 export function runArchivePassOnce(options: ArchiveRunOptions = {}): PassOnceResult {
   const deps = options.deps ?? {};
   const env = options.env ?? process.env;
@@ -2271,14 +2977,15 @@ export function runArchivePassOnce(options: ArchiveRunOptions = {}): PassOnceRes
   const startedAt = new Date(startMs).toISOString();
   const paths = resolveArchivePaths(options);
 
-  if (isKillSwitchEnabled(env)) {
+  if (isArchiveKillSwitchEnabled(env)) {
     const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
-    const witness: ArchiveLastRunWitness = {
+    const finishedAt = new Date(finishedMs).toISOString();
+    const baseWitness: ArchiveLastRunWitness = {
       schemaVersion: ARCHIVE_SCHEMA_VERSION,
       cli: "claude",
       status: "skipped",
       startedAt,
-      finishedAt: new Date(finishedMs).toISOString(),
+      finishedAt,
       durationMs: Math.max(0, finishedMs - startMs),
       reason: "disabled-by-env:H2A_ARCHIVE_OFF",
       scanned: 0,
@@ -2286,23 +2993,30 @@ export function runArchivePassOnce(options: ArchiveRunOptions = {}): PassOnceRes
       skippedIdempotent: 0,
       skippedLiveOrRecent: 0,
       skippedBlocked: 0,
-      alertsCount: readClaudeArchiveAlerts({ ...options, nowMs: finishedMs }).length,
+      alertsCount: 0,
     };
+    const alerts = readClaudeArchiveAlerts({
+      ...options,
+      env,
+      nowMs: finishedMs,
+      lastRunOverride: baseWitness,
+    });
+    const witness: ArchiveLastRunWitness = { ...baseWitness, alertsCount: alerts.length };
     writeAtomicPrivateJson(paths.lastRunPath, witness, paths.stagingDir);
-    return { ok: true, exitCode: 0, witness };
+    return { ok: true, exitCode: 0, witness, alerts };
   }
 
-  return withArchiveLock(paths, () => {
-    try {
-      const runResult = executeArchiveRunUnlocked(options);
+  try {
+    return withArchiveLock(paths, deps, () => {
+      const runResult = executeArchiveRunUnlocked({ ...options, suppressWitnessAlerts: true });
       const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
       const status: ArchiveLastRunWitness["status"] =
         runResult.ok
           ? "ok"
-          : runResult.archived.length > 0 && runResult.stoppedForDiskGuard
+          : runResult.archived.length > 0 && (runResult.stoppedForDiskGuard || runResult.failedSessions.length > 0)
             ? "partial"
             : "error";
-      const witness: ArchiveLastRunWitness = {
+      const baseWitness: ArchiveLastRunWitness = {
         schemaVersion: ARCHIVE_SCHEMA_VERSION,
         cli: "claude",
         status,
@@ -2325,40 +3039,83 @@ export function runArchivePassOnce(options: ArchiveRunOptions = {}): PassOnceRes
         skippedBlocked: runResult.skippedBlocked.length,
         alertsCount: runResult.alerts.length,
       };
+      const alerts = readClaudeArchiveAlerts({
+        ...options,
+        env,
+        nowMs: finishedMs,
+        lastRunOverride: baseWitness,
+      });
+      const witness: ArchiveLastRunWitness = { ...baseWitness, alertsCount: alerts.length };
       writeAtomicPrivateJson(paths.lastRunPath, witness, paths.stagingDir);
+      const finalRunResult: ArchiveRunResult = { ...runResult, alerts };
+      const exitCode = !finalRunResult.ok
+        ? 2
+        : !options.dryRun && alerts.length > 0
+          ? ARCHIVE_ALERT_EXIT_CODE
+          : 0;
       return {
-        ok: runResult.ok,
-        exitCode: runResult.ok ? 0 : 2,
+        ok: finalRunResult.ok,
+        exitCode,
         witness,
-        runResult,
+        runResult: finalRunResult,
+        alerts,
       };
-    } catch (error) {
-      const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
-      const msg = error instanceof Error ? error.message : String(error);
-      const witness: ArchiveLastRunWitness = {
-        schemaVersion: ARCHIVE_SCHEMA_VERSION,
-        cli: "claude",
-        status: "error",
-        startedAt,
-        finishedAt: new Date(finishedMs).toISOString(),
-        durationMs: Math.max(0, finishedMs - startMs),
-        reason: error instanceof SessionArchiveError ? error.code : "UNEXPECTED_ERROR",
-        error: msg,
-        scanned: 0,
-        archived: 0,
-        skippedIdempotent: 0,
-        skippedLiveOrRecent: 0,
-        skippedBlocked: 0,
-        alertsCount: readClaudeArchiveAlerts({ ...options, nowMs: finishedMs }).length,
-      };
-      writeAtomicPrivateJson(paths.lastRunPath, witness, paths.stagingDir);
-      return {
-        ok: false,
-        exitCode: error instanceof SessionArchiveError ? error.exitCode : 2,
-        witness,
-      };
+    });
+  } catch (error) {
+    const finishedMs = deps.nowMs ? deps.nowMs() : Date.now();
+    const finishedIso = new Date(finishedMs).toISOString();
+    const msg = error instanceof Error ? error.message : String(error);
+    const code = error instanceof SessionArchiveError ? error.code : undefined;
+    const isLocked = code === "ARCHIVE_LOCKED";
+
+    if (!isLocked && code !== "INDEX_UNREADABLE") {
+      try {
+        persistOperationalAlerts(paths, finishedIso, {
+          runErrorAlert: {
+            id: "guard:last-run",
+            kind: "archive-run-failed",
+            severity: "error",
+            cli: "claude",
+            message: msg,
+            updatedAt: finishedIso,
+          },
+        });
+      } catch {
+        // Best-effort alert persistence on unexpected error.
+      }
     }
-  });
+
+    const baseWitness: ArchiveLastRunWitness = {
+      schemaVersion: ARCHIVE_SCHEMA_VERSION,
+      cli: "claude",
+      status: isLocked ? "locked" : "error",
+      startedAt,
+      finishedAt: finishedIso,
+      durationMs: Math.max(0, finishedMs - startMs),
+      reason: code ?? "UNEXPECTED_ERROR",
+      error: msg,
+      scanned: 0,
+      archived: 0,
+      skippedIdempotent: 0,
+      skippedLiveOrRecent: 0,
+      skippedBlocked: 0,
+      alertsCount: 0,
+    };
+    const alerts = readClaudeArchiveAlerts({
+      ...options,
+      env,
+      nowMs: finishedMs,
+      lastRunOverride: baseWitness,
+    });
+    const witness: ArchiveLastRunWitness = { ...baseWitness, alertsCount: alerts.length };
+    writeAtomicPrivateJson(paths.lastRunPath, witness, paths.stagingDir);
+    return {
+      ok: false,
+      exitCode: error instanceof SessionArchiveError ? error.exitCode : 2,
+      witness,
+      alerts,
+    };
+  }
 }
 
 export { loadLastRunWitness };

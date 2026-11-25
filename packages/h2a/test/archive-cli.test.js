@@ -182,6 +182,7 @@ test("h2a archive CLI (scan, dry-run, pass kill-switch, status alert, list, veri
   // Corrupt the tarball -> `h2a archive verify` and `h2a archive restore` both fail cleanly.
   chmodSync(listJson[0].archiveAbsPath, 0o600);
   const tampered = readFileSync(listJson[0].archiveAbsPath);
+  const originalArchiveBackup = Buffer.from(tampered);
   tampered[Math.floor(tampered.length / 2)] ^= 0xff;
   writeFileSync(listJson[0].archiveAbsPath, tampered);
 
@@ -194,4 +195,43 @@ test("h2a archive CLI (scan, dry-run, pass kill-switch, status alert, list, veri
   const restoreFailRes = runCli(["archive", "restore", SESSION_UUID, "--json"], iso.env, iso.workspace);
   assert.notEqual(restoreFailRes.status, 0);
   assert.equal(existsSync(jsonlPath), false);
+
+  // Restore valid tarball bytes so we can test B-1 CLI index protection + rebuild-index end-to-end.
+  writeFileSync(listJson[0].archiveAbsPath, originalArchiveBackup);
+  const indexPath = join(iso.xdgData, "h2a", "session-archives", "claude", "index.json");
+  writeFileSync(indexPath, '{"schemaVersion": 2, "cli": "claude", "sessions": {}}\n', "utf8");
+  const v2Bytes = readFileSync(indexPath);
+
+  const listCorrupt = runCli(["archive", "list", "--json"], iso.env, iso.workspace);
+  assert.notEqual(listCorrupt.status, 0);
+  assert.equal(JSON.parse(listCorrupt.stdout).errorCode, "INDEX_UNREADABLE");
+  assert.equal(readFileSync(indexPath).equals(v2Bytes), true);
+
+  const passCorrupt = runCli(["archive", "pass", "--json"], iso.env, iso.workspace);
+  assert.notEqual(passCorrupt.status, 0);
+  assert.equal(JSON.parse(passCorrupt.stdout).witness.reason, "INDEX_UNREADABLE");
+  assert.equal(readFileSync(indexPath).equals(v2Bytes), true);
+
+  // `h2a status` surfaces the unreadable index and failed pass alerts on stderr.
+  const statusCorrupt = runCli(["status", "--root", iso.h2aRoot], iso.env, iso.workspace);
+  assert.equal(statusCorrupt.status, 0);
+  assert.match(statusCorrupt.stderr, /unreadable|schemaVersion 2/i);
+
+  // `h2a claude --local --resume <id>` catches auto-restore error cleanly without stack trace.
+  const resumeCorrupt = runCli(["claude", "--local", "--resume", SESSION_UUID], iso.env, iso.workspace);
+  assert.notEqual(resumeCorrupt.status, 0);
+  assert.match(resumeCorrupt.stderr, /archive auto-restore failed/);
+  assert.doesNotMatch(resumeCorrupt.stderr, /\n\s+at /);
+
+  // `rebuild-index` refuses without `--force` over schema v2, then succeeds with `--force`.
+  const rebuildRefuse = runCli(["archive", "rebuild-index", "--json"], iso.env, iso.workspace);
+  assert.notEqual(rebuildRefuse.status, 0);
+  assert.equal(readFileSync(indexPath).equals(v2Bytes), true);
+
+  const rebuildForce = runCli(["archive", "rebuild-index", "--force", "--json"], iso.env, iso.workspace);
+  assert.equal(rebuildForce.status, 0, rebuildForce.stderr);
+  const rebuildJson = JSON.parse(rebuildForce.stdout);
+  assert.equal(rebuildJson.ok, true);
+  assert.equal(rebuildJson.versionsCount, 1);
+  assert.equal(JSON.parse(runCli(["archive", "list", "--json"], iso.env, iso.workspace).stdout).length, 1);
 });

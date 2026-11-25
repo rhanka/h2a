@@ -22,6 +22,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_CLAUDE_CLEANUP_DAYS = 30;
 export const DEFAULT_ALERT_WINDOW_DAYS = 14;
+export const DEFAULT_PASS_STALE_HOURS = 48;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -90,7 +91,10 @@ export type ArchiveAlertKind =
   | "purge-imminent"
   | "disk-space-low"
   | "pid-namespace-guard"
-  | "archive-run-failed";
+  | "archive-run-failed"
+  | "archive-index-unreadable"
+  | "archive-pass-overdue"
+  | "archive-disabled";
 
 export interface ArchiveAlert {
   readonly id: string;
@@ -115,7 +119,7 @@ export interface PersistedAlertsFile {
 export interface ArchiveLastRunWitness {
   readonly schemaVersion: 1;
   readonly cli: ArchiveCliKind;
-  readonly status: "ok" | "skipped" | "partial" | "error";
+  readonly status: "ok" | "skipped" | "partial" | "error" | "locked";
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly durationMs: number;
@@ -231,60 +235,185 @@ export function readClaudeCleanupPeriodDays(claudeConfigDir: string): ClaudeClea
   return { cleanupPeriodDays: DEFAULT_CLAUDE_CLEANUP_DAYS, source: "default" };
 }
 
-export function loadArchiveIndex(indexPath: string): SessionArchiveIndex {
-  try {
-    if (!existsSync(indexPath)) {
-      return {
-        schemaVersion: 1,
-        cli: "claude",
-        updatedAt: new Date(0).toISOString(),
-        sessions: {},
-      };
-    }
-    const parsed = JSON.parse(readFileSync(indexPath, "utf8")) as SessionArchiveIndex;
-    if (
-      parsed &&
-      parsed.schemaVersion === 1 &&
-      parsed.sessions &&
-      typeof parsed.sessions === "object"
-    ) {
-      return parsed;
-    }
-  } catch {
-    // Callers see empty/missing index on unreadable/corrupt file and handle verification safely.
-  }
+export type ArchiveIndexReadResult =
+  | { readonly state: "absent"; readonly index: SessionArchiveIndex }
+  | { readonly state: "ok"; readonly index: SessionArchiveIndex }
+  | {
+      readonly state: "unreadable";
+      readonly reason: "io-error" | "invalid-json" | "unknown-schema" | "malformed";
+      readonly detail: string;
+      readonly foundSchemaVersion?: unknown;
+    };
+
+export function createEmptyArchiveIndex(): SessionArchiveIndex {
   return {
-    schemaVersion: 1,
+    schemaVersion: ARCHIVE_SCHEMA_VERSION,
     cli: "claude",
     updatedAt: new Date(0).toISOString(),
     sessions: {},
   };
 }
 
-export function loadPersistedAlerts(alertsPath: string): ArchiveAlert[] {
+export function isArchiveKillSwitchEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.H2A_ARCHIVE_OFF?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+export function readArchiveIndexState(indexPath: string): ArchiveIndexReadResult {
+  let lst;
   try {
-    if (!existsSync(alertsPath)) return [];
+    lst = lstatSync(indexPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT") {
+      return { state: "absent", index: createEmptyArchiveIndex() };
+    }
+    return {
+      state: "unreadable",
+      reason: "io-error",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (lst.isSymbolicLink() || !lst.isFile()) {
+    return {
+      state: "unreadable",
+      reason: "malformed",
+      detail: "archive index is not a regular file",
+    };
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(indexPath, "utf8");
+  } catch (error) {
+    return {
+      state: "unreadable",
+      reason: "io-error",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (error) {
+    return {
+      state: "unreadable",
+      reason: "invalid-json",
+      detail: `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      state: "unreadable",
+      reason: "malformed",
+      detail: "archive index root must be a JSON object",
+    };
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (obj.schemaVersion !== ARCHIVE_SCHEMA_VERSION) {
+    return {
+      state: "unreadable",
+      reason: "unknown-schema",
+      detail: `unsupported archive index schemaVersion ${String(obj.schemaVersion)} (expected ${ARCHIVE_SCHEMA_VERSION})`,
+      foundSchemaVersion: obj.schemaVersion,
+    };
+  }
+  if (obj.cli !== "claude") {
+    return {
+      state: "unreadable",
+      reason: "unknown-schema",
+      detail: `unsupported archive index cli ${String(obj.cli)}`,
+    };
+  }
+  if (!obj.sessions || typeof obj.sessions !== "object" || Array.isArray(obj.sessions)) {
+    return {
+      state: "unreadable",
+      reason: "malformed",
+      detail: "archive index missing valid sessions map",
+    };
+  }
+  for (const [key, entry] of Object.entries(obj.sessions as Record<string, unknown>)) {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      !Array.isArray((entry as { versions?: unknown }).versions)
+    ) {
+      return {
+        state: "unreadable",
+        reason: "malformed",
+        detail: `archive index entry "${key}" is malformed`,
+      };
+    }
+  }
+
+  return { state: "ok", index: parsed as SessionArchiveIndex };
+}
+
+export function loadArchiveIndex(indexPath: string): SessionArchiveIndex {
+  const result = readArchiveIndexState(indexPath);
+  if (result.state === "unreadable") {
+    throw new Error(`archive index at ${indexPath} is unreadable (${result.detail})`);
+  }
+  return result.index;
+}
+
+export function loadPersistedAlerts(alertsPath: string): ArchiveAlert[] {
+  return readPersistedAlertsFile(alertsPath)?.alerts ? [...readPersistedAlertsFile(alertsPath)!.alerts] : [];
+}
+
+function readPersistedAlertsFile(alertsPath: string): PersistedAlertsFile | undefined {
+  try {
+    if (!existsSync(alertsPath)) return undefined;
     const parsed = JSON.parse(readFileSync(alertsPath, "utf8")) as PersistedAlertsFile;
     if (parsed && parsed.schemaVersion === 1 && Array.isArray(parsed.alerts)) {
-      return [...parsed.alerts];
+      return parsed;
     }
   } catch {
     // Ignore malformed alert cache; deadline alerts are recomputed on the fly.
   }
-  return [];
+  return undefined;
+}
+
+export type LastRunWitnessReadResult =
+  | { readonly state: "absent" }
+  | { readonly state: "ok"; readonly witness: ArchiveLastRunWitness }
+  | { readonly state: "unreadable"; readonly detail: string };
+
+export function readLastRunWitnessState(lastRunPath: string): LastRunWitnessReadResult {
+  let lst;
+  try {
+    lst = lstatSync(lastRunPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT") return { state: "absent" };
+    return {
+      state: "unreadable",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (lst.isSymbolicLink() || !lst.isFile()) {
+    return { state: "unreadable", detail: "last-run witness is not a regular file" };
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(lastRunPath, "utf8")) as ArchiveLastRunWitness;
+    if (parsed && parsed.schemaVersion === 1 && typeof parsed.status === "string") {
+      return { state: "ok", witness: parsed };
+    }
+    return { state: "unreadable", detail: "last-run witness has invalid schema or status" };
+  } catch (error) {
+    return {
+      state: "unreadable",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export function loadLastRunWitness(lastRunPath: string): ArchiveLastRunWitness | undefined {
-  try {
-    if (!existsSync(lastRunPath)) return undefined;
-    const parsed = JSON.parse(readFileSync(lastRunPath, "utf8")) as ArchiveLastRunWitness;
-    if (parsed && parsed.schemaVersion === 1 && typeof parsed.status === "string") {
-      return parsed;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
+  const result = readLastRunWitnessState(lastRunPath);
+  return result.state === "ok" ? result.witness : undefined;
 }
 
 export function statSnapshotMatches(
@@ -313,18 +442,36 @@ function collectStatTreeForAlerts(
   relPrefix: string,
   out: ArchiveFileSnapshot[],
 ): void {
-  const entries = readdirSync(absDir, { withFileTypes: true }).sort((a, b) =>
-    a.name.localeCompare(b.name),
-  );
+  let entries;
+  try {
+    entries = readdirSync(absDir, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return;
+    throw error;
+  }
   for (const entry of entries) {
     const absPath = join(absDir, entry.name);
     const relPath = `${relPrefix}/${entry.name}`;
-    const lst = lstatSync(absPath);
+    let lst;
+    try {
+      lst = lstatSync(absPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") continue;
+      throw error;
+    }
     if (lst.isSymbolicLink()) continue;
     if (lst.isDirectory()) {
       collectStatTreeForAlerts(absPath, relPath, out);
     } else if (lst.isFile()) {
-      const big = statSync(absPath, { bigint: true });
+      let big;
+      try {
+        big = statSync(absPath, { bigint: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") continue;
+        throw error;
+      }
       out.push({
         relPath,
         size: lst.size,
@@ -474,19 +621,51 @@ export function contentMatchesManifest(
 export interface ReadAlertsOptions extends ArchivePathOptions {
   readonly nowMs?: number;
   readonly alertWindowDays?: number;
+  readonly maxPassAgeHours?: number;
+  readonly lastRunOverride?: ArchiveLastRunWitness;
+}
+
+function resolvePassStaleHours(options: ReadAlertsOptions, env: NodeJS.ProcessEnv): number {
+  if (
+    typeof options.maxPassAgeHours === "number" &&
+    Number.isFinite(options.maxPassAgeHours) &&
+    options.maxPassAgeHours > 0
+  ) {
+    return options.maxPassAgeHours;
+  }
+  const envVal = Number.parseFloat(env.H2A_ARCHIVE_STALE_HOURS ?? "");
+  if (Number.isFinite(envVal) && envVal > 0) {
+    return envVal;
+  }
+  return DEFAULT_PASS_STALE_HOURS;
 }
 
 /**
  * Compute current `<14d` unarchived Claude session purge deadline alerts on the fly,
- * merged with persisted operational guard alerts (disk guard / PID guard / run error).
+ * merged with index health, kill-switch/pass-delay state from `last-run.json`,
+ * and persisted operational guard alerts (disk guard / PID guard / run error).
  */
 export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): ArchiveAlert[] {
+  const env = options.env ?? process.env;
   const nowMs = options.nowMs ?? Date.now();
+  const nowIso = new Date(nowMs).toISOString();
   const alertWindowDays = options.alertWindowDays ?? DEFAULT_ALERT_WINDOW_DAYS;
   const paths = resolveArchivePaths(options);
   const configDirs = resolveClaudeConfigDirs(options);
-  const index = loadArchiveIndex(paths.indexPath);
-  const alerts: ArchiveAlert[] = [];
+  const indexState = readArchiveIndexState(paths.indexPath);
+  const index = indexState.state === "unreadable" ? createEmptyArchiveIndex() : indexState.index;
+  const alertsById = new Map<string, ArchiveAlert>();
+
+  if (indexState.state === "unreadable") {
+    alertsById.set("guard:index-unreadable", {
+      id: "guard:index-unreadable",
+      kind: "archive-index-unreadable",
+      severity: "error",
+      cli: "claude",
+      message: `Archive index unreadable (${paths.indexPath}): ${indexState.detail}. Run \`h2a archive rebuild-index\` after inspecting.`,
+      updatedAt: nowIso,
+    });
+  }
 
   for (const configDir of configDirs) {
     const projectsRoot = join(configDir, "projects");
@@ -519,7 +698,9 @@ export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): Archiv
         const collected = collectSessionSourceSnapshots(projectDir, sessionId);
         if (!collected) continue;
 
-        const indexed = index.sessions[sessionId];
+        const indexed = Object.hasOwn(index.sessions, sessionId)
+          ? index.sessions[sessionId]
+          : undefined;
         const latest = indexed?.versions[indexed.versions.length - 1];
         const deadline = computePurgeDeadline(
           collected.transcriptMtimeMs,
@@ -561,8 +742,9 @@ export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): Archiv
               ? "archive tarball missing on disk"
               : "modified since last archive";
 
-        alerts.push({
-          id: `purge:${sessionId}`,
+        const alertId = `purge:${sessionId}`;
+        alertsById.set(alertId, {
+          id: alertId,
           kind: "purge-imminent",
           severity: deadline.daysRemaining <= 3 ? "error" : "warning",
           cli: "claude",
@@ -572,18 +754,115 @@ export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): Archiv
           daysRemaining: deadline.daysRemaining,
           unarchivedReason,
           message: `session ${sessionId} (${originCwd}): ${statusText}; ${timingText}. Run \`h2a archive run\`.`,
-          updatedAt: new Date(nowMs).toISOString(),
+          updatedAt: nowIso,
         });
       }
     }
   }
 
-  for (const persisted of loadPersistedAlerts(paths.alertsPath)) {
-    if (persisted.kind !== "purge-imminent") {
-      alerts.push(persisted);
+  const persistedFile = readPersistedAlertsFile(paths.alertsPath);
+  const persistedUpdatedAtMs = persistedFile ? Date.parse(persistedFile.updatedAt) : Number.NaN;
+  for (const persisted of persistedFile?.alerts ?? []) {
+    if (persisted.kind === "purge-imminent") continue;
+    if (persisted.id === "guard:index-unreadable" && indexState.state !== "unreadable") {
+      continue;
+    }
+    if (!alertsById.has(persisted.id)) {
+      alertsById.set(persisted.id, persisted);
     }
   }
 
+  const killSwitchOn = isArchiveKillSwitchEnabled(env);
+  const lastRunState: LastRunWitnessReadResult = options.lastRunOverride
+    ? { state: "ok", witness: options.lastRunOverride }
+    : readLastRunWitnessState(paths.lastRunPath);
+  if (lastRunState.state === "unreadable") {
+    alertsById.set("guard:last-run-witness", {
+      id: "guard:last-run-witness",
+      kind: "archive-run-failed",
+      severity: "error",
+      cli: "claude",
+      message: `Archive last-run witness unreadable (${paths.lastRunPath}): ${lastRunState.detail}.`,
+      updatedAt: nowIso,
+    });
+  } else if (lastRunState.state === "ok") {
+    const w = lastRunState.witness;
+    const witnessFinishedMs = Date.parse(w.finishedAt);
+    const supersededByCleanRun =
+      Number.isFinite(persistedUpdatedAtMs) &&
+      Number.isFinite(witnessFinishedMs) &&
+      persistedUpdatedAtMs > witnessFinishedMs &&
+      !alertsById.has("guard:last-run");
+    if (
+      (w.status === "error" || w.status === "partial") &&
+      !supersededByCleanRun &&
+      !alertsById.has("guard:last-run") &&
+      !alertsById.has("guard:disk-space") &&
+      !alertsById.has("guard:pid-namespace") &&
+      !alertsById.has("guard:index-unreadable")
+    ) {
+      alertsById.set("guard:last-run", {
+        id: "guard:last-run",
+        kind: "archive-run-failed",
+        severity: "error",
+        cli: "claude",
+        message: `Last archive pass ended with status=${w.status}${w.reason ? ` (${w.reason})` : ""}${w.error ? `: ${w.error}` : ""}.`,
+        updatedAt: w.finishedAt,
+      });
+    } else if (w.status === "locked" && !supersededByCleanRun) {
+      alertsById.set("guard:last-run-locked", {
+        id: "guard:last-run-locked",
+        kind: "archive-run-failed",
+        severity: "warning",
+        cli: "claude",
+        message: `Last archive pass was skipped due to active writer lock (${w.reason ?? "ARCHIVE_LOCKED"}).`,
+        updatedAt: w.finishedAt,
+      });
+    }
+
+    if (killSwitchOn || (w.status === "skipped" && w.reason?.startsWith("disabled-by-env"))) {
+      alertsById.set("guard:archive-disabled", {
+        id: "guard:archive-disabled",
+        kind: "archive-disabled",
+        severity: "warning",
+        cli: "claude",
+        message: killSwitchOn
+          ? "Archive automatic passes disabled by H2A_ARCHIVE_OFF."
+          : `Last archive pass was skipped because ${w.reason ?? "H2A_ARCHIVE_OFF"} was active.`,
+        updatedAt: killSwitchOn ? nowIso : w.finishedAt,
+      });
+    }
+
+    if (!killSwitchOn) {
+      const staleHours = resolvePassStaleHours(options, env);
+      const finishedMs = Date.parse(w.finishedAt);
+      const ageMs = Number.isFinite(finishedMs) ? nowMs - finishedMs : Number.POSITIVE_INFINITY;
+      if (ageMs > staleHours * 3600 * 1000) {
+        const ageHoursText = Number.isFinite(ageMs)
+          ? `${Math.floor(ageMs / (3600 * 1000))}h`
+          : "unknown age";
+        alertsById.set("guard:pass-overdue", {
+          id: "guard:pass-overdue",
+          kind: "archive-pass-overdue",
+          severity: "warning",
+          cli: "claude",
+          message: `Last archive pass (${w.finishedAt}) is overdue (${ageHoursText} ago > ${staleHours}h threshold).`,
+          updatedAt: nowIso,
+        });
+      }
+    }
+  } else if (killSwitchOn) {
+    alertsById.set("guard:archive-disabled", {
+      id: "guard:archive-disabled",
+      kind: "archive-disabled",
+      severity: "warning",
+      cli: "claude",
+      message: "Archive automatic passes disabled by H2A_ARCHIVE_OFF.",
+      updatedAt: nowIso,
+    });
+  }
+
+  const alerts = [...alertsById.values()];
   alerts.sort((a, b) => {
     const aDays = a.daysRemaining ?? Number.POSITIVE_INFINITY;
     const bDays = b.daysRemaining ?? Number.POSITIVE_INFINITY;

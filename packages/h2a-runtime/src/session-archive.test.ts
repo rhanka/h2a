@@ -21,6 +21,7 @@ import { projectStatusForH2a } from "./status-projection.js";
 
 import { tryAcquireFileLock, releaseFileLock } from "./file-lock.js";
 import {
+  ARCHIVE_ALERT_EXIT_CODE,
   checkDiskSpaceGuard,
   ensureClaudeSessionRestoredForResume,
   formatArchiveAlertLine,
@@ -29,12 +30,15 @@ import {
   probeHostPidNamespace,
   readClaudeArchiveAlerts,
   readClaudeCleanupPeriodDays,
+  rebuildArchiveIndex,
+  releaseArchiveLock,
   resolveArchivePaths,
   restoreSessionArchive,
   runArchivePassOnce,
   runSessionArchive,
   scanClaudeSessions,
   SessionArchiveError,
+  tryAcquireArchiveLock,
   verifySessionArchives,
   type ArchiveDeps,
   DAY_MS,
@@ -42,6 +46,7 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const TEST_TMP_ROOT = join(REPO_ROOT, ".tmp", "session-archive-unit");
+const RUNTIME_ARCHIVE_DIST = join(REPO_ROOT, "packages", "h2a-runtime", "dist", "session-archive.js");
 
 const UUID_1 = "11111111-1111-4111-8111-111111111111";
 const UUID_2 = "22222222-2222-4222-8222-222222222222";
@@ -668,5 +673,360 @@ describe("session-archive engine (Claude Lot 1, keep-only)", () => {
     expect(rows[0]?.archiveSha256).toBe(
       createHash("sha256").update(readFileSync(rows[0]!.archiveAbsPath)).digest("hex"),
     );
+  });
+
+  it("B-1: never overwrites corrupt or unknown-schema index.json, persists alert, and supports rebuild-index", () => {
+    const box = createBox();
+    const s1 = writeClaudeSession(box, UUID_1, {
+      mtimeDaysAgo: 20,
+      companionFiles: { "subagents/agent-a.jsonl": { content: '{"role":"assistant"}\n' } },
+    });
+    const paths = resolveArchivePaths({ env: box.env });
+
+    const initial = runSessionArchive({ env: box.env, deps: okDeps(box) });
+    expect(initial.ok).toBe(true);
+    expect(initial.archived).toHaveLength(1);
+    const originalArchiveId = initial.archived[0]!.archiveId;
+
+    // Case 1: Corrupt index.json -> run, pass, restore, verify, list, resume all refuse; bytes untouched.
+    const corruptRaw = '{"schemaVersion": 1, "sessions": ';
+    writeFileSync(paths.indexPath, corruptRaw, "utf8");
+    const corruptBefore = readFileSync(paths.indexPath);
+
+    expect(() => runSessionArchive({ env: box.env, deps: okDeps(box) })).toThrowError(SessionArchiveError);
+    try {
+      runSessionArchive({ env: box.env, deps: okDeps(box) });
+    } catch (err) {
+      expect((err as SessionArchiveError).code).toBe("INDEX_UNREADABLE");
+    }
+    expect(readFileSync(paths.indexPath).equals(corruptBefore)).toBe(true);
+
+    const corruptPass = runArchivePassOnce({ env: box.env, deps: okDeps(box) });
+    expect(corruptPass.ok).toBe(false);
+    expect(corruptPass.exitCode).toBe(2);
+    expect(corruptPass.witness.status).toBe("error");
+    expect(corruptPass.witness.reason).toBe("INDEX_UNREADABLE");
+    expect(readFileSync(paths.indexPath).equals(corruptBefore)).toBe(true);
+
+    expect(() => restoreSessionArchive({ id: UUID_1, env: box.env, deps: okDeps(box) })).toThrowError(
+      /unreadable|INDEX_UNREADABLE/i,
+    );
+    expect(() => listSessionArchives({ env: box.env })).toThrowError(/unreadable/i);
+    expect(() => verifySessionArchives({ env: box.env })).toThrowError(/unreadable/i);
+    expect(readFileSync(paths.indexPath).equals(corruptBefore)).toBe(true);
+    expect(
+      readClaudeArchiveAlerts({ env: box.env, nowMs: FIXED_NOW_MS }).some(
+        (a) => a.kind === "archive-index-unreadable",
+      ),
+    ).toBe(true);
+
+    // Resume when transcript is missing and index is corrupt refuses loudly.
+    rmSync(s1.jsonlPath, { force: true });
+    expect(() =>
+      ensureClaudeSessionRestoredForResume({ convId: UUID_1, cwd: box.originCwd, env: box.env, deps: okDeps(box) }),
+    ).toThrowError(/unreadable/i);
+
+    // Rebuild index from self-contained tarballs -> backs up corrupt file, restores catalog, clears alert.
+    const rebuiltFromCorrupt = rebuildArchiveIndex({ env: box.env, deps: okDeps(box) });
+    expect(rebuiltFromCorrupt.ok).toBe(true);
+    expect(rebuiltFromCorrupt.sessionsCount).toBe(1);
+    expect(rebuiltFromCorrupt.versionsCount).toBe(1);
+    expect(rebuiltFromCorrupt.backupPath).toBeDefined();
+    expect(readFileSync(rebuiltFromCorrupt.backupPath!).equals(corruptBefore)).toBe(true);
+    expect(listSessionArchives({ env: box.env }).map((r) => r.archiveId)).toEqual([originalArchiveId]);
+
+    // Case 2: Unknown schemaVersion: 2 -> refused everywhere, bytes preserved, requires --force to rebuild.
+    const v2Raw = `${JSON.stringify({ schemaVersion: 2, cli: "claude", updatedAt: "2026-11-25T00:00:00Z", sessions: { future: {} } })}\n`;
+    writeFileSync(paths.indexPath, v2Raw, "utf8");
+    const v2Before = readFileSync(paths.indexPath);
+
+    let runErrCode: string | undefined;
+    try {
+      runSessionArchive({ env: box.env, deps: okDeps(box) });
+    } catch (err) {
+      runErrCode = (err as SessionArchiveError).code;
+    }
+    expect(runErrCode).toBe("INDEX_UNREADABLE");
+    expect(readFileSync(paths.indexPath).equals(v2Before)).toBe(true);
+
+    const v2Pass = runArchivePassOnce({ env: box.env, deps: okDeps(box) });
+    expect(v2Pass.ok).toBe(false);
+    expect(v2Pass.exitCode).toBe(2);
+    expect(v2Pass.witness.reason).toBe("INDEX_UNREADABLE");
+    expect(readFileSync(paths.indexPath).equals(v2Before)).toBe(true);
+
+    expect(() => restoreSessionArchive({ id: UUID_1, env: box.env, deps: okDeps(box) })).toThrowError(
+      /schemaVersion 2/i,
+    );
+    expect(readFileSync(paths.indexPath).equals(v2Before)).toBe(true);
+
+    // Rebuild without force refuses over unknown schema v2; with force backs up v2 and restores v1 catalog.
+    expect(() => rebuildArchiveIndex({ env: box.env, deps: okDeps(box) })).toThrowError(/--force/i);
+    expect(readFileSync(paths.indexPath).equals(v2Before)).toBe(true);
+
+    const rebuiltFromV2 = rebuildArchiveIndex({ env: box.env, force: true, deps: okDeps(box) });
+    expect(rebuiltFromV2.ok).toBe(true);
+    expect(rebuiltFromV2.versionsCount).toBe(1);
+    expect(readFileSync(rebuiltFromV2.backupPath!).equals(v2Before)).toBe(true);
+    expect(listSessionArchives({ env: box.env }).map((r) => r.archiveId)).toEqual([originalArchiveId]);
+
+    // After restore and clean index rebuild, subsequent archive run is idempotent (no duplicate v2 tarball).
+    const restored = ensureClaudeSessionRestoredForResume({
+      convId: UUID_1,
+      cwd: box.originCwd,
+      env: box.env,
+      deps: okDeps(box),
+    });
+    expect(restored.status).toBe("restored");
+    const postRebuildRun = runSessionArchive({
+      env: box.env,
+      olderThanDays: 0,
+      graceHours: 0,
+      deps: okDeps(box),
+    });
+    expect(postRebuildRun.ok).toBe(true);
+    expect(postRebuildRun.archived).toHaveLength(0);
+    expect(postRebuildRun.skippedIdempotent).toEqual([UUID_1]);
+    expect(listSessionArchives({ env: box.env })).toHaveLength(1);
+  });
+
+  it("B-2: ownership lock does not expire past LOCK_STALE_MS during a slow synchronous pass and blocks concurrent run/restore", () => {
+    const box = createBox();
+    writeClaudeSession(box, UUID_1, { mtimeDaysAgo: 20 });
+    writeClaudeSession(box, UUID_2, { mtimeDaysAgo: 20 });
+    const paths = resolveArchivePaths({ env: box.env });
+    const waitBuf = new Int32Array(new SharedArrayBuffer(4));
+
+    let checkedAfterStale = false;
+    let secondRunError: unknown;
+    let secondRestoreError: unknown;
+    let passWhileLockedStatus: string | undefined;
+    let passWhileLockedExit: number | undefined;
+
+    const res = runSessionArchive({
+      env: box.env,
+      deps: okDeps(box, {
+        onBeforeCommit: (sessionId) => {
+          if (sessionId !== UUID_1 || checkedAfterStale) return;
+          checkedAfterStale = true;
+          // Sleep synchronously beyond LOCK_STALE_MS (10_000 ms) to prove lock does not expire mid-pass.
+          Atomics.wait(waitBuf, 0, 0, 10_500);
+          const lockJson = JSON.parse(readFileSync(paths.lockPath, "utf8")) as {
+            pid: number;
+            token: string;
+          };
+          expect(lockJson.pid).toBe(process.pid);
+
+          // Spawn a real second OS process trying `runSessionArchive`, `restoreSessionArchive`, and `runArchivePassOnce`.
+          const probeScript = `
+            import { runSessionArchive, restoreSessionArchive, runArchivePassOnce } from ${JSON.stringify(RUNTIME_ARCHIVE_DIST)};
+            const env = JSON.parse(process.argv[1]);
+            const deps = { probeHostPidNamespace: () => ({ ok: true }) };
+            let runCode = null;
+            try { runSessionArchive({ env, deps }); } catch (e) { runCode = e?.code ?? e?.message; }
+            let restoreCode = null;
+            try { restoreSessionArchive({ id: ${JSON.stringify(UUID_1)}, env, deps }); } catch (e) { restoreCode = e?.code ?? e?.message; }
+            const passRes = runArchivePassOnce({ env, deps });
+            console.log(JSON.stringify({ runCode, restoreCode, passStatus: passRes.witness.status, passReason: passRes.witness.reason, passExit: passRes.exitCode }));
+          `;
+          const child = spawnSync(
+            process.execPath,
+            ["--input-type=module", "-e", probeScript, JSON.stringify(box.env)],
+            {
+              env: {
+                ...process.env,
+                ...box.env,
+                XDG_STATE_HOME: join(box.root, "state"),
+                XDG_CONFIG_HOME: join(box.root, "config"),
+                XDG_RUNTIME_DIR: join(box.root, "runtime"),
+              },
+              encoding: "utf8",
+            },
+          );
+          expect(child.status, child.stderr).toBe(0);
+          const parsed = JSON.parse(child.stdout.trim()) as {
+            runCode: string | null;
+            restoreCode: string | null;
+            passStatus: string;
+            passReason: string;
+            passExit: number;
+          };
+          secondRunError = parsed.runCode;
+          secondRestoreError = parsed.restoreCode;
+          passWhileLockedStatus = parsed.passStatus;
+          passWhileLockedExit = parsed.passExit;
+          expect(parsed.passReason).toBe("ARCHIVE_LOCKED");
+          // Original holder's lock file must still carry the exact same token.
+          expect(JSON.parse(readFileSync(paths.lockPath, "utf8")).token).toBe(lockJson.token);
+        },
+      }),
+    });
+
+    expect(checkedAfterStale).toBe(true);
+    expect(secondRunError).toBe("ARCHIVE_LOCKED");
+    expect(secondRestoreError).toBe("ARCHIVE_LOCKED");
+    expect(passWhileLockedStatus).toBe("locked");
+    expect(passWhileLockedExit).toBe(2);
+
+    expect(res.ok).toBe(true);
+    expect(res.archived.map((a) => a.sessionId)).toEqual([UUID_1, UUID_2]);
+    expect(existsSync(paths.lockPath)).toBe(false);
+    expect(listSessionArchives({ env: box.env })).toHaveLength(2);
+    expect(verifySessionArchives({ env: box.env }).ok).toBe(true);
+
+    // Dead-holder lock reclamation & token-checked release:
+    const foreignLock = tryAcquireArchiveLock(paths.lockTargetPath);
+    expect(foreignLock).toBeDefined();
+    writeFileSync(
+      paths.lockPath,
+      JSON.stringify({ schemaVersion: 1, token: "dead-token", pid: 999_999_999, acquiredAt: new Date().toISOString() }),
+      "utf8",
+    );
+    // Releasing foreignLock must NOT delete a lock whose token does not match.
+    releaseArchiveLock(foreignLock!);
+    expect(existsSync(paths.lockPath)).toBe(true);
+    // Acquiring when holder is dead reclaims the dead lock cleanly.
+    const reclaimed = tryAcquireArchiveLock(paths.lockTargetPath, {
+      isLockHolderAlive: () => false,
+    });
+    expect(reclaimed).toBeDefined();
+    releaseArchiveLock(reclaimed!);
+    expect(existsSync(paths.lockPath)).toBe(false);
+  }, 25_000);
+
+  it("NB-1: supports non-ASCII/backslash filenames, isolates per-session errors, and tolerates ENOENT during scan", () => {
+    const box = createBox();
+    const s1 = writeClaudeSession(box, UUID_1, {
+      mtimeDaysAgo: 20,
+      companionFiles: {
+        "café.txt": { content: "espresso\n" },
+        "back\\slash.txt": { content: "windows-ish\n" },
+      },
+    });
+    writeClaudeSession(box, UUID_2, { mtimeDaysAgo: 20 });
+    writeClaudeSession(box, UUID_3, { mtimeDaysAgo: 20 });
+
+    // Session 2 throws a non-concurrency error inside build; Sessions 1 and 3 must still archive!
+    const partialPass = runArchivePassOnce({
+      env: box.env,
+      deps: okDeps(box, {
+        onBeforeCommit: (sessionId) => {
+          if (sessionId === UUID_2) {
+            throw new Error("simulated per-session tar failure");
+          }
+        },
+      }),
+    });
+    expect(partialPass.ok).toBe(false);
+    expect(partialPass.exitCode).toBe(2);
+    expect(partialPass.witness.status).toBe("partial");
+    expect(partialPass.runResult?.archived.map((a) => a.sessionId)).toEqual([UUID_1, UUID_3]);
+    expect(partialPass.runResult?.failedSessions).toHaveLength(1);
+    expect(partialPass.runResult?.failedSessions[0]?.sessionId).toBe(UUID_2);
+    expect(
+      readClaudeArchiveAlerts({ env: box.env, nowMs: FIXED_NOW_MS }).some(
+        (a) => a.kind === "archive-run-failed",
+      ),
+    ).toBe(true);
+
+    // Non-ASCII and backslash companion files verify and restore cleanly.
+    expect(verifySessionArchives({ env: box.env, id: UUID_1 }).ok).toBe(true);
+    rmSync(s1.jsonlPath, { force: true });
+    rmSync(s1.companionDir!, { recursive: true, force: true });
+    const restored = restoreSessionArchive({ id: UUID_1, env: box.env, deps: okDeps(box) });
+    expect(restored.ok).toBe(true);
+    expect(readFileSync(join(s1.companionDir!, "café.txt"), "utf8")).toBe("espresso\n");
+    expect(readFileSync(join(s1.companionDir!, "back\\slash.txt"), "utf8")).toBe("windows-ish\n");
+
+    // Transient ENOENT during scan does not crash scanClaudeSessions.
+    const scanOk = scanClaudeSessions({ env: box.env, deps: okDeps(box) });
+    expect(scanOk.sessions.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("NB-2: surfaces pass delay, disabled state, and failure alerts in status, and exits with ARCHIVE_ALERT_EXIT_CODE when alerts remain", () => {
+    const box = createBox();
+    // Session 21d old under 30d default (9d remaining -> <14d alert), but within 24h grace -> blocked so alert persists after pass.
+    const s1 = writeClaudeSession(box, UUID_1, { mtimeDaysAgo: 21 });
+    const recentCompanion = join(box.projectDir, UUID_1, "recent.txt");
+    mkdirSync(dirname(recentCompanion), { recursive: true });
+    writeFileSync(recentCompanion, "active\n", "utf8");
+    const recentDt = new Date(FIXED_NOW_MS - 1 * 3600 * 1000);
+    utimesSync(recentCompanion, recentDt, recentDt);
+    const oldTranscriptDt = new Date(FIXED_NOW_MS - 21 * DAY_MS);
+    utimesSync(s1.jsonlPath, oldTranscriptDt, oldTranscriptDt);
+
+    const passWithAlert = runArchivePassOnce({ env: box.env, deps: okDeps(box) });
+    expect(passWithAlert.ok).toBe(true);
+    expect(passWithAlert.exitCode).toBe(ARCHIVE_ALERT_EXIT_CODE);
+    expect(passWithAlert.alerts.some((a) => a.kind === "purge-imminent")).toBe(true);
+
+    // Overdue pass witness (>48h) surfaces `archive-pass-overdue` alert on the fly.
+    const laterMs = FIXED_NOW_MS + 60 * 3600 * 1000;
+    const overdueAlerts = readClaudeArchiveAlerts({ env: box.env, nowMs: laterMs });
+    expect(overdueAlerts.some((a) => a.kind === "archive-pass-overdue")).toBe(true);
+
+    // H2A_ARCHIVE_OFF=1 surfaces `archive-disabled` alert on the fly.
+    const disabledAlerts = readClaudeArchiveAlerts({
+      env: { ...box.env, H2A_ARCHIVE_OFF: "1" },
+      nowMs: FIXED_NOW_MS,
+    });
+    expect(disabledAlerts.some((a) => a.kind === "archive-disabled")).toBe(true);
+  });
+
+  it("NB-3: auto-restore on resume succeeds when companion dir survives transcript purge and preserves newer companion files", () => {
+    const box = createBox();
+    const s1 = writeClaudeSession(box, UUID_1, {
+      mtimeDaysAgo: 80,
+      companionFiles: {
+        "subagents/old.jsonl": { content: '{"msg":"archived"}\n' },
+        "note.txt": { content: "original note\n" },
+      },
+    });
+    const oldDt = new Date(FIXED_NOW_MS - 80 * DAY_MS);
+    utimesSync(s1.jsonlPath, oldDt, oldDt);
+
+    const archived = runSessionArchive({ env: box.env, deps: okDeps(box) });
+    expect(archived.archived).toHaveLength(1);
+
+    // Simulate Claude purging main transcript at 90d while newer companion files survive inside <uuid>/.
+    rmSync(s1.jsonlPath, { force: true });
+    const survivingPath = join(s1.companionDir!, "subagents", "fresh.jsonl");
+    writeFileSync(survivingPath, '{"msg":"newer survivor"}\n', "utf8");
+    const survivorDt = new Date(FIXED_NOW_MS - 2 * DAY_MS);
+    utimesSync(survivingPath, survivorDt, survivorDt);
+
+    // Also modify note.txt on disk to verify existing companion files are NEVER overwritten during auto-restore.
+    const existingNotePath = join(s1.companionDir!, "note.txt");
+    writeFileSync(existingNotePath, "newer local note\n", "utf8");
+
+    const auto = ensureClaudeSessionRestoredForResume({
+      convId: UUID_1,
+      cwd: box.originCwd,
+      env: box.env,
+      deps: okDeps(box),
+    });
+    expect(auto.status).toBe("restored");
+    expect(existsSync(s1.jsonlPath)).toBe(true);
+    expect(Math.floor(statSync(s1.jsonlPath).mtimeMs)).toBe(Math.floor(FIXED_NOW_MS));
+    expect(readFileSync(join(s1.companionDir!, "subagents", "old.jsonl"), "utf8")).toBe(
+      '{"msg":"archived"}\n',
+    );
+    expect(readFileSync(survivingPath, "utf8")).toBe('{"msg":"newer survivor"}\n');
+    expect(Math.floor(statSync(survivingPath).mtimeMs)).toBe(Math.floor(survivorDt.getTime()));
+    expect(readFileSync(existingNotePath, "utf8")).toBe("newer local note\n");
+
+    // Empty surviving companion dir also auto-restores cleanly.
+    rmSync(s1.jsonlPath, { force: true });
+    rmSync(s1.companionDir!, { recursive: true, force: true });
+    mkdirSync(s1.companionDir!, { recursive: true });
+    const autoEmpty = ensureClaudeSessionRestoredForResume({
+      convId: UUID_1,
+      cwd: box.originCwd,
+      env: box.env,
+      deps: okDeps(box),
+    });
+    expect(autoEmpty.status).toBe("restored");
+    expect(existsSync(s1.jsonlPath)).toBe(true);
+    expect(existsSync(join(s1.companionDir!, "note.txt"))).toBe(true);
   });
 });

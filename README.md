@@ -320,12 +320,13 @@ for deployment, key identity and rejection/retry behavior.
 
 Commands:
 - `h2a archive scan` — inspect sessions, Claude purge dates (`cleanupPeriodDays`, default `30`), `<14d` unarchived warnings, orphan companion directories, free space reserve (`min(10 GiB, 5%)`), and host PID guard status.
-- `h2a archive run [--older-than 14d] [--dry-run] [--once]` — build staged `.tar.gz` archives (never in `/tmp`), re-read and verify tarball + per-file SHA-256 digests, check pre/post source stability, commit atomically into `claude/index.json`, and skip unchanged sessions idempotently.
+- `h2a archive run [--older-than 14d] [--dry-run] [--once]` — build staged `.tar.gz` archives (never in `/tmp`), re-read and verify tarball + per-file SHA-256 digests, check pre/post source stability, commit atomically into `claude/index.json` (refusing to overwrite a corrupt or unknown-schema index), and skip unchanged sessions idempotently.
 - `h2a archive verify [<id>]` — decompress and verify tarball + manifest + per-file SHA-256 checksums.
 - `h2a archive list` — list stored archives alongside their `originCwd` for `claude --resume <id>`.
 - `h2a archive restore <id> [--version <archiveId>] [--on-conflict refuse|backup]` — verify SHA-256 digests before writing back to Claude's project folder with refreshed `mtime` so Claude does not immediately purge the restored transcript.
+- `h2a archive rebuild-index [--force]` — verify stored `.tar.gz` archives from their embedded `manifest.json` and reconstruct `claude/index.json` (backing up the existing index first; requires `--force` over an unknown schema version).
 
 Automatic resume & status integration:
-- `h2a resume`, `h2a claude --resume <id>`, and `h2a run claude --resume <id>` check on disk first; if the transcript is missing and a verified archive exists, `h2a` verifies SHA-256 and restores it before launching Claude.
-- `h2a status` and `h2a status --human` compute `<14d` unarchived purge warnings and operational guard alerts on the fly.
-- External schedulers invoke `h2a archive pass` (or `h2a archive run --once`), which acquires the single-writer lock, honors `H2A_ARCHIVE_OFF=1` kill switch (`exit 0`, status `skipped`), and atomically writes versioned `last-run.json`.
+- `h2a resume`, `h2a claude --resume <id>`, and `h2a run claude --resume <id>` check on disk first; if the transcript is missing and a verified archive exists, `h2a` verifies SHA-256 and restores missing files (preserving any surviving companion files) before launching Claude.
+- `h2a status` and `h2a status --human` compute `<14d` unarchived purge warnings, unreadable index warnings, `H2A_ARCHIVE_OFF` state, pass failure/lock/staleness alerts (`last-run.json`), and operational guard alerts on the fly.
+- External schedulers invoke `h2a archive pass` (or `h2a archive run --once`), which acquires the ownership single-writer lock, honors `H2A_ARCHIVE_OFF=1` kill switch (`exit 0`, status `skipped`), atomically writes versioned `last-run.json` (including `status: "locked"` on contention), and exits `4` when active alerts remain or `2` on operational errors.
