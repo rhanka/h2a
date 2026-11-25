@@ -321,6 +321,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           "h2a-claude",
           {
             connect: () => NativeTerminalClient.connect(socketPath),
+            terminalResponder: true,
             stdin: bridge.stdin as unknown as NodeJS.ReadStream,
             stdout: bridge.stdout as unknown as NodeJS.WriteStream,
             now: () => Date.now(),
@@ -391,6 +392,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           "h2a-codex",
           {
             connect: () => NativeTerminalClient.connect(sock2),
+            terminalResponder: true,
             stdin: bridge.stdin as unknown as NodeJS.ReadStream,
             stdout: bridge.stdout as unknown as NodeJS.WriteStream,
             now: () => Date.now(),
@@ -441,12 +443,12 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       'let reported = false;',
       'process.stdin.on("data", (d) => {',
       '  received += d.toString("utf8");',
-      '  if (!asked && received.includes("MARK_ATTACH:PING")) {',
+      '  if (!asked && received.includes("BEGIN_LIVE:PING")) {',
       '    asked = true;',
       '    process.stdout.write("LIVE_ASK\\x1b[4;2H\\x1b[6n");',
       '  }',
-      '  const markAt = received.indexOf("MARK_ATTACH:");',
-      '  if (!reported && markAt >= 0 && received.slice(markAt).includes("R")) {',
+      '  const markAt = received.indexOf("BEGIN_LIVE:");',
+      '  if (!reported && markAt >= 0 && /\\x1b\\[\\d+;\\d+R/.test(received.slice(markAt))) {',
       '    reported = true;',
       '    process.stdout.write("ALL_JSON=" + JSON.stringify(received) + "|POST_JSON=" + JSON.stringify(received.slice(markAt)) + "|");',
       '  }',
@@ -477,6 +479,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
         "h2a-gemini",
         {
           connect: () => NativeTerminalClient.connect(socketPath),
+          terminalResponder: true,
           stdin: bridge.stdin as unknown as NodeJS.ReadStream,
           stdout: bridge.stdout as unknown as NodeJS.WriteStream,
           now: () => Date.now(),
@@ -490,8 +493,8 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       );
 
       await waitUntil(() => bridge.getOutput().includes("PRE_GEM_READY"), 4000, "gemini replay shown");
-      // Mark start of post-attach stdin stream, then trigger live DSR query
-      bridge.stdin.write("MARK_ATTACH:PING");
+      // Mark start of post-attach stdin stream (must not contain "R"), then trigger live DSR query
+      bridge.stdin.write("BEGIN_LIVE:PING");
       await waitUntil(() => bridge.getOutput().includes("POST_JSON="), 4000, "gemini live CPR JSON");
 
       const out = bridge.getOutput();
@@ -501,7 +504,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       expect(postMatch?.[1]).toBeDefined();
       const seenByChild = JSON.parse(allMatch![1]!) as string;
       const postAttach = JSON.parse(postMatch![1]!) as string;
-      expect(postAttach).toContain("MARK_ATTACH:");
+      expect(postAttach).toContain("BEGIN_LIVE:");
       expect(seenByChild).not.toContain("1;2c");
       expect(seenByChild).not.toContain(">|");
       expect(seenByChild).not.toContain(">4");
@@ -539,7 +542,11 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       // 4a: Mute client resolves within <= 3 post-delivery reads (no waiting for 60s timer)
       const twin = [
         'if (process.stdin.isTTY) process.stdin.setRawMode(true);',
-        'process.stdin.on("data", (d) => process.stdout.write("GOT=" + JSON.stringify(d.toString("utf8")) + "|"));',
+        'let acc = ""; let sent = false;',
+        'process.stdin.on("data", (d) => {',
+        '  acc += d.toString("utf8");',
+        '  if (!sent && /\\x1b\\[\\d+;\\d+R/.test(acc)) { sent = true; process.stdout.write("GOT=" + JSON.stringify(acc) + "|"); }',
+        '});',
         'process.stdout.write("\\x1b[6n");',
         'setInterval(() => {}, 1000);',
       ].join(" ");
@@ -547,7 +554,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       const client = await NativeTerminalClient.connect(socketPath);
       const lease = await client.acquireController("h2a-mute", "mute-c", "human", { terminalResponder: true });
       await waitUntil(
-        () => host.readOutput("h2a-mute", 0).chunks.some((c) => c.data.includes("\x1b[6n")),
+        () => host.readOutput("h2a-mute", 0).chunks.map((c) => c.data).join("").includes("\x1b[6n"),
         4000,
         "mute query emitted",
       );
@@ -556,7 +563,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       await client.readOutput("h2a-mute", first.latestSeq);
       await client.readOutput("h2a-mute", first.latestSeq);
       await waitUntil(
-        () => host.readOutput("h2a-mute", first.latestSeq).chunks.some((c) => c.data.includes('GOT="\\u001b[1;1R"')),
+        () => host.readOutput("h2a-mute", first.latestSeq).chunks.map((c) => c.data).join("").includes('GOT="\\u001b[1;1R"'),
         4000,
         "mute resolved after 3 reads",
       );
@@ -568,13 +575,13 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       const c2 = await NativeTerminalClient.connect(socketPath);
       const l2 = await c2.acquireController("h2a-mid", "mid-c", "human", { terminalResponder: true });
       await waitUntil(
-        () => host.readOutput("h2a-mid", 0).chunks.some((c) => c.data.includes("\x1b[6n")),
+        () => host.readOutput("h2a-mid", 0).chunks.map((c) => c.data).join("").includes("\x1b[6n"),
         4000,
         "mid-query emitted",
       );
       await c2.releaseController(l2);
       await waitUntil(
-        () => host.readOutput("h2a-mid", 0).chunks.some((c) => c.data.includes('GOT="\\u001b[1;1R"')),
+        () => host.readOutput("h2a-mid", 0).chunks.map((c) => c.data).join("").includes('GOT="\\u001b[1;1R"'),
         4000,
         "detach mid-query flush",
       );
@@ -583,11 +590,11 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       // 4c: Station switch filters pre-switch catch-up and promotes target responder for live DSR
       const twinB = [
         'if (process.stdin.isTTY) process.stdin.setRawMode(true);',
-        'let seen = "";',
+        'let seen = ""; let asked = false; let reported = false;',
         'process.stdin.on("data", (d) => {',
         '  seen += d.toString("utf8");',
-        '  if (seen.includes("ASK_B")) process.stdout.write("\\x1b[7;5H\\x1b[6n");',
-        '  if (seen.includes("R")) process.stdout.write("B_RES=" + JSON.stringify(seen) + "|");',
+        '  if (!asked && seen.includes("ASK_B")) { asked = true; process.stdout.write("\\x1b[7;5H\\x1b[6n"); }',
+        '  if (!reported && /\\x1b\\[\\d+;\\d+R/.test(seen)) { reported = true; process.stdout.write("B_RES=" + JSON.stringify(seen) + "|"); }',
         '});',
         'process.stdout.write("\\x1b[c\\x1b[>4;?mB_PRE");',
         'setInterval(() => {}, 1000);',
@@ -600,6 +607,8 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       );
       const bridge = makeFakeTtyBridge(120, 30);
       let terminateCb: (() => void) | undefined;
+      const prevTerm4c = process.env["TERM"];
+      process.env["TERM"] = "xterm-256color";
       const stationClient = await NativeTerminalClient.connect(socketPath);
       const rt: StationRuntime = {
         stdin: bridge.stdin as unknown as NodeJS.ReadStream,
@@ -621,36 +630,41 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           () => Date.now(),
           { enabled: false, env },
         );
-      const stPromise = runStation(rt, {
-        createStatusBar: mkBar,
-        statePath: join(dir, "station-state.json"),
-        locale: "en",
-        tty: "/dev/pts/8",
-        pid: process.pid,
-        panel: {
-          width: 30,
-          refreshIntervalMs: 500,
-          loadSnapshot: async () =>
-            buildRightPanelSnapshot({
-              currentSessionId: "h2a-swB",
-              groups: [{ title: "core", sessions: [{ id: "h2a-swB", label: "swB", status: "running" }] }],
-              decisions: [],
-            }),
-        },
-      });
-      await waitUntil(() => bridge.getOutput().includes("B_PRE"), 4000, "station displayed B");
-      bridge.stdin.write("ASK_B");
-      await waitUntil(() => bridge.getOutput().includes("B_RES="), 4000, "station live B CPR");
-      const m = /B_RES=("[^"]*")/.exec(bridge.getOutput());
-      expect(m?.[1]).toBeDefined();
-      const bSeen = JSON.parse(m![1]!) as string;
-      expect(bSeen).not.toContain("1;2c");
-      expect(bSeen).not.toContain("\x1b[1;1R");
-      expect(bSeen).toContain("\x1b[7;5R");
-      terminateCb?.();
-      await stPromise;
-      stationClient.close();
-      bridge.term.dispose();
+      try {
+        const stPromise = runStation(rt, {
+          createStatusBar: mkBar,
+          statePath: join(dir, "station-state.json"),
+          locale: "en",
+          tty: "/dev/pts/8",
+          pid: process.pid,
+          panel: {
+            width: 30,
+            refreshIntervalMs: 500,
+            loadSnapshot: async () =>
+              buildRightPanelSnapshot({
+                currentSessionId: "h2a-swB",
+                groups: [{ title: "core", sessions: [{ id: "h2a-swB", label: "swB", status: "running" }] }],
+                decisions: [],
+              }),
+          },
+        });
+        await waitUntil(() => bridge.getOutput().includes("B_PRE"), 4000, "station displayed B");
+        bridge.stdin.write("ASK_B");
+        await waitUntil(() => bridge.getOutput().includes("B_RES="), 4000, "station live B CPR");
+        const m = /B_RES=("[^"]*")/.exec(bridge.getOutput());
+        expect(m?.[1]).toBeDefined();
+        const bSeen = JSON.parse(m![1]!) as string;
+        expect(bSeen).not.toContain("1;2c");
+        expect(bSeen).not.toContain("\x1b[1;1R");
+        expect(bSeen).toContain("\x1b[7;5R");
+        terminateCb?.();
+        await stPromise;
+      } finally {
+        if (prevTerm4c === undefined) delete process.env["TERM"];
+        else process.env["TERM"] = prevTerm4c;
+        stationClient.close();
+        bridge.term.dispose();
+      }
     } finally {
       await host.forceStopAll().catch(() => {});
       await server.close({ stopSessions: true }).catch(() => {});
