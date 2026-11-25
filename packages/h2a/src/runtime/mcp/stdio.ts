@@ -5,7 +5,10 @@ import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 
 import type { H2AWorkspaceRef } from "../../identity.js";
-import { H2A_SESSION_DEFAULT_EXPIRY_MS } from "../../session.js";
+import {
+  H2A_SESSION_DEFAULT_EXPIRY_MS,
+  H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS
+} from "../../session.js";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
 import {
@@ -108,13 +111,16 @@ export interface RunMcpStdioOptions {
   stderr: Writable;
   /**
    * Optional override for the SessionRegistry heartbeat interval in ms.
-   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS or, if set, the
+   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS (5000 ms) for
+   * standalone stdio, or up to 30 000 ms (floor(expiryMs / 3), clamped
+   * [5000, 30000]) for central attachments, or, if set, the
    * H2A_HEARTBEAT_INTERVAL_MS environment variable.
    */
   heartbeatIntervalMs?: number;
   /**
    * Optional override for the NotificationDispatcher poll interval in ms.
-   * Defaults to the heartbeat interval or, if set, the
+   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS (5000 ms) for central
+   * attachments or the heartbeat interval for standalone stdio, or, if set, the
    * H2A_NOTIFY_INTERVAL_MS environment variable.
    */
   notifyIntervalMs?: number;
@@ -520,15 +526,18 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   let identityController: McpIdentityController | undefined;
   const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS", sessionEnv);
   // Central hosts all attached shims in one daemon sharing .presence.lock and
-  // the directory store: scale default intervals to 15s (6x within 90s expiry)
-  // unless overridden explicitly, preserving standalone 5s behavior & test env overrides.
-  const centralDefaultIntervalMs = options.centralAttachment
+  // the directory store: stretch default presence heartbeat to 30s (3x within
+  // 90s expiry) unless overridden explicitly, while keeping notification polling
+  // at 5s default so inbox push, peer presence, and wake retain <= 5s latency.
+  const centralHeartbeatDefaultMs = options.centralAttachment
     ? Math.min(30_000, Math.max(5_000, Math.floor((expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS) / 3)))
     : undefined;
   const explicitHeartbeat = options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS", sessionEnv);
-  const heartbeatIntervalMs = explicitHeartbeat ?? centralDefaultIntervalMs;
+  const heartbeatIntervalMs = explicitHeartbeat ?? centralHeartbeatDefaultMs;
   const explicitNotify = options.notifyIntervalMs ?? envInt("H2A_NOTIFY_INTERVAL_MS", sessionEnv);
-  const notifyIntervalMs = explicitNotify ?? heartbeatIntervalMs;
+  const notifyIntervalMs =
+    explicitNotify ??
+    (options.centralAttachment ? H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS : explicitHeartbeat);
   const centralSlot = options.centralAttachment ? centralAttachmentPhaseSlot++ : undefined;
   const heartbeatInitialDelayMs =
     centralSlot !== undefined && explicitHeartbeat === undefined && heartbeatIntervalMs !== undefined
@@ -536,7 +545,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       : undefined;
   const notifyInitialDelayMs =
     centralSlot !== undefined && explicitNotify === undefined && notifyIntervalMs !== undefined
-      ? Math.max(1_000, Math.floor((notifyIntervalMs * (centralSlot % 5)) / 5) + 3_000)
+      ? Math.max(1_000, Math.floor((notifyIntervalMs * ((centralSlot % 5) + 1)) / 5))
       : undefined;
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.

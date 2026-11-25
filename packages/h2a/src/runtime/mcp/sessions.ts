@@ -359,7 +359,7 @@ export class SessionRegistry {
         heartbeatAt: nowIso(),
         ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {}),
         ...(nextName ? { name: nextName } : {})
-      }, { ...options, instance: entry.session.instance });
+      }, options);
       if (!updated) {
         updated = {
           ...entry.session,

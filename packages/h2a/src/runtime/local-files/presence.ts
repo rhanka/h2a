@@ -445,7 +445,7 @@ export async function updatePresenceAsync(
   root: string,
   sessionId: string,
   patch: Parameters<typeof updatePresenceUnfenced>[2],
-  options?: { timeoutMs?: number; nonBlocking?: boolean; instance?: string }
+  options?: { timeoutMs?: number; nonBlocking?: boolean }
 ): Promise<H2ASession | undefined> {
-  return withPresenceMutationAsync(root, sessionId, () => options?.instance ?? readPresence(root, sessionId)?.instance, () => updatePresenceUnfenced(root, sessionId, patch), options);
+  return withPresenceMutationAsync(root, sessionId, () => readPresence(root, sessionId)?.instance, () => updatePresenceUnfenced(root, sessionId, patch), options);
 }

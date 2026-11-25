@@ -813,7 +813,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; lag.reset(); }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
