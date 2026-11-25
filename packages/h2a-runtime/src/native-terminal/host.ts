@@ -585,9 +585,23 @@ export type NativeTerminalControllerIdentity = Readonly<{
   since: string;
 }>;
 
+export const DSR_FALLBACK_CONTROLLER_READS = 3;
+export const DSR_FROZEN_CLIENT_TIMEOUT_MS = 800;
+export const MAX_PENDING_DSR = 64;
+
+const CPR_REPLY_RE = /\x1b\[\??(\d{1,5});(\d{1,5})R/g;
+const CPR_TAIL_RE = /(\x1b(?:\[(?:\??(?:\d{1,5}(?:;\d{0,5})?)?)?)?)$/;
+
+type PendingDsrEntry = {
+  readonly seq: number;
+  readsSinceDelivered: number;
+  timer?: NodeJS.Timeout;
+};
+
 export type NativeTerminalControllerOptions = Readonly<{
   takeover?: boolean;
   passive?: boolean;
+  terminalResponder?: boolean;
   pid?: number;
   tty?: string;
 }>;
@@ -647,6 +661,7 @@ export type NativeTerminalControllerLease = Readonly<{
   incarnation: string;
   controllerId: string;
   epoch: number;
+  responderFromSeq?: number;
 }>;
 
 export type NativeTerminalRemoteRefusalReason =
@@ -797,6 +812,12 @@ type SessionRecord = {
   controllerActivity: SessionControllerActivity | null;
   controllerIdentity: NativeTerminalControllerIdentity | null;
   controllerEpoch: number;
+  controllerTerminalResponder: boolean;
+  controllerCprRepliesSeen: number;
+  controllerResponderMuted: boolean;
+  pendingDsrQueue: PendingDsrEntry[];
+  cprReplyTail: string;
+  lateCprSwallowCount: number;
   lastHumanActivityAt: number | null;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
@@ -824,6 +845,7 @@ export class NativeTerminalHost {
   /** N3 CLI proof issuance/verification registry, bound to this host's table. */
   readonly #cliProofAuthority = new NativeTerminalActionAuthority(this);
   readonly #forceKillPollIntervalMs: number;
+  readonly #dsrFallbackTimeoutMs: number;
   readonly #readLeaderStartTime: (pid: number) => number | undefined;
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
   readonly #groupIsOnlyZombies: (pgid: number) => boolean;
@@ -883,6 +905,7 @@ export class NativeTerminalHost {
      * `#verifyGroupLeaderIdentity`. */
     readFrame?: () => NativeTerminalProcFrame;
     readApplicationForeground?: ApplicationForegroundReader;
+    dsrFallbackTimeoutMs?: number;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -933,6 +956,8 @@ export class NativeTerminalHost {
     this.#forceKillPollIntervalMs =
       options.forceKillPollIntervalMs ??
       NATIVE_TERMINAL_FORCE_KILL_POLL_INTERVAL_MS;
+    this.#dsrFallbackTimeoutMs =
+      options.dsrFallbackTimeoutMs ?? DSR_FROZEN_CLIENT_TIMEOUT_MS;
     this.#readLeaderStartTime =
       options.readLeaderStartTime ?? readProcessStartTime;
     this.#findGroupMemberToken =
@@ -1152,6 +1177,12 @@ export class NativeTerminalHost {
       controllerActivity: null,
       controllerIdentity: null,
       controllerEpoch: 0,
+      controllerTerminalResponder: false,
+      controllerCprRepliesSeen: 0,
+      controllerResponderMuted: false,
+      pendingDsrQueue: [],
+      cprReplyTail: "",
+      lateCprSwallowCount: 0,
       lastHumanActivityAt: null,
     };
     this.#sessions.set(record.id, record);
@@ -1175,21 +1206,15 @@ export class NativeTerminalHost {
       try {
         if (record.pty !== pty || record.exit !== null || data.length === 0) return;
         resetRelay.feed(data);
-        // Answer Device Status Report cursor queries (ESC[6n) like a real
-        // terminal/tmux: TUIs that require a cursor-position report (muse
-        // aborts with "cursor position could not be read" without it).
+        // Respond to Device Status Report cursor queries (ESC[6n) immediately
+        // only when no interactive TTY responder owns this session (or if the
+        // attached terminal proved mute/frozen); otherwise queue FIFO pending
+        // CPR replies bounded by poll reads and timeout.
         const window = dsrTail + data;
         dsrTail = window.slice(-3);
         const queries = window.split("\x1b[6n").length - 1;
-        for (let i = 0; i < queries; i++) {
-          try {
-            pty.write("\x1b[1;1R");
-          } catch {
-            // R7.5 named exemption: expected transport failure, potentially
-            // high volume. Count it instead of logging every failed reply.
-            recordHostFault(HOST_FAULT_COUNTERS.hostPtyWriteBreaks);
-            break;
-          }
+        if (queries > 0 && record.status === "running" && !record.respawning) {
+          this.#handleChildDsrQueries(record, queries, record.replay.latestSeq);
         }
       } catch (error) {
         // node-pty delivers this callback on the event loop shared with every
@@ -1204,6 +1229,7 @@ export class NativeTerminalHost {
     record.exitSubscription = pty.onExit((event) => {
       try {
         if (record.pty !== pty) return;
+        this.#clearPendingDsrQueue(record);
         if (record.onRespawnOldExit !== undefined) {
           resetRelay.flush();
           const cb = record.onRespawnOldExit;
@@ -1282,9 +1308,31 @@ export class NativeTerminalHost {
     return this.#cliProofAuthority.issueSessionProof(sessionId, composition, nowMs);
   }
 
-  readOutput(id: string, afterSeq: number): NativeTerminalReplay {
+  readOutput(
+    id: string,
+    afterSeq: number,
+    controllerLease?: NativeTerminalControllerLease,
+  ): NativeTerminalReplay {
     const record = this.#requireSession(id);
     const replay = record.replay.readAfter(afterSeq);
+    if (
+      controllerLease !== undefined &&
+      this.#leaseMatchesSession(record, controllerLease) &&
+      record.controllerTerminalResponder &&
+      record.pendingDsrQueue.length > 0 &&
+      record.status === "running" &&
+      !record.respawning
+    ) {
+      for (const entry of [...record.pendingDsrQueue]) {
+        if (!record.pendingDsrQueue.includes(entry)) continue;
+        if (entry.seq <= afterSeq) {
+          entry.readsSinceDelivered += 1;
+          if (entry.readsSinceDelivered >= DSR_FALLBACK_CONTROLLER_READS) {
+            this.#fallbackDsrEntry(record, entry);
+          }
+        }
+      }
+    }
     return Object.freeze({
       generation: this.#generation,
       incarnation: record.incarnation,
@@ -1330,6 +1378,12 @@ export class NativeTerminalHost {
     if (options.passive !== undefined && typeof options.passive !== "boolean") {
       throw new TypeError("terminal controller passive must be a boolean");
     }
+    if (
+      options.terminalResponder !== undefined &&
+      typeof options.terminalResponder !== "boolean"
+    ) {
+      throw new TypeError("terminal controller terminalResponder must be a boolean");
+    }
     if (options.passive === true) {
       if (options.takeover === true) {
         throw new TypeError("terminal controller passive cannot be combined with takeover");
@@ -1364,14 +1418,27 @@ export class NativeTerminalHost {
     record: SessionRecord,
     controllerId: string,
     activity: SessionControllerActivity,
-    options: { pid?: number; tty?: string } = {},
+    options: { pid?: number; tty?: string; terminalResponder?: boolean } = {},
     passive = false,
   ): NativeTerminalControllerLease {
+    // Displacing a prior live controller (takeover / remote promotion): flush
+    // any pending DSRs cleanly before switching controller ownership.
+    if (record.controllerId !== null && record.status === "running" && !record.respawning) {
+      this.#flushPendingDsrQueue(record, { countLateSwallow: false });
+    } else {
+      this.#clearPendingDsrQueue(record);
+    }
     // Serialized with the lease grant: old input and disconnect cleanup are
     // fenced by the new epoch, even if the previous attach is still exiting.
     record.controllerEpoch += 1;
     record.controllerId = controllerId;
     record.controllerActivity = activity;
+    const terminalResponder = !passive && options.terminalResponder === true;
+    record.controllerTerminalResponder = terminalResponder;
+    record.controllerCprRepliesSeen = 0;
+    record.controllerResponderMuted = false;
+    record.cprReplyTail = "";
+    record.lateCprSwallowCount = 0;
     record.controllerIdentity = Object.freeze({
       controllerId: randomUUID(),
       pid: options.pid ?? null,
@@ -1386,6 +1453,7 @@ export class NativeTerminalHost {
       incarnation: record.incarnation,
       controllerId,
       epoch: record.controllerEpoch,
+      ...(terminalResponder ? { responderFromSeq: record.replay.latestSeq } : {}),
     });
   }
 
@@ -1518,12 +1586,49 @@ export class NativeTerminalHost {
     });
   }
 
+  setControllerTerminalResponder(
+    lease: NativeTerminalControllerLease,
+    enabled: boolean,
+  ): { readonly responderFromSeq?: number } | null {
+    if (typeof enabled !== "boolean") {
+      throw new TypeError("terminal controller responder enabled must be a boolean");
+    }
+    const record = this.#requireMatchingController(lease);
+    if (enabled) {
+      if (!record.controllerTerminalResponder) {
+        record.controllerTerminalResponder = true;
+        record.controllerCprRepliesSeen = 0;
+        record.controllerResponderMuted = false;
+        record.cprReplyTail = "";
+        record.lateCprSwallowCount = 0;
+      }
+      return Object.freeze({ responderFromSeq: record.replay.latestSeq });
+    }
+    if (record.controllerTerminalResponder) {
+      record.controllerTerminalResponder = false;
+      record.controllerCprRepliesSeen = 0;
+      record.controllerResponderMuted = false;
+      record.cprReplyTail = "";
+      if (record.status === "running" && !record.respawning) {
+        this.#flushPendingDsrQueue(record, { countLateSwallow: true });
+      } else {
+        this.#clearPendingDsrQueue(record);
+      }
+    }
+    return null;
+  }
+
   releaseController(
     lease: NativeTerminalControllerLease,
   ): NativeTerminalControllerState {
     const record = this.#requireMatchingController(lease);
     const wasRemote = record.controllerActivity === "remote";
     if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+    if (record.status === "running" && !record.respawning) {
+      this.#flushPendingDsrQueue(record, { countLateSwallow: false });
+    } else {
+      this.#clearPendingDsrQueue(record);
+    }
     this.#invalidateController(record);
     if (wasRemote && record.status === "running") {
       this.#restoreLocalSizeAfterRemote(record);
@@ -1543,6 +1648,17 @@ export class NativeTerminalHost {
     const record = this.#requireController(lease);
     if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
     if (record.respawning) return;
+    if (
+      record.controllerTerminalResponder ||
+      record.lateCprSwallowCount > 0 ||
+      record.pendingDsrQueue.length > 0 ||
+      record.cprReplyTail.length > 0
+    ) {
+      const forwarded = this.#consumeAndFilterCprReplies(record, data);
+      if (forwarded.length === 0) return;
+      record.pty.write(forwarded);
+      return;
+    }
     record.pty.write(data);
   }
 
@@ -1595,6 +1711,7 @@ export class NativeTerminalHost {
       record.stopSignal = previousSignal;
       throw error;
     }
+    this.#clearPendingDsrQueue(record);
     return this.#snapshot(record);
   }
 
@@ -1679,6 +1796,7 @@ export class NativeTerminalHost {
     }
 
     record.respawning = true;
+    this.#clearPendingDsrQueue(record);
     this.#invalidateApplication(record);
     const oldPty = record.pty;
     let oldExited = false;
@@ -1848,6 +1966,7 @@ export class NativeTerminalHost {
     record.exit = null;
     record.stopSignal = null;
     record.respawning = false;
+    this.#clearPendingDsrQueue(record);
     this.#attachPtyListeners(record, newPty);
 
     return this.#snapshot(record);
@@ -2576,6 +2695,7 @@ export class NativeTerminalHost {
   }
 
   #forget(record: SessionRecord): void {
+    this.#clearPendingDsrQueue(record);
     record.dataSubscription?.dispose();
     record.exitSubscription?.dispose();
     delete record.dataSubscription;
@@ -2584,11 +2704,169 @@ export class NativeTerminalHost {
   }
 
   #invalidateController(record: SessionRecord): void {
+    this.#clearPendingDsrQueue(record);
+    record.controllerTerminalResponder = false;
+    record.controllerCprRepliesSeen = 0;
+    record.controllerResponderMuted = false;
+    record.cprReplyTail = "";
+    record.lateCprSwallowCount = 0;
     if (record.controllerId === null) return;
     record.controllerId = null;
     record.controllerActivity = null;
     record.controllerIdentity = null;
     record.controllerEpoch += 1;
+  }
+
+  #leaseMatchesSession(
+    record: SessionRecord,
+    lease: NativeTerminalControllerLease,
+  ): boolean {
+    return (
+      lease.generation === this.#generation &&
+      lease.incarnation === record.incarnation &&
+      record.status !== "exited" &&
+      record.controllerId === lease.controllerId &&
+      record.controllerEpoch === lease.epoch
+    );
+  }
+
+  #writeSyntheticCpr(record: SessionRecord, count: number): void {
+    for (let i = 0; i < count; i++) {
+      try {
+        record.pty.write("\x1b[1;1R");
+      } catch {
+        // R7.5 named exemption: expected transport failure, potentially
+        // high volume. Count it instead of logging every failed reply.
+        recordHostFault(HOST_FAULT_COUNTERS.hostPtyWriteBreaks);
+        break;
+      }
+    }
+  }
+
+  #clearPendingDsrQueue(record: SessionRecord): void {
+    while (record.pendingDsrQueue.length > 0) {
+      const entry = record.pendingDsrQueue.shift()!;
+      if (entry.timer !== undefined) clearTimeout(entry.timer);
+    }
+  }
+
+  #flushPendingDsrQueue(
+    record: SessionRecord,
+    options: { readonly countLateSwallow: boolean },
+  ): void {
+    const count = record.pendingDsrQueue.length;
+    if (count === 0) return;
+    this.#clearPendingDsrQueue(record);
+    if (options.countLateSwallow) {
+      record.lateCprSwallowCount = Math.min(
+        MAX_PENDING_DSR,
+        record.lateCprSwallowCount + count,
+      );
+    }
+    this.#writeSyntheticCpr(record, count);
+  }
+
+  #fallbackDsrEntry(record: SessionRecord, target: PendingDsrEntry): void {
+    const index = record.pendingDsrQueue.indexOf(target);
+    if (index < 0) return;
+    if (record.status !== "running" || record.respawning || record.exit !== null) {
+      this.#clearPendingDsrQueue(record);
+      return;
+    }
+    const batch = record.pendingDsrQueue.splice(0, index + 1);
+    for (const entry of batch) {
+      if (entry.timer !== undefined) clearTimeout(entry.timer);
+    }
+    record.lateCprSwallowCount = Math.min(
+      MAX_PENDING_DSR,
+      record.lateCprSwallowCount + batch.length,
+    );
+    this.#writeSyntheticCpr(record, batch.length);
+    // Adaptive mute: if a terminal that declared terminalResponder=true
+    // missed DSR fallback without ever supplying a real CPR reply, mute
+    // further stalls on this lease and resolve queued/subsequent queries immediately.
+    if (record.controllerTerminalResponder && record.controllerCprRepliesSeen === 0) {
+      record.controllerResponderMuted = true;
+      if (record.pendingDsrQueue.length > 0) {
+        this.#flushPendingDsrQueue(record, { countLateSwallow: true });
+      }
+    }
+  }
+
+  #handleChildDsrQueries(record: SessionRecord, queries: number, seq: number): void {
+    if (!record.controllerTerminalResponder || record.controllerResponderMuted) {
+      this.#writeSyntheticCpr(record, queries);
+      return;
+    }
+    for (let i = 0; i < queries; i++) {
+      if (record.controllerResponderMuted || !record.controllerTerminalResponder) {
+        this.#writeSyntheticCpr(record, queries - i);
+        return;
+      }
+      if (record.pendingDsrQueue.length >= MAX_PENDING_DSR) {
+        const oldest = record.pendingDsrQueue[0]!;
+        this.#fallbackDsrEntry(record, oldest);
+        if (record.controllerResponderMuted) {
+          this.#writeSyntheticCpr(record, queries - i);
+          return;
+        }
+      }
+      const entry: PendingDsrEntry = { seq, readsSinceDelivered: 0 };
+      entry.timer = setTimeout(() => {
+        this.#fallbackDsrEntry(record, entry);
+      }, this.#dsrFallbackTimeoutMs);
+      entry.timer.unref?.();
+      record.pendingDsrQueue.push(entry);
+    }
+  }
+
+  #consumeAndFilterCprReplies(record: SessionRecord, data: string): string {
+    const tail = record.cprReplyTail;
+    const tailLen = tail.length;
+    const combined = tail + data;
+    CPR_REPLY_RE.lastIndex = 0;
+    let cursorInCombined = 0;
+    let out = "";
+    let match: RegExpExecArray | null;
+    while ((match = CPR_REPLY_RE.exec(combined)) !== null) {
+      const mStart = match.index;
+      const mEnd = mStart + match[0].length;
+      if (mEnd <= tailLen) {
+        cursorInCombined = Math.max(cursorInCombined, mEnd);
+        continue;
+      }
+      const gapStart = Math.max(cursorInCombined, tailLen);
+      if (mStart > gapStart) {
+        out += combined.slice(gapStart, mStart);
+        // Any non-CPR byte clears the bounded late-swallow heuristic (NB-4).
+        record.lateCprSwallowCount = 0;
+      }
+      if (record.pendingDsrQueue.length > 0) {
+        const entry = record.pendingDsrQueue.shift()!;
+        if (entry.timer !== undefined) clearTimeout(entry.timer);
+        if (record.controllerTerminalResponder) {
+          record.controllerCprRepliesSeen += 1;
+        }
+        out += combined.slice(Math.max(mStart, tailLen), mEnd);
+      } else if (record.lateCprSwallowCount > 0 && mStart >= tailLen) {
+        record.lateCprSwallowCount -= 1;
+      } else {
+        out += combined.slice(Math.max(mStart, tailLen), mEnd);
+      }
+      cursorInCombined = mEnd;
+    }
+    const remStart = Math.max(cursorInCombined, tailLen);
+    if (remStart < combined.length) {
+      const rem = combined.slice(remStart);
+      out += rem;
+      if (!CPR_TAIL_RE.test(rem) || rem.length === 1) {
+        record.lateCprSwallowCount = 0;
+      }
+    }
+    const afterLastMatch = combined.slice(cursorInCombined);
+    const tailMatch = CPR_TAIL_RE.exec(afterLastMatch);
+    record.cprReplyTail = tailMatch?.[1] ?? "";
+    return out;
   }
 
   /**

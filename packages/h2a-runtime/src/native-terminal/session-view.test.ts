@@ -838,3 +838,98 @@ describe("S0 Step 2 — re-entrant session views A/B without closure on an initi
     viewOff.dispose();
   });
 });
+
+describe("NativeSessionView catchUpUntilSeq boundary filtering", () => {
+  it("strips queries up to catchUpUntilSeq even when catchUp option is omitted, then passes live output unfiltered", async () => {
+    const writes: string[] = [];
+    const view = createSessionView({
+      sessionId: "h2a-catchup-frontier",
+      stdout: {
+        isTTY: true,
+        columns: 80,
+        rows: 24,
+        write: (d: string | Uint8Array) => {
+          writes.push(typeof d === "string" ? d : Buffer.from(d).toString("utf8"));
+          return true;
+        },
+      } as unknown as NodeJS.WriteStream,
+      now: () => 1_760_000_000_000,
+      tty: "/dev/pts/1",
+      terminalResponder: true,
+      statusBar: {
+        childRows: () => 24,
+        probe: async () => {},
+        onResize: () => {},
+        flushAfterOutputBatch: () => {},
+        flushPendingSequence: () => "",
+        resumeAfterReset: () => {},
+        dispose: () => {},
+        peekRestoreSequence: () => "",
+        restoreSequence: () => "",
+        transformChildOutput: (d) => d,
+      },
+    });
+
+    const acquireOpts: unknown[] = [];
+    const client = {
+      readOutput: async () => ({ generation: "g", incarnation: "1", chunks: [], gap: null, latestSeq: 2 }),
+      state: async () => ({
+        id: "h2a-catchup-frontier",
+        generation: "g",
+        incarnation: "1",
+        pid: 123,
+        status: "running" as const,
+        latestSeq: 2,
+        exit: null,
+        stopSignal: null,
+        controlled: false,
+      }),
+      acquireController: async (_id: string, _cid: string, _act: string, opts: unknown) => {
+        acquireOpts.push(opts);
+        return {
+          role: "controller" as const,
+          id: "h2a-catchup-frontier",
+          generation: "g",
+          incarnation: "1",
+          controllerId: "c1",
+          epoch: 1,
+          responderFromSeq: 2,
+        };
+      },
+      releaseController: async () => ({ id: "h2a-catchup-frontier", generation: "g", incarnation: "1", controllerEpoch: 1 }),
+      write: async () => {},
+      resize: async () => {},
+      close: () => {},
+    } as unknown as NativeTerminalClient;
+
+    await view.connectAndAcquire(async () => client);
+    expect(acquireOpts[0]).toMatchObject({ terminalResponder: true });
+
+    // Chunk seq 1 & 2 are catch-up (<= responderFromSeq 2); chunk 3 is live (> 2)
+    view.feedReplay({
+      generation: "g",
+      incarnation: "1",
+      gap: null,
+      latestSeq: 3,
+      chunks: [
+        { seq: 1, data: "PRE\x1b[c\x1b[>0q\x1b[>4;?m" },
+        { seq: 2, data: "\x1b[6nREADY" },
+        { seq: 3, data: "LIVE\x1b[6n" },
+      ],
+    });
+    expect(writes.join("")).toBe("PREREADYLIVE\x1b[6n");
+
+    // Promote via setCatchUpUntilSeq: catches up through seq 5 on later gap/promotion
+    view.setCatchUpUntilSeq(5);
+    view.feedReplay({
+      generation: "g",
+      incarnation: "1",
+      gap: null,
+      latestSeq: 5,
+      chunks: [{ seq: 5, data: "\x1b[>4;?mPOST" }],
+    });
+    expect(writes.join("")).toBe("PREREADYLIVE\x1b[6nPOST");
+    await view.releaseActive();
+    view.dispose();
+  });
+});

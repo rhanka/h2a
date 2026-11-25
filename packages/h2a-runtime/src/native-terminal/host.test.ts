@@ -23,7 +23,10 @@ import {
   readNativeTerminalPgid,
 } from "../registry.js";
 import {
+  DSR_FALLBACK_CONTROLLER_READS,
+  DSR_FROZEN_CLIENT_TIMEOUT_MS,
   groupIsOnlyZombies,
+  MAX_PENDING_DSR,
   NativeTerminalHost,
   posixProcessGroupReaper,
   reconcileDeadHostOrphans,
@@ -3582,5 +3585,189 @@ describe("NativeTerminalHost", () => {
     expect(recreated.lastLocalSize).toBeNull();
     expect(recreated.holderKind).toBe("none");
     expect(recreated.controller).toBeNull();
+  });
+
+  it("answers ESC[6n immediately with synthetic 1;1R unless controller has terminalResponder: true", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-dsr-default-false",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "dsr-default");
+    const pty = ptys.get("dsr-default")!;
+
+    // No controller -> immediate synthetic reply
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // Controller without terminalResponder -> still immediate synthetic reply
+    const lease = host.acquireController("dsr-default", "c-default", "human");
+    expect(lease.responderFromSeq).toBeUndefined();
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+  });
+
+  it("queues FIFO ESC[6n when terminalResponder is true and pops 1-to-1 on split real CPR replies", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-dsr-live-cpr",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "dsr-live");
+    const pty = ptys.get("dsr-live")!;
+    pty.emitData("pre-attach-banner");
+    const preSeq = host.state("dsr-live").latestSeq;
+
+    const lease = host.acquireController("dsr-live", "c-tty", "human", {
+      terminalResponder: true,
+    });
+    expect(lease.responderFromSeq).toBe(preSeq);
+
+    // Two DSR queries emitted while live responder owns session -> NO synthetic 1;1R
+    pty.emitData("\x1b[4;2H\x1b[6n");
+    pty.emitData("\x1b[9;15H\x1b[6n");
+    expect(pty.write).not.toHaveBeenCalled();
+
+    // First CPR split across two write() chunks
+    host.write(lease, "\x1b[4;");
+    host.write(lease, "2R");
+    // Second CPR whole
+    host.write(lease, "\x1b[9;15R");
+    expect(pty.write.mock.calls.map((c) => c[0]).join("")).toBe("\x1b[4;2R\x1b[9;15R");
+    expect(pty.write).not.toHaveBeenCalledWith("\x1b[1;1R");
+  });
+
+  it("resolves pending DSR after DSR_FALLBACK_CONTROLLER_READS controller reads and adaptive-mutes silent clients", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-dsr-poll-mute",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "dsr-mute");
+    const pty = ptys.get("dsr-mute")!;
+    const lease = host.acquireController("dsr-mute", "c-mute", "human", {
+      terminalResponder: true,
+    });
+
+    pty.emitData("\x1b[6n");
+    expect(pty.write).not.toHaveBeenCalled();
+
+    // Deliver chunk 1 to controller (seq = 1). Observer reads must not advance poll counter.
+    const r1 = host.readOutput("dsr-mute", 0, lease);
+    expect(r1.latestSeq).toBe(1);
+    expect(pty.write).not.toHaveBeenCalled();
+
+    // Unowned / observer reads do NOT advance controller fallback counter
+    for (let i = 0; i < 5; i++) {
+      host.readOutput("dsr-mute", 1);
+    }
+    expect(pty.write).not.toHaveBeenCalled();
+
+    // Post-delivery controller reads 1..(DSR_FALLBACK_CONTROLLER_READS - 1) do not yet trigger fallback
+    for (let i = 1; i < DSR_FALLBACK_CONTROLLER_READS; i++) {
+      host.readOutput("dsr-mute", 1, lease);
+      expect(pty.write).not.toHaveBeenCalled();
+    }
+    // Read #DSR_FALLBACK_CONTROLLER_READS after delivery triggers fallback
+    host.readOutput("dsr-mute", 1, lease);
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(pty.write).toHaveBeenCalledWith("\x1b[1;1R");
+
+    // Adaptive mute: controller never replied with real CPR (controllerCprRepliesSeen === 0),
+    // so subsequent ESC[6n resolves immediately without waiting 3 reads or timeout.
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // Bounded late CPR swallow: one late CPR arriving immediately is absorbed, then normal input works.
+    host.write(lease, "\x1b[1;2R");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    host.write(lease, "a\x1b[3;4R");
+    expect(pty.write).toHaveBeenCalledTimes(3);
+    expect(pty.write).toHaveBeenLastCalledWith("a\x1b[3;4R");
+  });
+
+  it("falls back via secondary DSR_FROZEN_CLIENT_TIMEOUT_MS timer with fake timers and clears on exit/stop/respawn", async () => {
+    vi.useFakeTimers();
+    try {
+      const { spawner, ptys } = stubSpawner();
+      const host = new NativeTerminalHost({
+        generation: "host-dsr-timer",
+        replayBytesPerSession: 4096,
+        spawner,
+        registryPath,
+      });
+      createSession(host, "dsr-timer");
+      const pty = ptys.get("dsr-timer")!;
+      const lease = host.acquireController("dsr-timer", "c-frozen", "human", {
+        terminalResponder: true,
+      });
+
+      // Establish healthy CPR first so timeout won't permanently mute later valid queries
+      pty.emitData("\x1b[6n");
+      host.write(lease, "\x1b[2;3R");
+
+      // Next query freezes without polling or replying
+      pty.emitData("\x1b[6n");
+      vi.advanceTimersByTime(DSR_FROZEN_CLIENT_TIMEOUT_MS - 1);
+      expect(pty.write).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1);
+      expect(pty.write).toHaveBeenCalledTimes(2);
+      expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+      // Non-CPR byte resets lateCprSwallowCount (NB-4), and session remained unmuted
+      host.write(lease, "k");
+      pty.emitData("\x1b[6n");
+      expect(pty.write).toHaveBeenCalledTimes(3); // just "k", still waiting for live CPR
+
+      // Release controller immediately flushes queued DSR
+      host.releaseController(lease);
+      expect(pty.write).toHaveBeenCalledTimes(4);
+      expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+      // Promote -> queue -> demote flushes; queue -> stop/exit/respawn clears without writing
+      const lease2 = host.acquireController("dsr-timer", "c-demote", "human");
+      const promo = host.setControllerTerminalResponder(lease2, true);
+      expect(promo?.responderFromSeq).toBe(host.state("dsr-timer").latestSeq);
+      pty.emitData("\x1b[6n");
+      expect(pty.write).toHaveBeenCalledTimes(4);
+      host.setControllerTerminalResponder(lease2, false);
+      expect(pty.write).toHaveBeenCalledTimes(5);
+      expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+      // Exit clears pending DSR without writing
+      host.setControllerTerminalResponder(lease2, true);
+      pty.emitData("\x1b[6n");
+      pty.emitExit({ exitCode: 0 });
+      vi.advanceTimersByTime(DSR_FROZEN_CLIENT_TIMEOUT_MS + 100);
+      expect(pty.write).toHaveBeenCalledTimes(5);
+
+      // Enforcing MAX_PENDING_DSR cap flushes oldest FIFO
+      createSession(host, "dsr-cap");
+      const capPty = ptys.get("dsr-cap")!;
+      const capLease = host.acquireController("dsr-cap", "c-cap", "human", {
+        terminalResponder: true,
+      });
+      capPty.emitData("\x1b[6n");
+      host.write(capLease, "\x1b[1;1R");
+      for (let i = 0; i < MAX_PENDING_DSR + 2; i++) {
+        capPty.emitData("\x1b[6n");
+      }
+      expect(capPty.write).toHaveBeenCalledTimes(3);
+      host.stop(capLease, "SIGTERM");
+      vi.advanceTimersByTime(DSR_FROZEN_CLIENT_TIMEOUT_MS + 100);
+      expect(capPty.write).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

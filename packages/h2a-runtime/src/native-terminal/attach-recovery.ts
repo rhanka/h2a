@@ -1,9 +1,14 @@
 import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
+import { restoreTtyState, saveTtyState, statusFromSpawnResult } from "../terminal-reset.js";
 
 const RECEIPT_ENV = "H2A_ATTACH_RESET_RECEIPT";
+const GUARD_ENV = "H2A_CLIENT_RECOVERY_GUARD_ACTIVE";
+const SUBPROCESS_ATTACH_MOD_ENV = "H2A_SUBPROCESS_ATTACH_MOD";
+const SUBPROCESS_ATTACH_BASE_ENV = "H2A_SUBPROCESS_ATTACH_BASE";
+const SUBPROCESS_ATTACH_ID_ENV = "H2A_SUBPROCESS_ATTACH_ID";
 
 const UNDO_ORDER = [
   "status-bar",
@@ -79,29 +84,128 @@ export function withAttachTerminalRecovery<T>(launch: (env: NodeJS.ProcessEnv) =
   const directory = mkdtempSync(join(tmpdir(), "h2a-attach-"));
   const receipt = join(directory, "reset");
   writeFileSync(receipt, "", { mode: 0o600 });
-  // Initialize the parent's TTY handle BEFORE the child changes its termios.
+  // Capture baseline termios and register as "guard" BEFORE the child changes it.
   const stdin = process.stdin;
-  const wasRaw = stdin.isRaw === true;
-  // libuv caches the parent's TTY mode, so setRawMode(false) alone can be a
-  // no-op after a CHILD changes the kernel termios. Preserve the actual state.
-  const ttyState = stdin.isTTY && process.platform !== "win32"
-    ? spawnSync("stty", ["-g"], { stdio: [stdin.fd, "pipe", "ignore"], encoding: "utf8" })
-    : undefined;
+  const stdout = process.stdout;
+  const ttyState = saveTtyState(stdin, { stdout, role: "guard" });
   try {
-    return launch({ ...process.env, [RECEIPT_ENV]: receipt });
+    return launch({
+      ...process.env,
+      [RECEIPT_ENV]: receipt,
+      [GUARD_ENV]: "1",
+    });
   } finally {
     try {
-      const reset = readFileSync(receipt, "utf8");
-      if (reset) writeSync(process.stdout.fd, reset);
+      restoreTtyState(
+        ttyState,
+        stdin,
+        () => {
+          const reset = readFileSync(receipt, "utf8");
+          if (reset) {
+            if (typeof stdout.fd === "number") {
+              writeSync(stdout.fd, reset);
+            } else {
+              stdout.write(reset);
+            }
+          }
+        },
+        stdout,
+      );
     } finally {
-      try {
-        if (stdin.isTTY) stdin.setRawMode(wasRaw);
-        if (ttyState?.status === 0 && ttyState.stdout.trim()) {
-          spawnSync("stty", [ttyState.stdout.trim()], { stdio: [stdin.fd, "ignore", "ignore"] });
-        }
-      } finally {
-        rmSync(directory, { recursive: true, force: true });
-      }
+      rmSync(directory, { recursive: true, force: true });
     }
   }
+}
+
+export function withClientTerminalRecoverySubprocess<T>(
+  runDirect: () => T,
+  options?: {
+    readonly stdin?: { readonly isTTY?: boolean; readonly fd?: unknown };
+    readonly stdout?: { readonly isTTY?: boolean; readonly fd?: unknown };
+    readonly env?: NodeJS.ProcessEnv;
+    readonly execPath?: string;
+    readonly execArgv?: ReadonlyArray<string>;
+    readonly argv?: ReadonlyArray<string>;
+    readonly mapSpawnResult?: (res: SpawnSyncReturns<Buffer | string>) => number;
+  },
+): T | number {
+  const env = options?.env ?? process.env;
+  const stdin = options?.stdin ?? process.stdin;
+  const stdout = options?.stdout ?? process.stdout;
+  const isTty = stdin.isTTY === true || stdout.isTTY === true;
+  const entry = (options?.argv ?? process.argv)[1] ?? "";
+  if (
+    !isTty ||
+    env[RECEIPT_ENV] ||
+    env[GUARD_ENV] ||
+    /\bvitest\b/i.test(entry)
+  ) {
+    return runDirect();
+  }
+  const args = [
+    ...(options?.execArgv ?? process.execArgv),
+    ...(options?.argv ?? process.argv).slice(1),
+  ];
+  return withAttachTerminalRecovery((guardEnv) => {
+    const res = spawnSync(options?.execPath ?? process.execPath, args, {
+      stdio: "inherit",
+      env: guardEnv,
+    });
+    if (options?.mapSpawnResult) {
+      return options.mapSpawnResult(res);
+    }
+    return statusFromSpawnResult(res);
+  });
+}
+
+export async function runRemoteAttachInRecoverySubprocess(
+  attachFn: () => Promise<void>,
+  target: { readonly baseUrl: string; readonly sessionId: string },
+  options?: {
+    readonly stdin?: { readonly isTTY?: boolean; readonly fd?: unknown };
+    readonly stdout?: { readonly isTTY?: boolean; readonly fd?: unknown };
+    readonly env?: NodeJS.ProcessEnv;
+    readonly execPath?: string;
+    readonly execArgv?: ReadonlyArray<string>;
+    readonly argv?: ReadonlyArray<string>;
+  },
+): Promise<number | undefined> {
+  const env = options?.env ?? process.env;
+  const stdin = options?.stdin ?? process.stdin;
+  const stdout = options?.stdout ?? process.stdout;
+  const isTty = stdin.isTTY === true || stdout.isTTY === true;
+  const entry = (options?.argv ?? process.argv)[1] ?? "";
+  if (
+    !isTty ||
+    env[RECEIPT_ENV] ||
+    env[GUARD_ENV] ||
+    /\bvitest\b/i.test(entry)
+  ) {
+    await attachFn();
+    return undefined;
+  }
+  const attachModuleUrl = new URL("../attach.js", import.meta.url).href;
+  const script = [
+    `const mod = await import(process.env[${JSON.stringify(SUBPROCESS_ATTACH_MOD_ENV)}]);`,
+    `const s = await mod.attach({ baseUrl: process.env[${JSON.stringify(SUBPROCESS_ATTACH_BASE_ENV)}], sessionId: process.env[${JSON.stringify(SUBPROCESS_ATTACH_ID_ENV)}] });`,
+    `await s.finished;`,
+  ].join(" ");
+  const rawExecArgv = options?.execArgv ?? process.execArgv;
+  const filteredExecArgv = rawExecArgv.filter((a) => a !== "--input-type=module");
+  return withAttachTerminalRecovery((guardEnv) => {
+    const res = spawnSync(
+      options?.execPath ?? process.execPath,
+      [...filteredExecArgv, "--input-type=module", "-e", script],
+      {
+        stdio: "inherit",
+        env: {
+          ...guardEnv,
+          [SUBPROCESS_ATTACH_MOD_ENV]: attachModuleUrl,
+          [SUBPROCESS_ATTACH_BASE_ENV]: target.baseUrl,
+          [SUBPROCESS_ATTACH_ID_ENV]: target.sessionId,
+        },
+      },
+    );
+    return statusFromSpawnResult(res);
+  });
 }

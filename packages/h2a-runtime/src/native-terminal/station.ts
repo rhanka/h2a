@@ -98,6 +98,13 @@ import {
 } from "./draft-recovery-view.js";
 import { H2A_OUTER_MOUSE_ENABLE, H2A_OUTER_MOUSE_RESET } from "./terminal-modes.js";
 import { TerminalUndoRegistry } from "./attach-recovery.js";
+import {
+  enterRawOutputTty,
+  installTtySuspendHandlers,
+  restoreTtyState,
+  type TtyState,
+  type TtyStdout,
+} from "../terminal-reset.js";
 import { appendCrashLog, type CrashLogEntry } from "../crash-log.js";
 import { readRemoteConfig } from "../config.js";
 import { humanOutputText, resolveHumanOutputLocale } from "../human-output.js";
@@ -782,6 +789,14 @@ class Station {
   }
 
   /** The session view never closes the host client it shares with the guards. */
+  #isTtyResponder(): boolean {
+    return (
+      this.#stdin.isTTY === true &&
+      (this.#stdout as { isTTY?: boolean }).isTTY === true &&
+      process.env["TERM"] !== "dumb"
+    );
+  }
+
   #viewClient(link: HostLink): NativeTerminalAttachClient {
     const client = link.client;
     return {
@@ -789,6 +804,12 @@ class Station {
       state: (id) => client.state(id),
       acquireController: (id, controllerId, activity, options) =>
         client.acquireController(id, controllerId, activity, options),
+      ...(client.setControllerResponder
+        ? {
+            setControllerResponder: (lease: NativeTerminalControllerLease, enabled: boolean) =>
+              client.setControllerResponder!(lease, enabled),
+          }
+        : {}),
       releaseController: (lease) => client.releaseController(lease),
       write: (lease, data) => client.write(lease, data),
       resize: (lease, cols, rows) => client.resize(lease, cols, rows),
@@ -2731,6 +2752,10 @@ class Station {
         this.#emit({ type: "lease-released", sessionId: view.sessionId });
       } else {
         // Compatibility guard: the lease is kept, never written to nor resized.
+        // Demote its terminal responder so host resumes handling ESC[6n] safely.
+        if (this.#isTtyResponder()) {
+          await link.client.setControllerResponder?.(current.lease, false).catch(() => {});
+        }
         this.#setGuard(view.sessionId, current.lease, link.socketPath);
         this.#persist(
           withCompatGuard(this.#state, view.sessionId, {
@@ -2809,6 +2834,18 @@ class Station {
     };
     // Publish-then-enable: the receipt knows the mouse before it is on again.
     view.enableOuterMouse();
+    if (this.#isTtyResponder()) {
+      try {
+        const promoted = await link.client.setControllerResponder?.(lease, true);
+        if (typeof promoted?.responderFromSeq === "number") {
+          view.setCatchUpUntilSeq(promoted.responderFromSeq);
+        } else if (typeof state.latestSeq === "number") {
+          view.setCatchUpUntilSeq(state.latestSeq);
+        }
+      } catch {
+        // Older host or mock without set-controller-responder.
+      }
+    }
     await view.attachLease({ client: this.#viewClient(link), lease }, () => {
       this.#panel.paint();
     });
@@ -3174,6 +3211,7 @@ class Station {
       }
       // Never by force: a reconnection must not take the session back.
       const lease = await link.client.acquireController(view.sessionId, this.#controllerId, "human", {
+        ...(this.#isTtyResponder() ? { terminalResponder: true } : {}),
         pid: this.#pid,
         tty: this.#tty,
       });
@@ -3389,21 +3427,39 @@ class Station {
     this.#noticeOtherControllers();
 
     const stdin = this.#stdin;
-    const isRawCapable = stdin.isTTY === true;
-    const wasRaw = stdin.isRaw === true;
+    let ttyState: TtyState | undefined;
+    let uninstallSuspend: (() => void) | undefined;
+    let terminated = false;
+    const restoreStationTty = (onReset?: () => void): void => {
+      const doReset = (): void => {
+        try {
+          const view = this.#view;
+          if (view && !view.modesSuspended) {
+            view.flushRelay();
+            onReset?.();
+            view.resetModes();
+          } else {
+            this.#stdout.write(this.#stationUndo.compose());
+            onReset?.();
+          }
+        } catch {
+          // Best effort on teardown.
+        }
+      };
+      if (ttyState) {
+        restoreTtyState(ttyState, stdin, doReset);
+      } else {
+        doReset();
+      }
+    };
     const terminate = (): void => {
+      if (terminated) return;
+      terminated = true;
       this.#ended ??= "terminate";
       this.#closing = true;
       try {
-        const view = this.#view;
-        if (view && !view.modesSuspended) {
-          view.flushRelay();
-          view.resetModes();
-        } else {
-          this.#stdout.write(this.#stationUndo.compose());
-        }
+        restoreStationTty();
       } finally {
-        if (isRawCapable) stdin.setRawMode(wasRaw);
         stdin.pause();
         // Closing the connections releases every lease this station held.
         for (const socketPath of [...this.#links.keys()]) this.#dropLink(socketPath);
@@ -3420,18 +3476,70 @@ class Station {
 
     try {
       this.#started = true;
-      if (isRawCapable) stdin.setRawMode(true);
+      // Everything h2a puts on the outer terminal is published before it is on.
+      this.#stationUndo.set("h2a-hygiene", `${ESC}[4l${ESC}[?6l${ESC}[r${ESC}[0m`);
+      this.#stationUndo.set("h2a-mouse", H2A_OUTER_MOUSE_RESET);
+      this.#stationUndo.set("h2a-title", STATION_TITLE_POP);
+      this.#stationUndo.publish(this.#runtime.saveTerminalReset, true);
+      ttyState = enterRawOutputTty(stdin, this.#stdout as TtyStdout);
+      if (stdin.isTTY === true || (this.#stdout as { isTTY?: boolean }).isTTY === true) {
+        uninstallSuspend = installTtySuspendHandlers({
+          state: ttyState,
+          stdin,
+          stdout: this.#stdout as TtyStdout,
+          beforeSuspend: () => {
+            const view = this.#liveView();
+            const active = view?.active;
+            if (active && this.#isTtyResponder()) {
+              void active.client.setControllerResponder?.(active.lease, false).catch(() => {});
+            }
+            try {
+              view?.flushRelay();
+              const resetSeq =
+                (view && !view.modesSuspended
+                  ? `${view.statusBar.flushPendingSequence()}${view.statusBar.restoreSequence()}${view.modes.resetSequence({ excludeMouse: false })}`
+                  : "") + this.#stationUndo.compose();
+              if (resetSeq) this.#stdout.write(resetSeq);
+            } catch {
+              // Best effort before suspend.
+            }
+          },
+          afterResume: () => {
+            this.#stationUndo.publish(this.#runtime.saveTerminalReset, true);
+            this.#stdout.write(STATION_TITLE_PUSH);
+            const view = this.#liveView();
+            if (view) {
+              view.modesSuspended = false;
+              view.enableOuterMouse();
+              this.#panel.paint();
+              this.#setTitle();
+              void view.statusBar.probe(true, "attached");
+              view.saveReset();
+              view.sendChildResize();
+              const active = view.active;
+              if (active && this.#isTtyResponder()) {
+                void active.client
+                  .setControllerResponder?.(active.lease, true)
+                  .then((res) => {
+                    if (typeof res?.responderFromSeq === "number") {
+                      view.setCatchUpUntilSeq(res.responderFromSeq);
+                    }
+                  })
+                  .catch(() => {});
+              }
+            } else {
+              this.#stdout.write(H2A_OUTER_MOUSE_ENABLE);
+              this.#panel.paint();
+            }
+          },
+        });
+      }
       stdin.resume();
       stdin.on("data", this.#onInput);
       stdin.on("end", onEnd);
       this.#runtime.onResize(resize);
       this.#runtime.onTerminate?.(terminate);
 
-      // Everything h2a puts on the outer terminal is published before it is on.
-      this.#stationUndo.set("h2a-hygiene", `${ESC}[4l${ESC}[?6l${ESC}[r${ESC}[0m`);
-      this.#stationUndo.set("h2a-mouse", H2A_OUTER_MOUSE_RESET);
-      this.#stationUndo.set("h2a-title", STATION_TITLE_POP);
-      this.#stationUndo.publish(this.#runtime.saveTerminalReset, true);
       this.#stdout.write(STATION_TITLE_PUSH);
       this.#titlePushed = true;
 
@@ -3508,24 +3616,24 @@ class Station {
       const reason = this.#ended ?? "terminate";
       this.#closing = true;
       try {
-        const view = this.#view;
-        if (view && !view.modesSuspended) {
-          view.flushRelay();
-          view.restoreBarForNotice();
-          this.#stdout.write(`\r\n[h2a] ${this.#t("station.notice.closed")}\r\n`);
-          view.resetModes();
-        } else {
-          this.#stdout.write(
-            `${this.#stationUndo.compose()}\r\n[h2a] ${this.#t("station.notice.closed")}\r\n`,
-          );
-          this.#runtime.saveTerminalReset?.("");
-        }
+        restoreStationTty(() => {
+          const view = this.#view;
+          if (view && !view.modesSuspended) {
+            view.restoreBarForNotice();
+            this.#stdout.write(`\r\n[h2a] ${this.#t("station.notice.closed")}\r\n`);
+          } else {
+            this.#stdout.write(
+              `\r\n[h2a] ${this.#t("station.notice.closed")}\r\n`,
+            );
+            this.#runtime.saveTerminalReset?.("");
+          }
+        });
       } finally {
         this.#runtime.offTerminate?.(terminate);
         this.#runtime.offResize(resize);
+        uninstallSuspend?.();
         stdin.removeListener("data", this.#onInput);
         stdin.removeListener("end", onEnd);
-        if (isRawCapable) stdin.setRawMode(wasRaw);
         stdin.pause();
         const view = this.#view;
         if (view) {
