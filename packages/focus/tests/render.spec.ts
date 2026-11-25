@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { renderHtml, renderMd, renderTerminal } from "../src/index.js";
+import { FOCUS_THEME_MAX_CSS_BYTES, renderHtml, renderMd, renderTerminal } from "../src/index.js";
 import type { HtmlRenderHooks } from "../src/index.js";
 import { decisionDossierFixture } from "./fixture.data.js";
 import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
@@ -260,5 +260,53 @@ describe("1.1.0 / 2.1.0 reference diagram, inputs[], completionCriterion & escap
     expect(term).toContain("  Input: Latency report (bench-q1)");
     expect(term).toContain("  Completion: Choice recorded by the owner.");
     expect(term).toContain("Diagram (GanttChart) — Architecture map across stages. [engram:roadmap-```-gantt]");
+  });
+});
+
+describe("renderHtml theme CSS options", () => {
+  it("produces byte-identical HTML when theme options are omitted", () => {
+    const withoutOptions = renderHtml(doc, hooks);
+    const withEmptyOptions = renderHtml(doc, hooks, {});
+    expect(withEmptyOptions).toBe(withoutOptions);
+    expect(withoutOptions).not.toContain("data-focus-theme");
+    expect(withoutOptions).not.toContain("data-theme=");
+  });
+
+  it("inlines valid CSS in <style data-focus-theme> after base styles and supports data: URLs", () => {
+    const css = `:root { --st-semantic-surface-default: #111827; }\n.focus-document { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"); }`;
+    const html = renderHtml(doc, hooks, { themeCss: css });
+    const baseStyleIdx = html.indexOf("<style>");
+    const themeStyleIdx = html.indexOf("<style data-focus-theme>");
+    expect(baseStyleIdx).toBeGreaterThan(-1);
+    expect(themeStyleIdx).toBeGreaterThan(baseStyleIdx);
+    expect(html).toContain(`<style data-focus-theme>${css}</style>`);
+    expect(html).not.toContain("data-theme=");
+  });
+
+  it("sets data-theme on root element only when themeId is provided", () => {
+    const css = `[data-theme="devmtl"] { --st-semantic-surface-default: #0f172a; }`;
+    const themed = renderHtml(doc, hooks, { themeCss: css, themeId: "devmtl" });
+    expect(themed).toContain('<article class="focus-document" data-ref="decision:focus-render-core" data-theme="devmtl">');
+    expect(themed).toContain(`<style data-focus-theme>${css}</style>`);
+  });
+
+  it("refuses @import, non-data url(...), </style, oversized CSS, and invalid themeId", () => {
+    const badCssCases = [
+      `@import "https://evil.example/a.css";`,
+      `@IMPORT url('other.css');`,
+      `body { @\\69 mport "evil.css"; }`,
+      `body { background: url(https://evil.example/bg.png); }`,
+      `body { background: url('/assets/bg.png'); }`,
+      `body { background: url(./rel.png); }`,
+      `body { background: url(); }`,
+      `body { background: u\\72 l("https://evil.example/bg.png"); }`,
+      `/* </style><script>alert(1)</script> */`,
+      `:root { color: red; }</STYLE>`,
+      `/* ${"a".repeat(FOCUS_THEME_MAX_CSS_BYTES)} */`,
+    ];
+    for (const css of badCssCases) {
+      expect(() => renderHtml(doc, hooks, { themeCss: css })).toThrow();
+    }
+    expect(() => renderHtml(doc, hooks, { themeCss: ":root{}", themeId: 'bad"id' })).toThrow();
   });
 });

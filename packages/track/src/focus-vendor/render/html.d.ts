@@ -9,5 +9,12 @@
  */
 import type { FocusDocument } from "../model.js";
 import type { HtmlRenderHooks } from "./hooks.js";
+/** Optional configuration for {@link renderHtml}. */
+export interface HtmlRenderOptions {
+    /** Validated CSS text inlined into `<style data-focus-theme>` after base styles. */
+    readonly themeCss?: string;
+    /** Optional theme identifier set as `data-theme="<id>"` on the root `<article>`. */
+    readonly themeId?: string;
+}
 /** Render a decision-dossier document to a sanitized HTML string. */
-export declare const renderHtml: (doc: FocusDocument, hooks: HtmlRenderHooks) => string;
+export declare const renderHtml: (doc: FocusDocument, hooks: HtmlRenderHooks, options?: HtmlRenderOptions) => string;

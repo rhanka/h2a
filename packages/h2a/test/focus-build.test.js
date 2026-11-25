@@ -610,3 +610,132 @@ test('kit CSS keeps diagrams at natural size, DS container width, measured per-d
   // The rebuilt bundle carries the single-gutter main rule (no max-width, no side padding on main).
   assert.ok(/main\{margin:auto;padding-block:1rem 2rem\}/.test(style), 'bundle main rule has no double gutter')
 })
+
+test('theme CSS: omitted option preserves byte-identical portable HTML and CSP', async () => {
+  const { buildFocusDossier } = await import('../dist/focus-build.js')
+  isolated((root) => {
+    const doc = fixture()
+    const input = join(root, 'dossier.json')
+    const out1 = join(root, 'default-1.html')
+    const out2 = join(root, 'default-2.html')
+    writeFileSync(input, JSON.stringify(doc), 'utf8')
+    assert.equal(run(root, 'build', input, '-o', out1).status, 0)
+    assert.equal(run(root, 'build', input, '-o', out2).status, 0)
+    const html1 = readFileSync(out1, 'utf8')
+    const html2 = readFileSync(out2, 'utf8')
+    assert.equal(html1, html2)
+    assert.equal(buildFocusDossier(doc), buildFocusDossier(doc, {}))
+    assert.equal(html1, buildFocusDossier(doc))
+    assert.doesNotMatch(html1, /data-focus-theme/)
+    assert.doesNotMatch(html1, /data-theme=/)
+    const rendererCsp = readFileSync(join(kit, 'renderer.html'), 'utf8').match(/<meta http-equiv="Content-Security-Policy" content="[^"]+">/)?.[0]
+    assert.ok(rendererCsp)
+    assert.ok(html1.includes(rendererCsp))
+  })
+})
+
+test('theme CSS: inlines valid CSS after base styles, sets data-theme only with --theme-id, allows data: URLs, and leaves CSP unchanged', async () => {
+  const { buildFocusDossier } = await import('../dist/focus-build.js')
+  isolated((root) => {
+    const doc = fixture()
+    const input = join(root, 'dossier.json')
+    const cssPath = join(root, 'devmtl.css')
+    const outNoId = join(root, 'themed-no-id.html')
+    const outWithId = join(root, 'themed-with-id.html')
+    const css = `:root, [data-theme="devmtl"] {\n  --st-semantic-surface-default: #0b0e14;\n  --st-semantic-text-primary: #f8fafc;\n}\n.title-band { background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"); }\n`
+    writeFileSync(input, JSON.stringify(doc), 'utf8')
+    writeFileSync(cssPath, css, 'utf8')
+
+    const rendererCsp = readFileSync(join(kit, 'renderer.html'), 'utf8').match(/<meta http-equiv="Content-Security-Policy" content="[^"]+">/)?.[0]
+    assert.ok(rendererCsp)
+    assert.match(rendererCsp, /style-src 'unsafe-inline'/)
+
+    const resNoId = run(root, 'build', input, '-o', outNoId, '--theme-css', cssPath)
+    assert.equal(resNoId.status, 0, resNoId.stderr)
+    const htmlNoId = readFileSync(outNoId, 'utf8')
+    assert.ok(htmlNoId.includes(rendererCsp), 'CSP meta must stay unchanged')
+    const rootTagNoId = htmlNoId.match(/<html\b[^>]*>/i)?.[0] ?? ''
+    assert.equal(rootTagNoId, '<html lang="fr">')
+    assert.doesNotMatch(rootTagNoId, /data-theme=/)
+    const baseStyleEndNoId = htmlNoId.indexOf('</style>')
+    const themeStyleIdxNoId = htmlNoId.indexOf('<style data-focus-theme>')
+    assert.ok(baseStyleEndNoId > 0 && themeStyleIdxNoId > baseStyleEndNoId, '<style data-focus-theme> must appear after base styles')
+    assert.ok(themeStyleIdxNoId < htmlNoId.indexOf('</head>'))
+    assert.ok(htmlNoId.includes(`<style data-focus-theme>${css}</style>`))
+
+    const resWithId = run(root, 'build', input, '-o', outWithId, '--theme-css', cssPath, '--theme-id', 'devmtl')
+    assert.equal(resWithId.status, 0, resWithId.stderr)
+    const htmlWithId = readFileSync(outWithId, 'utf8')
+    assert.ok(htmlWithId.includes(rendererCsp), 'CSP meta must stay unchanged')
+    assert.match(htmlWithId, /<html lang="fr" data-theme="devmtl">/)
+    assert.ok(htmlWithId.includes(`<style data-focus-theme>${css}</style>`))
+    assert.ok(htmlWithId.includes('<style data-focus-theme-bridge>[data-theme="devmtl"] [data-st-theme]{--st-semantic-surface-default:inherit;--st-semantic-text-primary:inherit}</style>'))
+
+    // Artifact target retains theme CSS after base styles and applies data-theme on root container.
+    const frag = buildFocusDossier(doc, { target: 'artifact', themeCss: css, themeId: 'devmtl' })
+    assert.doesNotMatch(frag, /<!doctype|<html[\s>]|<head[\s>]|<body[\s>]|Content-Security-Policy/i)
+    assert.ok(frag.indexOf('<style data-focus-theme>') > frag.indexOf('</style>'))
+    assert.ok(frag.includes(`<style data-focus-theme>${css}</style>`))
+    assert.ok(frag.includes('<div data-theme="devmtl">'))
+  })
+})
+
+test('theme CSS: refuses @import, external/non-data url(), </style, oversized files, invalid themeId, and preserves prior output', async () => {
+  const { buildFocusDossier } = await import('../dist/focus-build.js')
+  const { FOCUS_THEME_MAX_CSS_BYTES, renderHtml } = await import('@sentropic/focus')
+  const { run: runFocusCli } = await import('@sentropic/focus/cli')
+  assert.equal(typeof runFocusCli, 'function')
+  assert.equal(typeof renderHtml, 'function')
+
+  isolated((root) => {
+    const doc = fixture()
+    const input = join(root, 'dossier.json')
+    const output = join(root, 'decision.html')
+    writeFileSync(input, JSON.stringify(doc), 'utf8')
+    writeFileSync(output, 'previous intact portable dossier', 'utf8')
+
+    const badCases = [
+      ['@import', `@import "https://cdn.example/theme.css";`, /@import/i],
+      ['@IMPORT uppercase', `@IMPORT url("a.css");`, /@import/i],
+      ['@import escaped', `@\\69 mport "a.css";`, /@import/i],
+      ['external https url()', `body { background: url("https://evil.example/bg.png"); }`, /url\(/i],
+      ['root-relative url()', `body { background: url(/assets/bg.png); }`, /url\(/i],
+      ['relative url()', `body { background: url(./bg.png); }`, /url\(/i],
+      ['empty url()', `body { background: url(); }`, /url\(/i],
+      ['escaped url()', `body { background: u\\72 l("https://evil.example/bg.png"); }`, /url\(/i],
+      ['</style breakout', `body { color: red; }</style><script>alert(1)</script>`, /<\/style/i],
+      ['</STYLE in comment', `/* </STYLE> */`, /<\/style/i],
+      ['oversized > 256 KiB', `/* ${'a'.repeat(FOCUS_THEME_MAX_CSS_BYTES)} */`, /256 KiB|maximum size/i],
+    ]
+
+    for (const [label, css, pattern] of badCases) {
+      const cssPath = join(root, `${label.replace(/[^a-z0-9]+/gi, '_')}.css`)
+      writeFileSync(cssPath, css, 'utf8')
+      const res = run(root, 'build', input, '-o', output, '--theme-css', cssPath)
+      assert.equal(res.status, 1, `${label}: expected exit 1, got ${res.status}`)
+      assert.match(res.stderr, pattern, `${label}: ${res.stderr}`)
+      assert.equal(readFileSync(output, 'utf8'), 'previous intact portable dossier', `${label}: prior output preserved`)
+      assert.throws(() => buildFocusDossier(doc, { themeCss: css }), pattern, `${label}: API refuses`)
+    }
+
+    // Missing file, invalid theme-id, missing flag values, and CSS == output path.
+    const missingRes = run(root, 'build', input, '-o', output, '--theme-css', join(root, 'does-not-exist.css'))
+    assert.equal(missingRes.status, 1)
+    assert.equal(readFileSync(output, 'utf8'), 'previous intact portable dossier')
+
+    const validCss = join(root, 'ok.css')
+    writeFileSync(validCss, ':root { --st-semantic-surface-default: #123456; }', 'utf8')
+    assert.equal(run(root, 'build', input, '-o', output, '--theme-css', validCss, '--theme-id', 'bad id').status, 1)
+    assert.equal(run(root, 'build', input, '-o', output, '--theme-css').status, 2)
+    assert.equal(run(root, 'build', input, '-o', output, '--theme-id').status, 2)
+    assert.equal(run(root, 'build', input, '-o', validCss, '--theme-css', validCss).status, 1)
+    assert.equal(readFileSync(validCss, 'utf8'), ':root { --st-semantic-surface-default: #123456; }')
+
+    // Also verify @sentropic/focus renderHtml byte-identical baseline & theme behavior directly in Node.
+    const focusHooks = { renderMarkdown: (m) => `<p>${m}</p>`, sanitizeHtml: (h) => h }
+    assert.equal(renderHtml(doc, focusHooks), renderHtml(doc, focusHooks, {}))
+    const themedFocusHtml = renderHtml(doc, focusHooks, { themeCss: ':root { --st-a: 1; }', themeId: 'devmtl' })
+    assert.ok(themedFocusHtml.includes('data-theme="devmtl"'))
+    assert.ok(themedFocusHtml.includes('<style data-focus-theme>:root { --st-a: 1; }</style>'))
+  })
+})

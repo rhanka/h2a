@@ -64,6 +64,8 @@ const html = renderHtml(doc, {
 });
 ```
 
+Portable HTML builds and `renderHtml` also accept `--theme-css <path>` / `themeCss` (validated offline CSS up to 256 KiB, no `@import` or external `url(...)`) and `--theme-id <id>` / `themeId` (sets `data-theme="<id>"` on the page root).
+
 ## Build / checks
 
 ```

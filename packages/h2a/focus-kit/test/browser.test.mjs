@@ -459,3 +459,44 @@ test('the takeaway marker carried by legacy dossiers is not displayed', async ()
     }
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test('inlined theme CSS with :root and [data-theme] overrides ThemeProvider tokens offline under strict CSP', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const root = mkdtempSync(join(tmpdir(), 'focus-theme-browser-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const css = `:root, [data-theme="devmtl"] {\n  --st-semantic-surface-default: rgb(18, 24, 38);\n  --st-semantic-text-primary: rgb(245, 247, 250);\n}\n`;
+    const html = buildFocusDossier(doc, { themeCss: css, themeId: 'devmtl' });
+    const output = join(root, 'devmtl.html');
+    writeFileSync(output, html);
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ offline: true, viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage(), errors = [], cspViolations = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.addInitScript(() => {
+      document.addEventListener('securitypolicyviolation', (e) => {
+        window.__cspViolations = (window.__cspViolations || []);
+        window.__cspViolations.push(`${e.violatedDirective}:${e.blockedURI}`);
+      });
+    });
+    await page.goto(pathToFileURL(output).href);
+    await page.locator('.focus-page').waitFor({ state: 'visible' });
+    const observed = await page.evaluate(() => {
+      const pageEl = document.querySelector('.focus-page');
+      const style = getComputedStyle(pageEl);
+      return {
+        rootTheme: document.documentElement.getAttribute('data-theme'),
+        bg: style.backgroundColor,
+        color: style.color,
+        violations: window.__cspViolations || [],
+      };
+    });
+    cspViolations.push(...observed.violations);
+    assert.equal(observed.rootTheme, 'devmtl');
+    assert.equal(observed.bg, 'rgb(18, 24, 38)');
+    assert.equal(observed.color, 'rgb(245, 247, 250)');
+    assert.deepEqual(cspViolations, []);
+    assert.deepEqual(errors, []);
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
