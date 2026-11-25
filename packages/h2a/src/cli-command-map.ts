@@ -322,6 +322,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SESSION_RECOVERY", verb: "rename", summary: "Rename a session's display name without restarting it." },
   { group: "SESSION_RECOVERY", verb: "enroll", summary: "Live-session registry plumbing that feeds `ls` and `restore`." },
   { group: "SESSION_RECOVERY", verb: "lineage", summary: "Local lineage incarnation lifecycle." },
+  { group: "SESSION_RECOVERY", verb: "archive", summary: "Keep-only verified archives, deadline scan, and restore for Claude sessions." },
 
   { group: "TRANSPORT", verb: "sync", summary: "Copy the conversation log between local and the session Pod." },
   { group: "TRANSPORT", verb: "sync-files", summary: "Push the git workspace to the session Pod incrementally." },

@@ -207,6 +207,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       "rename",
       "enroll",
       "lineage",
+      "archive",
     ],
   },
   {

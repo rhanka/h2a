@@ -23,6 +23,11 @@ import {
   applyRuntimeHelpGroups,
   groupRuntimeHelpItems,
 } from "./cli-help-groups.js";
+import { registerArchiveCommand } from "./archive-cli.js";
+import {
+  emitResumeArchiveNotices,
+  ensureClaudeSessionRestoredForResume,
+} from "./session-archive.js";
 
 import {
   attach,
@@ -737,6 +742,40 @@ async function startRemoteFanout(
   }
 }
 
+function extractResumeConvId(
+  explicitResume: unknown,
+  commandArgs: ReadonlyArray<string>,
+): string | undefined {
+  if (typeof explicitResume === "string" && explicitResume.trim().length > 0) {
+    return explicitResume.trim();
+  }
+  for (let i = 0; i < commandArgs.length; i++) {
+    const arg = commandArgs[i];
+    if (arg === "--resume" && typeof commandArgs[i + 1] === "string") {
+      return commandArgs[i + 1]!.trim();
+    }
+    if (typeof arg === "string" && arg.startsWith("--resume=")) {
+      const value = arg.slice("--resume=".length).trim();
+      if (value.length > 0) return value;
+    }
+  }
+  return undefined;
+}
+
+function prepareClaudeResumeRestore(
+  toolOrProfile: string | undefined,
+  explicitResume: unknown,
+  commandArgs: ReadonlyArray<string>,
+  cwd: string,
+): void {
+  const normalized = toolOrProfile?.trim().toLowerCase();
+  if (normalized !== "claude" && normalized !== "claude-code") return;
+  const convId = extractResumeConvId(explicitResume, commandArgs);
+  if (!convId) return;
+  const outcome = ensureClaudeSessionRestoredForResume({ convId, cwd });
+  emitResumeArchiveNotices(outcome);
+}
+
 async function runProfile(
   profileName: string,
   opts: ProfileOpts,
@@ -879,6 +918,7 @@ async function runProfile(
     await attachSession.finished;
     return;
   }
+  prepareClaudeResumeRestore(profileName, opts.resume, commandArgs, process.cwd());
   const runOptions: import("./run.js").RunOptions = {
     profile: profileName,
     ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
@@ -5960,6 +6000,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
+        if (entry.convId) {
+          prepareClaudeResumeRestore(entry.tool, entry.convId, [], entry.cwd);
+        }
         if (
           liveActTarget &&
           (liveActTarget.kind === "local-tmux" || opts.replace)
@@ -6568,6 +6611,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
         if (opts.resume) {
+          if (typeof opts.resume === "string") {
+            prepareClaudeResumeRestore(profile, opts.resume, [], cwd);
+          }
           // Reuse this operation's certified name verdict for that SAME
           // session. Other conversation owners still require their own probe.
           // Creation rechecks the complete inventory and name admission at
@@ -11672,6 +11718,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // │     harmless in the output even then, and NOTHING GUARDS IT — a property
   // │     of statement order, not an invariant. Recorded, not relied upon.
   // └──
+  registerArchiveCommand(program);
   applyRuntimeHelpGroups(program.createHelp().visibleCommands(program));
   program.configureHelp({ groupItems: groupRuntimeHelpItems });
   program.addHelpText(
