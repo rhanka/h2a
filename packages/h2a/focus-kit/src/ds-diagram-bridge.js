@@ -2,12 +2,19 @@
  * Focus dossier Design System diagram bridge (zero DOM, pure ESM).
  *
  * Bridges Focus diagram sections (`workflow` / `process@1` and `architecture` / `generic@1`)
- * cleanly over `@sentropic/diagram-canvas@0.6.0` + `@sentropic/diagram-core@0.6.1`, aligning
+ * over `@sentropic/diagram-canvas@0.6.0` + `@sentropic/diagram-core@0.6.1`, aligning
  * with the published `@sentropic/design-system-elements@0.4.0` focus-diagrams contract
  * (`FOCUS_PROCESS_TARGET_WIDTH = 640`, `relation:<from>.<to>`, `sentropic:process-flow`,
  * `foldableGenericProfile`, `renderSceneSvg`, `renderProcessTable`).
+ *
+ * Transitional DESIGN-r3 §2.2 note: `@sentropic/diagram-canvas@0.6.0` does not yet export
+ * a public `focus-bridge` subpath and `@sentropic/design-system-elements@0.4.0` keeps
+ * `dist/focus-diagrams/diagram-source.js` unexported, so `parseFlowchartToScene` and
+ * `validateCheckedFocusScene` here mirror the published DS `diagram-source.js` contract
+ * inside `h2a` until DS exports `@sentropic/diagram-canvas/focus-bridge`.
  */
 import {
+  layoutScene,
   shippedSceneBindings,
   shippedSceneRegistry,
   validateSceneDocument,
@@ -827,10 +834,12 @@ export function renderDossierDiagram(scene, options = {}) {
   const presentation = buildPresentation(scene, options.enrichment);
   const title = options.title ?? options.alt ?? engineDoc.documentId;
 
-  const wide = renderVariant(engineDoc, scene, presentation, 1440, 'wide', title);
+  const wideWidth = options.targetWidth ?? 1440;
+  const wide = renderVariant(engineDoc, scene, presentation, wideWidth, 'wide', title);
   if (wide.kind !== 'rendered') return wide;
 
-  const narrow = renderVariant(engineDoc, scene, presentation, FOCUS_PROCESS_TARGET_WIDTH, 'narrow', title);
+  const narrowWidth = options.targetWidth ?? FOCUS_PROCESS_TARGET_WIDTH;
+  const narrow = renderVariant(engineDoc, scene, presentation, narrowWidth, 'narrow', title);
   if (narrow.kind !== 'rendered') return narrow;
 
   let phoneVariant;

@@ -81,20 +81,22 @@ Do not duplicate `present-decision`'s owner-criteria table or self-audit here; f
 
 | Content | `diagramType` | Mode / DS profile | Expected rendering | Forbidden |
 | --- | --- | --- | --- | --- |
-| Ordered steps, runbook, validation circuit, CI/CD pipeline, agent loop | `workflow` | Inline (`process@1` / `flowchart`) | Rounded centered simple boxes, clean arrows, zero component icons, zero fold buttons | Architecture component cards |
-| Normative BPMN 2.0 process | *(outside inline Focus)* | Host `BpmnCanvas` | Dedicated BPMN 2.0 notation | Simulating BPMN with `generic@1` |
-| Services, components, deployment, network zones, numbered flows | `architecture` | Inline (`generic@1`, `ecosystem:*`, or raw `flowchart` with `"diagramType": "architecture"`) | Compact component cards, zones, visible links | Simple process boxes without boundaries |
-| Data model, tables, PK/FK, cardinalities | `erd` | Inline (`erd@1` / `erDiagram`, upcoming lot) | ERD tables with PK/FK rows and crow's feet | Generic cards |
-| Chronological exchanges between actors or services | `sequence` | Inline (`sequence@1` / `sequenceDiagram`, upcoming lot) | Lifelines, sync/async/reply messages, `alt`/`loop` blocks | Flattened flowchart |
-| ETL/ELT pipeline, stores, lineage | `dataflow` | Inline (`dataflow@1`, upcoming lot) | Pipeline steps with store cylinders and documents | Uniform cards |
-| Entity states, guards, retries | `lifecycle` | Inline (`state@1` / `stateDiagram-v2`, upcoming lot) | Initial/final states and guarded transitions | Cards lacking initial/final states |
-| Classes, interfaces, attributes, inheritance | `class` | Inline (`uml@2` / `classDiagram`, upcoming lot) | Three compartments and UML connectors | Cards without compartments |
-| Hierarchy or single-parent taxonomy | `tree` | Reference (`TreegraphChart`) | Node-link hierarchy | Card grid |
-| Dated milestones or incident chronology | `timeline` | Reference (`TimelineChart`) | Time axis with lanes and milestones | Horizontal flowchart |
-| Nested latencies, execution trace, cumulative bridge | `waterfall` | Reference (`TraceWaterfallChart` / `WaterfallChart`) | Indented spans with statuses or cumulative bars | Flat bars |
+| Ordered steps, runbook, validation circuit, CI/CD pipeline, agent loop | `workflow` | Mode A (`process@1` / `flowchart`) | Rounded centered simple boxes, clean arrows, zero component icons, zero fold buttons | Architecture component cards |
+| Normative BPMN 2.0 process | *(outside inline Focus)* | A2UI `BpmnCanvas` | Dedicated BPMN 2.0 notation | Simulating BPMN with `generic@1` |
+| Services, components, deployment, network zones, numbered flows | `architecture` | Mode A (`generic@2`, `archimate@2`, `ecosystem:*`, `flows`, or raw `flowchart` with `"diagramType": "architecture"`) | Compact r7 `v2` cards (opt-in), zones, visible links + legend | Simple process boxes without boundaries |
+| Data model, tables, PK/FK, cardinalities | `erd` | Mode A (`erd@1` / `erDiagram`, upcoming lot) | ERD tables with PK/FK rows and crow's feet | Generic cards |
+| Chronological exchanges between actors or services | `sequence` | Mode A (`sequence@1` / `sequenceDiagram`, upcoming lot) | Lifelines, sync/async/reply messages, `alt`/`loop` blocks | Flattened flowchart |
+| ETL/ELT pipeline, stores, lineage | `dataflow` | Mode A (`dataflow@1`, upcoming lot) | Pipeline steps with store cylinders and documents | Uniform cards |
+| Weighted flow distribution (volumes) | `dataflow` | Mode B (`SankeyChart`, later Focus lot) | Proportional ribbons | Unweighted flowchart |
+| Entity states, guards, retries | `lifecycle` | Mode A (`state@1` / `stateDiagram-v2`, upcoming lot) | Initial/final states and guarded transitions | Cards lacking initial/final states |
+| Classes, interfaces, attributes, inheritance | `class` | Mode A (`uml@2` / `classDiagram`, upcoming lot) | Three compartments and UML connectors | Cards without compartments |
+| Hierarchy or single-parent taxonomy | `tree` | Mode B (`TreegraphChart`, upcoming lot) | Node-link tree | Card grid |
+| Dated milestones or incident chronology | `timeline` | Mode B (`TimelineChart`, upcoming lot) | Time axis with lanes and milestones | Horizontal flowchart |
+| Nested latencies, execution trace | `waterfall` | Mode B (`TraceWaterfallChart`, upcoming lot) | Indented spans with statuses | Flat bars |
+| Cumulative numeric bridge (variances) | `waterfall` | Mode B (`WaterfallChart`, Focus only, upcoming lot) | Cumulative increase/decrease/total bars | Trace spans |
 
 Diagram authoring rules:
-1. Always declare `diagramType` on every new `diagram` section.
+1. Always declare `diagramType` on every new `diagram` section. Lot 1: the offline Focus builder accepts `diagramType` `"workflow"` and `"architecture"` only.
 2. For a `workflow`, aim for 3 to 8 steps with short labels (at most 5 words per box).
 3. If a builder warns `linear_chain_as_architecture_cards`, inspect intent and switch to `"diagramType": "workflow"` when the diagram represents steps rather than components.
 4. Untyped Mermaid `flowchart` sources without `scene` render as `workflow` (`process@1`) boxes by default; set `"diagramType": "architecture"` explicitly to retain architecture component cards.

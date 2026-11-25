@@ -1008,26 +1008,23 @@ test('Lot 1: anonymized + root-cause lock, focus-views/1 frozen bytes non-regres
   assert.doesNotMatch(d.wide.svg, /data-toggle|st-diagramCard-toggle|st-diagramCard-icon/)
   assert.doesNotMatch(d.narrow.svg, /data-toggle|st-diagramCard-toggle|st-diagramCard-icon/)
 
-  // Part B: Non-regression on frozen focus-views/1 (kit 0.5.0 companion with 1 generic@1 flowchart + 1 generic@1 scene with nested containers).
-  const ecoModels = JSON.parse(readFileSync(join(kit, 'ecosystem.json'), 'utf8')).scenes.models.document
+  // Part B: Non-regression on frozen focus-views/1 (kit 0.5.0 companion captured from @sentropic/design-system-elements@0.3.3 + @sentropic/diagram-canvas@0.5.0 over origin/main inputs).
+  const { createHash } = await import('node:crypto')
+  const { renderDossierDiagram } = await import('../focus-kit/diagram-views.mjs')
+  const { DiagramViewRefusalError } = await import('../dist/focus-build.js')
+  const ecoScenes = JSON.parse(readFileSync(join(kit, 'ecosystem.json'), 'utf8')).scenes
   const genericContainers = JSON.parse(readFileSync(join(kit, '../../focus/tests/diagram-core-generic.fixture.json'), 'utf8'))
-  const legacyFlowchartScene = {
-    documentId: 'document:legacy-flow',
-    schemaVersion: { major: 1, minor: 1 },
-    revision: 0,
-    profileRefs: ['generic@1'],
-    typeDefinitions: {},
-    entities: {
-      'entity:a': { id: 'entity:a', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Saisie' } } },
-      'entity:b': { id: 'entity:b', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Revue' } } },
-    },
-    relations: {
-      'relation:0': { id: 'relation:0', profile: 'generic@1', type: 'link', endpoints: [{ role: 'source', target: 'entity:a' }, { role: 'target', target: 'entity:b' }], attributes: { label: { kind: 'text', value: 'soumet' } } },
-    },
-    ports: {},
-    resources: {},
-    extensions: [],
-  }
+  const frozenViewsPath = new URL('./fixtures/focus-views-0.5.0.frozen.json', import.meta.url)
+  const frozenViewsCompanion = JSON.parse(readFileSync(frozenViewsPath, 'utf8'))
+  assert.equal(
+    createHash('sha256').update(canonicalJson(frozenViewsCompanion)).digest('hex'),
+    '662dcb830e735b1171e8d0982a4b9e02b78a28eb5e48dda6913bee036c5424fb',
+    'frozen kit 0.5.0 focus-views/1 fixture digest must stay pinned',
+  )
+  assert.equal(canonicalJson(frozenViewsCompanion.diagrams['models-map'].scene), canonicalJson(ecoScenes.models.document))
+  assert.equal(canonicalJson(frozenViewsCompanion.diagrams['overview-map'].scene), canonicalJson(ecoScenes.overview.document))
+  assert.equal(canonicalJson(frozenViewsCompanion.diagrams['nested-containers'].scene), canonicalJson(genericContainers))
+
   const computeViews = (scene) => {
     const entities = Object.fromEntries(Object.values(scene.entities).map(e => [
       `occurrence:e.${e.id.slice(7)}`,
@@ -1048,21 +1045,11 @@ test('Lot 1: anonymized + root-cause lock, focus-views/1 frozen bytes non-regres
     assert.equal(folded.status, 'laid-out')
     return { expanded: expanded.view, folded: folded.view }
   }
-  const frozenViewsCompanion = {
-    contract: 'focus-views/1',
-    documentDigest: `sha256:${'a'.repeat(64)}`,
-    rendererDigest: `sha256:${'b'.repeat(64)}`,
-    diagrams: {
-      'legacy-flow': { scene: legacyFlowchartScene, views: computeViews(legacyFlowchartScene) },
-      'models-map': { scene: ecoModels, views: computeViews(ecoModels) },
-      'nested-containers': { scene: genericContainers, views: computeViews(genericContainers) },
-    },
-  }
   assert.equal(validateFocusViewsDocument(frozenViewsCompanion).ok, true)
   for (const [id, entry] of Object.entries(frozenViewsCompanion.diagrams)) {
     const recomputed = computeViews(entry.scene)
-    assert.equal(canonicalJson(recomputed.expanded), canonicalJson(entry.views.expanded), `${id}: expanded view byte-identical`)
-    assert.equal(canonicalJson(recomputed.folded), canonicalJson(entry.views.folded), `${id}: folded view byte-identical`)
+    assert.equal(canonicalJson(recomputed.expanded), canonicalJson(entry.views.expanded), `${id}: expanded view byte-identical to frozen 0.5.0`)
+    assert.equal(canonicalJson(recomputed.folded), canonicalJson(entry.views.folded), `${id}: folded view byte-identical to frozen 0.5.0`)
   }
   assert.notEqual(
     canonicalJson(frozenViewsCompanion.diagrams['nested-containers'].views.folded),
@@ -1070,13 +1057,48 @@ test('Lot 1: anonymized + root-cause lock, focus-views/1 frozen bytes non-regres
     'nested generic@1 container folding stays active',
   )
 
-  // Part C: Identical pins across Svelte and Vue focus-kit packages, plus offline gzipped bridge size sanity.
+  // Part B2 (B-3 lock): layout refusal inside renderSceneSvg must surface structured diagnostics via layoutScene (never ReferenceError).
+  const processRefusal = renderDossierDiagram(payload.document.sections.find(s => s.kind === 'diagram').scene, { targetWidth: 0 })
+  assert.equal(processRefusal.kind, 'refused')
+  assert.equal(processRefusal.diagnostics[0]?.code, 'target-width-invalid')
+  const docWithUnsupportedRel = fixture()
+  docWithUnsupportedRel.sections.find(s => s.kind === 'diagram').scene = {
+    documentId: 'document:assoc-refusal',
+    schemaVersion: { major: 1, minor: 1 },
+    revision: 0,
+    profileRefs: ['generic@1'],
+    typeDefinitions: {},
+    entities: {
+      'entity:a': { id: 'entity:a', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Service A' } } },
+      'entity:b': { id: 'entity:b', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Service B' } } },
+    },
+    relations: {
+      'relation:a.b': {
+        id: 'relation:a.b',
+        profile: 'generic@1',
+        type: 'association',
+        endpoints: [{ role: 'member', target: 'entity:a' }, { role: 'member', target: 'entity:b' }],
+        attributes: { label: { kind: 'text', value: 'relates' } },
+      },
+    },
+    ports: {},
+    resources: {},
+    extensions: [],
+  }
+  assert.throws(
+    () => buildFocusDossier(docWithUnsupportedRel),
+    (err) => err instanceof DiagramViewRefusalError && err.diagnostics.some(diag => diag.code === 'relation-type-unsupported'),
+  )
+
+  // Part C: Identical pins across Svelte and Vue focus-kit packages, plus offline gzipped bundle size checks.
   const sveltePkg = JSON.parse(readFileSync(join(kit, 'package.json'), 'utf8'))
   const vuePkg = JSON.parse(readFileSync(join(kit, 'vue/package.json'), 'utf8'))
   for (const dep of ['@sentropic/diagram-core', '@sentropic/diagram-canvas', '@sentropic/design-system-themes', '@sentropic/design-system-tokens']) {
     assert.equal(sveltePkg.dependencies[dep], vuePkg.dependencies[dep], `exact pin match required for ${dep}`)
     assert.match(sveltePkg.dependencies[dep], /^\d+\.\d+\.\d+(?:-[\w.]+)?$/)
   }
-  const viewsGzipBytes = gzipSync(readFileSync(join(kit, 'diagram-views.mjs'))).byteLength
-  assert.ok(viewsGzipBytes > 0 && viewsGzipBytes < 250_000, `diagram-views.mjs gzip ${viewsGzipBytes} must remain compact`)
+  const viewsGzipBytes = gzipSync(readFileSync(join(kit, 'diagram-views.mjs')), { level: 9 }).byteLength
+  assert.ok(viewsGzipBytes > 0 && viewsGzipBytes <= 153_600, `diagram-views.mjs gzip ${viewsGzipBytes} must stay <= 150 KiB (153600 bytes)`)
+  const rendererGzipBytes = gzipSync(readFileSync(join(kit, 'renderer.html')), { level: 9 }).byteLength
+  assert.ok(rendererGzipBytes > 0 && rendererGzipBytes <= 215_000, `renderer.html gzip ${rendererGzipBytes} stays bounded (carries afafccd3 client fallback)`)
 })

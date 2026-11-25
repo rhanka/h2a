@@ -79,6 +79,9 @@ if (process.argv.includes('--check')) {
     // bundled from the kit's single DS pin (the one the renderer bundles), so the published CLI
     // installs no frontend package. Any other module in that graph (Svelte, editors) fails the build.
     const views = await bundleWithEsbuild({ entryPoints: [join(kit, 'src/diagram-model.js')], bundle: true,
+      minify: true,
+      // Preserve `\n` escapes in string constants (e.g. PINNED_ADAPTER_BYTES) so static import scans do not match string contents.
+      supported: { 'template-literal': false },
       platform: 'node', target: 'node22', format: 'esm', absWorkingDir: kit, metafile: true, write: false,
       outfile: join(kit, 'diagram-views.mjs') });
     const viewInputs = Object.keys(views.metafile.inputs);

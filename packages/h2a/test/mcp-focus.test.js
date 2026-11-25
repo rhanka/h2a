@@ -603,5 +603,40 @@ test("h2a_focus_build returns linear_chain_as_architecture_cards warnings on arc
     assert.deepEqual(archRes.warnings, [
       'linear_chain_as_architecture_cards: ecosystem (4 nodes, 0 containers) — set diagramType "workflow" if this describes a process'
     ]);
+
+    const refusedDoc = structuredClone(base);
+    refusedDoc.sections.find((s) => s.kind === "diagram").scene = {
+      documentId: "document:assoc-refusal",
+      schemaVersion: { major: 1, minor: 1 },
+      revision: 0,
+      profileRefs: ["generic@1"],
+      typeDefinitions: {},
+      entities: {
+        "entity:a": { id: "entity:a", profile: "generic@1", type: "node", attributes: { name: { kind: "text", value: "Service A" } } },
+        "entity:b": { id: "entity:b", profile: "generic@1", type: "node", attributes: { name: { kind: "text", value: "Service B" } } }
+      },
+      relations: {
+        "relation:a.b": {
+          id: "relation:a.b",
+          profile: "generic@1",
+          type: "association",
+          endpoints: [{ role: "member", target: "entity:a" }, { role: "member", target: "entity:b" }],
+          attributes: { label: { kind: "text", value: "relates" } }
+        }
+      },
+      ports: {},
+      resources: {},
+      extensions: []
+    };
+    const refusedInput = join(workspace, "refused-layout.json");
+    const refusedOutput = join(workspace, "refused-layout.html");
+    writeFileSync(refusedInput, JSON.stringify(refusedDoc), "utf8");
+    const refusedRes = await server.callTool("h2a_focus_build", { input: refusedInput, output: refusedOutput });
+    assert.equal(refusedRes.ok, false);
+    assert.ok(
+      refusedRes.refusals.some((r) => r.code === "relation-type-unsupported" && r.sectionId === "ecosystem"),
+      `Expected structured relation-type-unsupported refusal, got: ${JSON.stringify(refusedRes)}`
+    );
+    assert.equal(existsSync(refusedOutput), false);
   });
 });

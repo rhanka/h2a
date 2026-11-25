@@ -402,15 +402,19 @@ test('a four-step LR flowchart keeps a sane rendered size on phone, tablet and d
       const seen = await stage.evaluate(el => {
         const shown = [...el.querySelectorAll('.ds-diagram-svg')].filter(svg => svg.getBoundingClientRect().width > 0);
         const box = shown[0].getBoundingClientRect(), scale = box.width / shown[0].viewBox.baseVal.width;
-        return { count: shown.length, variant: shown[0].dataset.variant, width: box.width, height: box.height, scale,
+        const titleEl = shown[0].querySelector('.st-diagramProcessBox text:not([data-process-step-badge])');
+        const title = titleEl ? parseFloat(getComputedStyle(titleEl).fontSize) * scale : NaN;
+        return { count: shown.length, variant: shown[0].dataset.variant, width: box.width, height: box.height, scale, title,
           toggles: shown[0].querySelectorAll('[data-toggle]').length, icons: shown[0].querySelectorAll('.st-diagramCard-icon').length };
       });
       assert.equal(seen.count, 1, `${width}px: exactly one variant is displayed`);
+      assert.equal(seen.variant, bounds.variant, `${width}px: displayed variant`);
       assert.equal(seen.toggles, 0, `${width}px: process@1 has 0 fold toggles`);
       assert.equal(seen.icons, 0, `${width}px: process@1 has 0 component icons`);
       assert.ok(seen.width >= bounds.width[0] && seen.width <= bounds.width[1], `${width}px: width ${seen.width.toFixed(1)} outside [${bounds.width}]`);
       assert.ok(seen.height >= bounds.height[0] && seen.height <= bounds.height[1], `${width}px: height ${seen.height.toFixed(1)} outside [${bounds.height}]`);
       assert.ok(seen.scale >= bounds.scaleMin, `${width}px: scale ${seen.scale.toFixed(3)} below ${bounds.scaleMin}`);
+      assert.ok(seen.title >= 12.6 && seen.title <= 15, `${width}px: process title CSS size ${seen.title.toFixed(2)}px outside [12.6, 15]`);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}px: no horizontal page overflow`);
       await context.close();
     }
@@ -606,15 +610,15 @@ test('Lot 1 process@1 acceptance (light/dark, offline CSP): 5 steps LR 1.0 at 14
             const visibleEdges = [...document.querySelectorAll('[data-scene-edge]')].filter(el => el.getBoundingClientRect().width > 0 || el.getBoundingClientRect().height > 0).length;
             const visibleLabels = [...document.querySelectorAll('[data-scene-label]')].filter(el => el.getBoundingClientRect().width > 0).length;
             const table = document.querySelector('details.st-diagramProcessTable');
-            let scale = 1;
+            let scale;
             if (!isVue) {
               const svg = [...document.querySelectorAll('.ds-diagram-svg')].find(el => el.getBoundingClientRect().width > 0);
               scale = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
             } else {
+              const fig = document.querySelector('.st-diagramSceneFigure');
               const vp = document.querySelector('.st-diagramSceneFigure-viewport');
-              const world = document.querySelector('.st-diagramSceneFigure-world');
-              const raw = (vp ? getComputedStyle(vp).getPropertyValue('--st-diagram-zoom').trim() : '') || world?.dataset.zoom || '1';
-              scale = parseFloat(raw) || 1;
+              const raw = (vp ? getComputedStyle(vp).getPropertyValue('--st-diagram-zoom').trim() : '') || fig?.dataset.zoom || '';
+              scale = raw ? parseFloat(raw) : NaN;
             }
             return { scrollOverflow, boxCount: visibleBoxes.length, ys, xs, radii, icons, toggles, visibleEdges, visibleLabels, hasTable: Boolean(table), scale };
           }, rendererName === 'vue');
@@ -628,7 +632,7 @@ test('Lot 1 process@1 acceptance (light/dark, offline CSP): 5 steps LR 1.0 at 14
           assert.equal(metrics.visibleEdges, 4, `${tag}: 4 visible edges`);
           assert.equal(metrics.visibleLabels, 4, `${tag}: 4 visible edge labels`);
           assert.equal(metrics.hasTable, true, `${tag}: <details class="st-diagramProcessTable"> present`);
-          assert.ok(metrics.scale >= 0.9, `${tag}: rendered scale ${metrics.scale.toFixed(3)} >= 0.9`);
+          assert.ok(Number.isFinite(metrics.scale) && metrics.scale >= 0.9, `${tag}: rendered scale ${metrics.scale} >= 0.9`);
           if (label === 'desktop-1440') {
             assert.ok(Math.abs(metrics.scale - 1) <= 0.02, `${tag}: 1440px scale === 1.0 (got ${metrics.scale})`);
             assert.equal(new Set(metrics.ys).size, 1, `${tag}: 5 steps aligned on 1 LR row (ys=${metrics.ys})`);

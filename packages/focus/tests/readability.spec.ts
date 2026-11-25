@@ -707,7 +707,20 @@ describe("1.1.0 / 2.1.0 readability extensions & 11/11 anti-wall-of-text rules (
     expect(subtitleIssues).toContainEqual(
       expect.objectContaining({
         code: "undefined_code",
-        path: "$.sections[3].scene.entities.entity:a.attributes.subtitle.value",
+        path: `$.sections[${badSubtitle.sections.length - 1}].scene.entities.entity:a.attributes.subtitle.value`,
+      }),
+    );
+
+    const badTransitionLabel = mutate((d) => {
+      const diag = structuredClone(validProcess.sections.at(-1));
+      diag.scene.relations["relation:a.b"].attributes.label.value = "Gate L06b";
+      d.sections.push(diag);
+    });
+    const labelIssues = validateDecisionDossierReadability(badTransitionLabel);
+    expect(labelIssues).toContainEqual(
+      expect.objectContaining({
+        code: "undefined_code",
+        path: `$.sections[${badTransitionLabel.sections.length - 1}].scene.relations.relation:a.b.attributes.label.value`,
       }),
     );
   });
