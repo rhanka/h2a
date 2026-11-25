@@ -214,12 +214,17 @@ export const validateDecisionDossierReadability = (doc, options) => {
                     else
                         checkCodes(section.source, `${path}.source`);
                 }
-                // The interim renderer reads these generic@1 texts instead of the source fallback.
-                for (const [family, field] of [["entities", "name"], ["relations", "label"]]) {
+                // The renderer reads scene text attributes (generic@1 and process@1) instead of the source fallback.
+                for (const [family, fields] of [
+                    ["entities", ["name", "subtitle"]],
+                    ["relations", ["label"]],
+                ]) {
                     for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
-                        const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
-                        if (attribute.kind === "text" && typeof attribute.value === "string") {
-                            visible(attribute.value, `${path}.scene.${family}.${id}.attributes.${field}.value`);
+                        for (const field of fields) {
+                            const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
+                            if (attribute.kind === "text" && typeof attribute.value === "string") {
+                                visible(attribute.value, `${path}.scene.${family}.${id}.attributes.${field}.value`);
+                            }
                         }
                     }
                 }

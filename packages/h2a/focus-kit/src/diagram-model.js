@@ -1,48 +1,84 @@
 /**
  * Focus dossier diagram rendering module.
  *
- * Default renderer (interim until DS FA-D2 + h2a FA-H3): static `r7` offline inline SVG
- * (`renderR7Diagram`, `createR7Kit`), built over the pure Design System card/zone SVG painters
- * already bundled from `@sentropic/design-system-svelte@0.37.0`.
+ * Delegates scene validation, Mermaid `flowchart` parsing, layout, static inline SVG
+ * rendering (`process@1` and `generic@1`), and accessible process tables to the
+ * shared pure DS bridge (`./ds-diagram-bridge.js`) backed by `@sentropic/diagram-canvas`
+ * and `@sentropic/diagram-core`.
  *
  * Legacy DC-1 2-column grid view exports (`containmentOf`, `projectionOf`, `interimLayout`,
- * `renderDiagramViews`) are kept for backward compatibility with existing unit tests only.
+ * `renderDiagramViews`) are preserved for backward compatibility with existing unit tests only.
  */
-import { renderCardSvg, renderZoneSvg } from '@sentropic/design-system-svelte/diagram-render';
+import {
+  renderCardSvg,
+  renderZoneSvg,
+  renderProcessTable,
+} from '@sentropic/diagram-canvas/diagram-render';
 import {
   CARD_GEOMETRY,
   ZONE_GEOMETRY,
+  cardLineMeasurer,
   defaultCardMeasure,
-} from '../node_modules/@sentropic/design-system-svelte/dist/diagramCardModel.js';
-import { DIAGRAM_GLYPHS } from '../node_modules/@sentropic/design-system-svelte/dist/diagram-icons/registry.js';
-import { CARD_W, CARD_H, EDGE_STYLES, createR7Kit } from './r7-diagram-kit.js';
-import { renderR7Diagram as renderR7DiagramWithDs } from './r7-scene-renderer.js';
+  sceneCardMeasure,
+} from '@sentropic/diagram-canvas/diagramCardModel';
+import { layoutScene } from '@sentropic/diagram-canvas/diagramSceneModel';
+import { DIAGRAM_GLYPHS } from '@sentropic/diagram-canvas/diagram-icons';
+import {
+  FOCUS_PHONE_TARGET_WIDTH,
+  FOCUS_PROCESS_TARGET_WIDTH,
+  createProcessDirectionExtension,
+  findLinearChainArchitectureWarning,
+  focusSceneBindings,
+  focusSceneRegistry,
+  foldableGenericProfile,
+  parseFlowchartToScene,
+  renderDossierDiagram,
+  resolveDossierDiagramScene,
+  sceneToMermaidFallback,
+  validateCheckedFocusScene,
+} from './ds-diagram-bridge.js';
 
 export const DS_RENDER_PRIMITIVES = {
   renderCardSvg,
   renderZoneSvg,
+  renderProcessTable,
   DIAGRAM_GLYPHS,
   CARD_GEOMETRY,
   ZONE_GEOMETRY,
+  cardLineMeasurer,
   defaultCardMeasure,
+  sceneCardMeasure,
+  layoutScene,
 };
 
-/** Default interim r7 static offline inline SVG renderer for generic@1 scenes. */
+/** Render a validated Focus generic@1 or process@1 scene as static offline DS SVG variants. */
 export function renderR7Diagram(document, options = {}) {
-  return renderR7DiagramWithDs(document, DS_RENDER_PRIMITIVES, options);
+  return renderDossierDiagram(document, options);
 }
 
 export {
-  CARD_W,
-  CARD_H,
-  EDGE_STYLES,
-  createR7Kit,
+  FOCUS_PHONE_TARGET_WIDTH,
+  FOCUS_PROCESS_TARGET_WIDTH,
+  createProcessDirectionExtension,
+  findLinearChainArchitectureWarning,
+  focusSceneBindings,
+  focusSceneRegistry,
+  foldableGenericProfile,
+  parseFlowchartToScene,
+  renderDossierDiagram,
+  resolveDossierDiagramScene,
+  sceneToMermaidFallback,
+  validateCheckedFocusScene,
   renderCardSvg,
   renderZoneSvg,
+  renderProcessTable,
   DIAGRAM_GLYPHS,
   CARD_GEOMETRY,
   ZONE_GEOMETRY,
+  cardLineMeasurer,
   defaultCardMeasure,
+  sceneCardMeasure,
+  layoutScene,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,10 +125,16 @@ export function interimLayout(document) {
     let width = CARD.width;
     if (zones.has(entityId)) {
       const siblings = children.get(entityId) ?? [];
-      let max = CARD.width + 2 * ZONE_INSET, row = ZONE_INSET;
-      const flush = () => { max = Math.max(max, row + ZONE_INSET); };
+      let max = CARD.width + 2 * ZONE_INSET;
+      let row = ZONE_INSET;
+      const flush = () => {
+        max = Math.max(max, row + ZONE_INSET);
+      };
       for (const [index, sibling] of siblings.entries()) {
-        if (index % GRID.columns === 0 && index) { flush(); row = ZONE_INSET; }
+        if (index % GRID.columns === 0 && index) {
+          flush();
+          row = ZONE_INSET;
+        }
         row += (row > ZONE_INSET ? GRID.columnGap : 0) + widthOf(sibling.id);
       }
       flush();
@@ -118,13 +160,18 @@ export function interimLayout(document) {
     const siblings = children.get(parentId) ?? [];
     const parented = parentId !== undefined;
     let rowY = parented ? contentTops.get(parentId) : 0;
-    let rowHeight = 0, x = parented ? ZONE_INSET : 0;
+    let rowHeight = 0;
+    let x = parented ? ZONE_INSET : 0;
     for (const [index, entity] of siblings.entries()) {
       const size = zones.has(entity.id)
         ? { width: widthOf(entity.id), height: place(entity.id).height }
         : CARD;
       if (zones.has(entity.id)) boxes.set(entity.id, size);
-      if (index % GRID.columns === 0 && index) { rowY += rowHeight + GRID.rowGap; x = parented ? ZONE_INSET : 0; rowHeight = 0; }
+      if (index % GRID.columns === 0 && index) {
+        rowY += rowHeight + GRID.rowGap;
+        x = parented ? ZONE_INSET : 0;
+        rowHeight = 0;
+      }
       nodes.push({
         id: entity.id,
         type: 'ecosystem',
@@ -138,7 +185,11 @@ export function interimLayout(document) {
     }
     return { height: rowY + rowHeight + ZONE_INSET };
   }
-  const depth = (id) => { let n = 0; for (; parents.has(id); id = parents.get(id)) n++; return n; };
+  const depth = (id) => {
+    let n = 0;
+    for (; parents.has(id); id = parents.get(id)) n++;
+    return n;
+  };
   nodes.sort((a, b) => depth(a.id) - depth(b.id));
   return { nodes, boxes, contentTops, refusals };
 }

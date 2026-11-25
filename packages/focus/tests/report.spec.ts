@@ -119,6 +119,7 @@ describe('explicit benchmark reports', () => {
   it('should append a closed report schema while preserving every historical digest', () => {
     const Ajv = require('ajv/dist/2020.js').default;
     const schema = JSON.parse(readFileSync(new URL('../schemas/report-document.v1.schema.json', import.meta.url), 'utf8'));
+    expect(schema.$id).toBe('urn:sentropic:focus:ReportDocument:1.1.0');
     const check = new Ajv({ strict: false }).compile(schema);
     expect(check(fixture()), JSON.stringify(check.errors)).toBe(true);
     for (const change of [
@@ -130,9 +131,9 @@ describe('explicit benchmark reports', () => {
     ]) { const d = fixture(); change(d); expect(check(d)).toBe(false); expect(validate(d).ok).toBe(false); }
     const frozen = [
       ['v1.0', '725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852'],
-      ['v1', 'f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c'],
+      ['v1', '3cd38dafe839a71f5f4b2d6e29008d884612580039f032e1e6b56e6d76d3eb60'],
       ['v2.0', '1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9'],
-      ['v2', '058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702'],
+      ['v2', '40a3e32d154bc7c788353dc33a2c98700cd37412888f0cda4128332e15ff7d65'],
     ];
     for (const [version, digest] of frozen) {
       const bytes = readFileSync(new URL(`../schemas/decision-dossier-document.${version}.schema.json`, import.meta.url));

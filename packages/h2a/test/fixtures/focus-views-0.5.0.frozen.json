@@ -1,0 +1,3192 @@
+{
+  "contract": "focus-views/1",
+  "documentDigest": "sha256:ee26df4358984f404204878c3b92841b4b22b2b1ea83acf675e3f9220e5496ed",
+  "rendererDigest": "sha256:0aad90fc0d8284ef10cb116ae34e253e80f86914bd0f9a0be5bfd5565c2c441f",
+  "diagrams": {
+    "legacy-flow": {
+      "scene": {
+        "documentId": "document:legacy-flow",
+        "entities": {
+          "entity:a": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Saisie"
+              }
+            },
+            "id": "entity:a",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:b": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Revue"
+              }
+            },
+            "id": "entity:b",
+            "profile": "generic@1",
+            "type": "node"
+          }
+        },
+        "extensions": [],
+        "ports": {},
+        "profileRefs": [
+          "generic@1"
+        ],
+        "relations": {
+          "relation:0": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "soumet"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:a"
+              },
+              {
+                "role": "target",
+                "target": "entity:b"
+              }
+            ],
+            "id": "relation:0",
+            "profile": "generic@1",
+            "type": "link"
+          }
+        },
+        "resources": {},
+        "revision": 0,
+        "schemaVersion": {
+          "major": 1,
+          "minor": 1
+        },
+        "typeDefinitions": {}
+      },
+      "views": {
+        "expanded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:legacy-flow",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.a": {
+              "id": "occurrence:e.a",
+              "entity": "entity:a",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.b": {
+              "id": "occurrence:e.b",
+              "entity": "entity:b",
+              "geometry": {
+                "x": 568,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.0": {
+              "id": "occurrence:r.0",
+              "relation": "relation:0",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.b"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 460,
+                  "y": 100
+                },
+                {
+                  "x": 568,
+                  "y": 100
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {},
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": 0,
+              "y": 0,
+              "zoom": 1
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.a": {
+                  "form": "card",
+                  "text": {
+                    "title": "Saisie"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.b": {
+                  "form": "card",
+                  "text": {
+                    "title": "Revue"
+                  },
+                  "icon": "base"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        },
+        "folded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:legacy-flow",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.a": {
+              "id": "occurrence:e.a",
+              "entity": "entity:a",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.b": {
+              "id": "occurrence:e.b",
+              "entity": "entity:b",
+              "geometry": {
+                "x": 568,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.0": {
+              "id": "occurrence:r.0",
+              "relation": "relation:0",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.b"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 460,
+                  "y": 100
+                },
+                {
+                  "x": 568,
+                  "y": 100
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {},
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": 0,
+              "y": 0,
+              "zoom": 1
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.a": {
+                  "form": "card",
+                  "text": {
+                    "title": "Saisie"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.b": {
+                  "form": "card",
+                  "text": {
+                    "title": "Revue"
+                  },
+                  "icon": "base"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        }
+      }
+    },
+    "models-map": {
+      "scene": {
+        "documentId": "document:ecosystem-models",
+        "entities": {
+          "entity:claude": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Claude Code"
+              }
+            },
+            "id": "entity:claude",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:codex": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Codex"
+              }
+            },
+            "id": "entity:codex",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:h2a": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "h2a"
+              }
+            },
+            "id": "entity:h2a",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:llm-gateway": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "llm-gateway"
+              }
+            },
+            "id": "entity:llm-gateway",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:llm-mesh": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "llm-mesh"
+              }
+            },
+            "id": "entity:llm-mesh",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:vibe": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Vibe"
+              }
+            },
+            "id": "entity:vibe",
+            "profile": "generic@1",
+            "type": "node"
+          }
+        },
+        "extensions": [],
+        "ports": {},
+        "profileRefs": [
+          "generic@1"
+        ],
+        "relations": {
+          "relation:models-0": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "exécution via le runtime"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:h2a"
+              },
+              {
+                "role": "target",
+                "target": "entity:llm-gateway"
+              }
+            ],
+            "id": "relation:models-0",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:models-1": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "routage des modèles"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-gateway"
+              },
+              {
+                "role": "target",
+                "target": "entity:llm-mesh"
+              }
+            ],
+            "id": "relation:models-1",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:models-2": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "comptes et exécution"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-mesh"
+              },
+              {
+                "role": "target",
+                "target": "entity:codex"
+              }
+            ],
+            "id": "relation:models-2",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:models-3": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "comptes et exécution"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-mesh"
+              },
+              {
+                "role": "target",
+                "target": "entity:claude"
+              }
+            ],
+            "id": "relation:models-3",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:models-4": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "comptes et exécution"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-mesh"
+              },
+              {
+                "role": "target",
+                "target": "entity:vibe"
+              }
+            ],
+            "id": "relation:models-4",
+            "profile": "generic@1",
+            "type": "link"
+          }
+        },
+        "resources": {},
+        "revision": 0,
+        "schemaVersion": {
+          "major": 1,
+          "minor": 1
+        },
+        "typeDefinitions": {}
+      },
+      "views": {
+        "expanded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:ecosystem-models",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.claude": {
+              "id": "occurrence:e.claude",
+              "entity": "entity:claude",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.codex": {
+              "id": "occurrence:e.codex",
+              "entity": "entity:codex",
+              "geometry": {
+                "x": 556,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.h2a": {
+              "id": "occurrence:e.h2a",
+              "entity": "entity:h2a",
+              "geometry": {
+                "x": 0,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-gateway": {
+              "id": "occurrence:e.llm-gateway",
+              "entity": "entity:llm-gateway",
+              "geometry": {
+                "x": 556,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-mesh": {
+              "id": "occurrence:e.llm-mesh",
+              "entity": "entity:llm-mesh",
+              "geometry": {
+                "x": 0,
+                "y": 544,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.vibe": {
+              "id": "occurrence:e.vibe",
+              "entity": "entity:vibe",
+              "geometry": {
+                "x": 556,
+                "y": 544,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.models-0": {
+              "id": "occurrence:r.models-0",
+              "relation": "relation:models-0",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-gateway"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 472
+                },
+                {
+                  "x": 230,
+                  "y": 480
+                },
+                {
+                  "x": 779,
+                  "y": 480
+                },
+                {
+                  "x": 779,
+                  "y": 472
+                }
+              ]
+            },
+            "occurrence:r.models-1": {
+              "id": "occurrence:r.models-1",
+              "relation": "relation:models-1",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-gateway"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 793,
+                  "y": 472
+                },
+                {
+                  "x": 793,
+                  "y": 508
+                },
+                {
+                  "x": 223,
+                  "y": 508
+                },
+                {
+                  "x": 223,
+                  "y": 544
+                }
+              ]
+            },
+            "occurrence:r.models-2": {
+              "id": "occurrence:r.models-2",
+              "relation": "relation:models-2",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.codex"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 237,
+                  "y": 544
+                },
+                {
+                  "x": 237,
+                  "y": 536
+                },
+                {
+                  "x": 468,
+                  "y": 536
+                },
+                {
+                  "x": 468,
+                  "y": 208
+                },
+                {
+                  "x": 786,
+                  "y": 208
+                },
+                {
+                  "x": 786,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.models-3": {
+              "id": "occurrence:r.models-3",
+              "relation": "relation:models-3",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.claude"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 0,
+                  "y": 644
+                },
+                {
+                  "x": -8,
+                  "y": 644
+                },
+                {
+                  "x": -8,
+                  "y": 100
+                },
+                {
+                  "x": 0,
+                  "y": 100
+                }
+              ]
+            },
+            "occurrence:r.models-4": {
+              "id": "occurrence:r.models-4",
+              "relation": "relation:models-4",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.vibe"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 744
+                },
+                {
+                  "x": 230,
+                  "y": 752
+                },
+                {
+                  "x": 786,
+                  "y": 752
+                },
+                {
+                  "x": 786,
+                  "y": 744
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {},
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": -194.71611520000005,
+              "y": 0,
+              "zoom": 1
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.claude": {
+                  "form": "card",
+                  "text": {
+                    "title": "Claude Code"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.codex": {
+                  "form": "card",
+                  "text": {
+                    "title": "Codex"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.h2a": {
+                  "form": "card",
+                  "text": {
+                    "title": "h2a"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-gateway": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-gateway"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-mesh": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-mesh"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.vibe": {
+                  "form": "card",
+                  "text": {
+                    "title": "Vibe"
+                  },
+                  "icon": "base"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        },
+        "folded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:ecosystem-models",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.claude": {
+              "id": "occurrence:e.claude",
+              "entity": "entity:claude",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.codex": {
+              "id": "occurrence:e.codex",
+              "entity": "entity:codex",
+              "geometry": {
+                "x": 556,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.h2a": {
+              "id": "occurrence:e.h2a",
+              "entity": "entity:h2a",
+              "geometry": {
+                "x": 0,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-gateway": {
+              "id": "occurrence:e.llm-gateway",
+              "entity": "entity:llm-gateway",
+              "geometry": {
+                "x": 556,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-mesh": {
+              "id": "occurrence:e.llm-mesh",
+              "entity": "entity:llm-mesh",
+              "geometry": {
+                "x": 0,
+                "y": 544,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.vibe": {
+              "id": "occurrence:e.vibe",
+              "entity": "entity:vibe",
+              "geometry": {
+                "x": 556,
+                "y": 544,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.models-0": {
+              "id": "occurrence:r.models-0",
+              "relation": "relation:models-0",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-gateway"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 472
+                },
+                {
+                  "x": 230,
+                  "y": 480
+                },
+                {
+                  "x": 779,
+                  "y": 480
+                },
+                {
+                  "x": 779,
+                  "y": 472
+                }
+              ]
+            },
+            "occurrence:r.models-1": {
+              "id": "occurrence:r.models-1",
+              "relation": "relation:models-1",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-gateway"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 793,
+                  "y": 472
+                },
+                {
+                  "x": 793,
+                  "y": 508
+                },
+                {
+                  "x": 223,
+                  "y": 508
+                },
+                {
+                  "x": 223,
+                  "y": 544
+                }
+              ]
+            },
+            "occurrence:r.models-2": {
+              "id": "occurrence:r.models-2",
+              "relation": "relation:models-2",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.codex"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 237,
+                  "y": 544
+                },
+                {
+                  "x": 237,
+                  "y": 536
+                },
+                {
+                  "x": 468,
+                  "y": 536
+                },
+                {
+                  "x": 468,
+                  "y": 208
+                },
+                {
+                  "x": 786,
+                  "y": 208
+                },
+                {
+                  "x": 786,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.models-3": {
+              "id": "occurrence:r.models-3",
+              "relation": "relation:models-3",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.claude"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 0,
+                  "y": 644
+                },
+                {
+                  "x": -8,
+                  "y": 644
+                },
+                {
+                  "x": -8,
+                  "y": 100
+                },
+                {
+                  "x": 0,
+                  "y": 100
+                }
+              ]
+            },
+            "occurrence:r.models-4": {
+              "id": "occurrence:r.models-4",
+              "relation": "relation:models-4",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.vibe"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 744
+                },
+                {
+                  "x": 230,
+                  "y": 752
+                },
+                {
+                  "x": 786,
+                  "y": 752
+                },
+                {
+                  "x": 786,
+                  "y": 744
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {},
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": -194.71611520000005,
+              "y": 0,
+              "zoom": 1
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.claude": {
+                  "form": "card",
+                  "text": {
+                    "title": "Claude Code"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.codex": {
+                  "form": "card",
+                  "text": {
+                    "title": "Codex"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.h2a": {
+                  "form": "card",
+                  "text": {
+                    "title": "h2a"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-gateway": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-gateway"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-mesh": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-mesh"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.vibe": {
+                  "form": "card",
+                  "text": {
+                    "title": "Vibe"
+                  },
+                  "icon": "base"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        }
+      }
+    },
+    "overview-map": {
+      "scene": {
+        "documentId": "document:ecosystem-overview",
+        "entities": {
+          "entity:claude": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Claude Code"
+              }
+            },
+            "id": "entity:claude",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:cluster-mesh": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "cluster-mesh"
+              }
+            },
+            "id": "entity:cluster-mesh",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:codex": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Codex"
+              }
+            },
+            "id": "entity:codex",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:design-system": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "design-system"
+              }
+            },
+            "id": "entity:design-system",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:engram": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "engram"
+              }
+            },
+            "id": "entity:engram",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:h2a": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "h2a"
+              }
+            },
+            "id": "entity:h2a",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:llm-gateway": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "llm-gateway"
+              }
+            },
+            "id": "entity:llm-gateway",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:llm-mesh": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "llm-mesh"
+              }
+            },
+            "id": "entity:llm-mesh",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:sentropic-apps": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Applications Sentropic"
+              }
+            },
+            "id": "entity:sentropic-apps",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:sentropic-cli": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Commandes Sentropic"
+              }
+            },
+            "id": "entity:sentropic-cli",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:track": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "track"
+              }
+            },
+            "id": "entity:track",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:vibe": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Vibe"
+              }
+            },
+            "id": "entity:vibe",
+            "profile": "generic@1",
+            "type": "node"
+          }
+        },
+        "extensions": [],
+        "ports": {},
+        "profileRefs": [
+          "generic@1"
+        ],
+        "relations": {
+          "relation:overview-0": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "coordination distribuée"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:h2a"
+              },
+              {
+                "role": "target",
+                "target": "entity:cluster-mesh"
+              }
+            ],
+            "id": "relation:overview-0",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-1": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "exécution via le runtime"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:h2a"
+              },
+              {
+                "role": "target",
+                "target": "entity:llm-gateway"
+              }
+            ],
+            "id": "relation:overview-1",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-10": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "commandes de coordination"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:sentropic-cli"
+              },
+              {
+                "role": "target",
+                "target": "entity:h2a"
+              }
+            ],
+            "id": "relation:overview-10",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-2": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "routage des modèles"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-gateway"
+              },
+              {
+                "role": "target",
+                "target": "entity:llm-mesh"
+              }
+            ],
+            "id": "relation:overview-2",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-3": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "travail et décisions"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:h2a"
+              },
+              {
+                "role": "target",
+                "target": "entity:track"
+              }
+            ],
+            "id": "relation:overview-3",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-4": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "mémoire via le runtime"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:h2a"
+              },
+              {
+                "role": "target",
+                "target": "entity:engram"
+              }
+            ],
+            "id": "relation:overview-4",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-5": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "composants visuels"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:design-system"
+              },
+              {
+                "role": "target",
+                "target": "entity:sentropic-apps"
+              }
+            ],
+            "id": "relation:overview-5",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-6": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "socle de services"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:sentropic-apps"
+              },
+              {
+                "role": "target",
+                "target": "entity:cluster-mesh"
+              }
+            ],
+            "id": "relation:overview-6",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-7": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "comptes et exécution"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-mesh"
+              },
+              {
+                "role": "target",
+                "target": "entity:codex"
+              }
+            ],
+            "id": "relation:overview-7",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-8": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "comptes et exécution"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-mesh"
+              },
+              {
+                "role": "target",
+                "target": "entity:claude"
+              }
+            ],
+            "id": "relation:overview-8",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:overview-9": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "comptes et exécution"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:llm-mesh"
+              },
+              {
+                "role": "target",
+                "target": "entity:vibe"
+              }
+            ],
+            "id": "relation:overview-9",
+            "profile": "generic@1",
+            "type": "link"
+          }
+        },
+        "resources": {},
+        "revision": 0,
+        "schemaVersion": {
+          "major": 1,
+          "minor": 1
+        },
+        "typeDefinitions": {}
+      },
+      "views": {
+        "expanded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:ecosystem-overview",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.claude": {
+              "id": "occurrence:e.claude",
+              "entity": "entity:claude",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.cluster-mesh": {
+              "id": "occurrence:e.cluster-mesh",
+              "entity": "entity:cluster-mesh",
+              "geometry": {
+                "x": 556,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.codex": {
+              "id": "occurrence:e.codex",
+              "entity": "entity:codex",
+              "geometry": {
+                "x": 1112,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.design-system": {
+              "id": "occurrence:e.design-system",
+              "entity": "entity:design-system",
+              "geometry": {
+                "x": 0,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.engram": {
+              "id": "occurrence:e.engram",
+              "entity": "entity:engram",
+              "geometry": {
+                "x": 556,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.h2a": {
+              "id": "occurrence:e.h2a",
+              "entity": "entity:h2a",
+              "geometry": {
+                "x": 1112,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-gateway": {
+              "id": "occurrence:e.llm-gateway",
+              "entity": "entity:llm-gateway",
+              "geometry": {
+                "x": 0,
+                "y": 566,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-mesh": {
+              "id": "occurrence:e.llm-mesh",
+              "entity": "entity:llm-mesh",
+              "geometry": {
+                "x": 556,
+                "y": 566,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.sentropic-apps": {
+              "id": "occurrence:e.sentropic-apps",
+              "entity": "entity:sentropic-apps",
+              "geometry": {
+                "x": 1112,
+                "y": 566,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.sentropic-cli": {
+              "id": "occurrence:e.sentropic-cli",
+              "entity": "entity:sentropic-cli",
+              "geometry": {
+                "x": 0,
+                "y": 838,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.track": {
+              "id": "occurrence:e.track",
+              "entity": "entity:track",
+              "geometry": {
+                "x": 556,
+                "y": 838,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.vibe": {
+              "id": "occurrence:e.vibe",
+              "entity": "entity:vibe",
+              "geometry": {
+                "x": 1112,
+                "y": 838,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.overview-0": {
+              "id": "occurrence:r.overview-0",
+              "relation": "relation:overview-0",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.cluster-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1342,
+                  "y": 272
+                },
+                {
+                  "x": 1342,
+                  "y": 208
+                },
+                {
+                  "x": 779,
+                  "y": 208
+                },
+                {
+                  "x": 779,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-1": {
+              "id": "occurrence:r.overview-1",
+              "relation": "relation:overview-1",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-gateway"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1335,
+                  "y": 472
+                },
+                {
+                  "x": 1335,
+                  "y": 480
+                },
+                {
+                  "x": 230,
+                  "y": 480
+                },
+                {
+                  "x": 230,
+                  "y": 566
+                }
+              ]
+            },
+            "occurrence:r.overview-10": {
+              "id": "occurrence:r.overview-10",
+              "relation": "relation:overview-10",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.sentropic-cli"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.h2a"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 838
+                },
+                {
+                  "x": 230,
+                  "y": 774
+                },
+                {
+                  "x": 468,
+                  "y": 774
+                },
+                {
+                  "x": 468,
+                  "y": 519
+                },
+                {
+                  "x": 1349,
+                  "y": 519
+                },
+                {
+                  "x": 1349,
+                  "y": 472
+                }
+              ]
+            },
+            "occurrence:r.overview-2": {
+              "id": "occurrence:r.overview-2",
+              "relation": "relation:overview-2",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-gateway"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 766
+                },
+                {
+                  "x": 230,
+                  "y": 802
+                },
+                {
+                  "x": 779,
+                  "y": 802
+                },
+                {
+                  "x": 779,
+                  "y": 766
+                }
+              ]
+            },
+            "occurrence:r.overview-3": {
+              "id": "occurrence:r.overview-3",
+              "relation": "relation:overview-3",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.track"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1363,
+                  "y": 472
+                },
+                {
+                  "x": 1363,
+                  "y": 558
+                },
+                {
+                  "x": 1024,
+                  "y": 558
+                },
+                {
+                  "x": 1024,
+                  "y": 774
+                },
+                {
+                  "x": 786,
+                  "y": 774
+                },
+                {
+                  "x": 786,
+                  "y": 838
+                }
+              ]
+            },
+            "occurrence:r.overview-4": {
+              "id": "occurrence:r.overview-4",
+              "relation": "relation:overview-4",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.engram"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1321,
+                  "y": 472
+                },
+                {
+                  "x": 1321,
+                  "y": 558
+                },
+                {
+                  "x": 786,
+                  "y": 558
+                },
+                {
+                  "x": 786,
+                  "y": 472
+                }
+              ]
+            },
+            "occurrence:r.overview-5": {
+              "id": "occurrence:r.overview-5",
+              "relation": "relation:overview-5",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.design-system"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.sentropic-apps"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 472
+                },
+                {
+                  "x": 230,
+                  "y": 558
+                },
+                {
+                  "x": 1335,
+                  "y": 558
+                },
+                {
+                  "x": 1335,
+                  "y": 566
+                }
+              ]
+            },
+            "occurrence:r.overview-6": {
+              "id": "occurrence:r.overview-6",
+              "relation": "relation:overview-6",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.sentropic-apps"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.cluster-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1349,
+                  "y": 566
+                },
+                {
+                  "x": 1349,
+                  "y": 519
+                },
+                {
+                  "x": 1580,
+                  "y": 519
+                },
+                {
+                  "x": 1580,
+                  "y": 236
+                },
+                {
+                  "x": 793,
+                  "y": 236
+                },
+                {
+                  "x": 793,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-7": {
+              "id": "occurrence:r.overview-7",
+              "relation": "relation:overview-7",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.codex"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 793,
+                  "y": 566
+                },
+                {
+                  "x": 793,
+                  "y": 480
+                },
+                {
+                  "x": 1024,
+                  "y": 480
+                },
+                {
+                  "x": 1024,
+                  "y": 264
+                },
+                {
+                  "x": 1342,
+                  "y": 264
+                },
+                {
+                  "x": 1342,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-8": {
+              "id": "occurrence:r.overview-8",
+              "relation": "relation:overview-8",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.claude"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 779,
+                  "y": 566
+                },
+                {
+                  "x": 779,
+                  "y": 480
+                },
+                {
+                  "x": 548,
+                  "y": 480
+                },
+                {
+                  "x": 548,
+                  "y": 208
+                },
+                {
+                  "x": 230,
+                  "y": 208
+                },
+                {
+                  "x": 230,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-9": {
+              "id": "occurrence:r.overview-9",
+              "relation": "relation:overview-9",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.vibe"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 793,
+                  "y": 766
+                },
+                {
+                  "x": 793,
+                  "y": 830
+                },
+                {
+                  "x": 1342,
+                  "y": 830
+                },
+                {
+                  "x": 1342,
+                  "y": 838
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {},
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": 0,
+              "y": 0,
+              "zoom": 0.9113924050632911
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.claude": {
+                  "form": "card",
+                  "text": {
+                    "title": "Claude Code"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.cluster-mesh": {
+                  "form": "card",
+                  "text": {
+                    "title": "cluster-mesh"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.codex": {
+                  "form": "card",
+                  "text": {
+                    "title": "Codex"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.design-system": {
+                  "form": "card",
+                  "text": {
+                    "title": "design-system"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.engram": {
+                  "form": "card",
+                  "text": {
+                    "title": "engram"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.h2a": {
+                  "form": "card",
+                  "text": {
+                    "title": "h2a"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-gateway": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-gateway"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-mesh": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-mesh"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.sentropic-apps": {
+                  "form": "card",
+                  "text": {
+                    "title": "Applications Sentropic"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.sentropic-cli": {
+                  "form": "card",
+                  "text": {
+                    "title": "Commandes Sentropic"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.track": {
+                  "form": "card",
+                  "text": {
+                    "title": "track"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.vibe": {
+                  "form": "card",
+                  "text": {
+                    "title": "Vibe"
+                  },
+                  "icon": "base"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        },
+        "folded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:ecosystem-overview",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.claude": {
+              "id": "occurrence:e.claude",
+              "entity": "entity:claude",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.cluster-mesh": {
+              "id": "occurrence:e.cluster-mesh",
+              "entity": "entity:cluster-mesh",
+              "geometry": {
+                "x": 556,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.codex": {
+              "id": "occurrence:e.codex",
+              "entity": "entity:codex",
+              "geometry": {
+                "x": 1112,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.design-system": {
+              "id": "occurrence:e.design-system",
+              "entity": "entity:design-system",
+              "geometry": {
+                "x": 0,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.engram": {
+              "id": "occurrence:e.engram",
+              "entity": "entity:engram",
+              "geometry": {
+                "x": 556,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.h2a": {
+              "id": "occurrence:e.h2a",
+              "entity": "entity:h2a",
+              "geometry": {
+                "x": 1112,
+                "y": 272,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-gateway": {
+              "id": "occurrence:e.llm-gateway",
+              "entity": "entity:llm-gateway",
+              "geometry": {
+                "x": 0,
+                "y": 566,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.llm-mesh": {
+              "id": "occurrence:e.llm-mesh",
+              "entity": "entity:llm-mesh",
+              "geometry": {
+                "x": 556,
+                "y": 566,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.sentropic-apps": {
+              "id": "occurrence:e.sentropic-apps",
+              "entity": "entity:sentropic-apps",
+              "geometry": {
+                "x": 1112,
+                "y": 566,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.sentropic-cli": {
+              "id": "occurrence:e.sentropic-cli",
+              "entity": "entity:sentropic-cli",
+              "geometry": {
+                "x": 0,
+                "y": 838,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.track": {
+              "id": "occurrence:e.track",
+              "entity": "entity:track",
+              "geometry": {
+                "x": 556,
+                "y": 838,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.vibe": {
+              "id": "occurrence:e.vibe",
+              "entity": "entity:vibe",
+              "geometry": {
+                "x": 1112,
+                "y": 838,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.overview-0": {
+              "id": "occurrence:r.overview-0",
+              "relation": "relation:overview-0",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.cluster-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1342,
+                  "y": 272
+                },
+                {
+                  "x": 1342,
+                  "y": 208
+                },
+                {
+                  "x": 779,
+                  "y": 208
+                },
+                {
+                  "x": 779,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-1": {
+              "id": "occurrence:r.overview-1",
+              "relation": "relation:overview-1",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-gateway"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1335,
+                  "y": 472
+                },
+                {
+                  "x": 1335,
+                  "y": 480
+                },
+                {
+                  "x": 230,
+                  "y": 480
+                },
+                {
+                  "x": 230,
+                  "y": 566
+                }
+              ]
+            },
+            "occurrence:r.overview-10": {
+              "id": "occurrence:r.overview-10",
+              "relation": "relation:overview-10",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.sentropic-cli"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.h2a"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 838
+                },
+                {
+                  "x": 230,
+                  "y": 774
+                },
+                {
+                  "x": 468,
+                  "y": 774
+                },
+                {
+                  "x": 468,
+                  "y": 519
+                },
+                {
+                  "x": 1349,
+                  "y": 519
+                },
+                {
+                  "x": 1349,
+                  "y": 472
+                }
+              ]
+            },
+            "occurrence:r.overview-2": {
+              "id": "occurrence:r.overview-2",
+              "relation": "relation:overview-2",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-gateway"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.llm-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 766
+                },
+                {
+                  "x": 230,
+                  "y": 802
+                },
+                {
+                  "x": 779,
+                  "y": 802
+                },
+                {
+                  "x": 779,
+                  "y": 766
+                }
+              ]
+            },
+            "occurrence:r.overview-3": {
+              "id": "occurrence:r.overview-3",
+              "relation": "relation:overview-3",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.track"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1363,
+                  "y": 472
+                },
+                {
+                  "x": 1363,
+                  "y": 558
+                },
+                {
+                  "x": 1024,
+                  "y": 558
+                },
+                {
+                  "x": 1024,
+                  "y": 774
+                },
+                {
+                  "x": 786,
+                  "y": 774
+                },
+                {
+                  "x": 786,
+                  "y": 838
+                }
+              ]
+            },
+            "occurrence:r.overview-4": {
+              "id": "occurrence:r.overview-4",
+              "relation": "relation:overview-4",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.h2a"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.engram"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1321,
+                  "y": 472
+                },
+                {
+                  "x": 1321,
+                  "y": 558
+                },
+                {
+                  "x": 786,
+                  "y": 558
+                },
+                {
+                  "x": 786,
+                  "y": 472
+                }
+              ]
+            },
+            "occurrence:r.overview-5": {
+              "id": "occurrence:r.overview-5",
+              "relation": "relation:overview-5",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.design-system"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.sentropic-apps"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 230,
+                  "y": 472
+                },
+                {
+                  "x": 230,
+                  "y": 558
+                },
+                {
+                  "x": 1335,
+                  "y": 558
+                },
+                {
+                  "x": 1335,
+                  "y": 566
+                }
+              ]
+            },
+            "occurrence:r.overview-6": {
+              "id": "occurrence:r.overview-6",
+              "relation": "relation:overview-6",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.sentropic-apps"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.cluster-mesh"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 1349,
+                  "y": 566
+                },
+                {
+                  "x": 1349,
+                  "y": 519
+                },
+                {
+                  "x": 1580,
+                  "y": 519
+                },
+                {
+                  "x": 1580,
+                  "y": 236
+                },
+                {
+                  "x": 793,
+                  "y": 236
+                },
+                {
+                  "x": 793,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-7": {
+              "id": "occurrence:r.overview-7",
+              "relation": "relation:overview-7",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.codex"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 793,
+                  "y": 566
+                },
+                {
+                  "x": 793,
+                  "y": 480
+                },
+                {
+                  "x": 1024,
+                  "y": 480
+                },
+                {
+                  "x": 1024,
+                  "y": 264
+                },
+                {
+                  "x": 1342,
+                  "y": 264
+                },
+                {
+                  "x": 1342,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-8": {
+              "id": "occurrence:r.overview-8",
+              "relation": "relation:overview-8",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.claude"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 779,
+                  "y": 566
+                },
+                {
+                  "x": 779,
+                  "y": 480
+                },
+                {
+                  "x": 548,
+                  "y": 480
+                },
+                {
+                  "x": 548,
+                  "y": 208
+                },
+                {
+                  "x": 230,
+                  "y": 208
+                },
+                {
+                  "x": 230,
+                  "y": 200
+                }
+              ]
+            },
+            "occurrence:r.overview-9": {
+              "id": "occurrence:r.overview-9",
+              "relation": "relation:overview-9",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.llm-mesh"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.vibe"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 793,
+                  "y": 766
+                },
+                {
+                  "x": 793,
+                  "y": 830
+                },
+                {
+                  "x": 1342,
+                  "y": 830
+                },
+                {
+                  "x": 1342,
+                  "y": 838
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {},
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": 0,
+              "y": 0,
+              "zoom": 0.9113924050632911
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.claude": {
+                  "form": "card",
+                  "text": {
+                    "title": "Claude Code"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.cluster-mesh": {
+                  "form": "card",
+                  "text": {
+                    "title": "cluster-mesh"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.codex": {
+                  "form": "card",
+                  "text": {
+                    "title": "Codex"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.design-system": {
+                  "form": "card",
+                  "text": {
+                    "title": "design-system"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.engram": {
+                  "form": "card",
+                  "text": {
+                    "title": "engram"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.h2a": {
+                  "form": "card",
+                  "text": {
+                    "title": "h2a"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-gateway": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-gateway"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.llm-mesh": {
+                  "form": "card",
+                  "text": {
+                    "title": "llm-mesh"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.sentropic-apps": {
+                  "form": "card",
+                  "text": {
+                    "title": "Applications Sentropic"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.sentropic-cli": {
+                  "form": "card",
+                  "text": {
+                    "title": "Commandes Sentropic"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.track": {
+                  "form": "card",
+                  "text": {
+                    "title": "track"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.vibe": {
+                  "form": "card",
+                  "text": {
+                    "title": "Vibe"
+                  },
+                  "icon": "base"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        }
+      }
+    },
+    "nested-containers": {
+      "scene": {
+        "documentId": "document:nested",
+        "entities": {
+          "entity:coordinator": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Coordinateur"
+              }
+            },
+            "id": "entity:coordinator",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:gateway": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Relais de modèles"
+              }
+            },
+            "id": "entity:gateway",
+            "profile": "generic@1",
+            "type": "node"
+          },
+          "entity:models": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Modèles"
+              }
+            },
+            "id": "entity:models",
+            "profile": "generic@1",
+            "type": "container"
+          },
+          "entity:root": {
+            "attributes": {
+              "name": {
+                "kind": "text",
+                "value": "Services"
+              }
+            },
+            "id": "entity:root",
+            "profile": "generic@1",
+            "type": "container"
+          }
+        },
+        "extensions": [],
+        "ports": {},
+        "profileRefs": [
+          "generic@1"
+        ],
+        "relations": {
+          "relation:models-gateway": {
+            "attributes": {},
+            "endpoints": [
+              {
+                "role": "parent",
+                "target": "entity:models"
+              },
+              {
+                "role": "child",
+                "target": "entity:gateway"
+              }
+            ],
+            "id": "relation:models-gateway",
+            "profile": "generic@1",
+            "type": "contains"
+          },
+          "relation:replies": {
+            "attributes": {},
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:gateway"
+              },
+              {
+                "role": "target",
+                "target": "entity:coordinator"
+              }
+            ],
+            "id": "relation:replies",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:requests": {
+            "attributes": {
+              "label": {
+                "kind": "text",
+                "value": "Demandes"
+              }
+            },
+            "endpoints": [
+              {
+                "role": "source",
+                "target": "entity:coordinator"
+              },
+              {
+                "role": "target",
+                "target": "entity:gateway"
+              }
+            ],
+            "id": "relation:requests",
+            "profile": "generic@1",
+            "type": "link"
+          },
+          "relation:root-coordinator": {
+            "attributes": {},
+            "endpoints": [
+              {
+                "role": "parent",
+                "target": "entity:root"
+              },
+              {
+                "role": "child",
+                "target": "entity:coordinator"
+              }
+            ],
+            "id": "relation:root-coordinator",
+            "profile": "generic@1",
+            "type": "contains"
+          },
+          "relation:root-models": {
+            "attributes": {},
+            "endpoints": [
+              {
+                "role": "parent",
+                "target": "entity:root"
+              },
+              {
+                "role": "child",
+                "target": "entity:models"
+              }
+            ],
+            "id": "relation:root-models",
+            "profile": "generic@1",
+            "type": "contains"
+          }
+        },
+        "resources": {},
+        "revision": 0,
+        "schemaVersion": {
+          "major": 1,
+          "minor": 1
+        },
+        "typeDefinitions": {}
+      },
+      "views": {
+        "expanded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:nested",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.coordinator": {
+              "id": "occurrence:e.coordinator",
+              "entity": "entity:coordinator",
+              "group": "grp.6.e.root",
+              "geometry": {
+                "x": 16,
+                "y": 106,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.gateway": {
+              "id": "occurrence:e.gateway",
+              "entity": "entity:gateway",
+              "group": "grp.8.e.models",
+              "geometry": {
+                "x": 614,
+                "y": 212,
+                "width": 460,
+                "height": 200
+              },
+              "z": 0
+            },
+            "occurrence:e.models": {
+              "id": "occurrence:e.models",
+              "entity": "entity:models",
+              "group": "grp.6.e.root",
+              "geometry": {
+                "x": 598,
+                "y": 106,
+                "width": 492,
+                "height": 322
+              },
+              "z": -1
+            },
+            "occurrence:e.root": {
+              "id": "occurrence:e.root",
+              "entity": "entity:root",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 1106,
+                "height": 444
+              },
+              "z": -2
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.replies": {
+              "id": "occurrence:r.replies",
+              "relation": "relation:replies",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.gateway"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.coordinator"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 614,
+                  "y": 305
+                },
+                {
+                  "x": 590,
+                  "y": 305
+                },
+                {
+                  "x": 590,
+                  "y": 199
+                },
+                {
+                  "x": 476,
+                  "y": 199
+                }
+              ]
+            },
+            "occurrence:r.requests": {
+              "id": "occurrence:r.requests",
+              "relation": "relation:requests",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.coordinator"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.gateway"
+                }
+              ],
+              "waypoints": [
+                {
+                  "x": 476,
+                  "y": 213
+                },
+                {
+                  "x": 484,
+                  "y": 213
+                },
+                {
+                  "x": 484,
+                  "y": 319
+                },
+                {
+                  "x": 614,
+                  "y": 319
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {
+            "grp.6.e.root": {
+              "id": "grp.6.e.root",
+              "occurrence": "occurrence:e.root"
+            },
+            "grp.8.e.models": {
+              "id": "grp.8.e.models",
+              "occurrence": "occurrence:e.models"
+            }
+          },
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": 0,
+              "y": 0,
+              "zoom": 1
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.coordinator": {
+                  "form": "card",
+                  "text": {
+                    "title": "Coordinateur"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.gateway": {
+                  "form": "card",
+                  "text": {
+                    "title": "Relais de modèles"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.models": {
+                  "form": "container",
+                  "text": {
+                    "title": "Modèles"
+                  },
+                  "icon": "cluster"
+                },
+                "occurrence:e.root": {
+                  "form": "container",
+                  "text": {
+                    "title": "Services"
+                  },
+                  "icon": "cluster"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        },
+        "folded": {
+          "viewId": "view:layout",
+          "semanticDocumentId": "document:nested",
+          "revision": 0,
+          "entityOccurrences": {
+            "occurrence:e.coordinator": {
+              "id": "occurrence:e.coordinator",
+              "entity": "entity:coordinator",
+              "group": "grp.6.e.root",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              }
+            },
+            "occurrence:e.gateway": {
+              "id": "occurrence:e.gateway",
+              "entity": "entity:gateway",
+              "group": "grp.8.e.models",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              }
+            },
+            "occurrence:e.models": {
+              "id": "occurrence:e.models",
+              "entity": "entity:models",
+              "group": "grp.6.e.root",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              }
+            },
+            "occurrence:e.root": {
+              "id": "occurrence:e.root",
+              "entity": "entity:root",
+              "geometry": {
+                "x": 0,
+                "y": 0,
+                "width": 460,
+                "height": 200
+              },
+              "z": -1
+            }
+          },
+          "relationOccurrences": {
+            "occurrence:r.replies": {
+              "id": "occurrence:r.replies",
+              "relation": "relation:replies",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.gateway"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.coordinator"
+                }
+              ]
+            },
+            "occurrence:r.requests": {
+              "id": "occurrence:r.requests",
+              "relation": "relation:requests",
+              "endpoints": [
+                {
+                  "role": "source",
+                  "occurrence": "occurrence:e.coordinator"
+                },
+                {
+                  "role": "target",
+                  "occurrence": "occurrence:e.gateway"
+                }
+              ]
+            }
+          },
+          "portOccurrences": {},
+          "groups": {
+            "grp.6.e.root": {
+              "id": "grp.6.e.root",
+              "occurrence": "occurrence:e.root",
+              "collapsed": true
+            },
+            "grp.8.e.models": {
+              "id": "grp.8.e.models",
+              "occurrence": "occurrence:e.models",
+              "collapsed": true
+            }
+          },
+          "filters": [],
+          "presentation": {
+            "camera": {
+              "x": 0,
+              "y": 0,
+              "zoom": 1
+            },
+            "diagram": {
+              "contractPin": {
+                "id": "diagram-presentation",
+                "version": "1",
+                "contentDigest": "74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae"
+              },
+              "entities": {
+                "occurrence:e.coordinator": {
+                  "form": "card",
+                  "text": {
+                    "title": "Coordinateur"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.gateway": {
+                  "form": "card",
+                  "text": {
+                    "title": "Relais de modèles"
+                  },
+                  "icon": "base"
+                },
+                "occurrence:e.models": {
+                  "form": "container",
+                  "text": {
+                    "title": "Modèles"
+                  },
+                  "icon": "cluster"
+                },
+                "occurrence:e.root": {
+                  "form": "container",
+                  "text": {
+                    "title": "Services"
+                  },
+                  "icon": "cluster"
+                }
+              },
+              "legends": {},
+              "categoryTokens": []
+            }
+          }
+        }
+      }
+    }
+  }
+}

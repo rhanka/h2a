@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { baseDigest, canonicalJson } from "../editing/digest.js";
 import { isEvidenceDossier, isReportDocument } from "../model.js";
-import { DOSSIER_V1_1_SCHEMA_ID, DOSSIER_V2_1_SCHEMA_ID, REPORT_SCHEMA_ID, } from "../validation/index.js";
+import { DOSSIER_V1_2_SCHEMA_ID, DOSSIER_V2_2_SCHEMA_ID, REPORT_V1_1_SCHEMA_ID, } from "../validation/index.js";
 export const FOCUS_ARTIFACT_TYPE = "focus-dossier";
 export const FOCUS_DOSSIER_CONTRACT = "focus-dossier/1";
 export const FOCUS_VIEWS_CONTRACT = "focus-views/1";
@@ -43,10 +43,10 @@ export const rendererManifestDigest = (staticManifest) => baseDigest(staticManif
 export const bindingNameForDocumentRef = (ref) => `${FOCUS_BINDING_NAME_PREFIX}${ref}`;
 export const resolveDocumentSchemaId = (doc) => {
     if (isReportDocument(doc))
-        return REPORT_SCHEMA_ID;
+        return REPORT_V1_1_SCHEMA_ID;
     if (isEvidenceDossier(doc))
-        return DOSSIER_V2_1_SCHEMA_ID;
-    return DOSSIER_V1_1_SCHEMA_ID;
+        return DOSSIER_V2_2_SCHEMA_ID;
+    return DOSSIER_V1_2_SCHEMA_ID;
 };
 /** Safe relative bundle path: no leading slash, no traversal, no backslash, no drive letter. */
 export function isSafeBundleRelativePath(path) {

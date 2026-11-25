@@ -15,17 +15,43 @@ test('all application templates compile as Vapor without handwritten render func
   }
 });
 
-test('generic projection retains names, type kickers, containment and exact semantic bytes', () => {
-  const dossier = JSON.parse(readFileSync(new URL('../../test/fixtures/renderer-parity/decision.prepared.json', import.meta.url)));
-  const scene = dossier.sections.find(s => s.kind === 'diagram').scene;
-  scene.entities['entity:writer'].type = 'container';
-  scene.relations['relation:contains'] = { id: 'relation:contains', profile: 'generic@1', type: 'contains', attributes: {},
-    endpoints: [{ role: 'parent', target: 'entity:writer' }, { role: 'child', target: 'entity:reader' }] };
-  const before = JSON.stringify(scene), result = diagramAdapter(scene);
-  assert.equal(JSON.stringify(scene), before);
-  assert.deepEqual(result.presentation.entities['occurrence:e.writer'], { form: 'container', text: { title: 'Rédaction', kicker: 'container' } });
-  assert.deepEqual(result.presentation.entities['occurrence:e.reader'], { form: 'card', text: { title: 'Lecture', kicker: 'node' } });
-  assert.throws(() => diagramAdapter({ ...scene, profileRefs: ['erd@1'] }), /Unsupported/);
-  scene.relations['relation:contains'].endpoints[1].target = 'entity:writer';
-  assert.throws(() => diagramAdapter(scene), /Unsupported/);
+test('generic and process projections validate bounded semantics without mutating input', () => {
+  const genericScene = JSON.parse(readFileSync(new URL('../../../../focus/tests/diagram-core-generic.fixture.json', import.meta.url)));
+  const beforeGeneric = JSON.stringify(genericScene);
+  const genericResult = diagramAdapter(genericScene);
+  assert.equal(JSON.stringify(genericScene), beforeGeneric);
+  assert.deepEqual(genericResult.presentation.entities['occurrence:e.root'], { form: 'container', text: { title: 'Services', kicker: 'container' } });
+  assert.deepEqual(genericResult.presentation.entities['occurrence:e.gateway'], { form: 'card', text: { title: 'Relais de modèles', kicker: 'node' } });
+
+  const processScene = {
+    documentId: 'document:proc',
+    schemaVersion: { major: 1, minor: 1 },
+    revision: 0,
+    profileRefs: ['process@1'],
+    typeDefinitions: {},
+    entities: {
+      'entity:a': { id: 'entity:a', profile: 'process@1', type: 'step', attributes: { name: { kind: 'text', value: 'Réception' } } },
+      'entity:b': { id: 'entity:b', profile: 'process@1', type: 'step', attributes: { name: { kind: 'text', value: 'Archive' } } },
+    },
+    relations: {
+      'relation:a.b': {
+        id: 'relation:a.b',
+        profile: 'process@1',
+        type: 'transition',
+        endpoints: [{ role: 'source', target: 'entity:a' }, { role: 'target', target: 'entity:b' }],
+        attributes: { label: { kind: 'text', value: 'suite' } },
+      },
+    },
+    ports: {},
+    resources: {},
+    extensions: [],
+  };
+  const beforeProcess = JSON.stringify(processScene);
+  const processResult = diagramAdapter(processScene);
+  assert.equal(JSON.stringify(processScene), beforeProcess);
+  assert.deepEqual(processResult.presentation.entities, {});
+
+  assert.throws(() => diagramAdapter({ ...genericScene, profileRefs: ['erd@1'] }), /Unsupported/);
+  genericScene.relations['relation:root-coordinator'].endpoints[1].target = 'entity:root';
+  assert.throws(() => diagramAdapter(genericScene), /Unsupported/);
 });

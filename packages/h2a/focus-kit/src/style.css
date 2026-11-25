@@ -27,9 +27,15 @@ figcaption { font-weight: 600; margin-bottom: .5rem; }
    carries its own max-width: the drawing is never shown at scale 1. */
 .ds-diagram-mount { display: none; margin: 0 auto; }
 .ds-diagram-stage[data-active="wide"] .ds-diagram-mount[data-variant="wide"],
-.ds-diagram-stage[data-active="narrow"] .ds-diagram-mount[data-variant="narrow"] { display: block; }
+.ds-diagram-stage[data-active="narrow"] .ds-diagram-mount[data-variant="narrow"],
+.ds-diagram-stage[data-active="phone"] .ds-diagram-mount[data-variant="phone"] { display: block; }
 /* Natural size, never upscaled: small diagrams stay small and centered. */
 .ds-diagram-svg { display: block; width: auto; max-width: 100%; height: auto; margin: 0 auto; overflow: visible; }
+.st-diagramProcessTable { max-width: 100%; margin-top: .75rem; overflow-x: auto; }
+.st-diagramProcessTable table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .875rem; }
+.st-diagramProcessTable caption { text-align: left; color: var(--st-semantic-text-secondary, #475569); margin-bottom: .35rem; }
+.st-diagramProcessTable th, .st-diagramProcessTable td { text-align: left; vertical-align: top; padding: .4rem .6rem; border-bottom: 1px solid var(--st-semantic-border-subtle, #e2e8f0); }
+.st-diagramProcessTable thead th { font-weight: 600; border-bottom-color: var(--st-semantic-border-strong, #94a3b8); }
 .diagram-refusal { border: 1px solid var(--st-semantic-border-strong, #94a3b8); border-radius: .5rem; padding: .75rem 1rem; }
 details { margin-top: .75rem; } summary { cursor: pointer; } dt { font-weight: 600; } dd { margin-left: 1rem; }
 .focus-glossary summary { font-weight: 600; }
@@ -61,7 +67,7 @@ footer { border-top: 1px solid var(--st-semantic-border-subtle, #e2e8f0); paddin
 .source-line.cited { background: var(--st-semantic-surface-subtle, #f8fafc); border-left: 3px solid var(--st-semantic-border-interactive, oklch(50% 0.134 242.749)); }
 .line-number { display: inline-block; min-width: 5em; color: var(--st-semantic-text-secondary, #475569); }
 .evidence-table, .evidence-index pre { overflow: auto; max-width: 100%; }
-@media (max-width: 600px) { .ds-diagram-stage { padding: .35rem; } .title-band { align-items: flex-start; } main { padding-top: .75rem; } }
+@media (max-width: 600px) { .ds-diagram-stage { padding: .35rem; } .title-band { align-items: flex-start; } main { padding-top: .75rem; } .focus-diagram .st-diagramSceneFigure { grid-template-columns: minmax(0, 1fr); } .focus-diagram .st-diagramSceneFigure-title, .focus-diagram .st-diagramSceneFigure-controls { grid-column: 1; } }
 
 .evidence-table table { border-collapse: collapse; width: 100%; }
 .evidence-table th, .evidence-table td { overflow-wrap: normal; text-align: left; vertical-align: top; padding: .4rem .6rem; border-bottom: 1px solid var(--st-semantic-border-subtle, #e2e8f0); }

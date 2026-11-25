@@ -20,6 +20,7 @@
 import { validateDecisionDossierReadability } from "./readability.js";
 import { checkEvidence } from './evidence.js';
 export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
+import { DIAGRAM_TYPES } from "../model.js";
 /** Stable schema ID of the published DecisionDossierDocument asset. */
 export const DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
 /** Version of the dossier schema, independent of the package version. */
@@ -30,6 +31,12 @@ export const DOSSIER_V2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument
 export const DOSSIER_V1_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.1.0";
 /** Additive v2.1.0 schema ID (v2 embedded evidence + 1.1.0 section/diagram extensions). */
 export const DOSSIER_V2_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.1.0";
+/** Additive v1.2.0 schema ID (closed Archify diagramType classification). */
+export const DOSSIER_V1_2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.2.0";
+/** Additive v2.2.0 schema ID (v2 embedded evidence + 1.2.0 diagramType extension). */
+export const DOSSIER_V2_2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.2.0";
+/** Additive ReportDocument 1.1.0 schema ID (closed Archify diagramType classification). */
+export const REPORT_V1_1_SCHEMA_ID = "urn:sentropic:focus:ReportDocument:1.1.0";
 /** Thrown by {@link assertDecisionDossierDocument} on an invalid dossier. */
 export class DecisionDossierValidationError extends Error {
     issues;
@@ -287,10 +294,14 @@ const checkSectionNode = (value, path, issues) => {
             };
         }
         case "diagram": {
-            const node = checkClosedObject(value, path, ["kind", "id", "targetRef", "syntax", "source", "sourceRef", "renderComponent", "alt", "scene"], ["kind", "id", "targetRef", "alt"], ["id", "targetRef", "source", "sourceRef", "renderComponent", "alt"], issues);
+            const node = checkClosedObject(value, path, ["kind", "id", "targetRef", "diagramType", "syntax", "source", "sourceRef", "renderComponent", "alt", "scene"], ["kind", "id", "targetRef", "alt"], ["id", "targetRef", "source", "sourceRef", "renderComponent", "alt"], issues);
             if (node === undefined)
                 return undefined;
             checkNonBlank(node["alt"], `${path}.alt`, issues);
+            const hasDiagramType = node["diagramType"] !== undefined;
+            if (hasDiagramType) {
+                checkEnum(node["diagramType"], `${path}.diagramType`, DIAGRAM_TYPES, issues);
+            }
             const hasSource = node["source"] !== undefined;
             const hasSourceRef = node["sourceRef"] !== undefined;
             const hasSyntax = node["syntax"] !== undefined;
@@ -347,6 +358,7 @@ const checkSectionNode = (value, path, issues) => {
                     kind: "diagram",
                     id: node["id"],
                     targetRef: node["targetRef"],
+                    ...(hasDiagramType ? { diagramType: node["diagramType"] } : {}),
                     syntax: node["syntax"],
                     source: node["source"],
                     alt: node["alt"],
@@ -357,6 +369,7 @@ const checkSectionNode = (value, path, issues) => {
                 kind: "diagram",
                 id: node["id"],
                 targetRef: node["targetRef"],
+                ...(hasDiagramType ? { diagramType: node["diagramType"] } : {}),
                 sourceRef: node["sourceRef"],
                 renderComponent: node["renderComponent"],
                 alt: node["alt"],

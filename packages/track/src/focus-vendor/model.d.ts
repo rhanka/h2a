@@ -24,6 +24,10 @@ export type TargetRef = string;
 export type OutcomeModality = "decision" | "orientation" | "amendment" | "comment";
 /** Diagram syntaxes. Diagrams render as a FENCED fallback only at L1 (no diagram adapter). */
 export type DiagramSyntax = "mermaid" | "plantuml";
+/** Closed Archify v3.3 diagram families supported on Focus diagram sections. */
+export declare const DIAGRAM_TYPES: readonly ["architecture", "workflow", "sequence", "dataflow", "lifecycle", "erd", "class", "tree", "timeline", "waterfall"];
+/** Closed Archify v3.3 diagram family classification declared on `diagram` sections. */
+export type DiagramType = (typeof DIAGRAM_TYPES)[number];
 /** Q/R validation state for a `question` node (recommendation = préco). */
 export type QuestionValidationState = "open" | "answered" | "validated";
 /** Annotation state for an `option` node (Claude-style accept/reject/comment). */
@@ -124,14 +128,15 @@ export interface AmendmentTraceNode extends FocusNodeBase {
     readonly kind: "amendmentTrace";
     readonly steps: readonly AmendmentStep[];
 }
-/** Inline diagram: carries syntax + source (+ optional diagram-core scene). */
+/** Inline diagram: carries syntax + source (+ optional diagramType and diagram-core scene). */
 export interface InlineDiagramNode extends FocusNodeBase {
     readonly kind: "diagram";
+    readonly diagramType?: DiagramType;
     readonly syntax: DiagramSyntax;
     readonly source: string;
     readonly alt: string;
-    /** diagram-core SemanticDocument, generic@1, without views/geometry/layout hints.
-     * Kept as plain JSON until the private DS package publishes its schema. */
+    /** diagram-core SemanticDocument without views/geometry/layout hints.
+     * Kept as plain JSON; profile validity is checked by the DS scene bridge. */
     readonly scene?: Readonly<Record<string, unknown>>;
     readonly sourceRef?: undefined;
     readonly renderComponent?: undefined;
@@ -139,6 +144,7 @@ export interface InlineDiagramNode extends FocusNodeBase {
 /** Reference diagram: carries sourceRef + renderComponent, resolved by the host. */
 export interface ReferenceDiagramNode extends FocusNodeBase {
     readonly kind: "diagram";
+    readonly diagramType?: DiagramType;
     readonly sourceRef: string;
     readonly renderComponent: string;
     readonly alt: string;

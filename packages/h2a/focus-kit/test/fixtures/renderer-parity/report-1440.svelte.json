@@ -1,6 +1,6 @@
 {
   "title": "Rapport de présentation",
-  "text": "Focus 1 question(s) · 4 minutes Votre demande Chaque dossier de décision doit utiliser Focus et montrer notre écosystème. Le propriétaire doit comprendre les choix et leurs effets sans dépendre d'un service en ligne. Glossaire (1 terme) Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier. D1 ·Quel format adopter pour les prochains dossiers ? Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Décision validée Réponse enregistrée : Le fichier portable est retenu pour la lecture hors connexion. Formats possibles A · Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. Coût d'une compilation par version. Retour : régénérer le fichier précédent. B · Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse. La rédaction transmet le dossier à la lecture. Rédaction Lecture transmet Lire les relations du schéma JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone. Conclusion proposée Le fichier portable permet de transmettre le dossier complet. Historique Votre réponse Les choix sans réponse sont indiqués par —. D1 — Copier Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée. Source et version",
+  "text": "Focus 1 question(s) · 4 minutes Votre demande Chaque dossier de décision doit utiliser Focus et montrer notre écosystème. Le propriétaire doit comprendre les choix et leurs effets sans dépendre d'un service en ligne. Glossaire (1 terme) Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier. D1 ·Quel format adopter pour les prochains dossiers ? Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Décision validée Réponse enregistrée : Le fichier portable est retenu pour la lecture hors connexion. Formats possibles A · Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. Coût d'une compilation par version. Retour : régénérer le fichier précédent. B · Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse. La rédaction transmet le dossier à la lecture. 2 Lecture 1 Rédaction transmet Process steps and transitions JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone. Conclusion proposée Le fichier portable permet de transmettre le dossier complet. Historique Votre réponse Les choix sans réponse sont indiqués par —. D1 — Copier Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée. Source et version",
   "sections": [
     {
       "id": "context",
@@ -23,7 +23,7 @@
     },
     {
       "id": "ecosystem",
-      "text": "La rédaction transmet le dossier à la lecture. Rédaction Lecture transmet Lire les relations du schéma",
+      "text": "La rédaction transmet le dossier à la lecture. 2 Lecture 1 Rédaction transmet Process steps and transitions",
       "headings": []
     },
     {
@@ -71,7 +71,7 @@
       "open": false
     },
     {
-      "summary": "Lire les relations du schéma",
+      "summary": "Process steps and transitions",
       "open": false
     },
     {
