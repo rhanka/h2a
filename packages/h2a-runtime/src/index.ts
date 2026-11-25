@@ -183,6 +183,10 @@ import {
   type SessionHostKind,
 } from "./native-host.js";
 import {
+  runRemoteAttachInRecoverySubprocess,
+  withClientTerminalRecoverySubprocess,
+} from "./native-terminal/attach-recovery.js";
+import {
   executeNativeRestart,
   formatNativeRestartTable,
   NativeRestartError,
@@ -917,44 +921,56 @@ async function runProfile(
         `[h2a] (use --no-auth to start without credentials)\n`,
       );
     }
+    const remoteBaseUrl = opts.remote;
     process.stderr.write(
-      `[h2a] attached to ${opts.remote}/sessions/${session.id}\n`,
+      `[h2a] attached to ${remoteBaseUrl}/sessions/${session.id}\n`,
     );
-    const attachSession = await attach({
-      baseUrl: opts.remote,
-      sessionId: session.id,
-    });
-    await attachSession.finished;
+    const code = await runRemoteAttachInRecoverySubprocess(
+      async () => {
+        const attachSession = await attach({
+          baseUrl: remoteBaseUrl,
+          sessionId: session.id,
+        });
+        await attachSession.finished;
+      },
+      { baseUrl: remoteBaseUrl, sessionId: session.id },
+    );
+    if (typeof code === "number" && code !== 0) {
+      process.exitCode = code;
+    }
     return;
   }
   if (!prepareClaudeResumeRestore(profileName, opts.resume, commandArgs, process.cwd())) {
     return;
   }
-  const runOptions: import("./run.js").RunOptions = {
-    profile: profileName,
-    ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
-    ...(opts.port !== undefined ? { port: opts.port } : {}),
-    ...(commandArgs.length > 0 ? { startupArgs: commandArgs } : {}),
-  };
-  const gatewayMode = gatewayModeFromOptions(opts);
-  if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profileName)) {
-    throw new Error(`--llm-gateway/--gw is unsupported for ${profileName}`);
-  }
-  // Resolve local PTY routing before spawning, just as for managed sessions.
-  // Restore the caller's native auth even if acquisition or spawning fails.
-  const restoreEnv = replaceAnthropicGatewayEnvironment(process.env, captureAnthropicGatewayEnvironment());
-  let result: Awaited<ReturnType<typeof run>>;
-  try {
-    await injectLlmMeshGatewayEnv(gatewayMode, false);
-    result = await run({ ...runOptions, gatewayMode: gatewayMode === "gateway" ? "gateway" : "direct" });
-  } finally {
-    restoreEnv();
-  }
-  process.stderr.write(
-    `[h2a] session ${result.sessionId} attach at http://127.0.0.1:${result.port}\n`,
-  );
-  const { exitCode } = await result.exit;
-  process.exitCode = exitCode;
+  const runExit = await withClientTerminalRecoverySubprocess(async () => {
+    const runOptions: import("./run.js").RunOptions = {
+      profile: profileName,
+      ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
+      ...(opts.port !== undefined ? { port: opts.port } : {}),
+      ...(commandArgs.length > 0 ? { startupArgs: commandArgs } : {}),
+    };
+    const gatewayMode = gatewayModeFromOptions(opts);
+    if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profileName)) {
+      throw new Error(`--llm-gateway/--gw is unsupported for ${profileName}`);
+    }
+    // Resolve local PTY routing before spawning, just as for managed sessions.
+    // Restore the caller's native auth even if acquisition or spawning fails.
+    const restoreEnv = replaceAnthropicGatewayEnvironment(process.env, captureAnthropicGatewayEnvironment());
+    let result: Awaited<ReturnType<typeof run>>;
+    try {
+      await injectLlmMeshGatewayEnv(gatewayMode, false);
+      result = await run({ ...runOptions, gatewayMode: gatewayMode === "gateway" ? "gateway" : "direct" });
+    } finally {
+      restoreEnv();
+    }
+    process.stderr.write(
+      `[h2a] session ${result.sessionId} attach at http://127.0.0.1:${result.port}\r\n`,
+    );
+    const { exitCode } = await result.exit;
+    return exitCode;
+  });
+  process.exitCode = runExit;
 }
 
 async function refreshProfileSession(
@@ -3328,11 +3344,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           startupArgs: ["-c", "exit 0"],
         });
         await uploadWorkspaceArchive(marker.remote, session.id, archive);
-        const attached = await attach({
-          baseUrl: marker.remote,
-          sessionId: session.id,
-        });
-        await attached.finished;
+        const attachCode = await runRemoteAttachInRecoverySubprocess(
+          async () => {
+            const attached = await attach({
+              baseUrl: marker.remote,
+              sessionId: session.id,
+            });
+            await attached.finished;
+          },
+          { baseUrl: marker.remote, sessionId: session.id },
+        );
+        if (typeof attachCode === "number" && attachCode !== 0) {
+          process.exitCode = attachCode;
+          return;
+        }
         // The pushed tree is now the shared sync base.
         writeBaseSnapshot(cwd, archive);
         process.stderr.write(
@@ -10824,8 +10849,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.stderr.write(
           `[h2a] attaching to ${url}/sessions/${sessionId} (WS)\n`,
         );
-        const session = await attach({ baseUrl: url, sessionId });
-        await session.finished;
+        const attachCode = await runRemoteAttachInRecoverySubprocess(
+          async () => {
+            const session = await attach({ baseUrl: url, sessionId });
+            await session.finished;
+          },
+          { baseUrl: url, sessionId },
+        );
+        if (typeof attachCode === "number" && attachCode !== 0) {
+          process.exitCode = attachCode;
+        }
       },
     );
 

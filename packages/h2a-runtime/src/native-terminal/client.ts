@@ -185,6 +185,15 @@ export class NativeTerminalClient {
     return this.#request("acquire-controller", { id, controllerId, activity, ...options }) as Promise<NativeTerminalControllerLease>;
   }
 
+  setControllerResponder(
+    lease: NativeTerminalControllerLease,
+    enabled: boolean,
+  ): Promise<{ readonly responderFromSeq?: number } | null> {
+    return this.#request("set-controller-responder", { lease, enabled }) as Promise<
+      { readonly responderFromSeq?: number } | null
+    >;
+  }
+
   acquireAutomationControllerIfNoRecentHuman(
     id: string,
     controllerId: string,

@@ -43,6 +43,7 @@ const QUERY_FORMS: ReadonlyArray<readonly [string, string, string]> = [
   ["osc-12-query", "OSC 12 ; ? BEL", `${ESC}]12;?${BEL}`],
   ["osc-52", "OSC 52 ; c ; ? BEL", `${ESC}]52;c;?${BEL}`],
   ["enq", "ENQ", "\x05"],
+  ["xtqmodkeys", "CSI > 4 ; ? m", `${ESC}[>4;?m`],
 ];
 
 const SIDE_EFFECT_FORMS: ReadonlyArray<readonly [string, string]> = [
@@ -81,6 +82,7 @@ describe("S1 replay filter (r2 annex D, shared INJ D10 (b) table)", () => {
       "osc-11-query",
       "osc-12-query",
       "enq",
+      "xtqmodkeys",
     ]);
     expect(REPLAY_FILTER_FAMILIES.filter((f) => f.kind === "side-effect").map((f) => f.id)).toEqual([
       "bel",
@@ -226,5 +228,21 @@ describe("S1 replay filter (r2 annex D, shared INJ D10 (b) table)", () => {
     expect(filtered.stats.sideEffects).toBe(SIDE_EFFECT_FORMS.length + 1);
     term.dispose();
     control.dispose();
+  });
+
+  it("pins REPLAY_FILTER_FAMILIES[0..24] unchanged and appends xtqmodkeys at 25 without stripping normal SGR", () => {
+    expect(REPLAY_FILTER_FAMILIES).toHaveLength(26);
+    expect(REPLAY_FILTER_FAMILIES.slice(0, 20).map((f) => f.kind === "query" ? f.id : "s")).toHaveLength(20);
+    expect(REPLAY_FILTER_FAMILIES[24]).toMatchObject({ id: "osc-777", kind: "side-effect" });
+    expect(REPLAY_FILTER_FAMILIES[25]).toEqual({
+      id: "xtqmodkeys",
+      form: "CSI > 4 ; ? m",
+      kind: "query",
+    });
+    const mixed = `\x1b[0mhello\x1b[>4;?m\x1b[38;2;1;2;3mworld\x1b[>4;2m!`;
+    const filtered = filterReplay(mixed);
+    expect(filtered.output).toBe(`\x1b[0mhello\x1b[38;2;1;2;3mworld\x1b[>4;2m!`);
+    expect(filtered.stats.queries).toBe(1);
+    expect(filtered.stats.sideEffects).toBe(0);
   });
 });

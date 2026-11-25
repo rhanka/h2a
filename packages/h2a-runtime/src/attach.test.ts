@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   attach,
@@ -637,5 +638,66 @@ describe("attach", () => {
     expect(captured!.method).toBe("PATCH");
     const body = JSON.parse(captured!.body) as { displayName: string };
     expect(body).toEqual({ displayName: "my-new-name" });
+  });
+
+  it("writes attach TTY notices with CRLF (never bare LF) and cleans up process exit/suspend handlers on close", async () => {
+    const stderrChunks: string[] = [];
+    const stderr = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      write(chunk: string | Uint8Array) {
+        stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+        return true;
+      },
+    }) as unknown as NodeJS.WriteStream;
+    const stdin = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      isRaw: false,
+      setRawMode: vi.fn(),
+      resume: vi.fn(),
+      pause: vi.fn(),
+    }) as unknown as NodeJS.ReadStream;
+    const stdout = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      columns: 80,
+      rows: 24,
+      write: vi.fn(() => true),
+    }) as unknown as NodeJS.WriteStream;
+
+    const beforeExit = process.listenerCount("exit");
+    const beforeUncaught = process.listenerCount("uncaughtExceptionMonitor");
+    const beforeTstp = process.listenerCount("SIGTSTP");
+
+    const fetchImpl = (async (url: string | URL) => {
+      const href = url.toString();
+      if (href.endsWith("/events")) {
+        return new Response(streamFromString(""), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      return new Response("", { status: 400, statusText: "Bad Request" });
+    }) as typeof fetch;
+
+    const session = await attach({
+      baseUrl: "http://localhost:8080",
+      sessionId: "sess-crlf",
+      stdin,
+      stdout,
+      stderr,
+      fetchImpl,
+      inputRetry: { maxAttempts: 1, baseDelayMs: 1, maxDelayMs: 1 },
+    });
+
+    stdin.emit("data", Buffer.from("x", "utf8"));
+    await new Promise((r) => setTimeout(r, 30));
+    stdin.emit("data", Buffer.from("\x10\x11", "utf8"));
+    await session.finished;
+
+    const stderrOut = stderrChunks.join("");
+    expect(stderrOut).toContain("\r\n");
+    expect(stderrOut.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(process.listenerCount("exit")).toBe(beforeExit);
+    expect(process.listenerCount("uncaughtExceptionMonitor")).toBe(beforeUncaught);
+    expect(process.listenerCount("SIGTSTP")).toBe(beforeTstp);
   });
 });

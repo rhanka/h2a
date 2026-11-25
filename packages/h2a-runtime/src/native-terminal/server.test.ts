@@ -1378,4 +1378,63 @@ describe("native terminal socket path limits", () => {
     expect(rawResp.error?.code).toBe("invalid-request");
     void ptys;
   });
+
+  it("wires acquireController terminalResponder, setControllerResponder, and controller read-output polling over socket", async () => {
+    const { socketPath, client, ptys } = await service();
+    const observer = await NativeTerminalClient.connect(socketPath);
+    cleanup.push(async () => observer.close());
+
+    await client.create(createOptions("dsr-rpc"));
+    const pty = ptys.get("dsr-rpc")!;
+
+    // Default passive/no-responder lease lets host reply 1;1R
+    const lease = await client.acquireController("dsr-rpc", "c-rpc", "human", {
+      terminalResponder: false,
+    });
+    expect(lease.responderFromSeq).toBeUndefined();
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // Non-owner cannot toggle responder
+    await expect(observer.setControllerResponder(lease, true)).rejects.toThrow(
+      /not owned by this connection/i,
+    );
+
+    // Owner promotes responder -> host waits for live CPR
+    const promo = await client.setControllerResponder(lease, true);
+    expect(typeof promo?.responderFromSeq).toBe("number");
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(1);
+
+    // Owner sends real CPR over socket -> forwarded cleanly
+    await client.write(lease, "\x1b[7;11R");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[7;11R");
+
+    // Mute client: readOutput x3 on controller connection triggers host fallback
+    pty.emitData("\x1b[6n");
+    const r1 = await client.readOutput("dsr-rpc", 0);
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    await client.readOutput("dsr-rpc", r1.latestSeq);
+    await client.readOutput("dsr-rpc", r1.latestSeq);
+    await client.readOutput("dsr-rpc", r1.latestSeq);
+    expect(pty.write).toHaveBeenCalledTimes(3);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // Acquire directly with terminalResponder: true on takeover
+    const lease2 = await observer.acquireController("dsr-rpc", "c-rpc-2", "human", {
+      takeover: true,
+      terminalResponder: true,
+    });
+    expect(lease2.responderFromSeq).toBe(r1.latestSeq);
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(3);
+    observer.close();
+    await eventually(
+      () => client.state("dsr-rpc"),
+      (s) => !s.controlled,
+    );
+    expect(pty.write).toHaveBeenCalledTimes(4);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+  });
 });

@@ -195,7 +195,7 @@ describe("client terminal reset", () => {
 
   it("should not touch a non-TTY stdout", () => {
     expect(resetClientTerminal({ isTTY: false, fd: 1 })).toBe(false);
-    expect(resetClientTerminal({ isTTY: undefined, fd: 1 })).toBe(false);
+    expect(resetClientTerminal({ fd: 1 } as unknown as NodeJS.WriteStream)).toBe(false);
   });
 
   it("should read signal numbers from the running platform (rev351r2-6)", () => {
@@ -208,5 +208,25 @@ describe("client terminal reset", () => {
     }
     expect(SIGNAL_NUMBERS["SIGTERM"]).toBe(osConstants.signals.SIGTERM);
     expect(SIGNAL_NUMBERS["SIGINT"]).toBe(osConstants.signals.SIGINT);
+  });
+
+  it("withClientTerminalReset passes real stdout only when stdin defaults to process.stdin unless explicitly supplied", () => {
+    const fakeStdin = {
+      isTTY: true,
+      isRaw: false,
+      fd: undefined as unknown as number | undefined,
+      setRawMode: () => fakeStdin,
+    };
+    let resets = 0;
+    const res = withClientTerminalReset(
+      () => 42,
+      () => {
+        resets += 1;
+      },
+      fakeStdin as unknown as NodeJS.ReadStream,
+      { isTTY: false, fd: undefined },
+    );
+    expect(res).toBe(42);
+    expect(resets).toBe(1);
   });
 });

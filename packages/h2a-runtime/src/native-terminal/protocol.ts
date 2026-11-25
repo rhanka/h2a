@@ -102,6 +102,7 @@ export type NativeTerminalOperation =
   | "read-output"
   | "attach-observer"
   | "acquire-controller"
+  | "set-controller-responder"
   | "acquire-controller-if-no-recent-human"
   | "acquire-remote-controller-if-no-recent-human"
   | "release-controller"
@@ -247,6 +248,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "read-output",
     "attach-observer",
     "acquire-controller",
+    "set-controller-responder",
     "acquire-controller-if-no-recent-human",
     "acquire-remote-controller-if-no-recent-human",
     "release-controller",

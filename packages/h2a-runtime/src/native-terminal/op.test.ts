@@ -3267,4 +3267,92 @@ describe("native attach right panel (L0)", () => {
     expect(outB).not.toContain("type to take back");
     expect(outB).toContain("controller released or session replaced");
   });
+
+  it("forwards terminalResponder: true only for interactive non-dumb TTYs and filters catch-up <= responderFromSeq", async () => {
+    const stdin = new FakeInput();
+    Object.defineProperty(stdin, "isTTY", { value: true });
+    const stdout = new FakeOutput();
+    Object.defineProperty(stdout, "isTTY", { value: true });
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    const acquireCalls: unknown[] = [];
+    const lease = {
+      role: "controller" as const,
+      id: "h2a-resp",
+      generation: "g-1",
+      incarnation: "1",
+      controllerId: "c-resp",
+      epoch: 1,
+      responderFromSeq: 1,
+    };
+
+    const client = {
+      async state() {
+        return {
+          id: "h2a-resp",
+          generation: "g-1",
+          incarnation: "1",
+          pid: 4242,
+          status: reads > 1 ? ("exited" as const) : ("running" as const),
+          latestSeq: 1,
+          exit: reads > 1 ? { exitCode: 0 } : null,
+          stopSignal: null,
+          controlled: reads <= 1,
+        };
+      },
+      async acquireController(_id: string, _cid: string, _act: string, opts: unknown) {
+        acquireCalls.push(opts);
+        return lease;
+      },
+      async releaseController() {
+        return { id: "h2a-resp", generation: "g-1", incarnation: "1", controllerEpoch: 1 };
+      },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          return {
+            generation: "g-1",
+            incarnation: "1",
+            gap: null,
+            latestSeq: 2,
+            chunks: [
+              { seq: 1, data: "CATCH\x1b[c\x1b[>4;?m\x1b[6n" },
+              { seq: 2, data: "LIVE\x1b[6n" },
+            ],
+          };
+        }
+        return { generation: "g-1", incarnation: "1", gap: null, latestSeq: 2, chunks: [] };
+      },
+      async write() {},
+      async resize() {},
+      close() {},
+    } as unknown as AttachClient;
+
+    const prevTerm = process.env["TERM"];
+    process.env["TERM"] = "xterm-256color";
+    try {
+      const code = await runAttach(
+        "h2a-resp",
+        {
+          connect: async () => client,
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          now: () => now,
+          delay: async (ms) => { now += ms; },
+          onResize: () => {},
+          offResize: () => {},
+        },
+        { statusBar: false, rightPanel: false },
+      );
+      expect(code).toBe(0);
+      expect(acquireCalls[0]).toMatchObject({ terminalResponder: true });
+      const out = stdout.chunks.join("");
+      expect(out).toContain("CATCHLIVE\x1b[6n");
+      expect(out).not.toContain("\x1b[c");
+      expect(out).not.toContain("\x1b[>4;?m");
+    } finally {
+      if (prevTerm === undefined) delete process.env["TERM"];
+      else process.env["TERM"] = prevTerm;
+    }
+  });
 });
