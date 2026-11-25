@@ -630,6 +630,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           () => Date.now(),
           { enabled: false, env },
         );
+      let stationDisplayed = false;
       try {
         const stPromise = runStation(rt, {
           createStatusBar: mkBar,
@@ -637,6 +638,11 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           locale: "en",
           tty: "/dev/pts/8",
           pid: process.pid,
+          onEvent: (event) => {
+            if (event.type === "displayed" && event.sessionId === "h2a-swB") {
+              stationDisplayed = true;
+            }
+          },
           panel: {
             width: 30,
             refreshIntervalMs: 500,
@@ -648,7 +654,12 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
               }),
           },
         });
-        await waitUntil(() => bridge.getOutput().includes("B_PRE"), 4000, "station displayed B");
+        // Wait for Station t6 (sentinel + displayed + gate open), not merely t5 replay bytes
+        await waitUntil(
+          () => stationDisplayed && bridge.getOutput().includes("B_PRE"),
+          4000,
+          "station displayed B",
+        );
         bridge.stdin.write("ASK_B");
         await waitUntil(() => bridge.getOutput().includes("B_RES="), 4000, "station live B CPR");
         const m = /B_RES=("[^"]*")/.exec(bridge.getOutput());
