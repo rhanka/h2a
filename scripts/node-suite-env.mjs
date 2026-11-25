@@ -215,7 +215,10 @@ export async function setupNodeSuiteEnv(root) {
   // (The pack warmer and its frozen key started before this phase, so this
   // download already overlaps the pack.)
   const prepared = spawnSync(process.execPath, [join(root, "scripts/prepare-mh-test-fixtures.mjs")], {
-    cwd: root, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
+    // 1800 s admits a first-time throttled population (zig 49 MB: ~650 s
+    // typical, ~1300 s worst observed 2026-11-24); cache hits after that take
+    // seconds. Shard jobs restore the bulk-saved cache, so they never pay this.
+    cwd: root, env: testEnv, encoding: "utf8", timeout: 1_800_000, maxBuffer: 8 * 1024 * 1024,
   });
   if (prepared.status !== 0) {
     const detail = [

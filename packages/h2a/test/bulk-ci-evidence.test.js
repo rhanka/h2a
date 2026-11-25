@@ -14,7 +14,7 @@ function assertGraph(workflow) {
   assert.ok(jobs['bulk-qualification'], 'the nine bulk suites must have an independently failing producer');
   const producer = jobs['bulk-qualification'];
   assert.equal(producer['runs-on'], 'ubuntu-24.04'); // pinned with the ci.yml runner pin — TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY
-  assert.equal(producer['timeout-minutes'], 25);
+  assert.equal(producer['timeout-minutes'], 35); // 0.98.11 lane: throttled first fixture population; see docs/ci-job-budget.md
   assert.equal(producer.strategy['fail-fast'], false);
   assert.deepEqual(producer.strategy.matrix.node, ['22', '24']);
   for (const step of producer.steps) {
@@ -24,9 +24,16 @@ function assertGraph(workflow) {
     'node scripts/test-sandbox.mjs --prepare-ci',
     'npm ci',
     'npm run build',
+    'echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache-tmp/h2a-test/toolchain-cache" >> "$GITHUB_ENV"',
+    'node scripts/populate-toolchain-cache.mjs',
     'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js',
     'node scripts/test-sandbox.mjs -- node scripts/ci-bulk-proof.mjs',
   ]);
+  // The native toolchain fixtures (zig.tar.xz) are restored from actions/cache
+  // keyed by the lock file (URL+sha256); a hit never hits the network.
+  assert.ok(producer.steps.some((s) => s.uses === 'actions/cache@v4'
+    && String(s.with?.key ?? '').includes("hashFiles('scripts/release/native-toolchain.lock.json')")),
+    'bulk producer restores the native toolchain fixture cache keyed by the lock file');
   assert.deepEqual(producer.steps.find(s => s.uses === 'actions/upload-artifact@v4').with,
     {name:'bulk-${{ github.run_id }}-node${{ matrix.node }}',path:'tmp/bulk-export/proof.json','if-no-files-found':'error',overwrite:true,'retention-days':7});
   for (const name of ['build-and-test', 'npm-test-trust-root']) {

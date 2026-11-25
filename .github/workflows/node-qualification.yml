@@ -101,7 +101,10 @@ jobs:
   # Mirrors ci.yml's bulk-qualification job at the gated release SHA.
   bulk-qualification:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # 35 min admits a first-time throttled fixture population (zig 49 MB at
+    # ~70 KB/s needs ~650 s, worst observed ~1300 s); steady-state cache hits
+    # take seconds. See docs/ci-job-budget.md (0.98.11 lane).
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -121,6 +124,24 @@ jobs:
         run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run build
+      - name: Restore native toolchain fixture cache
+        uses: actions/cache@v4
+        with:
+          # Host-persisted under ~/.cache-tmp: sandboxed writes under <repo>/tmp land in
+          # per-run shadow dirs, invisible to the post-job cache save; reads via ro-bind / work.
+          path: ~/.cache-tmp/h2a-test/toolchain-cache
+          key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
+          restore-keys: h2a-toolchain-
+      - name: Export toolchain cache dir
+        run: echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache-tmp/h2a-test/toolchain-cache" >> "$GITHUB_ENV"
+      - name: Populate native toolchain fixture cache
+        # Unsandboxed on purpose: sandboxed writes land in per-run shadow
+        # dirs, invisible to the post-job cache save; reads inside the
+        # sandbox see this host path read-only. Pure network + verified
+        # writes, like npm ci.
+        run: node scripts/populate-toolchain-cache.mjs
+        env:
+          H2A_TOOLCHAIN_CACHE_DIR: ~/.cache-tmp/h2a-test/toolchain-cache
       - name: Verify bulk acceptance independently of the aggregate runner
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
@@ -182,6 +203,22 @@ jobs:
         with:
           name: bulk-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/bulk-import
+      - name: Restore native toolchain fixture cache
+        uses: actions/cache@v4
+        with:
+          # Host-persisted under ~/.cache-tmp: sandboxed writes under <repo>/tmp land in
+          # per-run shadow dirs, invisible to the post-job cache save; reads via ro-bind / work.
+          path: ~/.cache-tmp/h2a-test/toolchain-cache
+          key: h2a-toolchain-${{ hashFiles('scripts/release/native-toolchain.lock.json') }}
+          restore-keys: h2a-toolchain-
+      - name: Populate native toolchain fixture cache
+        # Unsandboxed on purpose: sandboxed writes land in per-run shadow
+        # dirs, invisible to the post-job cache save; reads inside the
+        # sandbox see this host path read-only. Pure network + verified
+        # writes, like npm ci.
+        run: node scripts/populate-toolchain-cache.mjs
+        env:
+          H2A_TOOLCHAIN_CACHE_DIR: ~/.cache-tmp/h2a-test/toolchain-cache
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
@@ -192,6 +229,7 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_STAGE_ROOT=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TOOLCHAIN_CACHE_DIR=$HOME/.cache-tmp/h2a-test/toolchain-cache" >> "$GITHUB_ENV"
       - name: Execute one duration-balanced Node shard
         run: node scripts/test-sandbox.mjs -- node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
         env:

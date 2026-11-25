@@ -503,6 +503,7 @@ function assertM17CiGraph(source) {
       'node scripts/test-sandbox.mjs --prepare-ci',
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
+      'node scripts/populate-toolchain-cache.mjs',
       'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js',
       'test "$M17_RESULT" = success',
       'test "$BULK_RESULT" = success',

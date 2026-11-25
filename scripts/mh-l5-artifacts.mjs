@@ -60,6 +60,7 @@ export async function downloadWithRetry(url, {
   fetchImpl = fetch,
   sleep = ms => new Promise(done => setTimeout(done, ms)),
   random = Math.random,
+  validateResponse = null,
 } = {}) {
   const timeouts = Array.isArray(attemptTimeoutsMs) && attemptTimeoutsMs.length > 0
     ? attemptTimeoutsMs
@@ -68,6 +69,15 @@ export async function downloadWithRetry(url, {
   const attemptNotes = [];
   const computeBackoff = (attempt, retryAfterMs = null) =>
     retryAfterMs ?? (Math.min(maxBackoffMs, baseBackoffMs * (2 ** (attempt - 1))) + Math.floor(random() * jitterMs));
+  const retryOrExhaust = async (attempt, note, retryAfterMs = null) => {
+    attemptNotes.push(note);
+    if (attempt < timeouts.length) {
+      await sleep(computeBackoff(attempt, retryAfterMs));
+      return;
+    }
+    const totalMs = Math.round(performance.now() - startedAt);
+    throw new Error(`fixture_download_failed:${stage}:exhausted:${url} after ${timeouts.length} attempts in ${totalMs}ms (${attemptNotes.join('; ')})`);
+  };
 
   for (let attempt = 1; attempt <= timeouts.length; attempt++) {
     const timeoutMs = timeouts[attempt - 1];
@@ -79,17 +89,23 @@ export async function downloadWithRetry(url, {
         const status = response.status;
         const retryAfterMs = parseRetryAfterMs(response.headers?.get?.('retry-after'));
         try { await response.body?.cancel?.(); } catch {}
-        attemptNotes.push(`attempt ${attempt}/${timeouts.length}: HTTP ${status} (${elapsedMs}ms)`);
+        const note = `attempt ${attempt}/${timeouts.length}: HTTP ${status} (${elapsedMs}ms)`;
         if (!RETRYABLE_HTTP_STATUS.has(status)) {
+          attemptNotes.push(note);
           const totalMs = Math.round(performance.now() - startedAt);
           throw new Error(`fixture_download_failed:${stage}:${status}:${url} (${totalMs}ms; ${attemptNotes.join('; ')})`);
         }
-        if (attempt < timeouts.length) {
-          await sleep(computeBackoff(attempt, retryAfterMs));
+        await retryOrExhaust(attempt, note, retryAfterMs);
+        continue;
+      }
+      if (validateResponse) {
+        const outcome = await validateResponse(response);
+        if (outcome.retryReason) {
+          const elapsedMs = Math.round(performance.now() - attemptStart);
+          await retryOrExhaust(attempt, `attempt ${attempt}/${timeouts.length}: ${outcome.retryReason} (${elapsedMs}ms)`);
           continue;
         }
-        const totalMs = Math.round(performance.now() - startedAt);
-        throw new Error(`fixture_download_failed:${stage}:exhausted:${url} after ${timeouts.length} attempts in ${totalMs}ms (${attemptNotes.join('; ')})`);
+        return outcome.value;
       }
       return Buffer.from(await response.arrayBuffer());
     } catch (error) {
@@ -109,6 +125,102 @@ export async function downloadWithRetry(url, {
     }
   }
   throw new Error(`fixture_download_failed:${stage}:unreachable:${url}`);
+}
+
+// Resumable chunked download for large archives behind throttled links.
+// Measured 2026-11-24: ziglang.org trickles at ~70 KB/s, so the 49 MB
+// zig.tar.xz needs ~650 s while a single fetch is capped at 120 s per
+// attempt and CI runners abort 6/6 attempts at the deadline (run 45449703686
+// bulk jobs). Fetch bytes=offset- probes range support; when the server
+// answers 206, reassemble fixed-size chunks (each retried by
+// downloadWithRetry for HTTP 206 and exact chunk size, or reusing a complete
+// 200 if returned); otherwise fall back to a plain downloadWithRetry.
+// Integrity stays with the caller (sha256 over the concatenated bytes);
+// a dead link still fails explicitly.
+export async function downloadWithResume(url, {
+  stage = 'download',
+  chunkBytes = 2 * 1024 * 1024,
+  probeTimeoutMs = 30_000,
+  attemptTimeoutsMs = DEFAULT_ATTEMPT_TIMEOUTS_MS,
+  baseBackoffMs = 2_000,
+  maxBackoffMs = 25_000,
+  jitterMs = 1_500,
+  fetchImpl = fetch,
+  sleep = ms => new Promise(done => setTimeout(done, ms)),
+  random = Math.random,
+} = {}) {
+  const fallback = () => downloadWithRetry(url, {
+    stage, attemptTimeoutsMs, baseBackoffMs, maxBackoffMs, jitterMs, fetchImpl, sleep, random,
+  });
+  let total = null;
+  try {
+    const probe = await fetchImpl(url, {
+      headers: { Range: 'bytes=0-0' },
+      signal: AbortSignal.timeout(probeTimeoutMs),
+    });
+    try { await probe.body?.cancel?.(); } catch {}
+    if (probe.status === 206) {
+      const match = /\/(\d+)\s*$/.exec(probe.headers?.get?.('content-range') ?? '');
+      const parsed = match ? Number(match[1]) : NaN;
+      if (Number.isSafeInteger(parsed) && parsed > 0) total = parsed;
+    }
+  } catch {
+    // Probe failure is not a verdict: fall through to the plain download,
+    // whose own retries produce the explicit failure.
+  }
+  if (total === null || total <= chunkBytes) return fallback();
+  const parts = [];
+  for (let offset = 0; offset < total; offset += chunkBytes) {
+    const end = Math.min(offset + chunkBytes - 1, total - 1);
+    const expectedLength = end - offset + 1;
+    const rangedFetch = (u, opts = {}) => fetchImpl(u, {
+      ...opts,
+      headers: { ...(opts.headers ?? {}), Range: `bytes=${offset}-${end}` },
+    });
+    const result = await downloadWithRetry(url, {
+      stage: `${stage}:range-${offset}-${end}`,
+      attemptTimeoutsMs, baseBackoffMs, maxBackoffMs, jitterMs,
+      fetchImpl: rangedFetch, sleep, random,
+      validateResponse: async (response) => {
+        if (response.status === 206) {
+          const contentRange = response.headers?.get?.('content-range');
+          if (contentRange) {
+            const match = /^bytes\s+(\d+)-(\d+)\/(\d+|\*)\s*$/i.exec(contentRange);
+            if (!match || Number(match[1]) !== offset || Number(match[2]) !== end || (match[3] !== '*' && Number(match[3]) !== total)) {
+              try { await response.body?.cancel?.(); } catch {}
+              return { retryReason: `HTTP 206 content-range mismatch (${contentRange}, expected ${offset}-${end}/${total})` };
+            }
+          }
+          const bytes = Buffer.from(await response.arrayBuffer());
+          if (bytes.length !== expectedLength) {
+            return { retryReason: `HTTP 206 truncated (${bytes.length}/${expectedLength} bytes)` };
+          }
+          return { value: { full: false, bytes } };
+        }
+        if (response.status === 200) {
+          const contentLength = response.headers?.get?.('content-length');
+          if (contentLength !== null && contentLength !== undefined && Number(contentLength) !== total) {
+            try { await response.body?.cancel?.(); } catch {}
+            return { retryReason: `HTTP 200 content-length mismatch (${contentLength}/${total} bytes)` };
+          }
+          const bytes = Buffer.from(await response.arrayBuffer());
+          if (bytes.length === total) {
+            return { value: { full: true, bytes } };
+          }
+          return { retryReason: `HTTP 200 incomplete (${bytes.length}/${total} bytes)` };
+        }
+        try { await response.body?.cancel?.(); } catch {}
+        return { retryReason: `unexpected HTTP ${response.status} for range ${offset}-${end}` };
+      },
+    });
+    if (result.full) return result.bytes;
+    parts.push(result.bytes);
+  }
+  const out = Buffer.concat(parts);
+  if (out.length !== total) {
+    throw new Error(`fixture_download_failed:${stage}:size_mismatch:${url} (${out.length}/${total} bytes)`);
+  }
+  return out;
 }
 
 async function main() {
