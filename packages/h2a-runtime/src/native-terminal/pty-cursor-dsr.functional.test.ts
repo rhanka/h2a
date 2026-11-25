@@ -789,12 +789,45 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       const stoppedStty = sttyFlagsForPts(outerPts);
       expect(stoppedStty).toMatch(/(?:^|\s)opost(?:\s|$)/);
       expect(stoppedStty).toMatch(/(?:^|\s)onlcr(?:\s|$)/);
+      expect(stoppedStty).toMatch(/(?:^|\s)isig(?:\s|$)/);
       expect(stoppedStty).toMatch(/(?:^|\s)icanon(?:\s|$)/);
       expect(stoppedStty).toMatch(/(?:^|\s)echo(?:\s|$)/);
 
-      // `fg` resumes job -> re-applies full raw (-icanon -echo) & -opost
+      // `bg` resumes job in background -> SIGCONT uses defaultSttySpawn (no TTOU trap),
+      // so the kernel stops the job on SIGTTOU in T state while preserving the shell's cooked TTY.
+      const bgStart = out.length;
+      outerPty.write("bg\r");
+      const listPgidProcs = (): Array<{ pid: number; ppid: number; pgid: number; stat: string }> => {
+        const psOut = execFileSync("ps", ["-eo", "pid,ppid,pgid,stat"], { encoding: "utf8" });
+        const rows: Array<{ pid: number; ppid: number; pgid: number; stat: string }> = [];
+        for (const line of psOut.split("\n")) {
+          const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s*$/.exec(line);
+          if (m && Number(m[3]) === guard.pgid) {
+            rows.push({ pid: Number(m[1]), ppid: Number(m[2]), pgid: Number(m[3]), stat: m[4]! });
+          }
+        }
+        return rows;
+      };
+      await waitUntil(() => {
+        if (!shellPromptRe.test(out.slice(bgStart))) return false;
+        const pgidRows = listPgidProcs();
+        const innerStopped = pgidRows.some((r) => r.pid === innerPid && r.stat.startsWith("T"));
+        const guardStopped = pgidRows.some((r) => r.pid === guard.pid && r.stat.startsWith("T"));
+        const sttyStopped = pgidRows.some((r) => r.ppid === innerPid && r.stat.startsWith("T"));
+        return innerStopped && guardStopped && sttyStopped;
+      }, 4000, "job stopped in T state after bg SIGTTOU");
+      expect(out.slice(bgStart)).not.toContain("RESUMED:1");
+      const bgStty = sttyFlagsForPts(outerPts);
+      expect(bgStty).toMatch(/(?:^|\s)opost(?:\s|$)/);
+      expect(bgStty).toMatch(/(?:^|\s)isig(?:\s|$)/);
+      expect(bgStty).toMatch(/(?:^|\s)icanon(?:\s|$)/);
+      expect(bgStty).toMatch(/(?:^|\s)echo(?:\s|$)/);
+
+      // `fg` resumes job -> finishes S1 stty in foreground & re-applies full raw (-icanon -echo) & -opost
+      const fgStart = out.length;
       outerPty.write("fg\r");
-      await waitUntil(() => out.includes("RESUMED:1"), 4000, "child resumed on fg");
+      await waitUntil(() => out.slice(fgStart).includes("RESUMED:1"), 4000, "child resumed on fg");
+      expect(out.slice(fgStart)).not.toContain("RESUMED:2");
       const resumedStty = sttyFlagsForPts(outerPts);
       expect(resumedStty).toMatch(/(?:^|\s)-opost(?:\s|$)/);
       expect(resumedStty).toMatch(/(?:^|\s)-icanon(?:\s|$)/);

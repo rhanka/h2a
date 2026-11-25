@@ -1052,6 +1052,7 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
   const stty = options.stty ?? meta?.stty ?? defaultSttySpawn;
   let uninstalled = false;
   let calledSetRawOnSuspend = false;
+  let suspendedByHandler = false;
 
   const suspendStty: SttySpawn =
     stty === defaultSttySpawn
@@ -1067,12 +1068,15 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
       : stty;
 
   const reapplyRawAndNoOpostOnResume = (): void => {
+    // Resume must NOT neutralize SIGTTOU: if the process is resumed in the
+    // background (`bg`), POSIX requires `tcsetattr` (`stty` / `setRawMode`)
+    // to stop the job on SIGTTOU without clobbering the shell's TTY.
     const rawInMode = sttyModeString(meta?.rawSaved);
     const rawOutMode = sttyModeString(meta?.rawStdoutSaved);
     if (!calledSetRawOnSuspend && (rawInMode || rawOutMode)) {
       if (options.state.stdinFd !== undefined) {
         if (rawInMode) {
-          applySavedStty(options.state.stdinFd, meta?.rawSaved, undefined, suspendStty);
+          applySavedStty(options.state.stdinFd, meta?.rawSaved, undefined, stty);
         } else {
           if (options.stdin.isTTY === true) {
             try {
@@ -1082,7 +1086,7 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
           applyRawAndNoOpost(
             options.stdin,
             options.state.stdoutFd === undefined ? options.stdout : undefined,
-            suspendStty,
+            stty,
             platform,
           );
         }
@@ -1094,10 +1098,10 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
       }
       if (options.state.stdoutFd !== undefined) {
         if (rawOutMode) {
-          applySavedStty(options.state.stdoutFd, meta?.rawStdoutSaved, undefined, suspendStty);
+          applySavedStty(options.state.stdoutFd, meta?.rawStdoutSaved, undefined, stty);
         } else if (options.stdout?.isTTY === true) {
           try {
-            suspendStty(["-opost"], { stdinFd: options.state.stdoutFd, capture: false });
+            stty(["-opost"], { stdinFd: options.state.stdoutFd, capture: false });
           } catch {}
         }
       }
@@ -1112,17 +1116,29 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
         options.stdin.setRawMode?.(false);
       } catch {}
     }
-    applyRawAndNoOpost(options.stdin, options.stdout, suspendStty, platform);
+    applyRawAndNoOpost(options.stdin, options.stdout, stty, platform);
   };
 
   const onSigCont = (): void => {
+    if (uninstalled || !suspendedByHandler) return;
+    suspendedByHandler = false;
+    proc.removeListener("SIGCONT", onSigCont);
+    // Capture any updated S0 baseline BEFORE re-applying S1 so refreshBaseline
+    // never snapshots S1 (even if SIGCONT arrives after SIGSTOP/SIGTTIN or bg->fg).
+    const refreshedIn = meta?.stdinEntry
+      ? sttyModeString(captureSttyMode(meta.stdinEntry.fd, stty))
+      : undefined;
+    const refreshedOut = meta?.stdoutEntry
+      ? sttyModeString(captureSttyMode(meta.stdoutEntry.fd, stty))
+      : undefined;
+    reapplyRawAndNoOpostOnResume();
     if (uninstalled) return;
     if (meta?.stdinEntry) {
       meta.stdinEntry.registry.setSuspended(
         meta.stdinEntry.key,
         meta.stdinEntry.token,
         false,
-        { refreshBaseline: () => sttyModeString(captureSttyMode(meta.stdinEntry!.fd, suspendStty)) },
+        refreshedIn !== undefined ? { refreshBaseline: () => refreshedIn } : undefined,
       );
     }
     if (meta?.stdoutEntry) {
@@ -1130,11 +1146,11 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
         meta.stdoutEntry.key,
         meta.stdoutEntry.token,
         false,
-        { refreshBaseline: () => sttyModeString(captureSttyMode(meta.stdoutEntry!.fd, suspendStty)) },
+        refreshedOut !== undefined ? { refreshBaseline: () => refreshedOut } : undefined,
       );
     }
+    proc.removeListener("SIGTSTP", onSigTstp);
     proc.on("SIGTSTP", onSigTstp);
-    reapplyRawAndNoOpostOnResume();
     try {
       options.afterResume?.();
     } catch {
@@ -1145,6 +1161,7 @@ export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): ()
   const onSigTstp = (): void => {
     if (uninstalled) return;
     calledSetRawOnSuspend = false;
+    suspendedByHandler = true;
     const inSusp = meta?.stdinEntry
       ? meta.stdinEntry.registry.setSuspended(meta.stdinEntry.key, meta.stdinEntry.token, true)
       : undefined;

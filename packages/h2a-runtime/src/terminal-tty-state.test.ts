@@ -405,6 +405,123 @@ describe("Rule 1 — -opost, distinct stdout.fd, TtyBaselineRegistry, and SIGTST
     expect(kernel).toEqual({ opost: true, onlcr: true, icanon: true, echo: true });
   });
 
+  it("installTtySuspendHandlers ignores spurious SIGCONT (SIGSTOP/SIGTTIN/double SIGCONT), keeps 1 SIGTSTP listener, and never refreshes baseline in S1", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tty-sigcont-guard-"));
+    try {
+      const devId = { uid: 1000, dev: 1, rdev: 9, key: "1000-1-9" };
+      const reg = new TtyBaselineRegistry({
+        runtimeDir: dir,
+        pid: 4444,
+        isPidAlive: () => true,
+        readStartTime: () => 99,
+        resolveDevice: () => devId,
+      });
+      const proc = Object.assign(new EventEmitter(), {
+        pid: 4444,
+        kill() {
+          return true;
+        },
+      });
+      const kernel = { opost: true, onlcr: true, icanon: true, echo: true, tag: "s0" };
+      let libuvCachedRaw = false;
+      const stdin = {
+        isTTY: true,
+        get isRaw() {
+          return libuvCachedRaw;
+        },
+        fd: 10,
+        setRawMode(raw: boolean) {
+          if (raw === libuvCachedRaw) return stdin as unknown as NodeJS.ReadStream;
+          libuvCachedRaw = raw;
+          kernel.icanon = !raw;
+          kernel.echo = !raw;
+          return stdin as unknown as NodeJS.ReadStream;
+        },
+      } as unknown as NodeJS.ReadStream;
+      const stdout = { isTTY: true, fd: 10 };
+      const stty = (args: ReadonlyArray<string>): SttySaveResult => {
+        if (args[0] === "-g") {
+          return { status: 0, stdout: `${JSON.stringify(kernel)}\n` };
+        }
+        if (args[0] === "-opost") {
+          kernel.opost = false;
+          kernel.tag = "s1";
+          return { status: 0 };
+        }
+        Object.assign(kernel, JSON.parse(args[0]!) as typeof kernel);
+        return { status: 0 };
+      };
+
+      const state = enterRawOutputTty(stdin, stdout, { stty, registry: reg, platform: "linux" });
+      expect(kernel).toMatchObject({ opost: false, icanon: false, echo: false });
+      const initialBaseline = reg.inspect(devId)?.baseline;
+      expect(initialBaseline).toBeDefined();
+      expect(JSON.parse(initialBaseline!)).toMatchObject({ opost: true, icanon: true, echo: true, tag: "s0" });
+
+      let resumes = 0;
+      const uninstall = installTtySuspendHandlers({
+        state,
+        stdin,
+        stdout,
+        stty,
+        platform: "linux",
+        processObj: proc as unknown as Pick<NodeJS.Process, "on" | "removeListener" | "kill" | "pid">,
+        afterResume: () => {
+          resumes += 1;
+        },
+      });
+
+      expect(proc.listenerCount("SIGTSTP")).toBe(1);
+      expect(proc.listenerCount("SIGCONT")).toBe(0);
+
+      // Spurious SIGCONT before any SIGTSTP (e.g. SIGSTOP/SIGTTIN): must be ignored.
+      proc.emit("SIGCONT");
+      expect(resumes).toBe(0);
+      expect(proc.listenerCount("SIGTSTP")).toBe(1);
+      expect(JSON.parse(reg.inspect(devId)!.baseline!)).toMatchObject({ opost: true, tag: "s0" });
+
+      // Real SIGTSTP -> shell updates S0 while suspended -> SIGCONT must refresh baseline from S0 (not S1!).
+      proc.emit("SIGTSTP");
+      expect(proc.listenerCount("SIGTSTP")).toBe(0);
+      expect(proc.listenerCount("SIGCONT")).toBe(1);
+      expect(kernel).toMatchObject({ opost: true, icanon: true, echo: true });
+      kernel.tag = "s0-refreshed";
+
+      proc.emit("SIGCONT");
+      expect(resumes).toBe(1);
+      expect(proc.listenerCount("SIGTSTP")).toBe(1);
+      expect(proc.listenerCount("SIGCONT")).toBe(0);
+      expect(kernel).toMatchObject({ opost: false, icanon: false, echo: false });
+      expect(JSON.parse(reg.inspect(devId)!.baseline!)).toMatchObject({
+        opost: true,
+        icanon: true,
+        echo: true,
+        tag: "s0-refreshed",
+      });
+
+      // Second SIGCONT without a new SIGTSTP (e.g. fg after bg or SIGSTOP->SIGCONT):
+      // must NOT duplicate SIGTSTP listener and must NOT overwrite baseline with S1.
+      proc.emit("SIGCONT");
+      expect(resumes).toBe(1);
+      expect(proc.listenerCount("SIGTSTP")).toBe(1);
+      expect(proc.listenerCount("SIGCONT")).toBe(0);
+      expect(JSON.parse(reg.inspect(devId)!.baseline!)).toMatchObject({
+        opost: true,
+        icanon: true,
+        echo: true,
+        tag: "s0-refreshed",
+      });
+
+      uninstall();
+      restoreTtyState(state, stdin, () => {}, stty);
+      expect(kernel).toMatchObject({ opost: true, icanon: true, echo: true, tag: "s0-refreshed" });
+      expect(proc.listenerCount("SIGTSTP")).toBe(0);
+      expect(proc.listenerCount("SIGCONT")).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("withClientTerminalReset registers as role guard so it does not block a concurrent active restore (NB-10)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tty-guard-role-"));
     const prevXdg = process.env["XDG_RUNTIME_DIR"];
