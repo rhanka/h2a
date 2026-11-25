@@ -125,6 +125,7 @@ retry.
 Before implementing a suggestion, verify it. If feedback is unclear or technically questionable, push back
 with evidence rather than complying blindly. Apply what's correct; refute what's wrong; ask when genuinely
 ambiguous.
+See **Reversible and irreversible decisions** in `harness/using-harness` (`using-harness/SKILL.md`) for handling reversible vs. irreversible choices.
 
 ## Severity & gate
 

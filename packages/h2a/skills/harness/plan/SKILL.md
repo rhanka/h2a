@@ -36,3 +36,4 @@ harness OWNS the BRANCH.md (the master plan artifact) and EMITS `WorkEvent`s; **
 owns the realization state — Items, links, Decisions, acceptance, and the AWAITED / DROPPED / DONE / TO-DO
 projections. Don't duplicate status in BRANCH.md prose — let track project it. Execute lots in order
 autonomously; only interrupt for a real fork or blocker.
+See **Reversible and irreversible decisions** in `harness/using-harness` (`using-harness/SKILL.md`) for handling reversible vs. irreversible choices.

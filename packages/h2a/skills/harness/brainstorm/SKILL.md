@@ -32,6 +32,7 @@ irreversible calls: escalate.
 Present owner decisions as a **clean full dossier (never a delta)**, THEN ask in **lots of ≤4** questions.
 Each question carries its own context inline (source + stakes + consequence) — an id like "D5" alone
 carries no meaning. Once answered, treat all answers final; do re-examination in prose, don't re-poll.
+See **Reversible and irreversible decisions** in `harness/using-harness` (`using-harness/SKILL.md`) for handling reversible vs. irreversible choices.
 
 ## Done
 
