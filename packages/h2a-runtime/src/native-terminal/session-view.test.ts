@@ -932,4 +932,122 @@ describe("NativeSessionView catchUpUntilSeq boundary filtering", () => {
     await view.releaseActive();
     view.dispose();
   });
+
+  it("NB-5: promotes passive observer return and passive reconnect to terminalResponder when enabled", async () => {
+    const writes: string[] = [];
+    const acquireCalls: Array<Record<string, unknown>> = [];
+    const responderCalls: Array<{ epoch: number; enabled: boolean }> = [];
+    let latestSeq = 4;
+    let currentEpoch = 1;
+    let holderKind: "human" | "remote" = "remote";
+
+    const client = {
+      readOutput: async () => ({ generation: "g", incarnation: "1", chunks: [], gap: null, latestSeq }),
+      state: async () => ({
+        id: "h2a-passive-promo",
+        generation: "g",
+        incarnation: "1",
+        pid: 123,
+        status: "running" as const,
+        latestSeq,
+        exit: null,
+        stopSignal: null,
+        controlled: holderKind === "remote",
+        holderKind,
+        controllerEpoch: currentEpoch,
+      }),
+      acquireController: async (_id: string, _cid: string, _act: string, opts: unknown) => {
+        acquireCalls.push(opts as Record<string, unknown>);
+        currentEpoch += 1;
+        return {
+          role: "controller" as const,
+          id: "h2a-passive-promo",
+          generation: "g",
+          incarnation: "1",
+          controllerId: "c1",
+          epoch: currentEpoch,
+        };
+      },
+      setControllerResponder: async (lease: NativeTerminalControllerLease, enabled: boolean) => {
+        responderCalls.push({ epoch: lease.epoch, enabled });
+        return { responderFromSeq: latestSeq };
+      },
+      releaseController: async () => ({
+        id: "h2a-passive-promo",
+        generation: "g",
+        incarnation: "1",
+        controllerEpoch: currentEpoch,
+      }),
+      write: async () => {},
+      resize: async () => {},
+      close: () => {},
+    } as unknown as NativeTerminalClient;
+
+    const view = createSessionView({
+      sessionId: "h2a-passive-promo",
+      stdout: {
+        isTTY: true,
+        columns: 80,
+        rows: 24,
+        write: (d: string | Uint8Array) => {
+          writes.push(typeof d === "string" ? d : Buffer.from(d).toString("utf8"));
+          return true;
+        },
+      } as unknown as NodeJS.WriteStream,
+      now: () => 1_760_000_000_000,
+      delay: async () => {},
+      tty: "/dev/pts/1",
+      remoteObserver: true,
+      terminalResponder: true,
+      statusBar: noopStatusBar(new FakeOutput()),
+    });
+
+    await view.connectAndAcquire(async () => client);
+    expect(view.observing).toBe(true);
+
+    // 1. Passive return from observer must promote responder and advance catch-up frontier
+    holderKind = "human";
+    latestSeq = 7;
+    const ret = await view.returnFromObserverPassive();
+    expect(ret).toEqual({ returned: true });
+    expect(acquireCalls.at(-1)).toMatchObject({ passive: true });
+    expect(responderCalls.at(-1)).toEqual({ epoch: 2, enabled: true });
+
+    view.feedReplay({
+      generation: "g",
+      incarnation: "1",
+      gap: null,
+      latestSeq: 8,
+      chunks: [
+        { seq: 7, data: "CATCH\x1b[6n" },
+        { seq: 8, data: "LIVE\x1b[6n" },
+      ],
+    });
+    expect(writes.join("")).toContain("CATCHLIVE\x1b[6n");
+    expect(writes.join("")).not.toContain("CATCH\x1b[6n");
+
+    // 2. Reconnect while wasObservingBeforeReconnect (passive: true) must also promote responder
+    writes.length = 0;
+    view.markTransportFailure(view.active!, new Error("drop"));
+    view.wasObservingBeforeReconnect = true;
+    latestSeq = 10;
+    await view.connectAndAcquire(async () => client);
+    expect(acquireCalls.at(-1)).toMatchObject({ passive: true });
+    expect(responderCalls.at(-1)).toEqual({ epoch: 3, enabled: true });
+    view.feedReplay({
+      generation: "g",
+      incarnation: "1",
+      gap: null,
+      latestSeq: 11,
+      chunks: [
+        { seq: 10, data: "REC\x1b[6n" },
+        { seq: 11, data: "NOW\x1b[6n" },
+      ],
+    });
+    expect(writes.join("")).toContain("RECNOW\x1b[6n");
+    expect(writes.join("")).not.toContain("REC\x1b[6n");
+
+    await view.releaseActive();
+    view.dispose();
+  });
 });

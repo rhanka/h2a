@@ -661,6 +661,21 @@ export class NativeSessionView {
     });
   }
 
+  async #promotePassiveResponderIfNeeded(
+    client: NativeTerminalAttachClient,
+    lease: NativeTerminalControllerLease,
+  ): Promise<void> {
+    if (this.#terminalResponder !== true) return;
+    try {
+      const promoted = await client.setControllerResponder?.(lease, true);
+      if (typeof promoted?.responderFromSeq === "number") {
+        this.setCatchUpUntilSeq(promoted.responderFromSeq);
+      }
+    } catch {
+      // Older host or mock without set-controller-responder.
+    }
+  }
+
   async returnFromObserverPassive(): Promise<
     { returned: true } | { returned: false; retryState: NativeTerminalSessionState }
   > {
@@ -675,6 +690,15 @@ export class NativeSessionView {
         "human",
         { passive: true, pid: process.pid, tty: this.#tty },
       );
+      if (
+        this.detached ||
+        this.terminalEnded ||
+        this.observerClient !== client
+      ) {
+        await client.releaseController(lease).catch(() => {});
+        return { returned: true };
+      }
+      await this.#promotePassiveResponderIfNeeded(client, lease);
       if (
         this.detached ||
         this.terminalEnded ||
@@ -1095,6 +1119,9 @@ export class NativeSessionView {
         // A reconnect must never take the terminal back from a newer attach.
         this.takeoverPending = false;
         this.wasObservingBeforeReconnect = false;
+        if (passive) {
+          await this.#promotePassiveResponderIfNeeded(client, lease);
+        }
         const frontier = lease.responderFromSeq ?? state.latestSeq;
         if (typeof frontier === "number") {
           this.setCatchUpUntilSeq(frontier);

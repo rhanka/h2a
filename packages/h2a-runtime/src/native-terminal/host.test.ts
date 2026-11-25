@@ -3687,12 +3687,97 @@ describe("NativeTerminalHost", () => {
     expect(pty.write).toHaveBeenCalledTimes(2);
     expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
 
-    // Bounded late CPR swallow: one late CPR arriving immediately is absorbed, then normal input works.
+    // Bounded late CPR swallow: both fallback (1) and muted (1) queries add to swallow count;
+    // the first late CPR is absorbed (count -> 1), then normal input clears swallow count.
     host.write(lease, "\x1b[1;2R");
     expect(pty.write).toHaveBeenCalledTimes(2);
     host.write(lease, "a\x1b[3;4R");
     expect(pty.write).toHaveBeenCalledTimes(3);
     expect(pty.write).toHaveBeenLastCalledWith("a\x1b[3;4R");
+  });
+
+  it("B-2: lifts controllerResponderMuted on late absorbed CPR, counts muted synthetic CPRs up to 64, and unmutes on redundant setControllerTerminalResponder(true)", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-dsr-b2",
+      replayBytesPerSession: 4096,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "dsr-b2");
+    const pty = ptys.get("dsr-b2")!;
+    const lease = host.acquireController("dsr-b2", "c-b2", "human", {
+      terminalResponder: true,
+    });
+
+    // 1. Trigger read-count fallback -> host writes synthetic 1;1R and mutes responder
+    pty.emitData("\x1b[6n");
+    const delivered = host.readOutput("dsr-b2", 0, lease);
+    for (let i = 0; i < DSR_FALLBACK_CONTROLLER_READS; i++) {
+      host.readOutput("dsr-b2", delivered.latestSeq, lease);
+    }
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // 2. While muted, additional ESC[6n] resolves synthetically AND increments lateCprSwallowCount
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[1;1R");
+
+    // Both late real CPRs are absorbed without forwarding to child, and lift controllerResponderMuted
+    host.write(lease, "\x1b[4;2R");
+    host.write(lease, "\x1b[4;3R");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+
+    // 3. New ESC[6n] must now wait for the client (NOT emit synthetic 1;1R), so child gets exactly 1 CPR
+    pty.emitData("\x1b[6n");
+    expect(pty.write).toHaveBeenCalledTimes(2);
+    host.write(lease, "\x1b[7;3R");
+    expect(pty.write).toHaveBeenCalledTimes(3);
+    expect(pty.write).toHaveBeenLastCalledWith("\x1b[7;3R");
+
+    // 4. Separate session: muted synthetic count is bounded at 64 (MAX_PENDING_DSR)
+    createSession(host, "dsr-b2-cap");
+    const capPty = ptys.get("dsr-b2-cap")!;
+    const capLease = host.acquireController("dsr-b2-cap", "c-b2-cap", "human", {
+      terminalResponder: true,
+    });
+    capPty.emitData("\x1b[6n");
+    const capDel = host.readOutput("dsr-b2-cap", 0, capLease);
+    for (let i = 0; i < DSR_FALLBACK_CONTROLLER_READS; i++) {
+      host.readOutput("dsr-b2-cap", capDel.latestSeq, capLease);
+    }
+    for (let i = 0; i < MAX_PENDING_DSR + 10; i++) {
+      capPty.emitData("\x1b[6n");
+    }
+    const writesBeforeLate = capPty.write.mock.calls.length;
+    for (let i = 0; i < MAX_PENDING_DSR; i++) {
+      host.write(capLease, `\x1b[1;${i + 2}R`);
+    }
+    expect(capPty.write).toHaveBeenCalledTimes(writesBeforeLate);
+    // The 65th unrequested CPR passes through because lateCprSwallowCount was capped at 64
+    host.write(capLease, "\x1b[1;99R");
+    expect(capPty.write).toHaveBeenCalledTimes(writesBeforeLate + 1);
+    expect(capPty.write).toHaveBeenLastCalledWith("\x1b[1;99R");
+
+    // 5. setControllerTerminalResponder(lease, true) lifts mute lock even if flag stayed true
+    createSession(host, "dsr-b2-re");
+    const rePty = ptys.get("dsr-b2-re")!;
+    const reLease = host.acquireController("dsr-b2-re", "c-b2-re", "human", {
+      terminalResponder: true,
+    });
+    rePty.emitData("\x1b[6n");
+    const reDel = host.readOutput("dsr-b2-re", 0, reLease);
+    for (let i = 0; i < DSR_FALLBACK_CONTROLLER_READS; i++) {
+      host.readOutput("dsr-b2-re", reDel.latestSeq, reLease);
+    }
+    expect(rePty.write).toHaveBeenCalledTimes(1);
+    host.setControllerTerminalResponder(reLease, true);
+    rePty.emitData("\x1b[6n");
+    expect(rePty.write).toHaveBeenCalledTimes(1);
+    host.write(reLease, "\x1b[8;4R");
+    expect(rePty.write).toHaveBeenCalledTimes(2);
+    expect(rePty.write).toHaveBeenLastCalledWith("\x1b[8;4R");
   });
 
   it("falls back via secondary DSR_FROZEN_CLIENT_TIMEOUT_MS timer with fake timers and clears on exit/stop/respawn", async () => {

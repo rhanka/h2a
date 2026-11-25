@@ -1601,6 +1601,10 @@ export class NativeTerminalHost {
         record.controllerResponderMuted = false;
         record.cprReplyTail = "";
         record.lateCprSwallowCount = 0;
+      } else {
+        // Explicit re-enable/resume must lift any adaptive mute lock even if the
+        // controller responder flag remained true across SIGTSTP/SIGCONT.
+        record.controllerResponderMuted = false;
       }
       return Object.freeze({ responderFromSeq: record.replay.latestSeq });
     }
@@ -2793,13 +2797,24 @@ export class NativeTerminalHost {
     }
   }
 
+  #recordMutedSyntheticCpr(record: SessionRecord, count: number): void {
+    if (record.controllerTerminalResponder && record.controllerResponderMuted) {
+      record.lateCprSwallowCount = Math.min(
+        MAX_PENDING_DSR,
+        record.lateCprSwallowCount + count,
+      );
+    }
+  }
+
   #handleChildDsrQueries(record: SessionRecord, queries: number, seq: number): void {
     if (!record.controllerTerminalResponder || record.controllerResponderMuted) {
+      this.#recordMutedSyntheticCpr(record, queries);
       this.#writeSyntheticCpr(record, queries);
       return;
     }
     for (let i = 0; i < queries; i++) {
       if (record.controllerResponderMuted || !record.controllerTerminalResponder) {
+        this.#recordMutedSyntheticCpr(record, queries - i);
         this.#writeSyntheticCpr(record, queries - i);
         return;
       }
@@ -2807,6 +2822,7 @@ export class NativeTerminalHost {
         const oldest = record.pendingDsrQueue[0]!;
         this.#fallbackDsrEntry(record, oldest);
         if (record.controllerResponderMuted) {
+          this.#recordMutedSyntheticCpr(record, queries - i);
           this.#writeSyntheticCpr(record, queries - i);
           return;
         }
@@ -2840,6 +2856,11 @@ export class NativeTerminalHost {
         out += combined.slice(gapStart, mStart);
         // Any non-CPR byte clears the bounded late-swallow heuristic (NB-4).
         record.lateCprSwallowCount = 0;
+      }
+      if (record.controllerTerminalResponder) {
+        // Any real CPR seen from the controller terminal proves it is responsive
+        // and lifts the adaptive mute lock (including late absorbed replies).
+        record.controllerResponderMuted = false;
       }
       if (record.pendingDsrQueue.length > 0) {
         const entry = record.pendingDsrQueue.shift()!;

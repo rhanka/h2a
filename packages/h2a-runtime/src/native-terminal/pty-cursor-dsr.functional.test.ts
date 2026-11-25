@@ -749,6 +749,7 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       const activeStty = sttyFlagsForPts(outerPts);
       expect(activeStty).toMatch(/(?:^|\s)-opost(?:\s|$)/);
       expect(activeStty).toMatch(/(?:^|\s)-icanon(?:\s|$)/);
+      expect(activeStty).toMatch(/(?:^|\s)-echo(?:\s|$)/);
 
       // Find guard (running guardFile) and inner child (ppid === guard.pid)
       const findTree = () => {
@@ -791,11 +792,13 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       expect(stoppedStty).toMatch(/(?:^|\s)icanon(?:\s|$)/);
       expect(stoppedStty).toMatch(/(?:^|\s)echo(?:\s|$)/);
 
-      // `fg` resumes job -> re-applies raw & -opost
+      // `fg` resumes job -> re-applies full raw (-icanon -echo) & -opost
       outerPty.write("fg\r");
       await waitUntil(() => out.includes("RESUMED:1"), 4000, "child resumed on fg");
       const resumedStty = sttyFlagsForPts(outerPts);
       expect(resumedStty).toMatch(/(?:^|\s)-opost(?:\s|$)/);
+      expect(resumedStty).toMatch(/(?:^|\s)-icanon(?:\s|$)/);
+      expect(resumedStty).toMatch(/(?:^|\s)-echo(?:\s|$)/);
 
       // Now uncatchable SIGKILL on innerPid: guard recovers -opost + icanon + echo + VT reset!
       process.kill(innerPid, "SIGKILL");
