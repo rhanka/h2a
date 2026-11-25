@@ -860,12 +860,16 @@ export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): Archiv
 
     const schedulerStateDir = resolveStateDir(env);
     const schedulerObs = probeStateDirObservability(schedulerStateDir);
-    const schedulerInstalled =
+    const schedulerManifest = schedulerObs.observable
+      ? readTaskManifest(schedulerStateDir, H2A_ARCHIVE_SCHEDULER_TASK_ID)
+      : null;
+    const schedulerSuppressesOverdue =
       options.suppressPassOverdueWhenScheduled !== false &&
       schedulerObs.observable &&
-      readTaskManifest(schedulerStateDir, H2A_ARCHIVE_SCHEDULER_TASK_ID) !== null;
+      (schedulerManifest === "corrupt" ||
+        (schedulerManifest !== null && schedulerManifest.enabled));
 
-    if (!killSwitchOn && !schedulerInstalled) {
+    if (!killSwitchOn && !schedulerSuppressesOverdue) {
       const staleHours = resolvePassStaleHours(options, env);
       const finishedMs = Date.parse(w.finishedAt);
       const ageMs = Number.isFinite(finishedMs) ? nowMs - finishedMs : Number.POSITIVE_INFINITY;

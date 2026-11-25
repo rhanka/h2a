@@ -775,28 +775,36 @@ function prepareClaudeResumeRestore(
   cwd: string,
   suppressScheduleBanner = false,
 ): boolean {
+  const isResumeInvocation =
+    (explicitResume !== undefined && explicitResume !== false) ||
+    commandArgs.some(
+      (arg) => arg === "--resume" || arg === "-r" || arg.startsWith("--resume="),
+    );
+  const shouldEmitScheduleBanner = isResumeInvocation && !suppressScheduleBanner;
   const normalized = toolOrProfile?.trim().toLowerCase();
   if (normalized !== "claude" && normalized !== "claude-code") {
-    if (!suppressScheduleBanner) {
+    if (shouldEmitScheduleBanner) {
       emitResumeScheduleNotices();
     }
     return true;
   }
   const convId = extractResumeConvId(explicitResume, commandArgs);
   if (!convId) {
-    if (!suppressScheduleBanner) {
+    if (shouldEmitScheduleBanner) {
       emitResumeScheduleNotices();
     }
     return true;
   }
   try {
     const outcome = ensureClaudeSessionRestoredForResume({ convId, cwd });
-    emitResumeArchiveNotices(outcome, process.stderr, { suppressScheduleBanner });
+    emitResumeArchiveNotices(outcome, process.stderr, {
+      suppressScheduleBanner: !shouldEmitScheduleBanner,
+    });
     return true;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     process.stderr.write(`h2a resume: archive auto-restore failed for ${convId}: ${msg}\n`);
-    if (!suppressScheduleBanner) {
+    if (shouldEmitScheduleBanner) {
       emitResumeScheduleNotices();
     }
     process.exitCode = error instanceof SessionArchiveError ? error.exitCode : 2;

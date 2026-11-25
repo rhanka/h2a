@@ -74,6 +74,57 @@ import {
 export const LOCAL_SCHEDULER_PACKAGE_NAME = "@sentropic/local-scheduler" as const;
 export const LOCAL_SCHEDULER_NOT_INSTALLED_EXIT_CODE = 69 as const;
 
+const LOCAL_SCHEDULER_EXIT_CODES = new Set<number>([2, 69, 70, 77]);
+
+export interface LocalSchedulerLikeError {
+  readonly code: string;
+  readonly exitCode: 2 | 69 | 70 | 77;
+  readonly message?: string;
+}
+
+/**
+ * Structural recognizer for `@sentropic/local-scheduler` errors across module
+ * boundaries (plus `LocalSchedulerNotInstalledError`), avoiding `instanceof`
+ * coupling to the local contract mirror.
+ */
+export function isLocalSchedulerLikeError(error: unknown): error is LocalSchedulerLikeError {
+  if (error instanceof LocalSchedulerNotInstalledError) {
+    return true;
+  }
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { code?: unknown; exitCode?: unknown };
+  return (
+    typeof candidate.code === "string" &&
+    candidate.code.length > 0 &&
+    typeof candidate.exitCode === "number" &&
+    LOCAL_SCHEDULER_EXIT_CODES.has(candidate.exitCode)
+  );
+}
+
+function isMissingLocalSchedulerModuleError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") {
+    return false;
+  }
+  const message = (error as { message?: unknown }).message;
+  if (typeof message === "string") {
+    const missingMatch = /Cannot find (?:package|module) ['"]([^'"]+)['"]/.exec(message);
+    if (missingMatch) {
+      const missingPkg = missingMatch[1] ?? "";
+      return (
+        missingPkg === LOCAL_SCHEDULER_PACKAGE_NAME ||
+        missingPkg.startsWith(`${LOCAL_SCHEDULER_PACKAGE_NAME}/`)
+      );
+    }
+  }
+  return true;
+}
+
 export class LocalSchedulerNotInstalledError extends Error {
   readonly code = "LOCAL_SCHEDULER_NOT_INSTALLED" as const;
   readonly exitCode = LOCAL_SCHEDULER_NOT_INSTALLED_EXIT_CODE;
@@ -99,7 +150,7 @@ export type RunScheduledTaskByIdFn = (
 /**
  * Single resolution point for the external `@sentropic/local-scheduler` package.
  * Never installs packages or modifies global state; throws `LocalSchedulerNotInstalledError`
- * (exit 69) while the package is absent.
+ * (exit 69) while the package is absent, while propagating non-missing-module errors directly.
  */
 export async function resolveLocalSchedulerSubpath(
   subpath: "" | "/systemd" | "/runner",
@@ -109,7 +160,10 @@ export async function resolveLocalSchedulerSubpath(
   try {
     return importer ? await importer(specifier) : await import(specifier);
   } catch (error) {
-    if (error instanceof LocalSchedulerNotInstalledError) {
+    if (error instanceof LocalSchedulerNotInstalledError || isLocalSchedulerLikeError(error)) {
+      throw error;
+    }
+    if (!isMissingLocalSchedulerModuleError(error)) {
       throw error;
     }
     const detail = error instanceof Error ? error.message : String(error);

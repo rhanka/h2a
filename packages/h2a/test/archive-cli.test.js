@@ -421,7 +421,6 @@ test("h2a archive schedule CLI fails closed without @sentropic/local-scheduler a
       taskId: "h2a-session-archive",
       owner: "h2a",
       description: "Periodic Claude Code session archive pass",
-      workingDirectory: iso.workspace,
       schedule: {
         onCalendar: "daily",
         persistent: true,

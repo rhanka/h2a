@@ -1149,12 +1149,18 @@ function escapeSystemdUnitPathToken(value: string): string {
   return value.replaceAll("%", "%%");
 }
 
+function escapeSystemdDollar(value: string): string {
+  // Function replacer avoids String.prototype.replaceAll treating "$$" as a single literal "$".
+  return value.replaceAll("$", () => "$$");
+}
+
 function escapeSystemdExecArg(value: string): string {
-  return value
-    .replaceAll("\\", "\\\\")
-    .replaceAll('"', '\\"')
-    .replaceAll("%", "%%")
-    .replaceAll("$", "$$");
+  return escapeSystemdDollar(
+    value
+      .replaceAll("\\", "\\\\")
+      .replaceAll('"', '\\"')
+      .replaceAll("%", "%%"),
+  );
 }
 
 function sha256Text(text: string): string {
@@ -1186,11 +1192,11 @@ export function renderSystemdUnits(
   const accuracySec = spec.schedule.accuracySec ?? 60;
 
   const execTokens = [
-    `"${escapeSystemdUnitPathToken(runner.bin)}"`,
+    `"${escapeSystemdDollar(escapeSystemdUnitPathToken(runner.bin))}"`,
     ...runner.args.map((arg, index) => {
       if (index === 0 && isAbsolute(arg)) {
         validateUnitPathToken(arg, "runner.args[0]");
-        return `"${escapeSystemdUnitPathToken(arg).replaceAll("$", "$$")}"`;
+        return `"${escapeSystemdDollar(escapeSystemdUnitPathToken(arg))}"`;
       }
       return `"${escapeSystemdExecArg(arg)}"`;
     }),
@@ -1667,23 +1673,8 @@ export function evaluateTaskHealth(input: EvaluateTaskHealthInput): LocalTaskHea
         input,
       );
     }
-    // Dead-timer fallthrough (m-16): stale skipped_disabled witness past deadlineMs reaches step 10.
-    const overdueByMs = Math.max(
-      0,
-      Math.max(nowMs - freshnessRefMs, nowMs - finishedMs) - deadlineMs,
-    );
-    return finalizeVerdict(
-      {
-        status: "schedule_missed",
-        severity: "critical",
-        overdueByMs,
-        consecutiveFailures: validWitness.consecutiveFailures,
-        lastSuccessAt: validWitness.lastSuccessAt,
-        opsReason: "schedule-missed",
-        message: `Scheduled task ${input.manifest.spec.taskId} missed its schedule (last pause tick at ${validWitness.finishedAt}, overdue by ${formatDurationCompact(overdueByMs)}).`,
-      },
-      input,
-    );
+    // Dead-timer fallthrough (m-16 / §2.6 / §7.1d): stale skipped_disabled witness past deadlineMs
+    // falls through to step 10 (evaluating freshnessRefMs = max(lastSuccessAt, enabledAt)).
   }
 
   // 9. Failure and interruption outcomes

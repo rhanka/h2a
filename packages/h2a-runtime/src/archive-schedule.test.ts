@@ -48,6 +48,7 @@ import {
   readSchedulerEnvFile,
   readTaskManifest,
   readTaskWitness,
+  renderSystemdUnits,
   TaskNotFoundError,
   UnmanagedUnitError,
   type LocalTaskManifestV1,
@@ -61,6 +62,7 @@ import {
   emitResumeScheduleNotices,
   formatArchiveScheduleResumeBannerLines,
   formatArchiveScheduleStatusLines,
+  isArchiveKillSwitchEnabled,
   readArchiveScheduleHealth,
   readClaudeArchiveAlerts,
   runArchivePassOnce,
@@ -421,6 +423,178 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
       },
     });
     expect(resolvedAdapter).toBe(fakeAdapter);
+
+    // Non-missing-package import errors are propagated rather than masked as not-installed (NB-3).
+    await expect(
+      resolveRealSchedulerAdapter({
+        importer: async () => {
+          throw new SyntaxError("unexpected token in installed package");
+        },
+      }),
+    ).rejects.toThrowError(SyntaxError);
+    await expect(
+      resolveRealSchedulerAdapter({
+        importer: async () => {
+          throw Object.assign(
+            new Error("Cannot find package 'missing-dep' imported from @sentropic/local-scheduler"),
+            { code: "ERR_MODULE_NOT_FOUND" },
+          );
+        },
+      }),
+    ).rejects.toThrowError(/missing-dep/);
+    await expect(
+      resolveRealSchedulerAdapter({
+        importer: async () => {
+          throw Object.assign(
+            new Error("Cannot find package '@sentropic/local-scheduler/systemd'"),
+            { code: "ERR_MODULE_NOT_FOUND" },
+          );
+        },
+      }),
+    ).rejects.toThrowError(LocalSchedulerNotInstalledError);
+  });
+
+  it("B-1: structurally recognizes foreign-class scheduler errors (69, 70, 77, 2) via importer seam in schedule CLI and _schedule-exec", async () => {
+    const box = createIsolatedTestEnv();
+    class ForeignSchedulerError extends Error {
+      readonly code: string;
+      readonly exitCode: number;
+      constructor(code: string, exitCode: number, message: string) {
+        super(message);
+        this.name = "ForeignSchedulerError";
+        this.code = code;
+        this.exitCode = exitCode;
+      }
+    }
+
+    const cases: ReadonlyArray<{
+      readonly subcommand: "enable" | "disable" | "status" | "uninstall";
+      readonly code: string;
+      readonly exitCode: 2 | 69 | 70 | 77;
+      readonly message: string;
+      readonly plainObject?: boolean;
+    }> = [
+      {
+        subcommand: "disable",
+        code: "SYSTEMD_USER_UNAVAILABLE",
+        exitCode: 69,
+        message: "systemd --user manager unavailable (foreign)",
+      },
+      {
+        subcommand: "enable",
+        code: "SYSTEMCTL_FAILED",
+        exitCode: 70,
+        message: "systemctl enable failed (foreign)",
+      },
+      {
+        subcommand: "uninstall",
+        code: "POLICY_REFUSED_SANDBOX",
+        exitCode: 77,
+        message: "host PID namespace refused (foreign)",
+      },
+      {
+        subcommand: "status",
+        code: "POLICY_REFUSED_ALLOWLIST",
+        exitCode: 77,
+        message: "plain structural object refusal (foreign)",
+        plainObject: true,
+      },
+      {
+        subcommand: "disable",
+        code: "TASK_NOT_FOUND",
+        exitCode: 2,
+        message: "task not installed (foreign)",
+      },
+    ];
+
+    for (const tc of cases) {
+      const throwForeign = () => {
+        if (tc.plainObject) {
+          throw { code: tc.code, exitCode: tc.exitCode, message: tc.message };
+        }
+        throw new ForeignSchedulerError(tc.code, tc.exitCode, tc.message);
+      };
+
+      let stdoutText = "";
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        stdoutText += String(chunk);
+        return true;
+      });
+      const savedExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        const program = new Command();
+        registerArchiveCommand(program, {
+          env: box.env,
+          nodeBin: box.nodeBin,
+          h2aBinScript: box.h2aBinScript,
+          stateDir: box.stateDir,
+          envFilePath: box.envFilePath,
+          unitDir: box.unitDir,
+          importer: async (specifier) => {
+            expect(specifier).toBe("@sentropic/local-scheduler/systemd");
+            return {
+              createSystemdUserAdapter: () => ({
+                enable: async () => throwForeign(),
+                disable: async () => throwForeign(),
+                status: async () => throwForeign(),
+                uninstall: async () => throwForeign(),
+              }),
+            };
+          },
+        });
+        await program.parseAsync(["node", box.h2aBinScript, "archive", "schedule", tc.subcommand, "--json"]);
+        expect(process.exitCode).toBe(tc.exitCode);
+        const body = JSON.parse(stdoutText);
+        expect(body).toEqual({
+          ok: false,
+          errorCode: tc.code,
+          exitCode: tc.exitCode,
+          error: tc.message,
+        });
+      } finally {
+        process.exitCode = savedExitCode;
+        stdoutSpy.mockRestore();
+      }
+    }
+
+    // _schedule-exec catch also recognizes foreign-class scheduler errors (69, 70, 77) via importer seam.
+    for (const tc of [
+      { code: "SYSTEMD_USER_UNAVAILABLE", exitCode: 69, message: "systemd unavailable in runner" },
+      { code: "SYSTEMCTL_FAILED", exitCode: 70, message: "runner internal failure" },
+      { code: "POLICY_REFUSED_FILE_MODE", exitCode: 77, message: "bad manifest mode" },
+    ]) {
+      let stderrText = "";
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+        stderrText += String(chunk);
+        return true;
+      });
+      const savedExitCode = process.exitCode;
+      process.exitCode = undefined;
+      try {
+        const program = new Command();
+        registerArchiveCommand(program, {
+          env: box.env,
+          nodeBin: box.nodeBin,
+          h2aBinScript: box.h2aBinScript,
+          stateDir: box.stateDir,
+          importer: async (specifier) => {
+            expect(specifier).toBe("@sentropic/local-scheduler/runner");
+            return {
+              runScheduledTaskById: async () => {
+                throw new ForeignSchedulerError(tc.code, tc.exitCode, tc.message);
+              },
+            };
+          },
+        });
+        await program.parseAsync(["node", box.h2aBinScript, "archive", "_schedule-exec", H2A_ARCHIVE_TASK_ID]);
+        expect(process.exitCode).toBe(tc.exitCode);
+        expect(stderrText).toContain(`[local-scheduler] ${tc.code}: ${tc.message}`);
+      } finally {
+        process.exitCode = savedExitCode;
+        stderrSpy.mockRestore();
+      }
+    }
   });
 
   it("propagates all contract exit codes and error diagnostics in _schedule-exec", async () => {
@@ -477,9 +651,11 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
         const program = new Command();
         registerArchiveCommand(program, {
           env: box.env,
+          nodeBin: box.nodeBin,
           h2aBinScript: box.h2aBinScript,
           runner: async (taskId, opts) => {
             expect(taskId).toBe(H2A_ARCHIVE_TASK_ID);
+            expect(opts.allowedBins).toContain(box.nodeBin);
             expect(opts.allowedScripts).toContain(box.h2aBinScript);
             return expected;
           },
@@ -584,7 +760,7 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
     expect(pausedFresh.status).toBe("paused");
     expect(pausedFresh.severity).toBe("warning");
 
-    // m-16: Stale skipped_disabled witness (timer died > 36h ago) falls through to schedule_missed/critical.
+    // m-16: Stale skipped_disabled witness (timer died > 36h ago without re-enable) falls through to step 10 -> schedule_missed/critical.
     const pausedDeadTimer = evaluateTaskHealth({
       stateDirObservable: true,
       manifest,
@@ -599,8 +775,62 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
     expect(pausedDeadTimer.status).toBe("schedule_missed");
     expect(pausedDeadTimer.severity).toBe("critical");
 
-    // Single failure within deadline -> warning; past deadline or consecutiveFailures>=2 -> critical;
-    // reader-process env kill-switch NEVER downgrades failing.
+    // NB-1 / §7.1(d): Re-enable after long pause uses enabledAt in step 10 -> healthy/ok (never false schedule_missed).
+    const reEnabledAfterLongPause = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest: makeManifest(box, {
+        enabledAt: new Date(FIXED_NOW_MS - 1 * 3_600_000).toISOString(),
+      }),
+      witness: makeWitness({
+        outcome: "skipped_disabled",
+        finishedAt: new Date(FIXED_NOW_MS - 40 * 3_600_000).toISOString(),
+        lastSuccessAt: new Date(FIXED_NOW_MS - 50 * 3_600_000).toISOString(),
+        killSwitch: { scope: "task", name: "SENTROPIC_TASK_H2A_SESSION_ARCHIVE_OFF" },
+      }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(reEnabledAfterLongPause.status).toBe("healthy");
+    expect(reEnabledAfterLongPause.severity).toBe("ok");
+
+    // Exact 36h boundary (129_600_000 ms is healthy; +1 ms is schedule_missed/critical).
+    const atExact36h = new Date(FIXED_NOW_MS - 129_600_000).toISOString();
+    expect(
+      evaluateTaskHealth({
+        stateDirObservable: true,
+        manifest,
+        witness: makeWitness({ finishedAt: atExact36h, lastSuccessAt: atExact36h }),
+        nowIso: FIXED_NOW_ISO,
+      }).status,
+    ).toBe("healthy");
+    const at36hPlus1Ms = new Date(FIXED_NOW_MS - 129_600_001).toISOString();
+    const missedBy1Ms = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({ finishedAt: at36hPlus1Ms, lastSuccessAt: at36hPlus1Ms }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(missedBy1Ms.status).toBe("schedule_missed");
+    expect(missedBy1Ms.severity).toBe("critical");
+    expect(missedBy1Ms.overdueByMs).toBe(1);
+
+    // Single failure within deadline -> failing/warning.
+    const singleFailureWithinDeadline = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({
+        outcome: "failed",
+        exitCode: 1,
+        consecutiveFailures: 1,
+        finishedAt: new Date(FIXED_NOW_MS - 3_600_000).toISOString(),
+        lastSuccessAt: at35h,
+      }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(singleFailureWithinDeadline.status).toBe("failing");
+    expect(singleFailureWithinDeadline.severity).toBe("warning");
+    expect(singleFailureWithinDeadline.opsReason).toBe("job-failed");
+
+    // Single failure past deadline -> failing/critical; reader-process env kill-switch NEVER downgrades failing.
     const failingPastDeadline = evaluateTaskHealth({
       stateDirObservable: true,
       manifest,
@@ -617,6 +847,136 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
     expect(failingPastDeadline.status).toBe("failing");
     expect(failingPastDeadline.severity).toBe("critical");
     expect(failingPastDeadline.hints.some((h) => h.includes("does not pause the systemd user timer"))).toBe(true);
+
+    // timed_out and refused_policy -> failing/critical with distinct opsReason.
+    const timedOutHealth = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({
+        outcome: "timed_out",
+        exitCode: null,
+        signal: "SIGKILL",
+        consecutiveFailures: 1,
+        finishedAt: new Date(FIXED_NOW_MS - 3_600_000).toISOString(),
+        lastSuccessAt: at35h,
+      }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(timedOutHealth.status).toBe("failing");
+    expect(timedOutHealth.severity).toBe("critical");
+    expect(timedOutHealth.opsReason).toBe("deadline-exceeded");
+
+    const refusedHealth = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({
+        outcome: "refused_policy",
+        refusal: "allowlist",
+        exitCode: 77,
+        consecutiveFailures: 1,
+        finishedAt: new Date(FIXED_NOW_MS - 3_600_000).toISOString(),
+        lastSuccessAt: at35h,
+      }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(refusedHealth.status).toBe("failing");
+    expect(refusedHealth.severity).toBe("critical");
+    expect(refusedHealth.opsReason).toBe("job-failed");
+
+    // interrupted within deadline -> warning; interrupted past deadline -> schedule_missed/critical.
+    const interruptedFresh = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({
+        outcome: "interrupted",
+        exitCode: null,
+        signal: "SIGTERM",
+        finishedAt: new Date(FIXED_NOW_MS - 3_600_000).toISOString(),
+        lastSuccessAt: at35h,
+      }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(interruptedFresh.status).toBe("interrupted");
+    expect(interruptedFresh.severity).toBe("warning");
+
+    const interruptedOverdue = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({
+        outcome: "interrupted",
+        exitCode: null,
+        signal: "SIGTERM",
+        finishedAt: new Date(FIXED_NOW_MS - 3_600_000).toISOString(),
+        lastSuccessAt: at37h,
+      }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(interruptedOverdue.status).toBe("schedule_missed");
+    expect(interruptedOverdue.severity).toBe("critical");
+
+    // clock_skew (> 5 min future) -> warning/stale.
+    const futureIso = new Date(FIXED_NOW_MS + 6 * 60_000).toISOString();
+    const clockSkewFinished = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({ finishedAt: futureIso, lastSuccessAt: at35h }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(clockSkewFinished.status).toBe("clock_skew");
+    expect(clockSkewFinished.severity).toBe("warning");
+    expect(clockSkewFinished.opsReason).toBe("stale");
+
+    const clockSkewLastSuccess = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: makeWitness({ finishedAt: at35h, lastSuccessAt: futureIso }),
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(clockSkewLastSuccess.status).toBe("clock_skew");
+    expect(clockSkewLastSuccess.severity).toBe("warning");
+
+    // witness_corrupt for both manifest and witness -> critical/stale.
+    const corruptManifest = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest: "corrupt",
+      witness: null,
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(corruptManifest.status).toBe("witness_corrupt");
+    expect(corruptManifest.severity).toBe("critical");
+    expect(corruptManifest.opsReason).toBe("stale");
+
+    const corruptWitness = evaluateTaskHealth({
+      stateDirObservable: true,
+      manifest,
+      witness: "corrupt",
+      nowIso: FIXED_NOW_ISO,
+    });
+    expect(corruptWitness.status).toBe("witness_corrupt");
+    expect(corruptWitness.severity).toBe("critical");
+    expect(corruptWitness.opsReason).toBe("stale");
+
+    // m-25: ExecStart= escapes $ -> $$ in both runner.bin and runner.args[0], while Environment= keeps $ literal.
+    const renderedWithDollar = renderSystemdUnits({
+      spec: manifest.spec,
+      runner: {
+        bin: "/opt/node$1/bin/node",
+        args: ["/opt/app$2/bin.js", "archive", "_schedule-exec"],
+      },
+      enabled: true,
+      installedAt: manifest.installedAt,
+      enabledAt: manifest.enabledAt,
+      stateDir: "/home/user/.local/state/dir$3",
+      envFilePath: "/home/user/.config/dir$4/env",
+      expectedIntervalMs: manifest.expectedIntervalMs,
+    });
+    expect(renderedWithDollar.service).toContain(
+      'ExecStart="/opt/node$$1/bin/node" "/opt/app$$2/bin.js" "archive" "_schedule-exec" "h2a-session-archive"',
+    );
+    expect(renderedWithDollar.service).toContain(
+      'Environment="SENTROPIC_LOCAL_SCHEDULER_STATE_DIR=/home/user/.local/state/dir$3"',
+    );
+    expect(renderedWithDollar.service).toContain("EnvironmentFile=-/home/user/.config/dir$4/env");
 
     // probeStateDirObservability ENOENT inside vs outside host PID namespace.
     const absentDir = join(box.root, "absent-state-dir");
@@ -743,6 +1103,28 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
     });
     emitResumeScheduleNotices({ env: box.env, nowMs: FIXED_NOW_MS }, overdueErr);
     expect(overdueText).toMatch(/CRITICAL.*schedule_missed/);
+
+    // NB-2: Disabling the scheduled task re-enables the engine 48h `archive-pass-overdue` alert.
+    await runArchiveScheduleDisable({
+      adapter,
+      env: box.env,
+      stateDir: box.stateDir,
+      unitDir: box.unitDir,
+    });
+    const alertsWhenDisabled = readClaudeArchiveAlerts({ env: box.env, nowMs: FIXED_NOW_MS });
+    expect(alertsWhenDisabled.some((a) => a.kind === "archive-pass-overdue")).toBe(true);
+
+    // NB-4: H2A_ARCHIVE_OFF follows §2.4 truthiness (any non-empty value except "0" and "false").
+    for (const activeVal of ["1", "true", "yes", "on", "no", "off", " YES "]) {
+      expect(isArchiveKillSwitchEnabled({ H2A_ARCHIVE_OFF: activeVal })).toBe(true);
+    }
+    for (const inactiveVal of ["0", "false", "FALSE", "  0  ", "", "   ", undefined]) {
+      expect(
+        isArchiveKillSwitchEnabled(
+          inactiveVal === undefined ? {} : { H2A_ARCHIVE_OFF: inactiveVal },
+        ),
+      ).toBe(false);
+    }
   });
 
   it("scheduled archive pass honors H2A_ARCHIVE_OFF, maxDurationMs soft budget, and scheduled exit-0 on remaining alerts", () => {

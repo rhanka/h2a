@@ -12,8 +12,7 @@ import {
   runArchiveScheduleUninstall,
   type ArchiveScheduleDeps,
 } from "./archive-schedule.js";
-import { LocalSchedulerNotInstalledError } from "./local-scheduler-adapter.js";
-import { LocalSchedulerError } from "./local-scheduler-contract.js";
+import { isLocalSchedulerLikeError } from "./local-scheduler-adapter.js";
 import {
   ARCHIVE_ALERT_EXIT_CODE,
   DEFAULT_GRACE_HOURS,
@@ -99,20 +98,23 @@ function formatGiB(bytes: number): string {
   return `${(bytes / (1024 ** 3)).toFixed(2)} GiB`;
 }
 
+function formatCliErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const msg = (error as { message?: unknown }).message;
+    if (typeof msg === "string" && msg.length > 0) return msg;
+  }
+  return String(error);
+}
+
 function handleArchiveCliError(prefix: string, error: unknown, json?: boolean): void {
-  const msg = error instanceof Error ? error.message : String(error);
-  const errorCode =
-    error instanceof SessionArchiveError ||
-    error instanceof LocalSchedulerError ||
-    error instanceof LocalSchedulerNotInstalledError
-      ? error.code
+  const msg = formatCliErrorMessage(error);
+  const matched =
+    error instanceof SessionArchiveError || isLocalSchedulerLikeError(error)
+      ? error
       : undefined;
-  const exitCode =
-    error instanceof SessionArchiveError ||
-    error instanceof LocalSchedulerError ||
-    error instanceof LocalSchedulerNotInstalledError
-      ? error.exitCode
-      : 2;
+  const errorCode = matched?.code;
+  const exitCode = matched?.exitCode ?? 2;
   if (json) {
     process.stdout.write(
       `${JSON.stringify({ ok: false, ...(errorCode ? { errorCode } : {}), exitCode, error: msg })}\n`,
@@ -296,7 +298,7 @@ export function registerArchiveCommand(
 
   archive
     .command("pass")
-    .description("Run one archive pass for an external scheduler (writes last-run.json)")
+    .description("Compatibility alias for `h2a archive run --once` (writes last-run.json)")
     .option("--cli <name>", "Target CLI (Lot 1: claude)", "claude")
     .option("--older-than <days>", "Inactivity threshold (e.g. 14d)", `${DEFAULT_OLDER_THAN_DAYS}d`)
     .option("--grace-hours <hours>", "Recent-activity grace window in hours")
@@ -623,15 +625,10 @@ export function registerArchiveCommand(
         }
         process.exitCode = res.exitCode;
       } catch (error) {
-        const code =
-          error instanceof LocalSchedulerNotInstalledError || error instanceof LocalSchedulerError
-            ? error.code
-            : "INVALID_TASK_SPEC";
-        const exitCode =
-          error instanceof LocalSchedulerNotInstalledError || error instanceof LocalSchedulerError
-            ? error.exitCode
-            : 2;
-        const msg = error instanceof Error ? error.message : String(error);
+        const matched = isLocalSchedulerLikeError(error) ? error : undefined;
+        const code = matched ? matched.code : "INVALID_TASK_SPEC";
+        const exitCode = matched ? matched.exitCode : 2;
+        const msg = formatCliErrorMessage(error);
         process.stderr.write(`[local-scheduler] ${code}: ${msg}\n`);
         process.exitCode = exitCode;
       }
