@@ -15,6 +15,8 @@ import { projectRemoteAgents, type RemoteAgentProjection } from "./agents-projec
 import { resolveResumedGatewayMode } from "./protocol-local.js";
 import {
   formatArchiveAlertLine,
+  formatArchiveScheduleStatusLines,
+  readArchiveScheduleHealth,
   readClaudeArchiveAlerts,
 } from "./session-archive-alerts.js";
 import {
@@ -639,6 +641,9 @@ export async function projectStatusForH2a(
       try {
         for (const alert of readClaudeArchiveAlerts()) {
           warnings.push(formatArchiveAlertLine(alert));
+        }
+        for (const line of formatArchiveScheduleStatusLines(readArchiveScheduleHealth())) {
+          warnings.push(line);
         }
       } catch {
         // Archive alert check stays best-effort and never breaks status projection.

@@ -17,12 +17,31 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import {
+  evaluateKillSwitch,
+  evaluateTaskHealth,
+  probeStateDirObservability,
+  readSchedulerEnvFile,
+  readTaskManifest,
+  readTaskWitness,
+  resolveSchedulerEnvFilePath,
+  resolveStateDir,
+  type LocalTaskHealthVerdict,
+  type LocalTaskKillSwitchMatchV1,
+  type LocalTaskManifestV1,
+  type LocalTaskWitnessV1,
+  type StateDirObservabilityResult,
+} from "./local-scheduler-contract.js";
 
 export const ARCHIVE_SCHEMA_VERSION = 1;
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_CLAUDE_CLEANUP_DAYS = 30;
 export const DEFAULT_ALERT_WINDOW_DAYS = 14;
 export const DEFAULT_PASS_STALE_HOURS = 48;
+export const H2A_ARCHIVE_SCHEDULER_TASK_ID = "h2a-session-archive" as const;
+export const H2A_ARCHIVE_SCHEDULER_KILL_SWITCH_ENV = "H2A_ARCHIVE_OFF" as const;
+export const H2A_ARCHIVE_SCHEDULER_UNIT_NAME =
+  "sentropic-task-h2a-session-archive.service" as const;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -256,7 +275,7 @@ export function createEmptyArchiveIndex(): SessionArchiveIndex {
 
 export function isArchiveKillSwitchEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = env.H2A_ARCHIVE_OFF?.trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  return raw !== undefined && raw !== "" && raw !== "0" && raw !== "false";
 }
 
 export function readArchiveIndexState(indexPath: string): ArchiveIndexReadResult {
@@ -623,6 +642,12 @@ export interface ReadAlertsOptions extends ArchivePathOptions {
   readonly alertWindowDays?: number;
   readonly maxPassAgeHours?: number;
   readonly lastRunOverride?: ArchiveLastRunWitness;
+  /**
+   * When true (default), skip the engine-level 48h `archive-pass-overdue` alert
+   * once a scheduler manifest is installed (`X-3`: `LocalTaskWitnessV1` is the
+   * single dead-man source).
+   */
+  readonly suppressPassOverdueWhenScheduled?: boolean;
 }
 
 function resolvePassStaleHours(options: ReadAlertsOptions, env: NodeJS.ProcessEnv): number {
@@ -833,7 +858,14 @@ export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): Archiv
       });
     }
 
-    if (!killSwitchOn) {
+    const schedulerStateDir = resolveStateDir(env);
+    const schedulerObs = probeStateDirObservability(schedulerStateDir);
+    const schedulerInstalled =
+      options.suppressPassOverdueWhenScheduled !== false &&
+      schedulerObs.observable &&
+      readTaskManifest(schedulerStateDir, H2A_ARCHIVE_SCHEDULER_TASK_ID) !== null;
+
+    if (!killSwitchOn && !schedulerInstalled) {
       const staleHours = resolvePassStaleHours(options, env);
       const finishedMs = Date.parse(w.finishedAt);
       const ageMs = Number.isFinite(finishedMs) ? nowMs - finishedMs : Number.POSITIVE_INFINITY;
@@ -876,4 +908,175 @@ export function readClaudeArchiveAlerts(options: ReadAlertsOptions = {}): Archiv
 export function formatArchiveAlertLine(alert: ArchiveAlert): string {
   const prefix = alert.severity === "error" ? "URGENT" : "WARN";
   return `[archive ${prefix}] ${alert.message}`;
+}
+
+export interface ArchiveScheduleHealthSnapshot {
+  readonly taskId: string;
+  readonly stateDir: string;
+  readonly observable: boolean;
+  readonly observabilityReason?: StateDirObservabilityResult["reason"];
+  readonly envFilePath: string;
+  readonly manifest: LocalTaskManifestV1 | null | "corrupt";
+  readonly witness: LocalTaskWitnessV1 | null | "corrupt";
+  readonly persistedKillSwitch: LocalTaskKillSwitchMatchV1 | null;
+  readonly readerEnvKillSwitch: LocalTaskKillSwitchMatchV1 | null;
+  readonly health: LocalTaskHealthVerdict;
+  readonly nowIso: string;
+}
+
+export interface ReadArchiveScheduleHealthOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly nowMs?: number;
+  readonly stateDir?: string;
+  readonly assertHostPid?: () => void;
+}
+
+/**
+ * Pure read-side scheduler health evaluation following §4.4 step 3.
+ * Works safely inside `bwrap` sandboxes and never invokes `systemctl`.
+ */
+export function readArchiveScheduleHealth(
+  options: ReadArchiveScheduleHealthOptions = {},
+): ArchiveScheduleHealthSnapshot {
+  const env = options.env ?? process.env;
+  const nowMs = options.nowMs ?? Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const stateDir = options.stateDir ? resolve(options.stateDir) : resolveStateDir(env);
+  const obs = probeStateDirObservability(
+    stateDir,
+    options.assertHostPid ? { assertHostPid: options.assertHostPid } : undefined,
+  );
+  const manifest = obs.observable
+    ? readTaskManifest(stateDir, H2A_ARCHIVE_SCHEDULER_TASK_ID)
+    : null;
+  const witness = obs.observable
+    ? readTaskWitness(stateDir, H2A_ARCHIVE_SCHEDULER_TASK_ID)
+    : null;
+  const envFilePath =
+    manifest && manifest !== "corrupt"
+      ? manifest.envFilePath
+      : resolveSchedulerEnvFilePath(env);
+  const persistedEnv = readSchedulerEnvFile(envFilePath);
+  const specRef =
+    manifest && manifest !== "corrupt"
+      ? manifest.spec
+      : {
+          taskId: H2A_ARCHIVE_SCHEDULER_TASK_ID,
+          killSwitchEnv: H2A_ARCHIVE_SCHEDULER_KILL_SWITCH_ENV,
+        };
+  const persistedKillSwitch = persistedEnv ? evaluateKillSwitch(persistedEnv, specRef) : null;
+  const readerEnvKillSwitch = evaluateKillSwitch(env, specRef);
+  const health = evaluateTaskHealth({
+    stateDirObservable: obs.observable,
+    manifest,
+    witness,
+    persistedKillSwitch,
+    readerEnvKillSwitch,
+    nowIso,
+  });
+
+  return {
+    taskId: H2A_ARCHIVE_SCHEDULER_TASK_ID,
+    stateDir,
+    observable: obs.observable,
+    ...(obs.reason !== undefined ? { observabilityReason: obs.reason } : {}),
+    envFilePath,
+    manifest,
+    witness,
+    persistedKillSwitch,
+    readerEnvKillSwitch,
+    health,
+    nowIso,
+  };
+}
+
+function formatAgeSinceIso(pastIso: string | null | undefined, nowIso: string): string {
+  if (!pastIso) return "never";
+  const pastMs = Date.parse(pastIso);
+  const nowMs = Date.parse(nowIso);
+  if (!Number.isFinite(pastMs) || !Number.isFinite(nowMs)) return "unknown";
+  const diffMs = Math.max(0, nowMs - pastMs);
+  const hours = Math.floor(diffMs / 3_600_000);
+  if (hours >= 48) return `${Math.floor(hours / 24)}d ago`;
+  if (hours >= 1) return `${hours}h ago`;
+  const mins = Math.floor(diffMs / 60_000);
+  return mins >= 1 ? `${mins}m ago` : "<1m ago";
+}
+
+function buildSevereBannerLines(snapshot: ArchiveScheduleHealthSnapshot): readonly string[] {
+  const { health, nowIso } = snapshot;
+  const tag = health.severity === "critical" ? "CRITICAL" : "WARN";
+  const lastSuccessAge = health.lastSuccessAt
+    ? `${formatAgeSinceIso(health.lastSuccessAt, nowIso)} (${health.lastSuccessAt})`
+    : "never";
+  const hintsSuffix =
+    health.hints.length > 0 ? ` hints=[${health.hints.join("; ")}]` : "";
+  return [
+    `[archive-schedule ${tag}] status=${health.status}: ${health.message}`,
+    `[archive-schedule ${tag}] lastSuccess=${lastSuccessAge} consecutiveFailures=${health.consecutiveFailures}${hintsSuffix}`,
+    `[archive-schedule ${tag}] next: run \`h2a archive schedule status\` or \`journalctl --user -u ${H2A_ARCHIVE_SCHEDULER_UNIT_NAME}\``,
+  ];
+}
+
+/**
+ * Render lines for `h2a status` and `h2a status --human` per §4.4 rendering rules.
+ */
+export function formatArchiveScheduleStatusLines(
+  snapshot: ArchiveScheduleHealthSnapshot,
+): readonly string[] {
+  const { health, witness, nowIso } = snapshot;
+  const hintSuffix = health.hints.length > 0 ? ` (${health.hints.join("; ")})` : "";
+
+  switch (health.status) {
+    case "healthy": {
+      const lastRunIso =
+        witness && witness !== "corrupt"
+          ? witness.lastSuccessAt ?? witness.finishedAt
+          : health.lastSuccessAt;
+      return [`archive-schedule: ok (last run ${formatAgeSinceIso(lastRunIso, nowIso)})${hintSuffix}`];
+    }
+    case "pending_first_run":
+      return [`archive-schedule: ok (pending first run)${hintSuffix}`];
+    case "not_installed":
+      return ["archive-schedule: not installed (run h2a archive schedule enable)"];
+    case "disabled":
+      return [`archive-schedule: disabled${hintSuffix}`];
+    case "paused": {
+      if (health.severity === "warning") {
+        return buildSevereBannerLines(snapshot);
+      }
+      const validW = witness && witness !== "corrupt" ? witness : null;
+      return [
+        `archive-schedule: paused since ${validW?.finishedAt ?? "unknown"} by ${validW?.killSwitch?.name ?? "kill-switch"}${hintSuffix}`,
+      ];
+    }
+    case "unobservable":
+    case "interrupted":
+      return [`[archive-schedule WARN] ${health.status}: ${health.message}${hintSuffix}`];
+    case "failing":
+    case "schedule_missed":
+    case "clock_skew":
+    case "witness_corrupt":
+      return buildSevereBannerLines(snapshot);
+  }
+}
+
+/**
+ * Render lines for `h2a resume` stderr per §4.4 rendering rules.
+ * Silent on `healthy`, `pending_first_run`, `not_installed`, `disabled`, and on-time `paused`.
+ */
+export function formatArchiveScheduleResumeBannerLines(
+  snapshot: ArchiveScheduleHealthSnapshot,
+): readonly string[] {
+  const { health } = snapshot;
+  if (
+    health.status === "failing" ||
+    health.status === "schedule_missed" ||
+    health.status === "clock_skew" ||
+    health.status === "witness_corrupt" ||
+    (health.status === "paused" && health.severity === "warning")
+  ) {
+    return buildSevereBannerLines(snapshot);
+  }
+  return [];
 }
