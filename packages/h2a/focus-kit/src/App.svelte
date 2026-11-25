@@ -97,7 +97,7 @@
               </div>
               <p class="selection" aria-live="polite">{selections.get(section.questionId) ? `Sélection locale : ${optionLabel(section.questionId, selections.get(section.questionId))}. Communiquez ce choix au présentateur pour l’enregistrer.` : 'Sélectionnez une option pour préparer votre réponse.'}</p>
             {:else if section.kind === 'diagram'}
-              <Canvas document={section.scene} diagram={diagrams[section.id] ?? null} sectionId={section.id} alt={section.alt} />
+              <Canvas document={section.scene} diagram={diagrams[section.id] ?? null} sectionId={section.id} alt={section.alt} target={target} />
             {:else if section.kind === 'outcome'}
               <Card><h3>Conclusion proposée</h3><p>{shown(section.statement)}</p></Card>
             {/if}

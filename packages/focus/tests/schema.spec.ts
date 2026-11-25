@@ -15,13 +15,16 @@ import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs'
 
 import { describe, expect, it } from "vitest";
 
-import type { DecisionDossierDocument } from "../src/model.js";
+import { DIAGRAM_TYPES, type DecisionDossierDocument } from "../src/model.js";
 import {
   DOSSIER_SCHEMA_ID,
   DOSSIER_SCHEMA_VERSION,
   DOSSIER_V1_1_SCHEMA_ID,
+  DOSSIER_V1_2_SCHEMA_ID,
   DOSSIER_V2_1_SCHEMA_ID,
+  DOSSIER_V2_2_SCHEMA_ID,
   DOSSIER_V2_SCHEMA_ID,
+  REPORT_V1_1_SCHEMA_ID,
   validateDecisionDossierDocument,
 } from "../src/validation/index.js";
 import { decisionDossierFixture } from "./fixture.data.js";
@@ -67,7 +70,7 @@ describe('evidence schema version boundary', () => {
   });
   it('should ship a separate closed v2 schema while preserving the original v1.0 and v2.0 bytes', () => {
     const v2 = require('../schemas/decision-dossier-document.v2.schema.json');
-    expect(v2.$id).toBe('urn:sentropic:focus:DecisionDossierDocument:2.1.0');
+    expect(v2.$id).toBe('urn:sentropic:focus:DecisionDossierDocument:2.2.0');
     expect(v2.properties.schemaVersion.const).toBe(2);
     expect(v2.additionalProperties).toBe(false);
     expect(v2.required).toEqual(expect.arrayContaining(['sources','citations','annexes','evidenceGroups','schemaVersion']));
@@ -76,7 +79,7 @@ describe('evidence schema version boundary', () => {
     expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v2.0.schema.json', import.meta.url))).digest('hex'))
       .toBe('1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9');
     expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v1.schema.json', import.meta.url))).digest('hex'))
-      .toBe('f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c');
+      .toBe('3cd38dafe839a71f5f4b2d6e29008d884612580039f032e1e6b56e6d76d3eb60');
   });
   it('should reject new evidence through the frozen old validator rather than dropping it', async () => {
     const old = await import('./fixtures/validator.v1.mjs');
@@ -99,10 +102,19 @@ describe("DecisionDossierDocument schema asset identity", () => {
     expect(DOSSIER_V2_1_SCHEMA_ID).toBe(
       "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
     );
+    expect(DOSSIER_V1_2_SCHEMA_ID).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:1.2.0",
+    );
+    expect(DOSSIER_V2_2_SCHEMA_ID).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:2.2.0",
+    );
+    expect(REPORT_V1_1_SCHEMA_ID).toBe(
+      "urn:sentropic:focus:ReportDocument:1.1.0",
+    );
     expect(schemaDoc.$schema).toBe(
       "https://json-schema.org/draft/2020-12/schema",
     );
-    expect(schemaDoc.$id).toBe(DOSSIER_V1_1_SCHEMA_ID);
+    expect(schemaDoc.$id).toBe(DOSSIER_V1_2_SCHEMA_ID);
   });
 });
 
@@ -489,7 +501,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     });
     checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement", "questionId"]);
     checkClosedObjectDef(doc, "amendmentTraceNode", ["kind", "id", "targetRef", "steps"], ["kind", "id", "targetRef", "steps"]);
-    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt", "scene", "sourceRef", "renderComponent"]);
+    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "alt"], ["kind", "id", "targetRef", "diagramType", "syntax", "source", "alt", "scene", "sourceRef", "renderComponent"]);
     checkClosedObjectDef(doc, "interaction", ["name", "targetRef", "label", "enabled"], ["name", "targetRef", "label", "enabled"]);
     expect(propsOf(doc, "interaction")["enabled"]).toEqual({ const: false });
     checkClosedObjectDef(doc, "comprehensionEvidence", ["subject", "dossierHash"], ["subject", "dossierHash", "signature"]);
@@ -511,6 +523,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     checkEnum(doc, "optionNode", "annotation", ["none", "accept", "reject", "comment"]);
     checkEnum(doc, "outcomeNode", "modality", ["decision", "orientation", "amendment", "comment"]);
     checkEnum(doc, "diagramNode", "syntax", ["mermaid", "plantuml"]);
+    checkEnum(doc, "diagramNode", "diagramType", [...DIAGRAM_TYPES]);
   };
 
   it("published asset matches the validator contract", () => {
@@ -1077,5 +1090,49 @@ describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".sourceRef"))).toBe(true);
     }
+  });
+
+  it("1.2.0 / 2.2.0: accepts all 10 Archify diagramType values and rejects unknown diagramType or Mode B data", () => {
+    for (const diagramType of DIAGRAM_TYPES) {
+      const inlineDoc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idx = inlineDoc.sections.findIndex((s) => s.kind === "diagram");
+      inlineDoc.sections[idx]!["diagramType"] = diagramType;
+      expect(ajvV1(inlineDoc), diagramType).toBe(true);
+      const validated = validateDecisionDossierDocument(inlineDoc);
+      expect(validated.ok).toBe(true);
+      if (validated.ok) expect(validated.value.sections[idx]).toMatchObject({ diagramType });
+
+      const v2Ref = evidenceFixture();
+      v2Ref.sections.push({
+        kind: "diagram",
+        id: "diag-typed-ref",
+        targetRef: "diag-typed-ref",
+        diagramType,
+        alt: "Typed ref diagram.",
+        sourceRef: "engram:diag-ref",
+        renderComponent: "TreegraphChart",
+      });
+      expect(ajvV2(v2Ref), diagramType).toBe(true);
+      expect(validateDecisionDossierDocument(v2Ref).ok).toBe(true);
+    }
+
+    const badType = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    badType.sections.find((s) => s.kind === "diagram")!["diagramType"] = "bpmn";
+    expect(ajvV1(badType)).toBe(false);
+    expect(validateDecisionDossierDocument(badType).ok).toBe(false);
+
+    const modeB = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    const dIdx = modeB.sections.findIndex((s) => s.kind === "diagram");
+    modeB.sections[dIdx] = {
+      kind: "diagram",
+      id: "s-diagram",
+      targetRef: "s-diagram",
+      diagramType: "tree",
+      renderComponent: "TreegraphChart",
+      alt: "Inline chart excluded from Lot 1",
+      data: { nodes: [{ id: "root", parentId: null, label: "Root" }] },
+    };
+    expect(ajvV1(modeB)).toBe(false);
+    expect(validateDecisionDossierDocument(modeB).ok).toBe(false);
   });
 });

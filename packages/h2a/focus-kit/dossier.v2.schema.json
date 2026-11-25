@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
+  "$id": "urn:sentropic:focus:DecisionDossierDocument:2.2.0",
   "title": "DecisionDossierDocument v2 — embedded evidence",
   "description": "Breaking evidence envelope. Original bytes, digests, line ranges and reference integrity are additionally checked by the exported runtime validator. Absence of schemaVersion selects unchanged legacy v1.",
   "type": "object",
@@ -473,6 +473,20 @@
         },
         "targetRef": {
           "type": "string"
+        },
+        "diagramType": {
+          "enum": [
+            "architecture",
+            "workflow",
+            "sequence",
+            "dataflow",
+            "lifecycle",
+            "erd",
+            "class",
+            "tree",
+            "timeline",
+            "waterfall"
+          ]
         },
         "syntax": {
           "enum": [

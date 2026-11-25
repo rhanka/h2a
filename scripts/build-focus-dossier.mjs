@@ -82,8 +82,8 @@ if (process.argv.includes('--check')) {
       platform: 'node', target: 'node22', format: 'esm', absWorkingDir: kit, metafile: true, write: false,
       outfile: join(kit, 'diagram-views.mjs') });
     const viewInputs = Object.keys(views.metafile.inputs);
-    const foreign = viewInputs.filter(input => !/^(?:src\/(?:diagram-model|r7-diagram-kit|r7-scene-renderer)\.js|node_modules\/@sentropic\/design-system-svelte\/dist\/[\w./-]+\.js)$/.test(input));
-    if (foreign.length) throw new Error(`diagram-views.mjs bundles only the pure DS card/zone renderers; refused inputs: ${foreign.join(', ')}`);
+    const foreign = viewInputs.filter(input => !/^(?:ecosystem\.json|src\/(?:diagram-model|ds-diagram-bridge)\.js|node_modules\/@sentropic\/(?:diagram-canvas|diagram-core)\/dist\/[\w./-]+\.js)$/.test(input));
+    if (foreign.length) throw new Error(`diagram-views.mjs bundles only the pure DS diagram bridge and canvas/core modules; refused inputs: ${foreign.join(', ')}`);
     const viewsBanner = `${readFileSync(join(kit, '../../../LICENSE'), 'utf8')}\nBundled third-party code:\n\n${noticesOf(viewInputs.map(input => join(kit, input)))}\n`;
     if (viewsBanner.includes('*/')) throw new Error('A bundled notice would close the diagram-views.mjs banner');
     writeFileSync(join(kit, 'diagram-views.mjs'), `/*!\n${viewsBanner}*/\n${views.outputFiles[0].text}`);

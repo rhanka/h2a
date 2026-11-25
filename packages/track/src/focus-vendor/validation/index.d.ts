@@ -31,6 +31,12 @@ export declare const DOSSIER_V2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossier
 export declare const DOSSIER_V1_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.1.0";
 /** Additive v2.1.0 schema ID (v2 embedded evidence + 1.1.0 section/diagram extensions). */
 export declare const DOSSIER_V2_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.1.0";
+/** Additive v1.2.0 schema ID (closed Archify diagramType classification). */
+export declare const DOSSIER_V1_2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.2.0";
+/** Additive v2.2.0 schema ID (v2 embedded evidence + 1.2.0 diagramType extension). */
+export declare const DOSSIER_V2_2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.2.0";
+/** Additive ReportDocument 1.1.0 schema ID (closed Archify diagramType classification). */
+export declare const REPORT_V1_1_SCHEMA_ID = "urn:sentropic:focus:ReportDocument:1.1.0";
 /** One machine-checkable validation failure. */
 export interface ValidationIssue {
     /** JSON-path-style location, e.g. `$.sections[2].options[0].annotation`. */

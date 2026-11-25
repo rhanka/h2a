@@ -102,19 +102,19 @@ test('r7 inline SVG consumes diagram-core entities, links and nested containers 
     await page.goto(pathToFileURL(output).href);
     const activeSvg = page.locator('[data-renderer="r7"] .ds-diagram-mount[data-variant="narrow"] .ds-diagram-svg');
     await activeSvg.waitFor({ state: 'visible' });
-    assert.equal(await activeSvg.locator('g[data-id]').count(), 4);
+    assert.equal(await activeSvg.locator('g[data-scene-occurrence]').count(), 4);
     for (const entity of Object.values(semantic.entities)) {
       assert.equal(await activeSvg.locator('.st-diagramCard-title, .st-diagramZone-title')
         .getByText(entity.attributes.name.value, { exact: true }).count(), 1, `${entity.id} carries its DS title`);
     }
     for (const [child, parent] of [['models', 'root'], ['gateway', 'models'], ['coordinator', 'root']]) {
-      const childBox = await activeSvg.locator(`g[data-id="entity:${child}"]`).boundingBox();
-      const parentBox = await activeSvg.locator(`g[data-id="entity:${parent}"]`).boundingBox();
+      const childBox = await activeSvg.locator(`g[data-scene-occurrence="occurrence:e.${child}"]`).boundingBox();
+      const parentBox = await activeSvg.locator(`g[data-scene-occurrence="occurrence:e.${parent}"]`).boundingBox();
       assert.ok(childBox.x > parentBox.x && childBox.y > parentBox.y, `${child} starts inside ${parent}`);
       assert.ok(childBox.x + childBox.width < parentBox.x + parentBox.width && childBox.y + childBox.height < parentBox.y + parentBox.height, `${child} fits inside ${parent}`);
     }
-    assert.equal(await activeSvg.locator('g[data-relation-connector="true"]').count(), 2, 'contains relations are grouping, not links');
-    assert.equal(await activeSvg.locator('.diagram-edge-pill').getByText('Demandes', { exact: true }).count(), 1);
+    assert.equal(await activeSvg.locator('[data-scene-connectors] [data-scene-edge]').count(), 2, 'contains relations are grouping, not links');
+    assert.equal(await activeSvg.locator('[data-scene-label]').getByText('Demandes', { exact: true }).count(), 1);
     assert.deepEqual(errors, []);
     console.log('diagram-core r7: names, optional link label, nested containers, phone offline OK');
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
@@ -138,10 +138,7 @@ test('portable Focus works offline on desktop and phone with responsive r7 inlin
     browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
     for (const width of [1366, 390, 320]) {
       const mobile = width < 600;
-      // The template ecosystem scene is drawn 3334 units wide: in the DS lg container the stage
-      // never offers its 0.36 readability scale (1200 px), so the measured fit shows the column
-      // variant at every width. The phone/desktop split is covered by the artifact-shell test.
-      const variant = 'narrow';
+      const variant = mobile ? 'narrow' : 'wide';
       const context = await browser.newContext({ offline: true, viewport: { width, height: mobile ? 844 : 1000 },
         isMobile: mobile, hasTouch: mobile, colorScheme: 'light' });
       const page = await context.newPage(), errors = [], network = [];
@@ -166,8 +163,8 @@ test('portable Focus works offline on desktop and phone with responsive r7 inlin
       await page.getByRole('button', { name: 'Thème sombre' }).click();
       assert.equal(await page.locator('.focus-page').getAttribute('data-mode'), 'dark');
       assert.equal(await page.locator('.st-card').first().evaluate(el => getComputedStyle(el).borderTopWidth), '1px');
-      assert.ok(await activeSvg.locator('path[data-connector-part="line"]').count() > 0, 'r7 connectors rendered');
-      assert.ok(await activeSvg.locator('.st-diagramCard-body').count() > 0, 'r7 node bodies rendered');
+      assert.ok(await activeSvg.locator('[data-scene-connectors] [data-scene-edge]').count() > 0, 'DS connectors rendered');
+      assert.ok(await activeSvg.locator('.st-diagramCard-body').count() > 0, 'DS node bodies rendered');
       await page.getByRole('button', { name: 'Thème clair' }).click();
       const box = await activeSvg.boundingBox();
       assert.ok(box && box.width > 0 && box.height > 0, `${variant} r7 SVG has non-zero rendered bounds`);
@@ -269,9 +266,9 @@ test('a payload without views draws the DC-1 cards from its scene, and a refused
     await page.goto(withoutViews);
     const activeSvg = page.locator('[data-renderer="r7"] .ds-diagram-mount[data-variant="wide"] .ds-diagram-svg');
     await activeSvg.waitFor({ state: 'visible' });
-    assert.equal(await activeSvg.locator('g[data-id]').count(), Object.keys(semantic.entities).length);
+    assert.equal(await activeSvg.locator('g[data-scene-occurrence]').count(), Object.keys(semantic.entities).length);
     for (const entityId of Object.keys(semantic.entities)) {
-      const node = activeSvg.locator(`g[data-id="${entityId}"]`);
+      const node = activeSvg.locator(`g[data-scene-occurrence="occurrence:e.${entityId.slice('entity:'.length)}"]`);
       const box = await node.boundingBox();
       assert.ok(box && box.width > 0 && box.height > 0, `${entityId} is not an empty 0x0 node`);
     }
@@ -311,7 +308,7 @@ test('artifact fragment renders at 390 and 800 px inside an artifact shell with 
     const file = join(root, 'shell.html');
     writeFileSync(file, shell);
     browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
-    for (const [width, variant] of [[390, 'narrow'], [800, 'wide']]) {
+    for (const [width, variant] of [[390, 'phone'], [800, 'wide']]) {
       const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, colorScheme: 'light' });
       const page = await context.newPage(), errors = [];
       page.on('pageerror', error => errors.push(error.message));
@@ -369,9 +366,8 @@ test('the DS container owns a single side gutter: main content is 358 px at 390 
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
-// Owner regression « diagramme trop zoomé »: the r7 scene is drawn in large fixed units and must
-// always be shown reduced. Before the fix every viewport under 1200 px showed the single-column
-// drawing almost at scale 1 (620 x 1194 px, 31 px titles, for four boxes at 800 px).
+// Untyped 4-step LR flowchart now renders as process@1 simple boxes (scale >= 0.9, TB on 390/800 and
+// LR at 1.0 on 1440), while explicit diagramType "architecture" keeps reduced generic@1 cards.
 test('a four-step LR flowchart keeps a sane rendered size on phone, tablet and desktop', async () => {
   const { buildFocusDossier } = await import('../../dist/focus-build.js');
   const { pickDiagramVariant, displayWidth, WIDE_MIN_READABLE_SCALE } = await import('../src/diagram-fit.js');
@@ -391,9 +387,11 @@ test('a four-step LR flowchart keeps a sane rendered size on phone, tablet and d
     const output = join(root, 'flow.html');
     writeFileSync(output, buildFocusDossier(doc));
     browser = await chromium.launch({ headless: true });
-    const expected = { 390: { variant: 'narrow', width: [240, 330], height: [300, 700], title: [14, 17] },
-      800: { variant: 'narrow', width: [240, 760], height: [80, 700], title: [11, 21] },
-      1440: { variant: 'wide', width: [700, 1152], height: [80, 220], title: [11, 21] } };
+    const expected = {
+      390: { variant: 'narrow', width: [110, 220], height: [300, 500], scaleMin: 0.95 },
+      800: { variant: 'narrow', width: [110, 220], height: [300, 500], scaleMin: 0.95 },
+      1440: { variant: 'wide', width: [700, 960], height: [40, 120], scaleMin: 0.98 },
+    };
     for (const [viewport, bounds] of Object.entries(expected)) {
       const width = Number(viewport), mobile = width < 600;
       const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, isMobile: mobile, hasTouch: mobile });
@@ -405,15 +403,14 @@ test('a four-step LR flowchart keeps a sane rendered size on phone, tablet and d
         const shown = [...el.querySelectorAll('.ds-diagram-svg')].filter(svg => svg.getBoundingClientRect().width > 0);
         const box = shown[0].getBoundingClientRect(), scale = box.width / shown[0].viewBox.baseVal.width;
         return { count: shown.length, variant: shown[0].dataset.variant, width: box.width, height: box.height, scale,
-          title: parseFloat(getComputedStyle(shown[0].querySelector('.st-diagramCard-title')).fontSize) * scale };
+          toggles: shown[0].querySelectorAll('[data-toggle]').length, icons: shown[0].querySelectorAll('.st-diagramCard-icon').length };
       });
       assert.equal(seen.count, 1, `${width}px: exactly one variant is displayed`);
-      assert.equal(seen.variant, bounds.variant, `${width}px: displayed variant`);
-      for (const key of ['width', 'height', 'title']) {
-        assert.ok(seen[key] >= bounds[key][0] && seen[key] <= bounds[key][1],
-          `${width}px: ${key} ${seen[key].toFixed(1)} px outside [${bounds[key]}] (${JSON.stringify(seen)})`);
-      }
-      assert.ok(seen.scale <= 0.63, `${width}px: the drawing is never shown near scale 1, got ${seen.scale.toFixed(2)}`);
+      assert.equal(seen.toggles, 0, `${width}px: process@1 has 0 fold toggles`);
+      assert.equal(seen.icons, 0, `${width}px: process@1 has 0 component icons`);
+      assert.ok(seen.width >= bounds.width[0] && seen.width <= bounds.width[1], `${width}px: width ${seen.width.toFixed(1)} outside [${bounds.width}]`);
+      assert.ok(seen.height >= bounds.height[0] && seen.height <= bounds.height[1], `${width}px: height ${seen.height.toFixed(1)} outside [${bounds.height}]`);
+      assert.ok(seen.scale >= bounds.scaleMin, `${width}px: scale ${seen.scale.toFixed(3)} below ${bounds.scaleMin}`);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}px: no horizontal page overflow`);
       await context.close();
     }
@@ -536,5 +533,113 @@ test('artifact target with <body> and <script> comments in theme CSS keeps scrip
     assert.equal(observed.info, '#4a4f8f');
     assert.equal(observed.bg, 'rgb(18, 24, 38)');
     assert.deepEqual(errors, []);
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Lot 1 process@1 acceptance (light/dark, offline CSP): 5 steps LR 1.0 at 1440px, TB >= 0.9 at 72ch, clean column at 390px, 0 scroll in document & artifact', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const root = mkdtempSync(join(tmpdir(), 'focus-lot1-process-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    Object.assign(doc.sections.find(s => s.kind === 'diagram'), {
+      diagramType: 'workflow',
+      alt: 'Cinq étapes séquentielles de la réception à l’archive.',
+      source: [
+        'flowchart LR',
+        's1["Réception"]',
+        's2["Tri"]',
+        's3["Revue"]',
+        's4["Validation"]',
+        's5["Archive"]',
+        's1 -->|brut| s2',
+        's2 -->|qualifié| s3',
+        's3 -->|conforme| s4',
+        's4 -->|validé| s5',
+      ].join('\n'),
+    });
+    const svelteDocPath = join(root, 'svelte-doc.html');
+    writeFileSync(svelteDocPath, buildFocusDossier(doc, { renderer: 'svelte', target: 'document' }));
+    const svelteArtifactPath = join(root, 'svelte-artifact-72ch.html');
+    const svelteFragment = buildFocusDossier(doc, { renderer: 'svelte', target: 'artifact' });
+    writeFileSync(svelteArtifactPath, `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artifact 72ch</title></head><body><main style="max-width:72ch;margin:0 auto">${svelteFragment}</main></body></html>`);
+    const vueDocPath = join(root, 'vue-doc.html');
+    writeFileSync(vueDocPath, buildFocusDossier(doc, { renderer: 'vue', target: 'document' }));
+    const vueArtifactPath = join(root, 'vue-artifact-72ch.html');
+    const vueFragment = buildFocusDossier(doc, { renderer: 'vue', target: 'artifact' });
+    writeFileSync(vueArtifactPath, `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vue Artifact 72ch</title></head><body><main style="max-width:72ch;margin:0 auto">${vueFragment}</main></body></html>`);
+
+    browser = await chromium.launch({ headless: true });
+    for (const [rendererName, docPath, artPath] of [
+      ['svelte', svelteDocPath, svelteArtifactPath],
+      ['vue', vueDocPath, vueArtifactPath],
+    ]) {
+      for (const colorScheme of ['light', 'dark']) {
+        for (const [label, filePath, viewportWidth] of [
+          ['desktop-1440', docPath, 1440],
+          ['col-72ch-artifact', artPath, 1024],
+          ['col-640-doc', docPath, 640],
+          ['mobile-390-doc', docPath, 390],
+          ['mobile-390-art', artPath, 390],
+        ]) {
+          const context = await browser.newContext({ offline: true, viewport: { width: viewportWidth, height: 900 }, colorScheme });
+          const page = await context.newPage(), errors = [], network = [];
+          page.on('pageerror', e => errors.push(e.message));
+          page.on('request', req => { if (/^https?:/.test(req.url())) network.push(req.url()); });
+          await page.goto(pathToFileURL(filePath).href);
+          await page.waitForFunction((expectRow) => {
+            const boxes = [...document.querySelectorAll('.st-diagramProcessBox')].filter(el => el.getBoundingClientRect().width > 0);
+            if (boxes.length !== 5) return false;
+            const ys = new Set(boxes.map(el => Math.round(el.getBoundingClientRect().y)));
+            const xs = new Set(boxes.map(el => Math.round(el.getBoundingClientRect().x)));
+            return expectRow ? ys.size === 1 : xs.size === 1;
+          }, label === 'desktop-1440', { timeout: 10000 });
+
+          const metrics = await page.evaluate((isVue) => {
+            const scrollOverflow = document.documentElement.scrollWidth > window.innerWidth;
+            const visibleBoxes = [...document.querySelectorAll('.st-diagramProcessBox')].filter(el => el.getBoundingClientRect().width > 0);
+            const ys = visibleBoxes.map(el => Math.round(el.getBoundingClientRect().y));
+            const xs = visibleBoxes.map(el => Math.round(el.getBoundingClientRect().x));
+            const radii = visibleBoxes.map(el => Number(el.querySelector('rect')?.getAttribute('rx') ?? 0));
+            const icons = [...document.querySelectorAll('.st-diagramCard-icon')].filter(el => el.getBoundingClientRect().width > 0).length;
+            const toggles = [...document.querySelectorAll('[data-toggle], .st-diagramCard-toggle')].filter(el => el.getBoundingClientRect().width > 0).length;
+            const visibleEdges = [...document.querySelectorAll('[data-scene-edge]')].filter(el => el.getBoundingClientRect().width > 0 || el.getBoundingClientRect().height > 0).length;
+            const visibleLabels = [...document.querySelectorAll('[data-scene-label]')].filter(el => el.getBoundingClientRect().width > 0).length;
+            const table = document.querySelector('details.st-diagramProcessTable');
+            let scale = 1;
+            if (!isVue) {
+              const svg = [...document.querySelectorAll('.ds-diagram-svg')].find(el => el.getBoundingClientRect().width > 0);
+              scale = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+            } else {
+              const vp = document.querySelector('.st-diagramSceneFigure-viewport');
+              const world = document.querySelector('.st-diagramSceneFigure-world');
+              const raw = (vp ? getComputedStyle(vp).getPropertyValue('--st-diagram-zoom').trim() : '') || world?.dataset.zoom || '1';
+              scale = parseFloat(raw) || 1;
+            }
+            return { scrollOverflow, boxCount: visibleBoxes.length, ys, xs, radii, icons, toggles, visibleEdges, visibleLabels, hasTable: Boolean(table), scale };
+          }, rendererName === 'vue');
+
+          const tag = `${rendererName}/${colorScheme}/${label}`;
+          assert.equal(metrics.scrollOverflow, false, `${tag}: zero horizontal scroll`);
+          assert.equal(metrics.boxCount, 5, `${tag}: 5 visible process steps`);
+          assert.ok(metrics.radii.every(rx => rx >= 8), `${tag}: rounded process boxes (${metrics.radii})`);
+          assert.equal(metrics.icons, 0, `${tag}: 0 component icons`);
+          assert.equal(metrics.toggles, 0, `${tag}: 0 fold buttons`);
+          assert.equal(metrics.visibleEdges, 4, `${tag}: 4 visible edges`);
+          assert.equal(metrics.visibleLabels, 4, `${tag}: 4 visible edge labels`);
+          assert.equal(metrics.hasTable, true, `${tag}: <details class="st-diagramProcessTable"> present`);
+          assert.ok(metrics.scale >= 0.9, `${tag}: rendered scale ${metrics.scale.toFixed(3)} >= 0.9`);
+          if (label === 'desktop-1440') {
+            assert.ok(Math.abs(metrics.scale - 1) <= 0.02, `${tag}: 1440px scale === 1.0 (got ${metrics.scale})`);
+            assert.equal(new Set(metrics.ys).size, 1, `${tag}: 5 steps aligned on 1 LR row (ys=${metrics.ys})`);
+          } else {
+            assert.equal(new Set(metrics.xs).size, 1, `${tag}: 5 steps stacked cleanly in TB column (xs=${metrics.xs})`);
+          }
+          assert.deepEqual(errors, [], `${tag}: 0 browser errors`);
+          assert.deepEqual(network, [], `${tag}: 0 network requests`);
+          await context.close();
+        }
+      }
+    }
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });

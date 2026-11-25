@@ -77,7 +77,7 @@ onUnmounted(() => window.removeEventListener('hashchange', revealTerm));
             </div>
             <p v-if="mode !== 'report'" class="selection" aria-live="polite">{{ selections.get(section.questionId) ? `Sélection locale : ${optionLabel(section.questionId, selections.get(section.questionId))}. Communiquez ce choix au présentateur pour l’enregistrer.` : 'Sélectionnez une option pour préparer votre réponse.' }}</p>
           </template>
-          <Canvas v-else-if="section.kind === 'diagram'" :document="section.scene" :alt="section.alt" />
+          <Canvas v-else-if="section.kind === 'diagram'" :document="section.scene" :alt="section.alt" :target="props.target" />
           <Card v-else-if="section.kind === 'outcome'"><h3>Conclusion proposée</h3><p>{{ section.statement }}</p></Card>
           <Citation v-for="id in section.citationRefs ?? []" :key="id" :dossier="dossier" :id="id" />
           <template v-if="section.kind === 'optionSet'"><template v-for="option in section.options" :key="option.id">

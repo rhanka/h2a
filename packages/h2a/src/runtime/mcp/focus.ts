@@ -522,14 +522,14 @@ export async function handleH2aFocusBuild(
 
   try {
     // Same in-process builder & atomic file writer as `h2a focus build` (no subprocess).
-    const { buildFocusDossier, writeFocusArtifactFile } = await import("../../focus-build.js");
-    const html = buildFocusDossier(document);
-    writeFocusArtifactFile(request.output, html);
+    const { buildFocusDossierWithDiagnostics, writeFocusArtifactFile } = await import("../../focus-build.js");
+    const outcome = buildFocusDossierWithDiagnostics(document);
+    writeFocusArtifactFile(request.output, outcome.html);
     return {
       ok: true,
       output: request.output,
-      bytes: Buffer.byteLength(html, "utf8"),
-      warnings: []
+      bytes: Buffer.byteLength(outcome.html, "utf8"),
+      warnings: [...outcome.warnings]
     };
   } catch (error) {
     const { message, refusals } = extractRefusals(error);

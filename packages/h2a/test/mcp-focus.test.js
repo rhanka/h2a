@@ -565,3 +565,43 @@ test("FA-H1: h2a_focus_check descriptor, identity-independence, R2-R6/bounds, pa
     assert.match(escManifest.error, /within the MCP startup workspace/i);
   });
 });
+
+test("h2a_focus_build returns linear_chain_as_architecture_cards warnings on architecture chains and [] on workflows", async () => {
+  await withWorkspaceAsync(async ({ workspaceRoot, workspace, storeRoot }) => {
+    const server = createMcpServer({ root: storeRoot, workspaceRoot });
+    const base = readFixture("dossier.template.json");
+    const chainSource = [
+      "flowchart LR",
+      's1["Réception"]',
+      's2["Tri"]',
+      's3["Revue"]',
+      's4["Validation"]',
+      "s1 -->|brut| s2",
+      "s2 -->|qualifié| s3",
+      "s3 -->|validé| s4"
+    ].join("\n");
+
+    const wfDoc = structuredClone(base);
+    wfDoc.sections.find((s) => s.kind === "diagram").source = chainSource;
+    const wfInput = join(workspace, "workflow.json");
+    const wfOutput = join(workspace, "workflow.html");
+    writeFileSync(wfInput, JSON.stringify(wfDoc), "utf8");
+    const wfRes = await server.callTool("h2a_focus_build", { input: wfInput, output: wfOutput });
+    assert.equal(wfRes.ok, true, JSON.stringify(wfRes));
+    assert.deepEqual(wfRes.warnings, []);
+
+    const archDoc = structuredClone(base);
+    Object.assign(archDoc.sections.find((s) => s.kind === "diagram"), {
+      source: chainSource,
+      diagramType: "architecture"
+    });
+    const archInput = join(workspace, "arch-chain.json");
+    const archOutput = join(workspace, "arch-chain.html");
+    writeFileSync(archInput, JSON.stringify(archDoc), "utf8");
+    const archRes = await server.callTool("h2a_focus_build", { input: archInput, output: archOutput });
+    assert.equal(archRes.ok, true, JSON.stringify(archRes));
+    assert.deepEqual(archRes.warnings, [
+      'linear_chain_as_architecture_cards: ecosystem (4 nodes, 0 containers) — set diagramType "workflow" if this describes a process'
+    ]);
+  });
+});

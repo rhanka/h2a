@@ -24,6 +24,18 @@ SOFTWARE.
 */
 
 // ../../focus/src/model.ts
+var DIAGRAM_TYPES = [
+  "architecture",
+  "workflow",
+  "sequence",
+  "dataflow",
+  "lifecycle",
+  "erd",
+  "class",
+  "tree",
+  "timeline",
+  "waterfall"
+];
 var isReportDocument = (doc) => "kind" in doc && doc.kind === "report";
 var isEvidenceDossier = (doc) => "schemaVersion" in doc && doc.schemaVersion === 2;
 
@@ -231,11 +243,16 @@ var validateDecisionDossierReadability = (doc, options) => {
           if (section.scene === void 0) visible(section.source, `${path}.source`);
           else checkCodes(section.source, `${path}.source`);
         }
-        for (const [family, field] of [["entities", "name"], ["relations", "label"]]) {
+        for (const [family, fields] of [
+          ["entities", ["name", "subtitle"]],
+          ["relations", ["label"]]
+        ]) {
           for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
-            const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
-            if (attribute.kind === "text" && typeof attribute.value === "string") {
-              visible(attribute.value, `${path}.scene.${family}.${id}.attributes.${field}.value`);
+            for (const field of fields) {
+              const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
+              if (attribute.kind === "text" && typeof attribute.value === "string") {
+                visible(attribute.value, `${path}.scene.${family}.${id}.attributes.${field}.value`);
+              }
             }
           }
         }
@@ -844,6 +861,9 @@ var DOSSIER_SCHEMA_VERSION = "1.0.0";
 var DOSSIER_V2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.0.0";
 var DOSSIER_V1_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.1.0";
 var DOSSIER_V2_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.1.0";
+var DOSSIER_V1_2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.2.0";
+var DOSSIER_V2_2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.2.0";
+var REPORT_V1_1_SCHEMA_ID = "urn:sentropic:focus:ReportDocument:1.1.0";
 var DecisionDossierValidationError = class extends Error {
   issues;
   constructor(issues) {
@@ -1138,13 +1158,17 @@ var checkSectionNode = (value, path, issues) => {
       const node = checkClosedObject(
         value,
         path,
-        ["kind", "id", "targetRef", "syntax", "source", "sourceRef", "renderComponent", "alt", "scene"],
+        ["kind", "id", "targetRef", "diagramType", "syntax", "source", "sourceRef", "renderComponent", "alt", "scene"],
         ["kind", "id", "targetRef", "alt"],
         ["id", "targetRef", "source", "sourceRef", "renderComponent", "alt"],
         issues
       );
       if (node === void 0) return void 0;
       checkNonBlank(node["alt"], `${path}.alt`, issues);
+      const hasDiagramType = node["diagramType"] !== void 0;
+      if (hasDiagramType) {
+        checkEnum(node["diagramType"], `${path}.diagramType`, DIAGRAM_TYPES, issues);
+      }
       const hasSource = node["source"] !== void 0;
       const hasSourceRef = node["sourceRef"] !== void 0;
       const hasSyntax = node["syntax"] !== void 0;
@@ -1196,6 +1220,7 @@ var checkSectionNode = (value, path, issues) => {
           kind: "diagram",
           id: node["id"],
           targetRef: node["targetRef"],
+          ...hasDiagramType ? { diagramType: node["diagramType"] } : {},
           syntax: node["syntax"],
           source: node["source"],
           alt: node["alt"],
@@ -1206,6 +1231,7 @@ var checkSectionNode = (value, path, issues) => {
         kind: "diagram",
         id: node["id"],
         targetRef: node["targetRef"],
+        ...hasDiagramType ? { diagramType: node["diagramType"] } : {},
         sourceRef: node["sourceRef"],
         renderComponent: node["renderComponent"],
         alt: node["alt"]
@@ -1550,12 +1576,15 @@ export {
   DOSSIER_SCHEMA_ID,
   DOSSIER_SCHEMA_VERSION,
   DOSSIER_V1_1_SCHEMA_ID,
+  DOSSIER_V1_2_SCHEMA_ID,
   DOSSIER_V2_1_SCHEMA_ID,
+  DOSSIER_V2_2_SCHEMA_ID,
   DOSSIER_V2_SCHEMA_ID,
   DecisionDossierValidationError,
   READABILITY_BUDGETS,
   READABILITY_LIMITS,
   REPORT_SCHEMA_ID,
+  REPORT_V1_1_SCHEMA_ID,
   assertDecisionDossierDocument,
   assertDecisionDossierForPresentation,
   assertFocusDocument,

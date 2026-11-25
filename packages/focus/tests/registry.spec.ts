@@ -599,7 +599,7 @@ describe("selection gates instruction access (R4-AC11)", () => {
 });
 
 describe("multi-version schema registry & targeted sync (A23)", () => {
-  it("A23: entries.v1.json pins ['1.0.0', '1.1.0', '2.0.0', '2.1.0'] with frozen 1.0.0/2.0.0 digests and syncRegistryManifest updates only its target entry", async () => {
+  it("A23: entries.v1.json pins ['1.0.0', '1.2.0', '2.0.0', '2.2.0', '1.1.0'] with frozen 1.0.0/2.0.0 digests and syncRegistryManifest updates only its target entry", async () => {
     const manifest = JSON.parse(
       readFileSync(join(pkgRoot, "registry/entries.v1.json"), "utf8"),
     ) as {
@@ -617,10 +617,10 @@ describe("multi-version schema registry & targeted sync (A23)", () => {
     expect(focusEntry.publisher.packageVersion).toBe("0.6.0");
     expect(focusEntry.skill.documentSchemas.map((s) => s.version)).toEqual([
       "1.0.0",
-      "1.1.0",
+      "1.2.0",
       "2.0.0",
-      "2.1.0",
-      "1.0.0",
+      "2.2.0",
+      "1.1.0",
     ]);
     expect(focusEntry.skill.documentSchemas[0]!.sha256).toBe(
       "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",

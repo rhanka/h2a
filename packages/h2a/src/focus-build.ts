@@ -15,22 +15,28 @@ import { assertFocusArtifact, checkFocusArtifact } from '@sentropic/focus/artifa
 const { assertFocusForPresentation, assertFocusDocument } =
   await import(new URL('../focus-kit/validator.mjs', import.meta.url).href) as typeof import('@sentropic/focus/validate');
 
-// Generated from the shared focus-kit module; the build and renderer share the static r7 diagram
-// renderer (default interim renderer until DS FA-D2 + h2a FA-H3) over bundled DS 0.37 SVG painters.
+// Generated from the shared focus-kit DS bridge (`ds-diagram-bridge.js` via `diagram-views.mjs`).
 export interface R7RenderedVariant {
   readonly svg: string;
   readonly width: number;
   readonly height: number;
+  readonly displayWidth?: number;
+  readonly displayScale?: number;
+  readonly orientation?: string;
   readonly problems: readonly string[];
   readonly cards: readonly string[];
   readonly zones: readonly string[];
+  readonly steps?: readonly string[];
   readonly panels: readonly string[];
   readonly edges: readonly { readonly id: string; readonly from: string; readonly to: string; readonly style: string; readonly label: string }[];
 }
 export interface R7RenderedDiagram {
   readonly renderer: 'r7';
+  readonly profile?: string;
   readonly wide: R7RenderedVariant;
   readonly narrow: R7RenderedVariant;
+  readonly phone?: R7RenderedVariant;
+  readonly processTable?: string;
 }
 export interface DiagramViewRefusal { readonly code: string; readonly slot: string; readonly entityId: string; readonly neededPx: number; readonly allocatedPx: number; readonly text?: string }
 export class DiagramViewRefusalError extends Error {
@@ -44,7 +50,11 @@ export class DiagramViewRefusalError extends Error {
     this.diagnostics = diagnostics;
   }
 }
-const { renderR7Diagram } = await import(new URL('../focus-kit/diagram-views.mjs', import.meta.url).href) as {
+const {
+  renderR7Diagram,
+  resolveDossierDiagramScene,
+  findLinearChainArchitectureWarning,
+} = await import(new URL('../focus-kit/diagram-views.mjs', import.meta.url).href) as {
   renderR7Diagram: (
     scene: Record<string, unknown>,
     options?: {
@@ -57,6 +67,20 @@ const { renderR7Diagram } = await import(new URL('../focus-kit/diagram-views.mjs
   ) =>
     | ({ kind: 'rendered' } & R7RenderedDiagram)
     | { kind: 'refused'; diagnostics: readonly DiagramViewRefusal[] };
+  resolveDossierDiagramScene: (
+    section: Record<string, unknown>,
+    options?: { ecosystemCatalog?: Record<string, unknown> },
+  ) => {
+    scene: Record<string, unknown>;
+    source: string;
+    renderedAsArchitecture: boolean;
+    direction: 'LR' | 'TB' | 'TD';
+    enrichment?: { title?: string; description?: string; ecosystemIcons?: boolean };
+  };
+  findLinearChainArchitectureWarning: (
+    sectionId: string,
+    scene: Record<string, unknown>,
+  ) => string | undefined;
 };
 
 const kit = new URL('../focus-kit/', import.meta.url);
@@ -67,99 +91,6 @@ export function readFocusTemplateJson(kind: 'dossier' | 'evidence'): unknown {
 const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
 const jsonForHtml = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-
-/** Consumer bounds for the interim generic@1 renderer, not a diagram-core schema implementation.
- * The authoritative DS schema will be pinned when published. Keep the boundary plain JSON. */
-function semanticSource(document: Record<string, any>): string {
-  const fail = (): never => { throw new Error('Unsupported diagram-core document: expected generic@1 nodes/containers, links and a containment tree without views, geometry or layout hints'); };
-  const closedRecord = (value: unknown, keys: readonly string[]): value is Record<string, any> =>
-    value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
-  if (typeof document.documentId !== 'string' || !document.documentId.startsWith('document:') ||
-      !closedRecord(document.schemaVersion, ['major', 'minor']) || document.schemaVersion.major !== 1 || document.schemaVersion.minor !== 1 ||
-      !Number.isInteger(document.revision) || document.revision < 0 || JSON.stringify(document.profileRefs) !== '["generic@1"]' ||
-      Object.keys(document).some(k => !['documentId', 'schemaVersion', 'revision', 'profileRefs', 'typeDefinitions', 'entities', 'relations', 'ports', 'resources', 'extensions'].includes(k))) fail();
-  for (const key of ['typeDefinitions', 'entities', 'relations', 'ports', 'resources']) {
-    if (!document[key] || typeof document[key] !== 'object' || Array.isArray(document[key])) fail();
-  }
-  if (Object.keys(document.typeDefinitions).length || Object.keys(document.ports).length || Object.keys(document.resources).length ||
-      !Array.isArray(document.extensions) || document.extensions.length) fail();
-  const entities = Object.entries(document.entities) as [string, any][];
-  const relations = Object.entries(document.relations) as [string, any][];
-  if (!entities.length || entities.length > 80 || relations.length > 240) fail();
-  const ids = new Map(entities.map(([id], i) => [id, `node${i}`]));
-  const lines = ['flowchart LR'];
-  const entityTextAttrs = ['name', 'description', 'kicker', 'footer', 'icon'] as const;
-  for (const [id, entity] of entities) {
-    if (!id.startsWith('entity:') || !closedRecord(entity, ['id', 'profile', 'type', 'attributes']) ||
-        entity.id !== id || entity.profile !== 'generic@1' || !['node', 'container'].includes(entity.type) ||
-        !closedRecord(entity.attributes, entityTextAttrs) ||
-        !closedRecord(entity.attributes.name, ['kind', 'value']) ||
-        entity.attributes.name.kind !== 'text' || typeof entity.attributes.name.value !== 'string') fail();
-    for (const optionalAttr of ['description', 'kicker', 'footer', 'icon'] as const) {
-      const value = entity.attributes[optionalAttr];
-      if (value !== undefined && (!closedRecord(value, ['kind', 'value']) || value.kind !== 'text' || typeof value.value !== 'string')) fail();
-    }
-    lines.push(`${ids.get(id)}[${JSON.stringify(entity.attributes.name.value)}]`);
-  }
-  const parents = new Map<string, string>();
-  for (const [id, relation] of relations) {
-    if (!id.startsWith('relation:') || !closedRecord(relation, ['id', 'profile', 'type', 'endpoints', 'attributes']) ||
-        relation.id !== id || relation.profile !== 'generic@1' || !['link', 'contains'].includes(relation.type) ||
-        !Array.isArray(relation.endpoints) || relation.endpoints.length !== 2 ||
-        relation.endpoints.some((e: unknown) => !closedRecord(e, ['role', 'target'])) ||
-        !closedRecord(relation.attributes, relation.type === 'link' ? ['label'] : [])) fail();
-    const roles = relation.type === 'link' ? ['source', 'target'] : ['parent', 'child'];
-    const endpoints = roles.map(role => relation.endpoints.find((e: any) => e.role === role)?.target);
-    if (endpoints.some(target => !ids.has(target))) fail();
-    if (relation.type === 'contains') {
-      const [parent, child] = endpoints;
-      if (document.entities[parent].type !== 'container' || parents.has(child)) fail();
-      parents.set(child, parent);
-    } else {
-      const label = relation.attributes?.label;
-      if (label !== undefined && (!closedRecord(label, ['kind', 'value']) || label.kind !== 'text' || typeof label.value !== 'string')) fail();
-      lines.push(`${ids.get(endpoints[0])} -->|${label?.value.replace(/\|/g, '&#124;') || ' '}| ${ids.get(endpoints[1])}`);
-    }
-  }
-  for (const id of parents.keys()) {
-    const visited = new Set<string>();
-    for (let current: string | undefined = id; current !== undefined; current = parents.get(current)) {
-      if (visited.has(current)) fail();
-      visited.add(current);
-    }
-  }
-  return lines.join('\n');
-}
-
-/** Deliberately bounded flowchart profile; unsupported syntax refuses at build time. */
-function parseFlowchart(source: string, id: string): { document: Record<string, unknown>; direction: 'LR' | 'TB' | 'TD' } {
-  const lines = source.trim().split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('%%'));
-  const header = /^flowchart (LR|TB|TD)$/.exec(lines.shift() ?? '');
-  if (!header) throw new Error('Unsupported diagram: use ecosystem:<scene> or the documented Mermaid flowchart profile');
-  const direction = header[1] as 'LR' | 'TB' | 'TD';
-  const entities: Record<string, unknown> = {}, relations: Record<string, unknown> = {};
-  let edgeCount = 0;
-  for (const line of lines) {
-    const node = /^([a-z][a-z0-9_-]*)\["([^"<>\n]+)"\]$/.exec(line);
-    const edge = /^([a-z][a-z0-9_-]*) -->\|([^|<>\n]+)\| ([a-z][a-z0-9_-]*)$/.exec(line);
-    if (node) {
-      const entityId = `entity:${node[1]}`;
-      if (Object.hasOwn(entities, entityId)) throw new Error(`Duplicate diagram node: ${node[1]}`);
-      entities[entityId] = { id: entityId, profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: node[2] } } };
-    } else if (edge) {
-      const relationId = `relation:${edgeCount++}`;
-      relations[relationId] = { id: relationId, profile: 'generic@1', type: 'link',
-        endpoints: [{ role: 'source', target: `entity:${edge[1]}` }, { role: 'target', target: `entity:${edge[3]}` }],
-        attributes: { label: { kind: 'text', value: edge[2] } } };
-    }
-    else throw new Error(`Unsupported flowchart line: ${line}`);
-  }
-  if (!Object.keys(entities).length || Object.keys(entities).length > 80 || edgeCount > 160) throw new Error('Diagram needs 1–80 nodes and at most 160 edges');
-  const document = { documentId: `document:${id}`, schemaVersion: { major: 1, minor: 1 }, revision: 0,
-    profileRefs: ['generic@1'], typeDefinitions: {}, entities, relations, ports: {}, resources: {}, extensions: [] };
-  semanticSource(document);
-  return { document, direction };
-}
 
 export interface FocusBuildOptions {
   /** Host-owned opt-in. Dossier fields cannot select executable code. */
@@ -198,7 +129,12 @@ function toArtifactFragment(html: string, themeId?: string, themeStyleBlocks = '
   return `${html.slice(titleStart, titleEnd + '</title>'.length)}\n${html.slice(styleStart, styleEnd + '</style>'.length)}${themeStyleBlocks}\n${wrappedBody}`;
 }
 
-export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {}): string {
+export interface FocusBuildOutcome {
+  readonly html: string;
+  readonly warnings: readonly string[];
+}
+
+export function buildFocusDossierWithDiagnostics(input: unknown, options: FocusBuildOptions = {}): FocusBuildOutcome {
   const backend = options.renderer ?? 'svelte';
   if (!['svelte', 'vue'].includes(backend)) throw new Error('Unknown Focus renderer');
   if (options.mode !== undefined && !['decision', 'report'].includes(options.mode)) throw new Error('Unknown Focus presentation mode');
@@ -218,42 +154,34 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   const inputDocument = artifactChecked.document;
   const canonicalDocumentDigest = artifactChecked.documentDigest;
   const catalog = JSON.parse(readAsset('ecosystem.json'));
-  const catalogByDocId = new Map<string, { title?: string; description?: string }>(
-    Object.values(catalog.scenes as Record<string, { title?: string; description?: string; document: { documentId: string } }>)
-      .map(entry => [entry.document.documentId, { title: entry.title, description: entry.description }]),
-  );
   const diagramDirections = new Map<string, 'LR' | 'TB' | 'TD'>();
   const diagramEnrichments = new Map<string, { title?: string; description?: string; ecosystemIcons?: boolean }>();
+  const architectureRenderedIds = new Set<string>();
   let diagramCount = 0;
   const sections = inputDocument.sections.map(section => {
     if (section.kind !== 'diagram') return section;
     diagramCount++;
-    if (section.sourceRef !== undefined) {
-      throw new Error(`Reference diagram "${section.id}" (${section.renderComponent} -> ${section.sourceRef}) requires a host diagramResolver; offline portable bundles support inline diagrams only`);
-    }
-    // Supplied semantics are authoritative; source remains a backward-compatible text fallback.
+    const resolved = resolveDossierDiagramScene(section as unknown as Record<string, unknown>, {
+      ecosystemCatalog: catalog,
+    });
+    diagramDirections.set(section.id, resolved.direction);
+    if (resolved.enrichment) diagramEnrichments.set(section.id, resolved.enrichment);
+    if (resolved.renderedAsArchitecture) architectureRenderedIds.add(section.id);
     if (section.scene !== undefined) {
-      const sceneDocId = typeof section.scene.documentId === 'string' ? section.scene.documentId : undefined;
-      const matched = sceneDocId ? catalogByDocId.get(sceneDocId) : undefined;
-      if (matched) diagramEnrichments.set(section.id, { ...matched, ecosystemIcons: true });
-      return { ...section, syntax: 'mermaid' as const, source: semanticSource(section.scene) };
+      return { ...section, syntax: 'mermaid' as const, source: resolved.source };
     }
-    if (section.syntax !== 'mermaid') throw new Error('Unsupported diagram syntax: use mermaid flowcharts or ecosystem references');
-    if (section.source.startsWith('ecosystem:')) {
-      const name = section.source.slice('ecosystem:'.length);
-      if (!Object.hasOwn(catalog.scenes, name)) throw new Error(`Unknown ecosystem scene: ${name}`);
-      // Catalog explanations remain available in the text fallback and enrich r7 card bodies at build time.
-      const entry = catalog.scenes[name];
-      diagramEnrichments.set(section.id, { title: entry.title, description: entry.description, ecosystemIcons: true });
-      return { ...section, scene: entry.document, source: semanticSource(entry.document) + '\n' + entry.description.split('\n').map((line: string) => `%% ${line}`).join('\n') };
-    }
-    const parsed = parseFlowchart(section.source, section.id);
-    diagramDirections.set(section.id, parsed.direction);
-    return { ...section, scene: parsed.document };
+    return { ...section, scene: resolved.scene, source: resolved.source };
   });
   const validated: FocusDocument = assertFocusForPresentation({ ...inputDocument, sections });
   if (!diagramCount && !('kind' in validated && validated.kind === 'report')) throw new Error('A Focus dossier needs an ecosystem diagram; add a diagram section with source ecosystem:overview');
-  // Static r7 inline SVGs (wide + narrow) are rendered here and embedded by default (no flag):
+  const warnings: string[] = [];
+  for (const section of validated.sections) {
+    if (section.kind !== 'diagram' || section.scene === undefined) continue;
+    if (!architectureRenderedIds.has(section.id)) continue;
+    const warning = findLinearChainArchitectureWarning(section.id, section.scene as Record<string, unknown>);
+    if (warning !== undefined) warnings.push(warning);
+  }
+  // Static DS inline SVGs (wide + narrow + optional phone) are rendered here and embedded by default (no flag):
   // offline, CSP-safe, zero network fetch, deterministic, with build-time geometry linting.
   const diagrams: Record<string, R7RenderedDiagram> = Object.create(null);
   for (const section of validated.sections) {
@@ -268,7 +196,14 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
       ...(enrichment ? { enrichment: { description: enrichment.description, ecosystemIcons: enrichment.ecosystemIcons } } : {}),
     });
     if (outcome.kind !== 'rendered') throw new DiagramViewRefusalError(section.id, outcome.diagnostics);
-    diagrams[section.id] = { renderer: outcome.renderer, wide: outcome.wide, narrow: outcome.narrow };
+    diagrams[section.id] = {
+      renderer: outcome.renderer,
+      ...(outcome.profile ? { profile: outcome.profile } : {}),
+      wide: outcome.wide,
+      narrow: outcome.narrow,
+      ...(outcome.phone ? { phone: outcome.phone } : {}),
+      ...(outcome.processTable ? { processTable: outcome.processTable } : {}),
+    };
   }
   let renderer: string, manifest: Record<string, any>;
   if (backend === 'vue') {
@@ -302,20 +237,30 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   }
   // Slice the artifact fragment from the un-themed renderer HTML before inserting theme blocks
   // so comments or rules inside themeCss (e.g. `/* <body> */`) can never alter the boundary.
+  let finalHtml: string;
   if (target === 'artifact') {
-    return toArtifactFragment(html, themeId, themeStyleBlocks);
-  }
-  if (themeId !== undefined) {
-    html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
-  }
-  if (themeStyleBlocks !== '') {
-    const headCloseIndex = html.indexOf('</head>');
-    if (headCloseIndex < 0) {
-      throw new Error('Invalid Focus renderer asset: missing </head>');
+    finalHtml = toArtifactFragment(html, themeId, themeStyleBlocks);
+  } else {
+    if (themeId !== undefined) {
+      html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
     }
-    html = `${html.slice(0, headCloseIndex)}${themeStyleBlocks}${html.slice(headCloseIndex)}`;
+    if (themeStyleBlocks !== '') {
+      const headCloseIndex = html.indexOf('</head>');
+      if (headCloseIndex < 0) {
+        throw new Error('Invalid Focus renderer asset: missing </head>');
+      }
+      html = `${html.slice(0, headCloseIndex)}${themeStyleBlocks}${html.slice(headCloseIndex)}`;
+    }
+    finalHtml = html;
   }
-  return html;
+  return {
+    html: finalHtml,
+    warnings,
+  };
+}
+
+export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {}): string {
+  return buildFocusDossierWithDiagnostics(input, options).html;
 }
 
 /** Same-directory atomic rename is the only write point; failures preserve the previous file. */
@@ -433,8 +378,19 @@ export function runFocusBuildCli(args: readonly string[], streams = { stdout: pr
         buildOptions.themeCss = readFileSync(cssRealPath, 'utf8');
       }
     }
-    const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')), buildOptions);
+    let html: string;
+    let warnings: readonly string[] = [];
+    if (template) {
+      html = readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json');
+    } else {
+      const outcome = buildFocusDossierWithDiagnostics(JSON.parse(readFileSync(args[1], 'utf8')), buildOptions);
+      html = outcome.html;
+      warnings = outcome.warnings;
+    }
     writeFocusArtifactFile(output, html);
+    for (const warning of warnings) {
+      streams.stderr.write(`h2a focus build: warning: ${warning}\n`);
+    }
     streams.stdout.write(template ? `Focus template: ${output}\n` : `Focus dossier validated; portable HTML: ${output}\n`);
     return 0;
   } catch (error) {

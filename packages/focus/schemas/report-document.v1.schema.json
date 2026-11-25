@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:sentropic:focus:ReportDocument:1.0.0",
+  "$id": "urn:sentropic:focus:ReportDocument:1.1.0",
   "title": "ReportDocument — informational report with embedded evidence",
   "description": "Explicit report. No decision nodes or interactions. Evidence integrity and strict readability are checked by validateFocusForPresentation.",
   "type": "object",
@@ -466,6 +466,20 @@
         },
         "targetRef": {
           "type": "string"
+        },
+        "diagramType": {
+          "enum": [
+            "architecture",
+            "workflow",
+            "sequence",
+            "dataflow",
+            "lifecycle",
+            "erd",
+            "class",
+            "tree",
+            "timeline",
+            "waterfall"
+          ]
         },
         "syntax": {
           "enum": [

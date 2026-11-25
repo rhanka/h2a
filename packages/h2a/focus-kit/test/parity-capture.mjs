@@ -43,8 +43,7 @@ export async function captureBaseline() {
         page.on('pageerror', e => errors.push(e.message));
         page.on('request', r => { if (/^https?:/.test(r.url())) network.push(r.url()); });
         await page.goto(pathToFileURL(fileURLToPath(file)).href);
-        const variant = width < 600 ? 'narrow' : 'wide';
-        await page.locator(`[data-renderer="r7"] .ds-diagram-mount[data-variant="${variant}"] .ds-diagram-svg`).first().waitFor({ state: 'visible' });
+        await page.locator('[data-renderer="r7"][data-active="wide"] [data-variant="wide"] .ds-diagram-svg, [data-renderer="r7"][data-active="narrow"] [data-variant="narrow"] .ds-diagram-svg, [data-renderer="r7"][data-active="phone"] [data-variant="phone"] .ds-diagram-svg').first().waitFor({ state: 'visible' });
         await page.evaluate(() => document.fonts.ready);
         const observation = await observe(page);
         assert.equal(observation.glossaryFolded, true); assert.equal(observation.overflow, false);
@@ -55,7 +54,7 @@ export async function captureBaseline() {
       }
     }
     writeFileSync(new URL('baseline.json', fixtureRoot), JSON.stringify({ renderer: 'Svelte', widths: dimensions, height: 1000,
-      theme: 'entropic/light', glossary: 'folded', numberedFlows: false, profiles: ['generic@1'],
+      theme: 'entropic/light', glossary: 'folded', numberedFlows: false, profiles: ['generic@1', 'process@1'],
       report: 'Validated decision dossier; this baseline defines no ReportDocument schema or report mode.',
       pins: JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).dependencies }, null, 2) + '\n');
   } finally { await browser.close(); }

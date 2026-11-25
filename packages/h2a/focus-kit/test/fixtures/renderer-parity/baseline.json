@@ -9,13 +9,16 @@
   "glossary": "folded",
   "numberedFlows": false,
   "profiles": [
-    "generic@1"
+    "generic@1",
+    "process@1"
   ],
   "report": "Validated decision dossier; this baseline defines no ReportDocument schema or report mode.",
   "pins": {
-    "@sentropic/design-system-svelte": "0.37.0",
-    "@sentropic/design-system-themes": "0.12.0",
-    "@xyflow/svelte": "1.6.5",
+    "@sentropic/design-system-svelte": "0.46.0",
+    "@sentropic/design-system-themes": "0.16.1",
+    "@sentropic/design-system-tokens": "0.16.1",
+    "@sentropic/diagram-canvas": "0.6.0",
+    "@sentropic/diagram-core": "0.6.1",
     "svelte": "5.56.4"
   }
 }

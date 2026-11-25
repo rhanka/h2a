@@ -187,11 +187,11 @@ test('default focus build renders a real r7 scene as offline inline SVG with zer
 
   for (const [variantName, variant] of [['wide', rendered.wide], ['narrow', rendered.narrow]]) {
     const svg = variant.svg
-    assert.match(svg, /<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" class="ds-diagram-svg"/, `${variantName}: inline r7 SVG root`)
-    assert.match(svg, /data-relation-connector="true"/, `${variantName}: r7 connectors present`)
-    assert.match(svg, /data-connector-part="head"/, `${variantName}: explicit r7 arrowhead polygon`)
-    assert.match(svg, /stroke-width="3"/, `${variantName}: r7 monochrome thick connector stroke`)
-    assert.match(svg, /class="diagram-edge-pill"/, `${variantName}: bordered r7 edge pills`)
+    assert.match(svg, /<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" class="ds-diagram-svg"/, `${variantName}: inline DS SVG root`)
+    assert.match(svg, /data-scene-connectors=""/, `${variantName}: DS connectors present`)
+    assert.match(svg, /data-scene-edge="/, `${variantName}: DS edges present`)
+    assert.match(svg, /data-scene-label="/, `${variantName}: DS edge labels present`)
+    assert.doesNotMatch(svg, /data-toggle="true"/, `${variantName}: static SVG has no inert fold toggles`)
 
     // Never emit literal generic@1 type names ("node" / "container") as kickers.
     assert.doesNotMatch(svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i, `${variantName}: must not leak literal "node" kicker`)
@@ -266,7 +266,7 @@ test('default focus build renders ecosystem:overview with r7 inline SVG and cata
   assert.doesNotMatch(rendered.wide.svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i)
 }))
 
-test('default focus build renders a 7-node Mermaid flowchart LR (ste100 circuit) with r7 inline SVG and 0 geometry problems', () => isolated((root) => {
+test('default focus build renders a 7-node Mermaid flowchart LR (ste100 circuit) as process@1 and retains cards with diagramType architecture', () => isolated((root) => {
   const doc = fixture()
   const diagram = doc.sections.find(s => s.kind === 'diagram')
   diagram.source = [
@@ -292,21 +292,35 @@ test('default focus build renders a 7-node Mermaid flowchart LR (ste100 circuit)
   assert.equal(result.status, 0, result.stderr)
 
   const payload = payloadOf(output)
+  const builtDiagram = payload.document.sections.find(s => s.kind === 'diagram')
+  assert.equal(builtDiagram.scene.profileRefs[0], 'process@1')
   const rendered = payload.diagrams?.[diagram.id]
   assert.ok(rendered && rendered.renderer === 'r7')
   assert.deepEqual(rendered.wide.problems, [], `ste100 wide lint: ${JSON.stringify(rendered.wide.problems)}`)
   assert.deepEqual(rendered.narrow.problems, [], `ste100 narrow lint: ${JSON.stringify(rendered.narrow.problems)}`)
-  assert.equal(rendered.wide.cards.length, 7)
+  assert.equal(rendered.wide.steps.length, 7)
+  assert.equal(rendered.wide.cards.length, 0)
   assert.equal(rendered.wide.edges.length, 8)
   for (const title of ['Faits et réserves', 'Auteur de la remise', 'Contrôle Node', 'Dossier Focus', 'Agent sans historique', 'Propriétaire', 'Conducteur']) {
-    assert.ok(rendered.wide.svg.includes(title), `wide missing node "${title}"`)
-    assert.ok(rendered.narrow.svg.includes(title), `narrow missing node "${title}"`)
+    assert.ok(rendered.wide.svg.includes(`<title>${title}</title>`), `wide missing step title "${title}"`)
+    assert.ok(rendered.narrow.svg.includes(`<title>${title}</title>`), `narrow missing step title "${title}"`)
+    assert.ok((rendered.processTable ?? '').includes(title), `processTable missing step "${title}"`)
   }
   for (const labelWord of ['vérification', 'rédaction', 'décision', 'étude', 'fréquence', 'conservée', 'requise', 'remises']) {
-    assert.ok(rendered.wide.svg.includes(labelWord), `wide missing edge label word "${labelWord}"`)
-    assert.ok(rendered.narrow.svg.includes(labelWord), `narrow missing edge label word "${labelWord}"`)
+    assert.ok((rendered.processTable ?? '').includes(labelWord), `processTable missing edge label word "${labelWord}"`)
   }
-  assert.doesNotMatch(rendered.wide.svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i)
+  assert.ok(rendered.wide.svg.includes('après vérification') && rendered.wide.svg.includes('retours sur cinq remises'))
+  assert.doesNotMatch(rendered.wide.svg, /st-diagramCard-icon|data-toggle="true"/)
+
+  diagram.diagramType = 'architecture'
+  const archBuild = buildDoc(root, doc)
+  assert.equal(archBuild.result.status, 0, archBuild.result.stderr)
+  const archPayload = payloadOf(archBuild.output)
+  assert.equal(archPayload.diagrams?.[diagram.id].wide.cards.length, 7)
+  for (const labelWord of ['vérification', 'rédaction', 'décision', 'étude', 'fréquence', 'conservée', 'requise', 'remises']) {
+    assert.ok(archPayload.diagrams?.[diagram.id].wide.svg.includes(labelWord), `architecture wide missing label word "${labelWord}"`)
+  }
+  assert.doesNotMatch(archPayload.diagrams?.[diagram.id].wide.svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i)
 }))
 
 test('default focus build renders nested containers with bidirectional links cleanly in r7 wide and narrow variants', () => isolated((root) => {

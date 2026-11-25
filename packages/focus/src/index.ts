@@ -25,6 +25,7 @@ export type {
   InlineDiagramNode,
   ReferenceDiagramNode,
   DiagramSyntax,
+  DiagramType,
   DossierReadability,
   FocusNode,
   FocusDocument,
@@ -43,7 +44,7 @@ export type {
   SectionInput,
   TargetRef,
 } from "./model.js";
-export { isEvidenceDossier, isReportDocument } from './model.js';
+export { DIAGRAM_TYPES, isEvidenceDossier, isReportDocument } from './model.js';
 
 export type {
   HtmlRenderHooks,

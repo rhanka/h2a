@@ -9,5 +9,18 @@
  * This is the read-only FocusSnapshot split: affordances render as DISABLED metadata only
  * (no live commands). Live drivers (FocusLiveSession) are deferred (L3+).
  */
+/** Closed Archify v3.3 diagram families supported on Focus diagram sections. */
+export const DIAGRAM_TYPES = [
+    "architecture",
+    "workflow",
+    "sequence",
+    "dataflow",
+    "lifecycle",
+    "erd",
+    "class",
+    "tree",
+    "timeline",
+    "waterfall",
+];
 export const isReportDocument = (doc) => 'kind' in doc && doc.kind === 'report';
 export const isEvidenceDossier = (doc) => 'schemaVersion' in doc && doc.schemaVersion === 2;

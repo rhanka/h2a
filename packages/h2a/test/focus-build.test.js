@@ -847,3 +847,236 @@ test('theme CSS: refuses @import, external/non-data url(), </style, oversized fi
     assert.ok(themedFocusHtml.includes('<style data-focus-theme>:root { --st-a: 1; }</style>'))
   })
 })
+
+test('Lot 1: buildFocusDossierWithDiagnostics, linear_chain_as_architecture_cards cycle-free predicate, D2 A workflow default & stable relation IDs', async () => {
+  const { buildFocusDossierWithDiagnostics } = await import('../dist/focus-build.js')
+  const baseFlow = (edges, extra = {}) => {
+    const doc = fixture()
+    Object.assign(doc.sections.find(s => s.kind === 'diagram'), {
+      alt: 'Enchaînement des étapes principales du traitement.',
+      source: [
+        'flowchart LR',
+        's1["Réception"]',
+        's2["Tri"]',
+        's3["Revue"]',
+        's4["Validation"]',
+        's5["Archive"]',
+        ...edges,
+      ].join('\n'),
+      ...extra,
+    })
+    return doc
+  }
+
+  // 1. Default untyped flowchart -> process@1 (D2 A), stable relation:<from>.<to> IDs (.2/.3 parallel), 0 warnings.
+  const wfDoc = baseFlow([
+    's1 -->|brut| s2',
+    's2 -->|qualifié| s3',
+    's3 -->|conforme| s4',
+    's4 -->|validé| s5',
+    's4 -->|copie| s5',
+  ])
+  const wfOut = buildFocusDossierWithDiagnostics(wfDoc)
+  assert.deepEqual(wfOut.warnings, [])
+  const wfPayload = JSON.parse(wfOut.html.match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+  const wfSection = wfPayload.document.sections.find(s => s.kind === 'diagram')
+  assert.equal(wfSection.scene.profileRefs[0], 'process@1')
+  assert.deepEqual(Object.keys(wfSection.scene.relations), [
+    'relation:s1.s2',
+    'relation:s2.s3',
+    'relation:s3.s4',
+    'relation:s4.s5',
+    'relation:s4.s5.2',
+  ])
+  assert.equal(wfPayload.diagrams[wfSection.id].profile, 'process@1')
+  assert.match(wfPayload.diagrams[wfSection.id].processTable ?? '', /<details class="st-diagramProcessTable">/)
+
+  // 2. Opt-out diagramType: "architecture" on a 5-step linear chain emits exact §2.1 B warning & CLI exits 0 on stderr.
+  const archChainDoc = baseFlow([
+    's1 -->|brut| s2',
+    's2 -->|qualifié| s3',
+    's3 -->|conforme| s4',
+    's4 -->|validé| s5',
+  ], { diagramType: 'architecture' })
+  const archChainOut = buildFocusDossierWithDiagnostics(archChainDoc)
+  assert.deepEqual(archChainOut.warnings, [
+    'linear_chain_as_architecture_cards: ecosystem (5 nodes, 0 containers) — set diagramType "workflow" if this describes a process',
+  ])
+  isolated(root => {
+    const input = join(root, 'chain.json'), output = join(root, 'chain.html')
+    writeFileSync(input, JSON.stringify(archChainDoc))
+    const cli = run(root, 'build', input, '-o', output)
+    assert.equal(cli.status, 0, cli.stderr)
+    assert.match(cli.stderr, /h2a focus build: warning: linear_chain_as_architecture_cards: ecosystem \(5 nodes, 0 containers\)/)
+  })
+
+  // 3. §2.1 B cycle-free predicate: [s1 -> s2] + [s3 -> s4 -> s5 -> s3] has 5 nodes, 4..5 links, zero containers -> 0 warnings!
+  const cycleDoc = baseFlow([
+    's1 -->|init| s2',
+    's3 -->|boucle| s4',
+    's4 -->|retour| s5',
+    's5 -->|relance| s3',
+  ], { diagramType: 'architecture' })
+  assert.deepEqual(buildFocusDossierWithDiagnostics(cycleDoc).warnings, [])
+
+  // 4. Branching, 2-node, and container generic@1 scenes produce 0 linear-chain warnings; grandfathered generic@1 linear chain warns.
+  const branchDoc = baseFlow([
+    's1 -->|a| s2',
+    's2 -->|b| s3',
+    's2 -->|c| s4',
+    's4 -->|d| s5',
+  ], { diagramType: 'architecture' })
+  assert.deepEqual(buildFocusDossierWithDiagnostics(branchDoc).warnings, [])
+
+  const grandfatheredLinear = fixture()
+  grandfatheredLinear.sections.find(s => s.kind === 'diagram').scene = {
+    documentId: 'document:gf',
+    schemaVersion: { major: 1, minor: 1 },
+    revision: 0,
+    profileRefs: ['generic@1'],
+    typeDefinitions: {},
+    entities: {
+      'entity:a': { id: 'entity:a', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Un' } } },
+      'entity:b': { id: 'entity:b', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Deux' } } },
+      'entity:c': { id: 'entity:c', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Trois' } } },
+    },
+    relations: {
+      'relation:a.b': { id: 'relation:a.b', profile: 'generic@1', type: 'link', endpoints: [{ role: 'source', target: 'entity:a' }, { role: 'target', target: 'entity:b' }], attributes: { label: { kind: 'text', value: 'vers' } } },
+      'relation:b.c': { id: 'relation:b.c', profile: 'generic@1', type: 'link', endpoints: [{ role: 'source', target: 'entity:b' }, { role: 'target', target: 'entity:c' }], attributes: { label: { kind: 'text', value: 'vers' } } },
+    },
+    ports: {},
+    resources: {},
+    extensions: [],
+  }
+  assert.deepEqual(buildFocusDossierWithDiagnostics(grandfatheredLinear).warnings, [
+    'linear_chain_as_architecture_cards: ecosystem (3 nodes, 0 containers) — set diagramType "workflow" if this describes a process',
+  ])
+
+  // 5. Future diagramType enum values validate cleanly in @sentropic/focus schema and fail explicitly in Lot 1 offline builder.
+  const erdDoc = baseFlow(['s1 -->|a| s2'], { diagramType: 'erd' })
+  assert.throws(() => buildFocusDossierWithDiagnostics(erdDoc), /diagramType "erd" is not supported by the offline Focus builder in Lot 1/)
+})
+
+test('Lot 1: anonymized + root-cause lock, focus-views/1 frozen bytes non-regression, identical Svelte/Vue pins and bundle size ceiling', async () => {
+  const {
+    focusSceneRegistry,
+    focusSceneBindings,
+    foldableGenericProfile,
+    layoutScene,
+    renderZoneSvg,
+    cardLineMeasurer,
+    sceneCardMeasure,
+    defaultCardMeasure,
+  } = await import('../focus-kit/diagram-views.mjs')
+  const { buildFocusDossier } = await import('../dist/focus-build.js')
+  const { canonicalJson } = await import('@sentropic/focus/editing')
+  const { validateFocusViewsDocument } = await import('@sentropic/focus/artifact')
+  const { gzipSync } = await import('node:zlib')
+  const measureLines = cardLineMeasurer(sceneCardMeasure(defaultCardMeasure))
+
+  // Part A: Anonymized reproduction of the `+` glyph root cause (containers in generic@1 vs flat steps in process@1).
+  assert.equal(foldableGenericProfile.entityTypes.find(t => t.id === 'container')?.container, true)
+  const zoneFolded = renderZoneSvg(
+    { entityId: 'entity:stage', title: 'Étape 1', kicker: 'Phase', collapsed: true, toggleLabel: 'Déplier : Étape 1' },
+    { children: [] },
+  )
+  assert.equal(zoneFolded.kind, 'rendered')
+  assert.match(zoneFolded.svg, /data-toggle="true" data-collapsed="true"/, 'collapsed generic@1 containers emit the + glyph toggle')
+  assert.match(zoneFolded.svg, /M 16 9 V 23/, '+ glyph vertical arm present when collapsed container is rendered')
+
+  const tkmProcessDoc = fixture()
+  Object.assign(tkmProcessDoc.sections.find(s => s.kind === 'diagram'), {
+    diagramType: 'workflow',
+    alt: 'Cinq étapes anonymisées du circuit d’analyse.',
+    source: [
+      'flowchart LR',
+      's1["Étape 1 · Collecte"]',
+      's2["Étape 2 · Préparation"]',
+      's3["Étape 3 · Mesure"]',
+      's4["Étape 4 · Vérification"]',
+      's5["Étape 5 · Livraison"]',
+      's1 -->|entrée| s2',
+      's2 -->|lot| s3',
+      's3 -->|résultat| s4',
+      's4 -->|rapport| s5',
+    ].join('\n'),
+  })
+  const builtProcess = buildFocusDossier(tkmProcessDoc)
+  const payload = JSON.parse(builtProcess.match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+  const d = Object.values(payload.diagrams)[0]
+  assert.equal(d.profile, 'process@1')
+  assert.doesNotMatch(d.wide.svg, /data-toggle|st-diagramCard-toggle|st-diagramCard-icon/)
+  assert.doesNotMatch(d.narrow.svg, /data-toggle|st-diagramCard-toggle|st-diagramCard-icon/)
+
+  // Part B: Non-regression on frozen focus-views/1 (kit 0.5.0 companion with 1 generic@1 flowchart + 1 generic@1 scene with nested containers).
+  const ecoModels = JSON.parse(readFileSync(join(kit, 'ecosystem.json'), 'utf8')).scenes.models.document
+  const genericContainers = JSON.parse(readFileSync(join(kit, '../../focus/tests/diagram-core-generic.fixture.json'), 'utf8'))
+  const legacyFlowchartScene = {
+    documentId: 'document:legacy-flow',
+    schemaVersion: { major: 1, minor: 1 },
+    revision: 0,
+    profileRefs: ['generic@1'],
+    typeDefinitions: {},
+    entities: {
+      'entity:a': { id: 'entity:a', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Saisie' } } },
+      'entity:b': { id: 'entity:b', profile: 'generic@1', type: 'node', attributes: { name: { kind: 'text', value: 'Revue' } } },
+    },
+    relations: {
+      'relation:0': { id: 'relation:0', profile: 'generic@1', type: 'link', endpoints: [{ role: 'source', target: 'entity:a' }, { role: 'target', target: 'entity:b' }], attributes: { label: { kind: 'text', value: 'soumet' } } },
+    },
+    ports: {},
+    resources: {},
+    extensions: [],
+  }
+  const computeViews = (scene) => {
+    const entities = Object.fromEntries(Object.values(scene.entities).map(e => [
+      `occurrence:e.${e.id.slice(7)}`,
+      { form: e.type === 'container' ? 'container' : 'card', text: { title: e.attributes.name.value } },
+    ]))
+    const containers = Object.entries(entities).filter(([, v]) => v.form === 'container').map(([k]) => k)
+    const baseInput = {
+      document: scene,
+      registry: focusSceneRegistry,
+      bindings: focusSceneBindings,
+      presentation: { contractPin: { id: 'diagram-presentation', version: '1', contentDigest: '74dadb9c31fff7653ca31692d8db3cfea782baea8d9268a3c20982ea8ab0aeae' }, entities, legends: {}, categoryTokens: [] },
+      measureLines,
+      containers,
+    }
+    const expanded = layoutScene({ ...baseInput, collapsed: [] })
+    const folded = containers.length === 0 ? expanded : layoutScene({ ...baseInput, collapsed: containers })
+    assert.equal(expanded.status, 'laid-out')
+    assert.equal(folded.status, 'laid-out')
+    return { expanded: expanded.view, folded: folded.view }
+  }
+  const frozenViewsCompanion = {
+    contract: 'focus-views/1',
+    documentDigest: `sha256:${'a'.repeat(64)}`,
+    rendererDigest: `sha256:${'b'.repeat(64)}`,
+    diagrams: {
+      'legacy-flow': { scene: legacyFlowchartScene, views: computeViews(legacyFlowchartScene) },
+      'models-map': { scene: ecoModels, views: computeViews(ecoModels) },
+      'nested-containers': { scene: genericContainers, views: computeViews(genericContainers) },
+    },
+  }
+  assert.equal(validateFocusViewsDocument(frozenViewsCompanion).ok, true)
+  for (const [id, entry] of Object.entries(frozenViewsCompanion.diagrams)) {
+    const recomputed = computeViews(entry.scene)
+    assert.equal(canonicalJson(recomputed.expanded), canonicalJson(entry.views.expanded), `${id}: expanded view byte-identical`)
+    assert.equal(canonicalJson(recomputed.folded), canonicalJson(entry.views.folded), `${id}: folded view byte-identical`)
+  }
+  assert.notEqual(
+    canonicalJson(frozenViewsCompanion.diagrams['nested-containers'].views.folded),
+    canonicalJson(frozenViewsCompanion.diagrams['nested-containers'].views.expanded),
+    'nested generic@1 container folding stays active',
+  )
+
+  // Part C: Identical pins across Svelte and Vue focus-kit packages, plus offline gzipped bridge size sanity.
+  const sveltePkg = JSON.parse(readFileSync(join(kit, 'package.json'), 'utf8'))
+  const vuePkg = JSON.parse(readFileSync(join(kit, 'vue/package.json'), 'utf8'))
+  for (const dep of ['@sentropic/diagram-core', '@sentropic/diagram-canvas', '@sentropic/design-system-themes', '@sentropic/design-system-tokens']) {
+    assert.equal(sveltePkg.dependencies[dep], vuePkg.dependencies[dep], `exact pin match required for ${dep}`)
+    assert.match(sveltePkg.dependencies[dep], /^\d+\.\d+\.\d+(?:-[\w.]+)?$/)
+  }
+  const viewsGzipBytes = gzipSync(readFileSync(join(kit, 'diagram-views.mjs'))).byteLength
+  assert.ok(viewsGzipBytes > 0 && viewsGzipBytes < 250_000, `diagram-views.mjs gzip ${viewsGzipBytes} must remain compact`)
+})

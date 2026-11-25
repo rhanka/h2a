@@ -48,8 +48,8 @@ const FOCUS_DOCUMENT_SCHEMAS = [
         assetPath: "schemas/decision-dossier-document.v1.0.schema.json",
     },
     {
-        version: "1.1.0",
-        schemaId: "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
+        version: "1.2.0",
+        schemaId: "urn:sentropic:focus:DecisionDossierDocument:1.2.0",
         assetPath: "schemas/decision-dossier-document.v1.schema.json",
     },
     {
@@ -58,13 +58,13 @@ const FOCUS_DOCUMENT_SCHEMAS = [
         assetPath: "schemas/decision-dossier-document.v2.0.schema.json",
     },
     {
-        version: "2.1.0",
-        schemaId: "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
+        version: "2.2.0",
+        schemaId: "urn:sentropic:focus:DecisionDossierDocument:2.2.0",
         assetPath: "schemas/decision-dossier-document.v2.schema.json",
     },
     {
-        version: "1.0.0",
-        schemaId: "urn:sentropic:focus:ReportDocument:1.0.0",
+        version: "1.1.0",
+        schemaId: "urn:sentropic:focus:ReportDocument:1.1.0",
         assetPath: "schemas/report-document.v1.schema.json",
     },
 ];
@@ -364,7 +364,7 @@ export const validateFocusEntryDescriptor = (value) => {
                 const assetPath = expectedSchema.assetPath;
                 const schemaPath = `$.skill.documentSchemas[${index}]`;
                 if (!isRecord(schema) ||
-                    schema["name"] !== (schemaId === "urn:sentropic:focus:ReportDocument:1.0.0" ? "ReportDocument" : "DecisionDossierDocument") ||
+                    schema["name"] !== (schemaId.startsWith("urn:sentropic:focus:ReportDocument:") ? "ReportDocument" : "DecisionDossierDocument") ||
                     schema["schemaId"] !== schemaId ||
                     schema["version"] !== version ||
                     typeof schema["assetPath"] !== "string" ||

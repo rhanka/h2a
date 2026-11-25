@@ -33,9 +33,12 @@ const node = (id, name) => ({ id: `entity:${id}`, profile: 'generic@1', type: 'n
 const container = (id, name) => ({ id: `entity:${id}`, profile: 'generic@1', type: 'container', attributes: { name: { kind: 'text', value: name } } })
 const contains = (parent, child) => ({ id: `relation:${parent}-${child}`, profile: 'generic@1', type: 'contains',
   endpoints: [{ role: 'parent', target: `entity:${parent}` }, { role: 'child', target: `entity:${child}` }], attributes: {} })
-const mermaidDoc = (names) => {
+const mermaidDoc = (names, extra = {}) => {
   const doc = fixture()
-  doc.sections.find(s => s.kind === 'diagram').source = `flowchart LR\n${names.map((n, i) => `n${i}["${n}"]`).join('\n')}`
+  Object.assign(doc.sections.find(s => s.kind === 'diagram'), {
+    source: `flowchart LR\n${names.map((n, i) => `n${i}["${n}"]`).join('\n')}`,
+    ...extra,
+  })
   return doc
 }
 const builtDiagrams = (root, doc) => {
@@ -43,12 +46,22 @@ const builtDiagrams = (root, doc) => {
   assert.equal(result.status, 0, result.stderr)
   const payload = payloadOf(output)
   const diagram = payload.document.sections.find(s => s.kind === 'diagram')
-  return { payload, diagram, r7: payload.diagrams[diagram.id], html: readFileSync(output, 'utf8') }
+  return { payload, diagram, r7: payload.diagrams[diagram.id], html: readFileSync(output, 'utf8'), stderr: result.stderr }
 }
 
-test('renders every diagram node inside an embedded static r7 SVG with DS cards, keeping the scene untouched', async () => isolated(root => {
-  const { diagram, r7 } = builtDiagrams(root, mermaidDoc(['Coordinateur', 'Relais de modèles']))
-  assert.ok(r7 && r7.renderer === 'r7', 'payload carries static r7 diagram keyed by the diagram section id')
+test('renders untyped Mermaid flowcharts as process@1 boxes and retains generic@1 cards on architecture opt-out', async () => isolated(root => {
+  const wf = builtDiagrams(root, mermaidDoc(['Coordinateur', 'Relais de modèles']))
+  assert.ok(wf.r7 && wf.r7.renderer === 'r7', 'payload carries static DS diagram keyed by the diagram section id')
+  assert.equal(wf.diagram.scene.profileRefs[0], 'process@1')
+  assert.deepEqual([...wf.r7.wide.steps].sort(), Object.keys(wf.diagram.scene.entities).sort())
+  assert.deepEqual(wf.r7.wide.cards, [])
+  assert.match(wf.r7.wide.svg, /class="st-diagramProcessBox"/)
+  assert.doesNotMatch(wf.r7.wide.svg, /data-toggle|st-diagramCard-icon/)
+  assert.match(wf.r7.processTable ?? '', /class="st-diagramProcessTable"/)
+
+  const { diagram, r7 } = builtDiagrams(root, mermaidDoc(['Coordinateur', 'Relais de modèles'], { diagramType: 'architecture' }))
+  assert.ok(r7 && r7.renderer === 'r7', 'architecture opt-out renders generic@1 DS cards')
+  assert.equal(diagram.scene.profileRefs[0], 'generic@1')
   assert.deepEqual([...r7.wide.cards].sort(), Object.keys(diagram.scene.entities).sort())
   assert.deepEqual([...r7.narrow.cards].sort(), Object.keys(diagram.scene.entities).sort())
   assert.deepEqual(r7.wide.problems, [])
@@ -56,10 +69,10 @@ test('renders every diagram node inside an embedded static r7 SVG with DS cards,
   assert.doesNotMatch(JSON.stringify(diagram.scene), /"(?:views?|geometry|layout)"/, 'the scene stays a pure diagram-core document')
   for (const [entityId, entity] of Object.entries(diagram.scene.entities)) {
     const name = entity.attributes.name.value
-    assert.match(r7.wide.svg, new RegExp(`<svg xmlns="http://www\\.w3\\.org/2000/svg" class="st-diagramCard" data-entity="${entityId}" width="460" height="200" viewBox="0 0 460 200"`), 'exact DS card face 460x200')
-    assert.match(r7.wide.svg, new RegExp(`aria-label="${name}"[^>]*><title>${name}</title>`), 'title is the entity name')
+    assert.ok(r7.wide.svg.includes(`data-entity="${entityId}"`), 'DS card carries entity id')
+    assert.ok(r7.wide.svg.includes(`<title>${name}</title>`), 'title is the entity name')
   }
-  assert.doesNotMatch(r7.wide.svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i, 'r7 default renderer never leaks literal "node" kicker')
+  assert.doesNotMatch(r7.wide.svg, /class="st-diagramCard-kicker"[^>]*>node<\/text>/i, 'default renderer never leaks literal "node" kicker')
   assert.equal(r7.wide.svg.length > 500, true, 'inlined svg, not a reference')
 }))
 
@@ -159,15 +172,16 @@ test('ships diagram-views.mjs self-contained: it renders where no design-system 
   assert.deepEqual(imports, [], 'no run-time import: the pure DS renderers are bundled')
   assert.doesNotMatch(source, /svelte\/internal|@tiptap|prosemirror/, 'no Svelte runtime or editor code in the bundle')
   const banner = source.slice(0, source.indexOf('*/'))
-  assert.match(banner, /@sentropic\/design-system-svelte@0\.37\.0\nMIT License\n\nCopyright \(c\) 2026 Sentropic\n/, 'the bundled DS licence travels with the module')
+  assert.match(banner, /@sentropic\/diagram-canvas@0\.6\.0\nMIT License/, 'the bundled DS canvas licence travels with the module')
+  assert.match(banner, /@sentropic\/diagram-core@0\.6\.1\nMIT License/, 'the bundled DS core licence travels with the module')
   const { dependencies } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(dependencies['@sentropic/design-system-svelte'], undefined, 'the published CLI installs no frontend package')
 })
 
-test('refuses a diagram whose card cannot carry its title with typed diagnostics, preserving the previous output', () => isolated(root => {
+test('refuses an architecture diagram whose card cannot carry its title with typed diagnostics, preserving the previous output', () => isolated(root => {
   const output = join(root, 'decision.html')
   writeFileSync(output, 'previous complete revision')
-  const doc = mermaidDoc(['Coordinationinterorganisationnelledurablepermanente'])
+  const doc = mermaidDoc(['Coordinationinterorganisationnelledurablepermanente'], { diagramType: 'architecture' })
   const { result } = buildDoc(root, doc)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Diagram view refused/, 'the refusal is an explicit diagram-view refusal')

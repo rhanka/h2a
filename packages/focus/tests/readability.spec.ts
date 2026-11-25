@@ -642,4 +642,73 @@ describe("1.1.0 / 2.1.0 readability extensions & 11/11 anti-wall-of-text rules (
     expect(readabilityMd).not.toContain("25 words");
     expect(readabilityMd).not.toMatch(/En bref|In short/);
   });
+
+  it("checks process@1 step subtitle and transition label text in readability", () => {
+    const validProcess = mutate((d) => {
+      d.sections.push({
+        kind: "diagram",
+        id: "workflow-diag",
+        targetRef: "workflow-diag",
+        diagramType: "workflow",
+        syntax: "mermaid",
+        source: 'flowchart LR\na["Step one"]\nb["Step two"]\na -->|sends| b',
+        alt: "Step one sends to step two.",
+        scene: {
+          documentId: "document:workflow-diag",
+          schemaVersion: { major: 1, minor: 1 },
+          revision: 0,
+          profileRefs: ["process@1"],
+          typeDefinitions: {},
+          entities: {
+            "entity:a": {
+              id: "entity:a",
+              profile: "process@1",
+              type: "step",
+              attributes: {
+                name: { kind: "text", value: "Step one" },
+                subtitle: { kind: "text", value: "Plain check" },
+              },
+            },
+            "entity:b": {
+              id: "entity:b",
+              profile: "process@1",
+              type: "step",
+              attributes: {
+                name: { kind: "text", value: "Step two" },
+              },
+            },
+          },
+          relations: {
+            "relation:a.b": {
+              id: "relation:a.b",
+              profile: "process@1",
+              type: "transition",
+              endpoints: [
+                { role: "source", target: "entity:a" },
+                { role: "target", target: "entity:b" },
+              ],
+              attributes: { label: { kind: "text", value: "sends" } },
+            },
+          },
+          ports: {},
+          resources: {},
+          extensions: [],
+        },
+      });
+    });
+    expect(refusalCodes(validProcess)).toEqual([]);
+
+    const badSubtitle = mutate((d) => {
+      const diag = structuredClone(validProcess.sections.at(-1));
+      diag.scene.entities["entity:a"].attributes.subtitle.value = "Gate L06b";
+      d.sections.push(diag);
+    });
+    const subtitleIssues = validateDecisionDossierReadability(badSubtitle);
+    expect(subtitleIssues).toContainEqual(
+      expect.objectContaining({
+        code: "undefined_code",
+        path: "$.sections[3].scene.entities.entity:a.attributes.subtitle.value",
+      }),
+    );
+  });
 });

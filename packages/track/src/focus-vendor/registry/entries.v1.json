@@ -76,7 +76,7 @@
           "role": "skill-instructions",
           "path": "skills/focus/SKILL.md",
           "mediaType": "text/markdown",
-          "sha256": "0262d14750b05348a2e495547d1995b0442e64ad044abbfac8d803ebe6732a5c"
+          "sha256": "704ca6d2a480e2511230322e8d072990fd47722b53ce64463494df82619ea21a"
         },
         {
           "role": "document-schema",
@@ -88,7 +88,7 @@
           "role": "document-schema",
           "path": "schemas/decision-dossier-document.v1.schema.json",
           "mediaType": "application/schema+json",
-          "sha256": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c"
+          "sha256": "3cd38dafe839a71f5f4b2d6e29008d884612580039f032e1e6b56e6d76d3eb60"
         },
         {
           "role": "document-schema",
@@ -100,13 +100,13 @@
           "role": "document-schema",
           "path": "schemas/decision-dossier-document.v2.schema.json",
           "mediaType": "application/schema+json",
-          "sha256": "058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702"
+          "sha256": "40a3e32d154bc7c788353dc33a2c98700cd37412888f0cda4128332e15ff7d65"
         },
         {
           "role": "document-schema",
           "path": "schemas/report-document.v1.schema.json",
           "mediaType": "application/schema+json",
-          "sha256": "32546e7d14b6f39b25993f1706198193007caf2ac87df7ad28706dd5c02b4557"
+          "sha256": "2e7e51ea589ae06c5aa65b1de7a8b889d82e129e88b4106cec8e04af0f5cee36"
         }
       ],
       "skill": {
@@ -145,10 +145,10 @@
           },
           {
             "name": "DecisionDossierDocument",
-            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
-            "version": "1.1.0",
+            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.2.0",
+            "version": "1.2.0",
             "assetPath": "schemas/decision-dossier-document.v1.schema.json",
-            "sha256": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c"
+            "sha256": "3cd38dafe839a71f5f4b2d6e29008d884612580039f032e1e6b56e6d76d3eb60"
           },
           {
             "name": "DecisionDossierDocument",
@@ -159,17 +159,17 @@
           },
           {
             "name": "DecisionDossierDocument",
-            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
-            "version": "2.1.0",
+            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:2.2.0",
+            "version": "2.2.0",
             "assetPath": "schemas/decision-dossier-document.v2.schema.json",
-            "sha256": "058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702"
+            "sha256": "40a3e32d154bc7c788353dc33a2c98700cd37412888f0cda4128332e15ff7d65"
           },
           {
             "name": "ReportDocument",
-            "schemaId": "urn:sentropic:focus:ReportDocument:1.0.0",
-            "version": "1.0.0",
+            "schemaId": "urn:sentropic:focus:ReportDocument:1.1.0",
+            "version": "1.1.0",
             "assetPath": "schemas/report-document.v1.schema.json",
-            "sha256": "32546e7d14b6f39b25993f1706198193007caf2ac87df7ad28706dd5c02b4557"
+            "sha256": "2e7e51ea589ae06c5aa65b1de7a8b889d82e129e88b4106cec8e04af0f5cee36"
           }
         ],
         "dependencies": []

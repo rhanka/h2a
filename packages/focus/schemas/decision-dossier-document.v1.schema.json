@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
+  "$id": "urn:sentropic:focus:DecisionDossierDocument:1.2.0",
   "title": "DecisionDossierDocument",
   "description": "Read-only decision-dossier snapshot published by @sentropic/focus. Closed: unknown fields refuse. Snapshot interactions are disabled metadata (enabled:false); live decisions, signatures and amendments require separately qualified runtime capabilities.",
   "type": "object",
@@ -153,6 +153,7 @@
         "kind": { "const": "diagram" },
         "id": { "type": "string" },
         "targetRef": { "type": "string" },
+        "diagramType": { "enum": ["architecture", "workflow", "sequence", "dataflow", "lifecycle", "erd", "class", "tree", "timeline", "waterfall"] },
         "syntax": { "enum": ["mermaid", "plantuml"] },
         "source": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" },
         "sourceRef": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:\\S+$" },
