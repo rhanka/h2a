@@ -437,13 +437,18 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
     const geminiTwin = [
       'if (process.stdin.isTTY) process.stdin.setRawMode(true);',
       'let received = "";',
+      'let asked = false;',
+      'let reported = false;',
       'process.stdin.on("data", (d) => {',
       '  received += d.toString("utf8");',
-      '  if (received.includes("PING")) {',
+      '  if (!asked && received.includes("MARK_ATTACH:PING")) {',
+      '    asked = true;',
       '    process.stdout.write("LIVE_ASK\\x1b[4;2H\\x1b[6n");',
       '  }',
-      '  if (received.includes("R")) {',
-      '    process.stdout.write("STDIN_JSON=" + JSON.stringify(received) + "|");',
+      '  const markAt = received.indexOf("MARK_ATTACH:");',
+      '  if (!reported && markAt >= 0 && received.slice(markAt).includes("R")) {',
+      '    reported = true;',
+      '    process.stdout.write("ALL_JSON=" + JSON.stringify(received) + "|POST_JSON=" + JSON.stringify(received.slice(markAt)) + "|");',
       '  }',
       '});',
       'process.stdout.write("\\x1b[c\\x1b[>0q\\x1b[>4;?m\\x1b[6nPRE_GEM_READY");',
@@ -487,13 +492,16 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       await waitUntil(() => bridge.getOutput().includes("PRE_GEM_READY"), 4000, "gemini replay shown");
       // Mark start of post-attach stdin stream, then trigger live DSR query
       bridge.stdin.write("MARK_ATTACH:PING");
-      await waitUntil(() => bridge.getOutput().includes("STDIN_JSON="), 4000, "gemini live CPR JSON");
+      await waitUntil(() => bridge.getOutput().includes("POST_JSON="), 4000, "gemini live CPR JSON");
 
       const out = bridge.getOutput();
-      const match = /STDIN_JSON=("[^"]*")/.exec(out);
-      expect(match?.[1]).toBeDefined();
-      const seenByChild = JSON.parse(match![1]!) as string;
-      const postAttach = seenByChild.slice(seenByChild.indexOf("MARK_ATTACH:"));
+      const allMatch = /ALL_JSON=("[^"]*")/.exec(out);
+      const postMatch = /POST_JSON=("[^"]*")/.exec(out);
+      expect(allMatch?.[1]).toBeDefined();
+      expect(postMatch?.[1]).toBeDefined();
+      const seenByChild = JSON.parse(allMatch![1]!) as string;
+      const postAttach = JSON.parse(postMatch![1]!) as string;
+      expect(postAttach).toContain("MARK_ATTACH:");
       expect(seenByChild).not.toContain("1;2c");
       expect(seenByChild).not.toContain(">|");
       expect(seenByChild).not.toContain(">4");
@@ -877,22 +885,22 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           },
           { baseUrl: ${JSON.stringify(`http://127.0.0.1:${addr.port}`)}, sessionId: "s-cli" },
         );
-        process.stdout.write("CLI_REC_EXIT:" + String(code ?? 0));
+        process.stdout.write("CLI_REC_EXIT:" + String(code ?? 0) + "\\n");
       `,
     );
     const cliPty = nodePtySpawner({
-      command: process.execPath,
-      args: [runner6d],
+      command: "bash",
+      args: ["--norc", "--noprofile", "--noediting", "-i"],
       cwd: dir,
-      env,
+      env: { ...env, PS1: "T6D_SH> " },
       cols: 80,
       rows: 24,
     });
     let cliOut = "";
-    let cliExited = false;
     cliPty.onData((d) => { cliOut += d; });
-    cliPty.onExit(() => { cliExited = true; });
     try {
+      await waitUntil(() => /(?:T6D_SH>|bash-[^$]*\$) /.test(cliOut), 4000, "cli shell prompt1");
+      cliPty.write(`${JSON.stringify(process.execPath)} ${JSON.stringify(runner6d)}\r`);
       await waitUntil(() => cliOut.includes("CLI_ATTACH_READY"), 5000, "cli attach ready");
       const cliPts = readlinkSync(`/proc/${cliPty.pid}/fd/1`);
       expect(sttyFlagsForPts(cliPts)).toMatch(/(?:^|\s)-opost(?:\s|$)/);
@@ -903,14 +911,18 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
           const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
           if (m) rows.push({ pid: Number(m[1]), ppid: Number(m[2]), args: m[3] ?? "" });
         }
-        const guard = rows.find((r) => r.args.includes(runner6d) && r.pid !== process.pid);
-        return guard ? rows.find((r) => r.ppid === guard.pid)?.pid : undefined;
+        const guard = rows.find((r) => r.args.includes(runner6d) && !r.args.startsWith("bash") && r.pid !== process.pid);
+        return guard ? rows.find((r) => r.ppid === guard.pid && r.args.includes("--input-type=module"))?.pid : undefined;
       };
       let innerAttachPid: number | undefined;
       await waitUntil(() => (innerAttachPid = findCliChildPid()) !== undefined, 3000, "cli child pid");
       expect(innerAttachPid).toBeGreaterThan(0);
       process.kill(innerAttachPid!, "SIGKILL");
-      await waitUntil(() => cliExited && cliOut.includes("CLI_REC_EXIT:"), 5000, "cli guard exit after SIGKILL");
+      await waitUntil(
+        () => cliOut.includes("CLI_REC_EXIT:") && /(?:T6D_SH>|bash-[^$]*\$) /.test(cliOut.slice(cliOut.indexOf("CLI_REC_EXIT:"))),
+        5000,
+        "cli guard exit after SIGKILL",
+      );
       const afterCliKill = sttyFlagsForPts(cliPts);
       expect(afterCliKill).toMatch(/(?:^|\s)opost(?:\s|$)/);
       expect(afterCliKill).toMatch(/(?:^|\s)onlcr(?:\s|$)/);

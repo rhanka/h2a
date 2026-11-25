@@ -5088,12 +5088,10 @@ describe("Rule 2 & 3 — Station terminalResponder promotion/demotion and catch-
     h.step(
       (x) => {
         expect(x.displayed()).toEqual(["h2a-alpha"]);
-        x.gesture("h2a-beta", "activate");
+        x.activate("h2a-beta");
       },
-      tick,
-      tick,
       (x) => {
-        expect(x.displayed()).toEqual(["h2a-beta"]);
+        expect(x.displayed()).toEqual(["h2a-alpha", "h2a-beta"]);
         // Live post-switch DSR on beta must pass through untouched
         beta.emit("\x1b[6nLIVE_B");
       },
@@ -5101,6 +5099,7 @@ describe("Rule 2 & 3 — Station terminalResponder promotion/demotion and catch-
       tick,
     );
     const code = await runStation(wrappedRuntime, h.options());
+    if (h.stepError !== undefined) throw h.stepError;
     expect(code).toBe(0);
 
     // #hold never requests terminalResponder; #paint promotes it explicitly
