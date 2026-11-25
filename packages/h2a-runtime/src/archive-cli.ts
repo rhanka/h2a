@@ -15,6 +15,7 @@ import {
   runSessionArchive,
   scanClaudeSessions,
   SessionArchiveError,
+  unlockArchiveLock,
   verifySessionArchives,
 } from "./session-archive.js";
 
@@ -403,6 +404,11 @@ export function registerArchiveCommand(program: Command): void {
               `Restored ${result.sessionId} from ${result.archiveId} into ${result.targetProjectDir} (${result.restoredFiles.length} file(s), mtime refreshed)\n` +
                 `  Next: cd ${result.originCwd} && claude --resume ${result.sessionId}\n`,
             );
+            for (const blocked of result.skippedUnsafePaths) {
+              process.stderr.write(
+                `h2a archive restore: skipped unsafe path ${blocked.path} (${blocked.reason} at ${blocked.blockingPath})\n`,
+              );
+            }
             for (const alert of result.alerts) {
               process.stderr.write(`h2a archive restore: ${formatArchiveAlertLine(alert)}\n`);
             }
@@ -412,4 +418,37 @@ export function registerArchiveCommand(program: Command): void {
         }
       },
     );
+
+  archive
+    .command("unlock")
+    .description("Inspect or forcibly clear the archive single-writer lock after verifying no writer runs")
+    .option("--force", "Remove the lock file after displaying its current record")
+    .option("--json", "Emit machine-readable JSON")
+    .action((opts: { force?: boolean; json?: boolean }) => {
+      try {
+        const result = unlockArchiveLock({ force: opts.force === true });
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } else if (!result.existed) {
+          process.stdout.write(`No archive lock present (${result.lockPath}).\n`);
+        } else {
+          process.stdout.write(
+            `Archive lock: ${result.lockPath} (holder=${result.holderStatus}, unlocked=${result.unlocked})\n`,
+          );
+          if (result.record) {
+            process.stdout.write(`  record: ${JSON.stringify(result.record)}\n`);
+          } else if (result.raw !== undefined) {
+            process.stdout.write(`  raw: ${JSON.stringify(result.raw.trim())}\n`);
+          }
+          if (!result.unlocked) {
+            process.stderr.write(
+              "h2a archive unlock: refusing to remove lock without --force (verify no archive writer is running on any host sharing this directory first).\n",
+            );
+          }
+        }
+        if (!result.ok) process.exitCode = 2;
+      } catch (error) {
+        handleArchiveCliError("h2a archive unlock", error, opts.json);
+      }
+    });
 }

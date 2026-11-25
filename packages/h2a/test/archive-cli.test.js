@@ -234,4 +234,29 @@ test("h2a archive CLI (scan, dry-run, pass kill-switch, status alert, list, veri
   assert.equal(rebuildJson.ok, true);
   assert.equal(rebuildJson.versionsCount, 1);
   assert.equal(JSON.parse(runCli(["archive", "list", "--json"], iso.env, iso.workspace).stdout).length, 1);
+
+  // Unknown-schema lock file is never broken by age: pass reports `locked`, `unlock` inspects without removing, `unlock --force` clears it.
+  const lockPath = join(iso.xdgData, "h2a", "session-archives", "archive.lock");
+  writeFileSync(lockPath, JSON.stringify({ schemaVersion: 2, token: "future-lock", pid: 999_999_999 }), "utf8");
+  const agedLock = new Date(Date.now() - 60_000);
+  utimesSync(lockPath, agedLock, agedLock);
+
+  const lockedPass = runCli(["archive", "pass", "--json"], iso.env, iso.workspace);
+  assert.notEqual(lockedPass.status, 0);
+  assert.equal(JSON.parse(lockedPass.stdout).witness.status, "locked");
+  assert.equal(existsSync(lockPath), true);
+
+  const statusLocked = runCli(["status", "--root", iso.h2aRoot], iso.env, iso.workspace);
+  assert.equal(statusLocked.status, 0);
+  assert.match(statusLocked.stderr, /writer lock|ARCHIVE_LOCKED/i);
+
+  const unlockInspect = runCli(["archive", "unlock", "--json"], iso.env, iso.workspace);
+  assert.notEqual(unlockInspect.status, 0);
+  assert.equal(JSON.parse(unlockInspect.stdout).unlocked, false);
+  assert.equal(existsSync(lockPath), true);
+
+  const unlockForce = runCli(["archive", "unlock", "--force", "--json"], iso.env, iso.workspace);
+  assert.equal(unlockForce.status, 0, unlockForce.stderr);
+  assert.equal(JSON.parse(unlockForce.stdout).unlocked, true);
+  assert.equal(existsSync(lockPath), false);
 });

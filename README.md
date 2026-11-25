@@ -325,6 +325,11 @@ Commands:
 - `h2a archive list` — list stored archives alongside their `originCwd` for `claude --resume <id>`.
 - `h2a archive restore <id> [--version <archiveId>] [--on-conflict refuse|backup]` — verify SHA-256 digests before writing back to Claude's project folder with refreshed `mtime` so Claude does not immediately purge the restored transcript.
 - `h2a archive rebuild-index [--force]` — verify stored `.tar.gz` archives from their embedded `manifest.json` and reconstruct `claude/index.json` (backing up the existing index first; requires `--force` over an unknown schema version).
+- `h2a archive unlock [--force]` — inspect the single-writer lock record at `$XDG_DATA_HOME/h2a/session-archives/archive.lock` and clear it only when `--force` is given.
+
+Single-writer lock recovery:
+- `archive.lock` is never broken by elapsed time alone; an unreadable record, unknown schema version, missing `machineId`/`pidNamespace`, or foreign host/namespace lock fails closed (`last-run.json` `status: "locked"`, surfaced by `h2a status`).
+- Before clearing an orphaned lock (either via `h2a archive unlock --force` or manual removal of `$XDG_DATA_HOME/h2a/session-archives/archive.lock`), verify that no `h2a archive` process is active on the current host or any other host sharing `$XDG_DATA_HOME`.
 
 Automatic resume & status integration:
 - `h2a resume`, `h2a claude --resume <id>`, and `h2a run claude --resume <id>` check on disk first; if the transcript is missing and a verified archive exists, `h2a` verifies SHA-256 and restores missing files (preserving any surviving companion files) before launching Claude.

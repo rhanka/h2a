@@ -6,7 +6,7 @@
  *   - Copy barriers (grace window, inactivity threshold, exact live h2a/Claude locks, non-blocking ambiguity notes)
  *   - Free-space guard: min(10 GiB, 5%) + estimated raw session size
  *   - Linux host PID namespace guard (mutating `run` refused in sandboxes/containers)
- *   - Single-writer lock (`file-lock.ts` with periodic liveness touch)
+ *   - Single-writer ownership lock (`archive.lock` via exclusive hard link; never broken without proof of death)
  *   - `.staging/` tarball build (`tar -czf`, chmod `0600`, `fsync`), tarball + per-file SHA-256 verification,
  *     pre/post source stability check, atomic rename, parent-dir `fsync`, and atomic `index.json` commit
  *   - Two-tier idempotence (stat pre-filter + content SHA-256 check preserving existing versions)
@@ -44,11 +44,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 
 import { convOwners } from "./conv-guard.js";
 import { encodeCwd } from "./convsync.js";
-import { LOCK_STALE_MS } from "./file-lock.js";
 import {
   classifyDurableProcFrame,
   readProcessFrame,
   readProcessStartTime,
+  type ReadProcessFrame,
 } from "./proc-identity.js";
 import { loadRegistry } from "./registry.js";
 import { isSessionLeaseAlive, SessionLeaseStore } from "./session-lease.js";
@@ -171,9 +171,12 @@ export interface ArchiveDeps {
   readonly readProcView?: () => ProcView;
   readonly isPidAlive?: (pid: number, startedAtMs?: number) => boolean;
   readonly isLockHolderAlive?: (record: ArchiveLockRecord) => boolean;
+  readonly readProcessFrame?: ReadProcessFrame;
+  readonly platform?: NodeJS.Platform;
   readonly tmuxHasSession?: (name: string) => boolean;
   readonly nativeSessionLiveness?: (name: string) => true | false | "unknown";
   readonly onBeforeCommit?: (sessionId: string) => void;
+  readonly onBeforeRestorePlace?: (destPath: string) => void;
 }
 
 export interface ArchiveManifest {
@@ -342,6 +345,12 @@ export interface RestoreArchiveOptions extends ArchivePathOptions {
   readonly deps?: ArchiveDeps;
 }
 
+export interface RestoreBlockedPath {
+  readonly path: string;
+  readonly blockingPath: string;
+  readonly reason: "intermediate-symlink" | "non-directory-ancestor";
+}
+
 export interface RestoreArchiveResult {
   readonly ok: true;
   readonly sessionId: string;
@@ -350,9 +359,25 @@ export interface RestoreArchiveResult {
   readonly targetProjectDir: string;
   readonly restoredFiles: ReadonlyArray<string>;
   readonly skippedExistingFiles: ReadonlyArray<string>;
+  readonly skippedUnsafePaths: ReadonlyArray<RestoreBlockedPath>;
   readonly backedUpPaths: ReadonlyArray<string>;
   readonly restoredAt: string;
   readonly alerts: ReadonlyArray<ArchiveAlert>;
+}
+
+export interface UnlockArchiveLockOptions extends ArchivePathOptions {
+  readonly force?: boolean;
+  readonly deps?: ArchiveDeps;
+}
+
+export interface UnlockArchiveLockResult {
+  readonly ok: boolean;
+  readonly lockPath: string;
+  readonly existed: boolean;
+  readonly unlocked: boolean;
+  readonly holderStatus: "absent" | "alive-or-unverified" | "dead";
+  readonly record?: ArchiveLockRecord;
+  readonly raw?: string;
 }
 
 export interface RebuildArchiveIndexOptions extends ArchivePathOptions {
@@ -380,6 +405,8 @@ export interface EnsureResumeRestoreResult {
   readonly transcriptPath?: string;
   readonly originCwd?: string;
   readonly archiveId?: string;
+  readonly skippedExistingFiles?: ReadonlyArray<string>;
+  readonly skippedUnsafePaths?: ReadonlyArray<RestoreBlockedPath>;
   readonly alerts: ReadonlyArray<ArchiveAlert>;
 }
 
@@ -519,7 +546,12 @@ function parseArchiveLockRecord(raw: string): ArchiveLockRecord | undefined {
       parsed.token.length > 0 &&
       typeof parsed.pid === "number" &&
       Number.isSafeInteger(parsed.pid) &&
-      parsed.pid > 0
+      parsed.pid > 0 &&
+      (parsed.startTime === undefined ||
+        (typeof parsed.startTime === "number" && Number.isFinite(parsed.startTime))) &&
+      (parsed.pidNamespace === undefined || typeof parsed.pidNamespace === "string") &&
+      (parsed.bootId === undefined || typeof parsed.bootId === "string") &&
+      (parsed.machineId === undefined || typeof parsed.machineId === "string")
     ) {
       return parsed;
     }
@@ -529,43 +561,24 @@ function parseArchiveLockRecord(raw: string): ArchiveLockRecord | undefined {
   return undefined;
 }
 
-function defaultIsLockHolderAlive(record: ArchiveLockRecord): boolean {
-  if (process.platform === "linux") {
-    const current = readProcessFrame();
-    if (record.machineId && current.machineId && record.machineId !== current.machineId) {
-      // Written by a different host; fail closed.
-      return true;
-    }
-    if (
-      record.pidNamespace &&
-      current.pidNamespace &&
-      record.bootId &&
-      current.bootId &&
-      record.machineId &&
-      current.machineId
-    ) {
-      const verdict = classifyDurableProcFrame(
-        {
-          pidNamespace: record.pidNamespace,
-          bootId: record.bootId,
-          machineId: record.machineId,
-        },
-        current,
-      );
-      if (verdict === "stale-boot") {
-        return false;
-      }
-    } else if (
-      record.bootId &&
-      current.bootId &&
-      record.bootId !== current.bootId &&
-      (!record.machineId || !current.machineId || record.machineId === current.machineId)
-    ) {
+function defaultIsLockHolderAlive(record: ArchiveLockRecord, deps: ArchiveDeps = {}): boolean {
+  const platform = deps.platform ?? process.platform;
+  if (platform === "linux") {
+    const current = (deps.readProcessFrame ?? readProcessFrame)();
+    const verdict = classifyDurableProcFrame(
+      {
+        pidNamespace: record.pidNamespace,
+        bootId: record.bootId,
+        machineId: record.machineId,
+      },
+      current,
+    );
+    if (verdict === "stale-boot") {
       return false;
     }
-
-    if (record.pidNamespace && current.pidNamespace && record.pidNamespace !== current.pidNamespace) {
-      // Cannot inspect foreign PID namespace; fail closed.
+    if (verdict === "foreign-frame") {
+      // Different host/namespace, missing machineId/pidNamespace/bootId on either side,
+      // or malformed anchor: cannot prove holder death across incomparable frames; fail closed.
       return true;
     }
 
@@ -592,6 +605,16 @@ function defaultIsLockHolderAlive(record: ArchiveLockRecord): boolean {
     }
   }
 
+  if (
+    record.pidNamespace !== undefined ||
+    record.bootId !== undefined ||
+    record.machineId !== undefined ||
+    record.startTime !== undefined
+  ) {
+    // Non-Linux reader cannot verify a record carrying Linux host/namespace/proc anchors; fail closed.
+    return true;
+  }
+
   try {
     process.kill(record.pid, 0);
     return true;
@@ -603,9 +626,13 @@ function defaultIsLockHolderAlive(record: ArchiveLockRecord): boolean {
 
 function inspectExistingArchiveLock(
   lockPath: string,
-  nowMs: number,
   deps: ArchiveDeps,
-): { readonly exists: boolean; readonly dead: boolean; readonly raw?: string } {
+): {
+  readonly exists: boolean;
+  readonly dead: boolean;
+  readonly raw?: string;
+  readonly record?: ArchiveLockRecord;
+} {
   let lst;
   try {
     lst = lstatSync(lockPath);
@@ -624,18 +651,15 @@ function inspectExistingArchiveLock(
   } catch {
     return { exists: true, dead: false };
   }
-  if (raw.trim().length === 0) {
-    // Legacy 0-byte lockfile from `file-lock.ts`: treat as stale only past LOCK_STALE_MS.
-    const dead = nowMs - lst.mtimeMs > LOCK_STALE_MS;
-    return { exists: true, dead, raw };
-  }
   const record = parseArchiveLockRecord(raw);
   if (!record) {
-    const dead = nowMs - lst.mtimeMs > LOCK_STALE_MS;
-    return { exists: true, dead, raw };
+    // Empty, unreadable, or unknown-schema lock record: never break by age; fail closed.
+    return { exists: true, dead: false, raw };
   }
-  const isAlive = deps.isLockHolderAlive ?? defaultIsLockHolderAlive;
-  return { exists: true, dead: !isAlive(record), raw };
+  const isAlive = deps.isLockHolderAlive
+    ? deps.isLockHolderAlive(record)
+    : defaultIsLockHolderAlive(record, deps);
+  return { exists: true, dead: !isAlive, raw, record };
 }
 
 function releaseOwnedLockFile(lockPath: string, expectedToken: string): void {
@@ -657,7 +681,7 @@ export function tryAcquireArchiveLock(
   const lockPath = `${lockTargetPath}.lock`;
   ensurePrivateDir(dirname(lockPath));
   const nowMs = deps.nowMs ? deps.nowMs() : Date.now();
-  const frame = readProcessFrame();
+  const frame = (deps.readProcessFrame ?? readProcessFrame)();
   const record: ArchiveLockRecord = {
     schemaVersion: 1,
     token: randomBytes(16).toString("hex"),
@@ -674,7 +698,7 @@ export function tryAcquireArchiveLock(
       return { lockPath, token: record.token };
     }
     const checkNowMs = deps.nowMs ? deps.nowMs() : Date.now();
-    const status = inspectExistingArchiveLock(lockPath, checkNowMs, deps);
+    const status = inspectExistingArchiveLock(lockPath, deps);
     if (!status.exists) {
       continue;
     }
@@ -684,7 +708,7 @@ export function tryAcquireArchiveLock(
 
     const breakPath = `${lockPath}.break`;
     if (!tryWriteExclusiveLockRecord(breakPath, record)) {
-      const breakStatus = inspectExistingArchiveLock(breakPath, checkNowMs, deps);
+      const breakStatus = inspectExistingArchiveLock(breakPath, deps);
       let breakOld = false;
       try {
         breakOld = checkNowMs - statSync(breakPath).mtimeMs > LOCK_BREAK_STALE_MS;
@@ -704,7 +728,7 @@ export function tryAcquireArchiveLock(
     }
 
     try {
-      const recheck = inspectExistingArchiveLock(lockPath, checkNowMs, deps);
+      const recheck = inspectExistingArchiveLock(lockPath, deps);
       if (recheck.exists && recheck.dead && recheck.raw === status.raw) {
         rmSync(lockPath, { force: true });
       }
@@ -720,6 +744,61 @@ export function releaseArchiveLock(handle: ArchiveLockHandle): void {
   releaseOwnedLockFile(handle.lockPath, handle.token);
 }
 
+export function unlockArchiveLock(
+  options: UnlockArchiveLockOptions = {},
+): UnlockArchiveLockResult {
+  const deps = options.deps ?? {};
+  const paths = resolveArchivePaths(options);
+  const status = inspectExistingArchiveLock(paths.lockPath, deps);
+  const breakPath = `${paths.lockPath}.break`;
+  const breakExists = pathExistsNoFollow(breakPath);
+
+  if (!status.exists && !breakExists) {
+    return {
+      ok: true,
+      lockPath: paths.lockPath,
+      existed: false,
+      unlocked: false,
+      holderStatus: "absent",
+    };
+  }
+
+  const holderStatus: UnlockArchiveLockResult["holderStatus"] = !status.exists
+    ? "absent"
+    : status.dead
+      ? "dead"
+      : "alive-or-unverified";
+
+  if (options.force !== true) {
+    return {
+      ok: false,
+      lockPath: paths.lockPath,
+      existed: true,
+      unlocked: false,
+      holderStatus,
+      ...(status.record ? { record: status.record } : {}),
+      ...(status.raw !== undefined ? { raw: status.raw } : {}),
+    };
+  }
+
+  if (status.exists) {
+    rmSync(paths.lockPath, { force: true });
+  }
+  if (breakExists) {
+    rmSync(breakPath, { force: true });
+  }
+
+  return {
+    ok: true,
+    lockPath: paths.lockPath,
+    existed: true,
+    unlocked: true,
+    holderStatus,
+    ...(status.record ? { record: status.record } : {}),
+    ...(status.raw !== undefined ? { raw: status.raw } : {}),
+  };
+}
+
 function withArchiveLock<T>(
   paths: ArchivePaths,
   deps: ArchiveDeps,
@@ -730,7 +809,7 @@ function withArchiveLock<T>(
   if (!handle) {
     throw new SessionArchiveError(
       "ARCHIVE_LOCKED",
-      `another h2a archive process holds ${paths.lockPath}; refusing overlapping write`,
+      `another h2a archive process or unverified lock holds ${paths.lockPath}; inspect and run \`h2a archive unlock --force\` if no writer is active`,
       2,
     );
   }
@@ -2660,6 +2739,83 @@ function pathExistsNoFollow(targetPath: string): boolean {
   }
 }
 
+type RestoreParentDirResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: "intermediate-symlink" | "non-directory-ancestor";
+      readonly blockingPath: string;
+    };
+
+function ensureSafeRestoreProjectDir(targetProjectDir: string, manualHint: string): void {
+  const projectsDir = dirname(targetProjectDir);
+  if (pathExistsNoFollow(projectsDir)) {
+    const projectsStat = lstatSync(projectsDir);
+    if (projectsStat.isSymbolicLink() || !projectsStat.isDirectory()) {
+      throw new SessionArchiveError(
+        "RESTORE_TARGET_EXISTS",
+        `Claude projects root is not a regular directory (${projectsDir}); run \`${manualHint}\``,
+        2,
+      );
+    }
+  } else {
+    ensurePrivateDir(projectsDir);
+  }
+  if (pathExistsNoFollow(targetProjectDir)) {
+    const targetStat = lstatSync(targetProjectDir);
+    if (targetStat.isSymbolicLink() || !targetStat.isDirectory()) {
+      throw new SessionArchiveError(
+        "RESTORE_TARGET_EXISTS",
+        `target project directory is not a regular directory (${targetProjectDir}); run \`${manualHint}\``,
+        2,
+      );
+    }
+    return;
+  }
+  ensurePrivateDir(targetProjectDir);
+}
+
+function prepareSafeRestoreFileParent(
+  targetProjectDir: string,
+  relFilePath: string,
+): RestoreParentDirResult {
+  const segments = relFilePath.split("/");
+  const dirSegments = segments.slice(0, -1);
+  let cur = targetProjectDir;
+  for (const seg of dirSegments) {
+    cur = join(cur, seg);
+    let lst;
+    try {
+      lst = lstatSync(cur);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+        throw error;
+      }
+      try {
+        mkdirSync(cur, { mode: 0o700 });
+        try {
+          chmodSync(cur, 0o700);
+        } catch {
+          // Best effort on virtual filesystems.
+        }
+        continue;
+      } catch (mkdirErr) {
+        if ((mkdirErr as NodeJS.ErrnoException | undefined)?.code !== "EEXIST") {
+          throw mkdirErr;
+        }
+        lst = lstatSync(cur);
+      }
+    }
+    if (lst.isSymbolicLink()) {
+      return { ok: false, reason: "intermediate-symlink", blockingPath: cur };
+    }
+    if (!lst.isDirectory()) {
+      return { ok: false, reason: "non-directory-ancestor", blockingPath: cur };
+    }
+  }
+  return { ok: true };
+}
+
 export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreArchiveResult {
   const deps = options.deps ?? {};
   const paths = resolveArchivePaths(options);
@@ -2783,7 +2939,7 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
       }
     }
 
-    ensurePrivateDir(targetProjectDir);
+    ensureSafeRestoreProjectDir(targetProjectDir, manualHint);
     ensurePrivateDir(paths.stagingDir);
     const nonce = randomBytes(6).toString("hex");
     const unpackDir = join(paths.stagingDir, `restore-${entry.sessionId}-${process.pid}-${nonce}`);
@@ -2791,6 +2947,7 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
 
     const restoredFiles: string[] = [];
     const skippedExistingFiles: string[] = [];
+    const skippedUnsafePaths: RestoreBlockedPath[] = [];
     try {
       const extractRes = spawnSync(
         "tar",
@@ -2808,27 +2965,76 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
       for (const fileMeta of manifest.files) {
         const src = join(unpackDir, fileMeta.relPath);
         const dest = join(targetProjectDir, fileMeta.relPath);
+        const parentPrep = prepareSafeRestoreFileParent(targetProjectDir, fileMeta.relPath);
+        if (!parentPrep.ok) {
+          if (onConflict === "merge-missing") {
+            skippedUnsafePaths.push({
+              path: dest,
+              blockingPath: parentPrep.blockingPath,
+              reason: parentPrep.reason,
+            });
+            continue;
+          }
+          throw new SessionArchiveError(
+            "RESTORE_TARGET_EXISTS",
+            `unsafe restore parent path (${parentPrep.reason}: ${parentPrep.blockingPath}); rerun with \`${manualHint}\``,
+            2,
+          );
+        }
+
         if (onConflict === "merge-missing" && pathExistsNoFollow(dest)) {
           skippedExistingFiles.push(dest);
           continue;
         }
-        ensurePrivateDir(dirname(dest));
         const tmpDest = join(
           dirname(dest),
           `.restore-${basename(dest)}-${process.pid}-${nonce}`,
         );
         copyFileSync(src, tmpDest);
-        chmodSync(tmpDest, 0o600);
-        // Set mtime to current time so Claude Code cleanup does not immediately purge restored session.
-        utimesSync(tmpDest, nowDate, nowDate);
-        renameSync(tmpDest, dest);
-        restoredFiles.push(dest);
+        try {
+          chmodSync(tmpDest, 0o600);
+          // Set mtime to current time so Claude Code cleanup does not immediately purge restored session.
+          utimesSync(tmpDest, nowDate, nowDate);
+          deps.onBeforeRestorePlace?.(dest);
+          if (onConflict === "backup") {
+            renameSync(tmpDest, dest);
+          } else {
+            try {
+              // Exclusive hard link ensures `merge-missing` and `refuse` never overwrite an existing file.
+              linkSync(tmpDest, dest);
+            } catch (error) {
+              const code = (error as NodeJS.ErrnoException | undefined)?.code;
+              if (code === "EEXIST") {
+                if (onConflict === "merge-missing" && dest !== transcriptTarget) {
+                  skippedExistingFiles.push(dest);
+                  continue;
+                }
+                throw new SessionArchiveError(
+                  "RESTORE_TARGET_EXISTS",
+                  `restore target already exists on disk (${dest}); rerun with \`${manualHint}\``,
+                  2,
+                );
+              }
+              throw error;
+            }
+          }
+          restoredFiles.push(dest);
+        } finally {
+          try {
+            rmSync(tmpDest, { force: true });
+          } catch {
+            // Best-effort cleanup of temp restore staging file.
+          }
+        }
       }
       if (onConflict === "merge-missing") {
-        if (existsSync(companionRoot)) {
-          utimesSync(companionRoot, nowDate, nowDate);
+        if (pathExistsNoFollow(companionRoot)) {
+          const compStat = lstatSync(companionRoot);
+          if (!compStat.isSymbolicLink() && compStat.isDirectory()) {
+            utimesSync(companionRoot, nowDate, nowDate);
+          }
         }
-      } else if (existsSync(companionRoot)) {
+      } else if (pathExistsNoFollow(companionRoot)) {
         touchTreeMtime(companionRoot, nowDate);
       }
       fsyncDirBestEffort(targetProjectDir);
@@ -2868,6 +3074,7 @@ export function restoreSessionArchive(options: RestoreArchiveOptions): RestoreAr
       targetProjectDir,
       restoredFiles,
       skippedExistingFiles,
+      skippedUnsafePaths,
       backedUpPaths,
       restoredAt,
       alerts: readClaudeArchiveAlerts({ ...options, nowMs }),
@@ -2948,6 +3155,12 @@ export function ensureClaudeSessionRestoredForResume(
     transcriptPath: join(restored.targetProjectDir, `${restored.sessionId}.jsonl`),
     originCwd: restored.originCwd,
     archiveId: restored.archiveId,
+    ...(restored.skippedExistingFiles.length > 0
+      ? { skippedExistingFiles: restored.skippedExistingFiles }
+      : {}),
+    ...(restored.skippedUnsafePaths.length > 0
+      ? { skippedUnsafePaths: restored.skippedUnsafePaths }
+      : {}),
     alerts: restored.alerts,
   };
 }
@@ -2960,6 +3173,16 @@ export function emitResumeArchiveNotices(
     stderr.write(
       `h2a resume: restored archived Claude session ${basename(result.transcriptPath ?? "", ".jsonl")} (${result.archiveId}) to ${dirname(result.transcriptPath ?? "")}\n`,
     );
+    if (result.skippedExistingFiles && result.skippedExistingFiles.length > 0) {
+      stderr.write(
+        `h2a resume: preserved ${result.skippedExistingFiles.length} existing companion file(s) during merge-missing restore\n`,
+      );
+    }
+    for (const blocked of result.skippedUnsafePaths ?? []) {
+      stderr.write(
+        `h2a resume: skipped unsafe restore target ${blocked.path} (${blocked.reason} at ${blocked.blockingPath})\n`,
+      );
+    }
   }
   for (const alert of result.alerts) {
     stderr.write(`h2a resume: ${formatArchiveAlertLine(alert)}\n`);

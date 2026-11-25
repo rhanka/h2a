@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -10,9 +10,11 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,9 +22,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { projectStatusForH2a } from "./status-projection.js";
 
 import { tryAcquireFileLock, releaseFileLock } from "./file-lock.js";
+import { readProcessStartTime, type DurableProcFrame } from "./proc-identity.js";
 import {
   ARCHIVE_ALERT_EXIT_CODE,
   checkDiskSpaceGuard,
+  emitResumeArchiveNotices,
   ensureClaudeSessionRestoredForResume,
   formatArchiveAlertLine,
   listSessionArchives,
@@ -39,14 +43,17 @@ import {
   scanClaudeSessions,
   SessionArchiveError,
   tryAcquireArchiveLock,
+  unlockArchiveLock,
   verifySessionArchives,
   type ArchiveDeps,
+  type ArchiveLockRecord,
   DAY_MS,
 } from "./session-archive.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const TEST_TMP_ROOT = join(REPO_ROOT, ".tmp", "session-archive-unit");
-const RUNTIME_ARCHIVE_DIST = join(REPO_ROOT, "packages", "h2a-runtime", "dist", "session-archive.js");
+const RUNTIME_ARCHIVE_SRC = join(REPO_ROOT, "packages", "h2a-runtime", "src", "session-archive.ts");
+const TSX_LOADER = createRequire(import.meta.url).resolve("tsx");
 
 const UUID_1 = "11111111-1111-4111-8111-111111111111";
 const UUID_2 = "22222222-2222-4222-8222-222222222222";
@@ -83,6 +90,7 @@ function makeFixtureBox(): FixtureBox {
   mkdirSync(projectDir, { recursive: true });
   mkdirSync(originCwd, { recursive: true });
   mkdirSync(h2aStateDir, { recursive: true });
+  mkdirSync(join(root, "local-tmp"), { recursive: true });
   return {
     root,
     home,
@@ -817,9 +825,9 @@ describe("session-archive engine (Claude Lot 1, keep-only)", () => {
           };
           expect(lockJson.pid).toBe(process.pid);
 
-          // Spawn a real second OS process trying `runSessionArchive`, `restoreSessionArchive`, and `runArchivePassOnce`.
+          // Spawn a real second OS process importing live TS source (never stale dist) trying `runSessionArchive`, `restoreSessionArchive`, and `runArchivePassOnce`.
           const probeScript = `
-            import { runSessionArchive, restoreSessionArchive, runArchivePassOnce } from ${JSON.stringify(RUNTIME_ARCHIVE_DIST)};
+            import { runSessionArchive, restoreSessionArchive, runArchivePassOnce } from ${JSON.stringify(RUNTIME_ARCHIVE_SRC)};
             const env = JSON.parse(process.argv[1]);
             const deps = { probeHostPidNamespace: () => ({ ok: true }) };
             let runCode = null;
@@ -831,7 +839,7 @@ describe("session-archive engine (Claude Lot 1, keep-only)", () => {
           `;
           const child = spawnSync(
             process.execPath,
-            ["--input-type=module", "-e", probeScript, JSON.stringify(box.env)],
+            ["--import", TSX_LOADER, "--input-type=module", "-e", probeScript, JSON.stringify(box.env)],
             {
               env: {
                 ...process.env,
@@ -1028,5 +1036,306 @@ describe("session-archive engine (Claude Lot 1, keep-only)", () => {
     expect(autoEmpty.status).toBe("restored");
     expect(existsSync(s1.jsonlPath)).toBe(true);
     expect(existsSync(join(s1.companionDir!, "note.txt"))).toBe(true);
+  });
+
+  it("B-1-r2 / NB-3-r2: default lock detector never breaks foreign/missing-anchor/unknown-schema/empty locks and reclaims only proven death", () => {
+    const box = createBox();
+    const paths = resolveArchivePaths({ env: box.env });
+    mkdirSync(paths.root, { recursive: true });
+
+    const currentFrame: DurableProcFrame = {
+      machineId: "a".repeat(32),
+      bootId: "11111111-1111-4111-8111-111111111111",
+      pidNamespace: "4026531836",
+    };
+    const otherMachineId = "b".repeat(32);
+    const prevBootId = "00000000-0000-4000-8000-000000000000";
+    const otherPidNs = "4026539999";
+
+    const holder = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: "ignore",
+    });
+    const holderPid = holder.pid!;
+    expect(holderPid).toBeGreaterThan(0);
+
+    try {
+      const actualStartTime = readProcessStartTime(holderPid);
+      expect(actualStartTime).toBeDefined();
+
+      const writeLock = (payload: string, ageMs = 0): void => {
+        writeFileSync(paths.lockPath, payload, { encoding: "utf8", mode: 0o600 });
+        if (ageMs > 0) {
+          const past = new Date(Date.now() - ageMs);
+          utimesSync(paths.lockPath, past, past);
+        }
+      };
+
+      const baseRecord: ArchiveLockRecord = {
+        schemaVersion: 1,
+        token: "tok-holder",
+        pid: holderPid,
+        startTime: actualStartTime!,
+        pidNamespace: currentFrame.pidNamespace,
+        bootId: currentFrame.bootId,
+        machineId: currentFrame.machineId,
+        acquiredAt: new Date(FIXED_NOW_MS).toISOString(),
+      };
+
+      const frameDeps = okDeps(box, {
+        readProcessFrame: () => currentFrame,
+      });
+
+      // Case 1: live holder, same frame, matching startTime -> refused.
+      writeLock(JSON.stringify(baseRecord));
+      expect(tryAcquireArchiveLock(paths.lockTargetPath, frameDeps)).toBeUndefined();
+
+      // Case 4: live holder, same frame, missing startTime -> refused (fail closed).
+      const { startTime: _omitStart, ...noStartRecord } = baseRecord;
+      writeLock(JSON.stringify(noStartRecord));
+      expect(tryAcquireArchiveLock(paths.lockTargetPath, frameDeps)).toBeUndefined();
+
+      // Case 5: other machine, both machineIds known -> refused even when PID is absent.
+      writeLock(JSON.stringify({ ...baseRecord, pid: 999_999_999, machineId: otherMachineId }));
+      expect(tryAcquireArchiveLock(paths.lockTargetPath, frameDeps)).toBeUndefined();
+
+      // Case 6a: other machine / missing machineId on record, different bootId -> NEVER broken.
+      const { machineId: _omitRecMachine, ...noRecMachine } = baseRecord;
+      writeLock(JSON.stringify({ ...noRecMachine, pid: 999_999_999, bootId: prevBootId }));
+      const passMissingRecMachine = runArchivePassOnce({ env: box.env, deps: frameDeps });
+      expect(passMissingRecMachine.ok).toBe(false);
+      expect(passMissingRecMachine.exitCode).toBe(2);
+      expect(passMissingRecMachine.witness.status).toBe("locked");
+      expect(passMissingRecMachine.witness.reason).toBe("ARCHIVE_LOCKED");
+
+      // Case 6b: missing machineId on reader, different bootId -> NEVER broken.
+      writeLock(JSON.stringify({ ...baseRecord, pid: 999_999_999, bootId: prevBootId }));
+      const noReaderMachineDeps = okDeps(box, {
+        readProcessFrame: () => ({ bootId: currentFrame.bootId, pidNamespace: currentFrame.pidNamespace }),
+      });
+      expect(tryAcquireArchiveLock(paths.lockTargetPath, noReaderMachineDeps)).toBeUndefined();
+
+      // Case 8: different PID namespace (all anchors known) -> refused.
+      writeLock(JSON.stringify({ ...baseRecord, pid: 999_999_999, pidNamespace: otherPidNs }));
+      expect(tryAcquireArchiveLock(paths.lockTargetPath, frameDeps)).toBeUndefined();
+
+      // Case 9: missing pidNamespace on record, PID absent locally -> NEVER broken.
+      const { pidNamespace: _omitNs, ...noNsRecord } = baseRecord;
+      writeLock(JSON.stringify({ ...noNsRecord, pid: 999_999_999 }));
+      const passNoNs = runArchivePassOnce({ env: box.env, deps: frameDeps });
+      expect(passNoNs.witness.status).toBe("locked");
+      expect(existsSync(paths.lockPath)).toBe(true);
+
+      // Case 10: unknown schemaVersion: 2, invalid JSON, and empty 0-byte lock aged > LOCK_STALE_MS -> NEVER broken by age.
+      for (const rawPayload of [
+        JSON.stringify({ schemaVersion: 2, token: "future-tok", pid: 999_999_999 }),
+        "{truncated-json",
+        "",
+      ]) {
+        writeLock(rawPayload, 60_000);
+        const passUnknown = runArchivePassOnce({ env: box.env, deps: frameDeps });
+        expect(passUnknown.ok).toBe(false);
+        expect(passUnknown.exitCode).toBe(2);
+        expect(passUnknown.witness.status).toBe("locked");
+        expect(passUnknown.witness.reason).toBe("ARCHIVE_LOCKED");
+        expect(readFileSync(paths.lockPath, "utf8")).toBe(rawPayload);
+        expect(
+          readClaudeArchiveAlerts({ env: box.env, nowMs: FIXED_NOW_MS }).some(
+            (a) => a.kind === "archive-run-failed" && a.message.includes("writer lock"),
+          ),
+        ).toBe(true);
+      }
+
+      // Non-Linux reader encountering Linux anchors with dead/absent PID -> refused (fail closed).
+      writeLock(JSON.stringify({ ...baseRecord, pid: 999_999_999 }));
+      expect(
+        tryAcquireArchiveLock(paths.lockTargetPath, okDeps(box, { platform: "darwin" })),
+      ).toBeUndefined();
+
+      // Inspect & unlock recovery API: refuses without force on live/unverified lock, removes with force.
+      writeLock(JSON.stringify(baseRecord));
+      const inspectLocked = unlockArchiveLock({ env: box.env, deps: frameDeps });
+      expect(inspectLocked.ok).toBe(false);
+      expect(inspectLocked.existed).toBe(true);
+      expect(inspectLocked.unlocked).toBe(false);
+      expect(inspectLocked.holderStatus).toBe("alive-or-unverified");
+      expect(inspectLocked.record?.token).toBe("tok-holder");
+      expect(existsSync(paths.lockPath)).toBe(true);
+
+      const forcedUnlock = unlockArchiveLock({ env: box.env, force: true, deps: frameDeps });
+      expect(forcedUnlock.ok).toBe(true);
+      expect(forcedUnlock.unlocked).toBe(true);
+      expect(existsSync(paths.lockPath)).toBe(false);
+
+      // Case 2: PID reused (live PID, different startTime, same frame) -> proven dead -> reclaimed.
+      writeLock(JSON.stringify({ ...baseRecord, startTime: actualStartTime! + 100 }));
+      const reclaimedReused = tryAcquireArchiveLock(paths.lockTargetPath, frameDeps);
+      expect(reclaimedReused).toBeDefined();
+      releaseArchiveLock(reclaimedReused!);
+
+      // Case 7: same machine & pidNamespace, previous bootId -> stale-boot -> reclaimed.
+      writeLock(JSON.stringify({ ...baseRecord, bootId: prevBootId }));
+      const reclaimedStaleBoot = tryAcquireArchiveLock(paths.lockTargetPath, frameDeps);
+      expect(reclaimedStaleBoot).toBeDefined();
+      releaseArchiveLock(reclaimedStaleBoot!);
+
+      // Case 3: PID absent from /proc, same frame -> reclaimed.
+      writeLock(JSON.stringify({ ...baseRecord, pid: 999_999_999 }));
+      const reclaimedAbsent = tryAcquireArchiveLock(paths.lockTargetPath, frameDeps);
+      expect(reclaimedAbsent).toBeDefined();
+      releaseArchiveLock(reclaimedAbsent!);
+    } finally {
+      holder.kill("SIGKILL");
+    }
+  });
+
+  it("NB-1-r2: refuse and merge-missing place restored files exclusively and never overwrite concurrent targets", () => {
+    const box = createBox();
+    const s1 = writeClaudeSession(box, UUID_1, {
+      mtimeDaysAgo: 20,
+      companionFiles: {
+        "sub/note.txt": { content: "archived note\n" },
+      },
+    });
+    expect(runSessionArchive({ env: box.env, deps: okDeps(box) }).archived).toHaveLength(1);
+
+    // 1. Concurrent creation of companion file right before placement in `merge-missing`: skips without overwriting.
+    rmSync(s1.jsonlPath, { force: true });
+    rmSync(join(s1.companionDir!, "sub", "note.txt"), { force: true });
+    const raceNoteDest = join(s1.companionDir!, "sub", "note.txt");
+    const mergeRace = restoreSessionArchive({
+      id: UUID_1,
+      onConflict: "merge-missing",
+      env: box.env,
+      deps: okDeps(box, {
+        onBeforeRestorePlace: (dest) => {
+          if (dest === raceNoteDest) {
+            writeFileSync(dest, "concurrent winner\n", "utf8");
+          }
+        },
+      }),
+    });
+    expect(mergeRace.ok).toBe(true);
+    expect(mergeRace.restoredFiles).toEqual([s1.jsonlPath]);
+    expect(mergeRace.skippedExistingFiles).toEqual([raceNoteDest]);
+    expect(readFileSync(raceNoteDest, "utf8")).toBe("concurrent winner\n");
+    expect(readdirSync(join(s1.companionDir!, "sub")).some((n) => n.startsWith(".restore-"))).toBe(false);
+
+    // 2. Concurrent creation of transcript right before placement in `merge-missing` -> refuses without overwriting.
+    rmSync(s1.jsonlPath, { force: true });
+    expect(() =>
+      restoreSessionArchive({
+        id: UUID_1,
+        onConflict: "merge-missing",
+        env: box.env,
+        deps: okDeps(box, {
+          onBeforeRestorePlace: (dest) => {
+            if (dest === s1.jsonlPath) {
+              writeFileSync(dest, "concurrent transcript\n", "utf8");
+            }
+          },
+        }),
+      }),
+    ).toThrowError(SessionArchiveError);
+    expect(readFileSync(s1.jsonlPath, "utf8")).toBe("concurrent transcript\n");
+    expect(readdirSync(box.projectDir).some((n) => n.startsWith(".restore-"))).toBe(false);
+
+    // 3. Concurrent creation right before placement in `refuse` -> refuses without overwriting.
+    rmSync(s1.jsonlPath, { force: true });
+    rmSync(s1.companionDir!, { recursive: true, force: true });
+    expect(() =>
+      restoreSessionArchive({
+        id: UUID_1,
+        onConflict: "refuse",
+        env: box.env,
+        deps: okDeps(box, {
+          onBeforeRestorePlace: (dest) => {
+            if (dest === s1.jsonlPath) {
+              writeFileSync(dest, "refuse concurrent winner\n", "utf8");
+            }
+          },
+        }),
+      }),
+    ).toThrowError(SessionArchiveError);
+    expect(readFileSync(s1.jsonlPath, "utf8")).toBe("refuse concurrent winner\n");
+    expect(readdirSync(box.projectDir).some((n) => n.startsWith(".restore-"))).toBe(false);
+  });
+
+  it("NB-2-r2: merge-missing rejects intermediate symlinks and non-directory ancestors without touching external targets", () => {
+    const box = createBox();
+    const s1 = writeClaudeSession(box, UUID_1, {
+      mtimeDaysAgo: 20,
+      companionFiles: {
+        "sub/a.txt": { content: "from archive sub\n" },
+        "blk/b.txt": { content: "from archive blk\n" },
+        "real/c.txt": { content: "from archive real\n" },
+      },
+    });
+    expect(runSessionArchive({ env: box.env, deps: okDeps(box) }).archived).toHaveLength(1);
+
+    // Simulate purged transcript while surviving companion directory contains:
+    // - `sub` -> symlink to external 0755 directory (T1)
+    // - `blk` -> regular file instead of directory (T2)
+    // - `real` -> existing real directory with mode 0755 (T3)
+    rmSync(s1.jsonlPath, { force: true });
+    rmSync(s1.companionDir!, { recursive: true, force: true });
+    mkdirSync(s1.companionDir!, { recursive: true });
+
+    const outsideDir = join(box.root, "outside-target");
+    mkdirSync(outsideDir, { recursive: true });
+    chmodSync(outsideDir, 0o755);
+    symlinkSync(outsideDir, join(s1.companionDir!, "sub"));
+
+    writeFileSync(join(s1.companionDir!, "blk"), "surviving regular file\n", "utf8");
+
+    const survivingReal = join(s1.companionDir!, "real");
+    mkdirSync(survivingReal, { recursive: true });
+    chmodSync(survivingReal, 0o755);
+
+    const auto = ensureClaudeSessionRestoredForResume({
+      convId: UUID_1,
+      cwd: box.originCwd,
+      env: box.env,
+      deps: okDeps(box),
+    });
+    expect(auto.status).toBe("restored");
+    expect(existsSync(s1.jsonlPath)).toBe(true);
+    expect(existsSync(join(survivingReal, "c.txt"))).toBe(true);
+
+    // T1: symlink never followed; outsideDir untouched and mode 0755 preserved.
+    expect(existsSync(join(outsideDir, "a.txt"))).toBe(false);
+    expect(statSync(outsideDir).mode & 0o777).toBe(0o755);
+
+    // T2: regular file `blk` untouched, nonexistent `blk/b.txt` NOT listed in skippedExistingFiles.
+    expect(readFileSync(join(s1.companionDir!, "blk"), "utf8")).toBe("surviving regular file\n");
+    expect(auto.skippedExistingFiles ?? []).toEqual([]);
+
+    // T3: surviving real directory retains its mode 0755.
+    expect(statSync(survivingReal).mode & 0o777).toBe(0o755);
+
+    // Both blocked targets reported cleanly.
+    expect(auto.skippedUnsafePaths).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: join(s1.companionDir!, "sub", "a.txt"),
+          blockingPath: join(s1.companionDir!, "sub"),
+          reason: "intermediate-symlink",
+        }),
+        expect.objectContaining({
+          path: join(s1.companionDir!, "blk", "b.txt"),
+          blockingPath: join(s1.companionDir!, "blk"),
+          reason: "non-directory-ancestor",
+        }),
+      ]),
+    );
+
+    let capturedNotice = "";
+    emitResumeArchiveNotices(auto, {
+      write: (chunk: string) => {
+        capturedNotice += chunk;
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream);
+    expect(capturedNotice).toContain("intermediate-symlink");
+    expect(capturedNotice).toContain("non-directory-ancestor");
   });
 });
