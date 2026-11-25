@@ -584,6 +584,7 @@ export class OperationLedger {
     this.migrationError = null;
     this._migrationStopped = false;
     this._migrationTimer = null;
+    this._migrationStepPromise = null;
 
     registry.ledger = this;
 
@@ -633,6 +634,7 @@ export class OperationLedger {
       this._migrationTimer = null;
       this._migrationTimerKind = null;
     }
+    return this._migrationStepPromise ?? Promise.resolve();
   }
 
   _loadArchiveIndexesAtStartup() {
@@ -1692,15 +1694,23 @@ export class OperationLedger {
       return this.registry.withLockAsync(fn, lockOptions);
     };
 
+    const runStep = () => {
+      const promise = Promise.resolve(step()).finally(() => {
+        if (this._migrationStepPromise === promise) this._migrationStepPromise = null;
+      });
+      this._migrationStepPromise = promise;
+      return promise;
+    };
+
     const scheduleNext = (delayMs = null) => {
       if (this._migrationStopped) return;
       if (delayMs !== null) {
         this._migrationTimerKind = 'timeout';
-        this._migrationTimer = setTimeout(step, delayMs);
+        this._migrationTimer = setTimeout(runStep, delayMs);
         this._migrationTimer.unref?.();
       } else {
         this._migrationTimerKind = 'immediate';
-        this._migrationTimer = setImmediate(step);
+        this._migrationTimer = setImmediate(runStep);
       }
     };
 

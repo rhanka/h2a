@@ -1360,7 +1360,7 @@ test('L5B item 3/4: interrupted startup migration resumes after stop with 0 loss
   while (countArchivedFiles() < 128 && !ledger1.ledgerMigrationComplete && Date.now() < interruptDeadline) {
     await new Promise(r => setTimeout(r, 15));
   }
-  ledger1.stopMigration();
+  await ledger1.stopMigration();
   const movedBeforeInterrupt = countArchivedFiles();
   assert.ok(movedBeforeInterrupt >= 128 && movedBeforeInterrupt < TOTAL_OPS + TOTAL_EFF,
     `expected mid-flight interruption (moved=${movedBeforeInterrupt} of ${TOTAL_OPS + TOTAL_EFF})`);
@@ -1373,7 +1373,7 @@ test('L5B item 3/4: interrupted startup migration resumes after stop with 0 loss
 
   // Simulate restart: new OwnershipRegistry + new OperationLedger without fsyncSync mocks.
   const gen2 = randomUUID();
-  const reg2 = new OwnershipRegistry({ directory: stateDir, generation: gen2, processIdentity: id, lockDirectory: lockDir });
+  const reg2 = await OwnershipRegistry.createAsync({ directory: stateDir, generation: gen2, processIdentity: id, lockDirectory: lockDir });
   const ledger2 = new OperationLedger(reg2);
   t.after(() => ledger2.stopMigration());
   const resumeDeadline = Date.now() + 20_000;

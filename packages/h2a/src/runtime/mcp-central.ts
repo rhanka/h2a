@@ -1112,7 +1112,7 @@ export async function startCentralMcpServer(
   stopServer = () => {
     stopping ??= (async () => {
       try {
-        participants?.ledger.stopMigration?.();
+        await participants?.ledger.stopMigration?.();
         await application!.close(); httpServer!.closeAllConnections();
         await new Promise<void>((resolve, reject) => httpServer!.close(error => error ? reject(error) : resolve()));
         let drained: { calls: number; children: number; briefs: number; callbacks: number; effects: number } | undefined;
