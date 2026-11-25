@@ -500,3 +500,41 @@ test('inlined theme CSS with :root and [data-theme] overrides ThemeProvider toke
     assert.deepEqual(errors, []);
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
+
+test('artifact target with <body> and <script> comments in theme CSS keeps scripts inert and applies tokens in host shell', async () => {
+  const { buildFocusDossier } = await import('../../dist/focus-build.js');
+  const root = mkdtempSync(join(tmpdir(), 'focus-theme-artifact-browser-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const css = [
+      '/* <body> */',
+      '/* <script>window.__injected = "theme-css-script-ran"</script> */',
+      ':root{--st-semantic-feedback-info:#4a4f8f;--st-semantic-surface-default:rgb(18, 24, 38)}',
+    ].join('\n');
+    const fragment = buildFocusDossier(doc, { target: 'artifact', themeCss: css, themeId: 'devmtl' });
+    const shell = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Artifact Host</title></head><body>${fragment}</body></html>`;
+    const output = join(root, 'artifact-shell.html');
+    writeFileSync(output, shell);
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ offline: true, viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage(), errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto(pathToFileURL(output).href);
+    await page.locator('.focus-page').waitFor({ state: 'visible' });
+    const observed = await page.evaluate(() => {
+      const pageEl = document.querySelector('.focus-page');
+      return {
+        injected: window.__injected ?? null,
+        themeCount: document.querySelectorAll('style[data-focus-theme]').length,
+        info: getComputedStyle(pageEl).getPropertyValue('--st-semantic-feedback-info').trim(),
+        bg: getComputedStyle(pageEl).backgroundColor,
+      };
+    });
+    assert.equal(observed.injected, null);
+    assert.equal(observed.themeCount, 1);
+    assert.equal(observed.info, '#4a4f8f');
+    assert.equal(observed.bg, 'rgb(18, 24, 38)');
+    assert.deepEqual(errors, []);
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});

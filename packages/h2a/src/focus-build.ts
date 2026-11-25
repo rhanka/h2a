@@ -182,18 +182,20 @@ export interface FocusBuildOptions {
 }
 
 /** Shell-safe fragment for artifact publishing: `<title>` + `<style>` + body content. */
-function toArtifactFragment(html: string, themeId?: string): string {
+function toArtifactFragment(html: string, themeId?: string, themeStyleBlocks = ''): string {
   const titleStart = html.indexOf('<title>'), titleEnd = html.indexOf('</title>');
+  const headEnd = html.indexOf('</head>');
   const styleStart = html.indexOf('<style>');
-  const bodyStart = html.indexOf('<body>'), bodyEnd = html.lastIndexOf('</body>');
-  const styleEnd = bodyStart >= 0 ? html.lastIndexOf('</style>', bodyStart) : -1;
-  if ([titleStart, titleEnd, styleStart, styleEnd, bodyStart, bodyEnd].some(i => i < 0) ||
-    !(titleStart < titleEnd && titleEnd < styleStart && styleStart < styleEnd && styleEnd < bodyStart && bodyStart < bodyEnd)) {
+  const styleEnd = headEnd >= 0 ? html.lastIndexOf('</style>', headEnd) : html.indexOf('</style>');
+  const bodyStart = headEnd >= 0 ? html.indexOf('<body>', headEnd) : -1;
+  const bodyEnd = html.lastIndexOf('</body>');
+  if ([titleStart, titleEnd, headEnd, styleStart, styleEnd, bodyStart, bodyEnd].some(i => i < 0) ||
+    !(titleStart < titleEnd && titleEnd < styleStart && styleStart < styleEnd && styleEnd < headEnd && headEnd < bodyStart && bodyStart < bodyEnd)) {
     throw new Error('Invalid Focus renderer asset for artifact target; rebuild the kit');
   }
   const body = html.slice(bodyStart + '<body>'.length, bodyEnd);
   const wrappedBody = themeId !== undefined ? `<div data-theme="${escapeHtml(themeId)}">${body}</div>` : body;
-  return `${html.slice(titleStart, titleEnd + '</title>'.length)}\n${html.slice(styleStart, styleEnd + '</style>'.length)}\n${wrappedBody}`;
+  return `${html.slice(titleStart, titleEnd + '</title>'.length)}\n${html.slice(styleStart, styleEnd + '</style>'.length)}${themeStyleBlocks}\n${wrappedBody}`;
 }
 
 export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {}): string {
@@ -286,25 +288,34 @@ export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {
   let html = renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
     .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, diagrams, build, target,
       ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
-  if (themeId !== undefined) {
-    if (!html.includes('<html lang="fr">')) {
-      throw new Error('Invalid Focus renderer asset: missing root <html> element');
-    }
-    html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
+  if (themeId !== undefined && !html.includes('<html lang="fr">')) {
+    throw new Error('Invalid Focus renderer asset: missing root <html> element');
   }
+  let themeStyleBlocks = '';
   if (themeCss !== undefined) {
-    const headCloseIndex = html.indexOf('</head>');
-    if (headCloseIndex < 0) {
-      throw new Error('Invalid Focus renderer asset: missing </head>');
-    }
     const rootProps = extractRootThemeCustomProperties(themeCss, themeId);
     const bridgeSelector = themeId !== undefined ? `[data-theme="${themeId}"] [data-st-theme]` : ':root [data-st-theme]';
     const bridgeStyle = rootProps.length > 0
       ? `<style data-focus-theme-bridge>${bridgeSelector}{${rootProps.map(prop => `${prop}:inherit`).join(';')}}</style>`
       : '';
-    html = `${html.slice(0, headCloseIndex)}${bridgeStyle}<style data-focus-theme>${themeCss}</style>${html.slice(headCloseIndex)}`;
+    themeStyleBlocks = `${bridgeStyle}<style data-focus-theme>${themeCss}</style>`;
   }
-  return target === 'artifact' ? toArtifactFragment(html, themeId) : html;
+  // Slice the artifact fragment from the un-themed renderer HTML before inserting theme blocks
+  // so comments or rules inside themeCss (e.g. `/* <body> */`) can never alter the boundary.
+  if (target === 'artifact') {
+    return toArtifactFragment(html, themeId, themeStyleBlocks);
+  }
+  if (themeId !== undefined) {
+    html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
+  }
+  if (themeStyleBlocks !== '') {
+    const headCloseIndex = html.indexOf('</head>');
+    if (headCloseIndex < 0) {
+      throw new Error('Invalid Focus renderer asset: missing </head>');
+    }
+    html = `${html.slice(0, headCloseIndex)}${themeStyleBlocks}${html.slice(headCloseIndex)}`;
+  }
+  return html;
 }
 
 /** Same-directory atomic rename is the only write point; failures preserve the previous file. */

@@ -3,12 +3,24 @@
  *
  * Security & portability contract:
  * - Bounded size (256 KiB max) to keep offline portable dossiers self-contained and fast.
- * - Rejects `@import`, external/non-`data:` `url(...)` references, `</style` breakouts, and NUL bytes.
+ * - Rejects `@import`, external/non-`data:` `url(...)` references, restricted image functions
+ *   (`image-set(`, `-webkit-image-set(`, `image(`, `cross-fade(`, `src(`) unless every argument
+ *   supplies a `data:` `url(...)` or `"data:..."` string without `var(`, `env(`, or `attr(`,
+ *   `</style` breakouts, and NUL bytes.
  * - Does not relax the host CSP (`style-src 'unsafe-inline'` already permits inline `<style>`).
  */
 
 /** Maximum allowed size (256 KiB) for an inlined theme CSS file. */
 export const FOCUS_THEME_MAX_CSS_BYTES = 256 * 1024;
+
+const RESTRICTED_IMAGE_FUNCTIONS = new Set([
+  "image-set",
+  "-webkit-image-set",
+  "image",
+  "cross-fade",
+  "src",
+]);
+const FORBIDDEN_SUBSTITUTION_FUNCTIONS = new Set(["var", "env", "attr"]);
 
 const THEME_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/;
 const CONDITIONAL_AT_RULES = new Set([
@@ -154,6 +166,205 @@ const matchUrlCall = (src: string, index: number): { target: string; end: number
   return parsed;
 };
 
+const findMatchingParen = (src: string, openParenIndex: number): number => {
+  let depth = 1;
+  let i = openParenIndex + 1;
+  while (i < src.length) {
+    const ch = src[i]!;
+    if (ch === '"' || ch === "'") {
+      const str = readCssStringEnd(src, i);
+      if (!str) return -1;
+      i = str.end;
+      continue;
+    }
+    if (ch === "/" && src[i + 1] === "*") {
+      const close = src.indexOf("*/", i + 2);
+      if (close === -1) return -1;
+      i = close + 2;
+      continue;
+    }
+    if (ch === "\\") {
+      i = decodeCssEscape(src, i).next;
+      continue;
+    }
+    if (ch === "(") depth += 1;
+    else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+    i += 1;
+  }
+  return -1;
+};
+
+const splitCssFunctionArgs = (argsText: string): string[] | null => {
+  const args: string[] = [];
+  let start = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let i = 0;
+  while (i < argsText.length) {
+    const ch = argsText[i]!;
+    if (ch === '"' || ch === "'") {
+      const str = readCssStringEnd(argsText, i);
+      if (!str) return null;
+      i = str.end;
+      continue;
+    }
+    if (ch === "/" && argsText[i + 1] === "*") {
+      const close = argsText.indexOf("*/", i + 2);
+      if (close === -1) return null;
+      i = close + 2;
+      continue;
+    }
+    if (ch === "\\") {
+      i = decodeCssEscape(argsText, i).next;
+      continue;
+    }
+    if (ch === "(") parenDepth += 1;
+    else if (ch === ")") {
+      if (parenDepth === 0) return null;
+      parenDepth -= 1;
+    } else if (ch === "[") bracketDepth += 1;
+    else if (ch === "]" && bracketDepth > 0) bracketDepth -= 1;
+    else if (ch === "," && parenDepth === 0 && bracketDepth === 0) {
+      args.push(argsText.slice(start, i));
+      start = i + 1;
+    }
+    i += 1;
+  }
+  args.push(argsText.slice(start));
+  return args;
+};
+
+const isSafeImageSetTypeCall = (inner: string): boolean => {
+  let i = 0;
+  let seenString = false;
+  while (i < inner.length) {
+    const ch = inner[i]!;
+    if (isWhitespace(ch)) {
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && inner[i + 1] === "*") {
+      const close = inner.indexOf("*/", i + 2);
+      if (close === -1) return false;
+      i = close + 2;
+      continue;
+    }
+    if ((ch === '"' || ch === "'") && !seenString) {
+      const str = readCssStringEnd(inner, i);
+      if (!str) return false;
+      seenString = true;
+      i = str.end;
+      continue;
+    }
+    return false;
+  }
+  return seenString;
+};
+
+const validateRestrictedImageCall = (fnName: string, argsText: string): void => {
+  const args = splitCssFunctionArgs(argsText);
+  if (!args || args.length === 0) {
+    throw new Error(`Theme CSS ${fnName}(...) call is malformed.`);
+  }
+  for (const arg of args) {
+    let hasDataSource = false;
+    let k = 0;
+    while (k < arg.length) {
+      const ch = arg[k]!;
+      if (isWhitespace(ch)) {
+        k += 1;
+        continue;
+      }
+      if (ch === "/" && arg[k + 1] === "*") {
+        const close = arg.indexOf("*/", k + 2);
+        if (close === -1) {
+          throw new Error(`Theme CSS ${fnName}(...) contains an unclosed comment.`);
+        }
+        k = close + 2;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        const str = readCssStringEnd(arg, k);
+        if (!str) {
+          throw new Error(`Theme CSS ${fnName}(...) contains an unclosed string.`);
+        }
+        const target = str.value.trim();
+        if (!/^data:/i.test(target)) {
+          throw new Error(
+            `Theme CSS ${fnName}(...) must only reference inline data: URLs (rejected string: "${target.slice(0, 80)}").`,
+          );
+        }
+        hasDataSource = true;
+        k = str.end;
+        continue;
+      }
+      if (ch === "\\" || isIdentStart(ch)) {
+        const ident = readCssIdent(arg, k);
+        const lower = ident.value.toLowerCase();
+        let parenIdx = ident.end;
+        while (parenIdx < arg.length && isWhitespace(arg[parenIdx]!)) parenIdx += 1;
+        if (arg[parenIdx] === "(") {
+          if (FORBIDDEN_SUBSTITUTION_FUNCTIONS.has(lower)) {
+            throw new Error(`Theme CSS ${fnName}(...) must not contain ${lower}(...).`);
+          }
+          if (lower === "url") {
+            const parsed = readUrlTarget(arg, parenIdx);
+            if (!parsed) {
+              throw new Error(`Theme CSS ${fnName}(...) contains a malformed or unclosed url(...) reference.`);
+            }
+            if (!/^data:/i.test(parsed.target)) {
+              throw new Error(
+                `Theme CSS ${fnName}(...) url(...) must only reference inline data: URLs (rejected: "${parsed.target.slice(0, 80)}").`,
+              );
+            }
+            hasDataSource = true;
+            k = parsed.end;
+            continue;
+          }
+          const closeIdx = findMatchingParen(arg, parenIdx);
+          if (closeIdx === -1) {
+            throw new Error(`Theme CSS ${fnName}(...) contains an unclosed ${lower}(...) call.`);
+          }
+          const nestedBody = arg.slice(parenIdx + 1, closeIdx);
+          if (
+            (fnName === "image-set" || fnName === "-webkit-image-set") &&
+            lower === "type"
+          ) {
+            if (!isSafeImageSetTypeCall(nestedBody)) {
+              throw new Error(`Theme CSS ${fnName}(...) contains an invalid type(...) modifier.`);
+            }
+            k = closeIdx + 1;
+            continue;
+          }
+          if (RESTRICTED_IMAGE_FUNCTIONS.has(lower)) {
+            validateRestrictedImageCall(lower, nestedBody);
+            hasDataSource = true;
+            k = closeIdx + 1;
+            continue;
+          }
+          throw new Error(
+            `Theme CSS ${fnName}(...) does not allow nested ${lower}(...) calls.`,
+          );
+        }
+        k = Math.max(ident.end, k + 1);
+        continue;
+      }
+      if (ch === "(" || ch === ")" || ch === "[" || ch === "]" || ch === "{" || ch === "}" || ch === ";") {
+        throw new Error(`Theme CSS ${fnName}(...) contains unsupported syntax.`);
+      }
+      k += 1;
+    }
+    if (!hasDataSource) {
+      throw new Error(
+        `Theme CSS ${fnName}(...) requires each argument to provide a data: url(...) or "data:..." string.`,
+      );
+    }
+  }
+};
+
 /**
  * Validate theme CSS for strict offline CSP portability.
  * Returns the CSS string unchanged if valid; throws a descriptive `Error` otherwise.
@@ -197,21 +408,36 @@ export const validateThemeCss = (css: string): string => {
       i = Math.max(ident.end, i + 1);
       continue;
     }
-    const urlMatch = matchUrlCall(css, i);
-    if (urlMatch !== null) {
-      if (urlMatch.end === -1) {
-        throw new Error("Theme CSS contains a malformed or unclosed url(...) reference.");
-      }
-      if (!/^data:/i.test(urlMatch.target)) {
-        throw new Error(
-          `Theme CSS url(...) must only reference inline data: URLs (rejected: "${urlMatch.target.slice(0, 80)}").`,
-        );
-      }
-      i = urlMatch.end;
-      continue;
-    }
     if (ch === "\\" || isIdentStart(ch)) {
-      i = Math.max(readCssIdent(css, i).end, i + 1);
+      const ident = readCssIdent(css, i);
+      const lower = ident.value.toLowerCase();
+      let parenIndex = ident.end;
+      while (parenIndex < css.length && isWhitespace(css[parenIndex]!)) parenIndex += 1;
+      if (css[parenIndex] === "(") {
+        if (lower === "url") {
+          const parsed = readUrlTarget(css, parenIndex);
+          if (!parsed) {
+            throw new Error("Theme CSS contains a malformed or unclosed url(...) reference.");
+          }
+          if (!/^data:/i.test(parsed.target)) {
+            throw new Error(
+              `Theme CSS url(...) must only reference inline data: URLs (rejected: "${parsed.target.slice(0, 80)}").`,
+            );
+          }
+          i = parsed.end;
+          continue;
+        }
+        if (RESTRICTED_IMAGE_FUNCTIONS.has(lower)) {
+          const closeIndex = findMatchingParen(css, parenIndex);
+          if (closeIndex === -1) {
+            throw new Error(`Theme CSS contains an unclosed ${lower}(...) call.`);
+          }
+          validateRestrictedImageCall(lower, css.slice(parenIndex + 1, closeIndex));
+          i = closeIndex + 1;
+          continue;
+        }
+      }
+      i = Math.max(ident.end, i + 1);
       continue;
     }
     i += 1;
@@ -413,6 +639,7 @@ const walkCssBlocks = (src: string, themeId: string | undefined, out: Set<string
 };
 
 /**
+ * @internal
  * Extract `--st-*` custom properties declared for the page root (`:root`, `html`, or
  * `[data-theme="<themeId>"]` when `themeId` is provided). Used by portable DS hosts so
  * root theme tokens inherit cleanly through `[data-st-theme]` wrappers.

@@ -203,11 +203,14 @@ describe("focus CLI — --theme-css & --theme-id", () => {
     const noId = capture();
     expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css", cssPath], noId.deps)).toBe(0);
     expect(noId.out).toContain(`<style data-focus-theme>${css}</style>`);
+    expect(noId.out.indexOf("<style>")).toBeGreaterThan(-1);
     expect(noId.out.indexOf("<style data-focus-theme>")).toBeGreaterThan(noId.out.indexOf("<style>"));
     expect(noId.out.match(/<article\b[^>]*>/)?.[0]).not.toContain("data-theme=");
 
     const withId = capture();
     expect(await run([id, "--workspace", "garden", "--events-path", events, "--format", "html", "--theme-css", cssPath, "--theme-id", "devmtl"], withId.deps)).toBe(0);
+    expect(withId.out.indexOf("<style>")).toBeGreaterThan(-1);
+    expect(withId.out.indexOf("<style data-focus-theme>")).toBeGreaterThan(withId.out.indexOf("<style>"));
     expect(withId.out.match(/<article\b[^>]*>/)?.[0]).toContain('data-theme="devmtl"');
     expect(withId.out).toContain(`<style data-focus-theme>${css}</style>`);
   });
@@ -223,6 +226,13 @@ describe("focus CLI — --theme-css & --theme-id", () => {
     for (const [name, content] of [
       ["import.css", `@import "https://evil.example/x.css";`],
       ["ext-url.css", `body { background: url(https://evil.example/bg.png); }`],
+      ["image-set.css", `body{background-image:image-set("https://example.invalid/a.png" 1x)}`],
+      ["webkit-image-set.css", `main{background-image:-webkit-image-set("https://example.invalid/b.png" 1x)}`],
+      ["image-set-var.css", `:root{--leak:"https://example.invalid/c.png"} body{background-image:image-set(var(--leak) 1x)}`],
+      ["image-fn.css", `body{background-image:image("https://example.invalid/d.png")}`],
+      ["cross-fade.css", `body{background-image:cross-fade("https://example.invalid/e.png", "data:image/png;base64,AA")}`],
+      ["src-fn.css", `body{background-image:src("https://example.invalid/f.png")}`],
+      ["escaped-image-set.css", `body{background-image:\\69 mage-set("https://example.invalid/a.png" 1x)}`],
       ["close-style.css", `body { color: red; }</style><script>alert(1)</script>`],
       ["huge.css", `/* ${"x".repeat(FOCUS_THEME_MAX_CSS_BYTES)} */`],
     ] as const) {
