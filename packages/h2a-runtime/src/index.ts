@@ -26,6 +26,7 @@ import {
 import { registerArchiveCommand } from "./archive-cli.js";
 import {
   emitResumeArchiveNotices,
+  emitResumeScheduleNotices,
   ensureClaudeSessionRestoredForResume,
   SessionArchiveError,
 } from "./session-archive.js";
@@ -772,18 +773,40 @@ function prepareClaudeResumeRestore(
   explicitResume: unknown,
   commandArgs: ReadonlyArray<string>,
   cwd: string,
+  suppressScheduleBanner = false,
 ): boolean {
+  const isResumeInvocation =
+    (explicitResume !== undefined && explicitResume !== false) ||
+    commandArgs.some(
+      (arg) => arg === "--resume" || arg === "-r" || arg.startsWith("--resume="),
+    );
+  const shouldEmitScheduleBanner = isResumeInvocation && !suppressScheduleBanner;
   const normalized = toolOrProfile?.trim().toLowerCase();
-  if (normalized !== "claude" && normalized !== "claude-code") return true;
+  if (normalized !== "claude" && normalized !== "claude-code") {
+    if (shouldEmitScheduleBanner) {
+      emitResumeScheduleNotices();
+    }
+    return true;
+  }
   const convId = extractResumeConvId(explicitResume, commandArgs);
-  if (!convId) return true;
+  if (!convId) {
+    if (shouldEmitScheduleBanner) {
+      emitResumeScheduleNotices();
+    }
+    return true;
+  }
   try {
     const outcome = ensureClaudeSessionRestoredForResume({ convId, cwd });
-    emitResumeArchiveNotices(outcome);
+    emitResumeArchiveNotices(outcome, process.stderr, {
+      suppressScheduleBanner: !shouldEmitScheduleBanner,
+    });
     return true;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     process.stderr.write(`h2a resume: archive auto-restore failed for ${convId}: ${msg}\n`);
+    if (shouldEmitScheduleBanner) {
+      emitResumeScheduleNotices();
+    }
     process.exitCode = error instanceof SessionArchiveError ? error.exitCode : 2;
     return false;
   }
@@ -5696,6 +5719,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        emitResumeScheduleNotices();
         let gatewayMode: "auto" | "gateway" | "direct";
         try {
           gatewayMode = gatewayModeFromOptions(opts);
@@ -6036,7 +6060,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        if (entry.convId && !prepareClaudeResumeRestore(entry.tool, entry.convId, [], entry.cwd)) {
+        if (entry.convId && !prepareClaudeResumeRestore(entry.tool, entry.convId, [], entry.cwd, true)) {
           return;
         }
         if (

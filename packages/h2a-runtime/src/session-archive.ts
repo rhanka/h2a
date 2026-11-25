@@ -63,11 +63,13 @@ import {
   DEFAULT_ALERT_WINDOW_DAYS,
   extractOriginCwdHint,
   formatArchiveAlertLine,
+  formatArchiveScheduleResumeBannerLines,
   isArchiveKillSwitchEnabled,
   isUuidFileStem,
   loadLastRunWitness,
   loadPersistedAlerts,
   readArchiveIndexState,
+  readArchiveScheduleHealth,
   readClaudeArchiveAlerts,
   readClaudeCleanupPeriodDays,
   resolveArchivePaths,
@@ -80,8 +82,10 @@ import {
   type ArchiveLastRunWitness,
   type ArchivePathOptions,
   type ArchivePaths,
+  type ArchiveScheduleHealthSnapshot,
   type ArchiveVersionRecord,
   type PersistedAlertsFile,
+  type ReadArchiveScheduleHealthOptions,
   type SessionArchiveIndex,
   type SessionArchiveIndexEntry,
 } from "./session-archive-alerts.js";
@@ -258,6 +262,8 @@ export interface ArchiveRunOptions extends ArchiveScanOptions {
   readonly dryRun?: boolean;
   readonly sessionId?: string;
   readonly suppressWitnessAlerts?: boolean;
+  readonly maxDurationMs?: number;
+  readonly scheduled?: boolean;
 }
 
 export interface ArchivedSessionOutcome {
@@ -285,6 +291,7 @@ export interface ArchiveRunResult {
   readonly finishedAt: string;
   readonly durationMs: number;
   readonly stoppedForDiskGuard: boolean;
+  readonly stoppedForDurationBudget?: boolean;
   readonly errorCode?: ArchiveErrorCode;
   readonly errorMessage?: string;
   readonly disk: DiskSpaceCheck;
@@ -2181,6 +2188,7 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
   const skippedBlocked: Array<{ readonly sessionId: string; readonly reasons: ReadonlyArray<string> }> = [];
   const failedSessions: FailedSessionOutcome[] = [];
   let stoppedForDiskGuard = false;
+  let stoppedForDurationBudget = false;
   let diskGuardError: string | undefined;
   let lastDiskCheck = scan.disk;
 
@@ -2216,6 +2224,18 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
     if (session.blockers.length > 0) {
       skippedBlocked.push({ sessionId: session.sessionId, reasons: session.blockers });
       continue;
+    }
+
+    const elapsedMs = (deps.nowMs ? deps.nowMs() : Date.now()) - nowMs;
+    if (
+      !dryRun &&
+      typeof options.maxDurationMs === "number" &&
+      Number.isFinite(options.maxDurationMs) &&
+      options.maxDurationMs > 0 &&
+      elapsedMs >= options.maxDurationMs
+    ) {
+      stoppedForDurationBudget = true;
+      break;
     }
 
     const sessionDisk = checkDiskSpaceGuard(paths.root, session.totalBytes, deps);
@@ -2369,6 +2389,7 @@ function executeArchiveRunUnlocked(options: ArchiveRunOptions): ArchiveRunResult
     finishedAt: new Date(finishedMs).toISOString(),
     durationMs: Math.max(0, finishedMs - nowMs),
     stoppedForDiskGuard,
+    ...(stoppedForDurationBudget ? { stoppedForDurationBudget: true } : {}),
     ...(errorCode !== undefined ? { errorCode } : {}),
     ...(errorMessage !== undefined ? { errorMessage } : {}),
     disk: lastDiskCheck,
@@ -3165,9 +3186,29 @@ export function ensureClaudeSessionRestoredForResume(
   };
 }
 
+export function emitResumeScheduleNotices(
+  options: ReadArchiveScheduleHealthOptions = {},
+  stderr: NodeJS.WritableStream = process.stderr,
+): ArchiveScheduleHealthSnapshot | undefined {
+  try {
+    const snapshot = readArchiveScheduleHealth(options);
+    for (const line of formatArchiveScheduleResumeBannerLines(snapshot)) {
+      stderr.write(`h2a resume: ${line}\n`);
+    }
+    return snapshot;
+  } catch {
+    // Schedule health inspection is strictly read-only and best-effort on resume.
+    return undefined;
+  }
+}
+
 export function emitResumeArchiveNotices(
   result: EnsureResumeRestoreResult,
   stderr: NodeJS.WritableStream = process.stderr,
+  options: {
+    readonly suppressScheduleBanner?: boolean;
+    readonly scheduleHealthOptions?: ReadArchiveScheduleHealthOptions;
+  } = {},
 ): void {
   if (result.status === "restored") {
     stderr.write(
@@ -3186,6 +3227,9 @@ export function emitResumeArchiveNotices(
   }
   for (const alert of result.alerts) {
     stderr.write(`h2a resume: ${formatArchiveAlertLine(alert)}\n`);
+  }
+  if (!options.suppressScheduleBanner) {
+    emitResumeScheduleNotices(options.scheduleHealthOptions, stderr);
   }
 }
 
@@ -3273,9 +3317,11 @@ export function runArchivePassOnce(options: ArchiveRunOptions = {}): PassOnceRes
       const finalRunResult: ArchiveRunResult = { ...runResult, alerts };
       const exitCode = !finalRunResult.ok
         ? 2
-        : !options.dryRun && alerts.length > 0
-          ? ARCHIVE_ALERT_EXIT_CODE
-          : 0;
+        : options.scheduled
+          ? 0
+          : !options.dryRun && alerts.length > 0
+            ? ARCHIVE_ALERT_EXIT_CODE
+            : 0;
       return {
         ok: finalRunResult.ok,
         exitCode,

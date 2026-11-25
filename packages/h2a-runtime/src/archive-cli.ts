@@ -1,8 +1,18 @@
 /**
- * Commander registration for `h2a archive` subcommands (Lot 1: keep-only Claude Code).
+ * Commander registration for `h2a archive` subcommands (Lot 1 + H1 schedule wiring).
  */
 
 import { Command } from "commander";
+import {
+  formatArchiveScheduleHumanStatus,
+  runArchiveScheduleDisable,
+  runArchiveScheduleEnable,
+  runArchiveScheduleExec,
+  runArchiveScheduleStatus,
+  runArchiveScheduleUninstall,
+  type ArchiveScheduleDeps,
+} from "./archive-schedule.js";
+import { isLocalSchedulerLikeError } from "./local-scheduler-adapter.js";
 import {
   ARCHIVE_ALERT_EXIT_CODE,
   DEFAULT_GRACE_HOURS,
@@ -59,6 +69,27 @@ function parseGraceHours(value: string | undefined, olderThanDays: number): numb
   return Number(match[1]);
 }
 
+function parseMaxDurationMs(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/i.exec(value.trim());
+  if (!match) {
+    process.stderr.write(
+      `h2a archive: invalid --max-duration "${value}" (expected e.g. 1440s, 24m, 1h, or 5000ms)\n`,
+    );
+    process.exit(1);
+  }
+  const qty = Number(match[1]);
+  const unit = (match[2] ?? "s").toLowerCase();
+  const multiplier =
+    unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60_000 : 3_600_000;
+  const ms = Math.round(qty * multiplier);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    process.stderr.write(`h2a archive: --max-duration must be > 0\n`);
+    process.exit(1);
+  }
+  return ms;
+}
+
 function formatMiB(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
@@ -67,20 +98,37 @@ function formatGiB(bytes: number): string {
   return `${(bytes / (1024 ** 3)).toFixed(2)} GiB`;
 }
 
+function formatCliErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const msg = (error as { message?: unknown }).message;
+    if (typeof msg === "string" && msg.length > 0) return msg;
+  }
+  return String(error);
+}
+
 function handleArchiveCliError(prefix: string, error: unknown, json?: boolean): void {
-  const msg = error instanceof Error ? error.message : String(error);
-  const errorCode = error instanceof SessionArchiveError ? error.code : undefined;
+  const msg = formatCliErrorMessage(error);
+  const matched =
+    error instanceof SessionArchiveError || isLocalSchedulerLikeError(error)
+      ? error
+      : undefined;
+  const errorCode = matched?.code;
+  const exitCode = matched?.exitCode ?? 2;
   if (json) {
     process.stdout.write(
-      `${JSON.stringify({ ok: false, ...(errorCode ? { errorCode } : {}), error: msg })}\n`,
+      `${JSON.stringify({ ok: false, ...(errorCode ? { errorCode } : {}), exitCode, error: msg })}\n`,
     );
   } else {
     process.stderr.write(`${prefix}: ${msg}\n`);
   }
-  process.exitCode = error instanceof SessionArchiveError ? error.exitCode : 2;
+  process.exitCode = exitCode;
 }
 
-export function registerArchiveCommand(program: Command): void {
+export function registerArchiveCommand(
+  program: Command,
+  scheduleDeps: ArchiveScheduleDeps = {},
+): void {
   const archive = program
     .command("archive")
     .description("Manage verified local Claude session archives")
@@ -148,16 +196,18 @@ export function registerArchiveCommand(program: Command): void {
     .option("--cli <name>", "Target CLI (Lot 1: claude)", "claude")
     .option("--older-than <days>", "Inactivity threshold (e.g. 14d)", `${DEFAULT_OLDER_THAN_DAYS}d`)
     .option("--grace-hours <hours>", "Recent-activity grace window in hours")
+    .option("--max-duration <duration>", "Soft duration budget before stopping cleanly (e.g. 1440s)")
     .option("--session <id>", "Restrict to one session UUID")
     .option("--dry-run", "Show planned archives without writing tarballs")
     .option("--once", "Run via external-scheduler pass entrypoint (writes last-run.json, honors H2A_ARCHIVE_OFF=1)")
-    .option("--scheduled", "Alias for --once (external scheduler entrypoint)")
+    .option("--scheduled", "Run via scheduled one-shot pass entrypoint (exit 0 when pass succeeds even if alerts remain)")
     .option("--json", "Emit machine-readable JSON")
     .action(
       (opts: {
         cli?: string;
         olderThan?: string;
         graceHours?: string;
+        maxDuration?: string;
         session?: string;
         dryRun?: boolean;
         once?: boolean;
@@ -167,6 +217,7 @@ export function registerArchiveCommand(program: Command): void {
         parseCliFlag(opts.cli);
         const olderThanDays = parseOlderThanDays(opts.olderThan);
         const graceHours = parseGraceHours(opts.graceHours, olderThanDays);
+        const maxDurationMs = parseMaxDurationMs(opts.maxDuration);
 
         if (opts.once || opts.scheduled) {
           try {
@@ -174,6 +225,8 @@ export function registerArchiveCommand(program: Command): void {
               olderThanDays,
               graceHours,
               dryRun: opts.dryRun === true,
+              ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+              ...(opts.scheduled === true ? { scheduled: true } : {}),
               ...(opts.session ? { sessionId: opts.session } : {}),
             });
             if (opts.json) {
@@ -204,6 +257,7 @@ export function registerArchiveCommand(program: Command): void {
             olderThanDays,
             graceHours,
             dryRun: opts.dryRun === true,
+            ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
             ...(opts.session ? { sessionId: opts.session } : {}),
           });
           if (opts.json) {
@@ -244,21 +298,34 @@ export function registerArchiveCommand(program: Command): void {
 
   archive
     .command("pass")
-    .description("Run one archive pass for an external scheduler (writes last-run.json)")
+    .description("Compatibility alias for `h2a archive run --once` (writes last-run.json)")
     .option("--cli <name>", "Target CLI (Lot 1: claude)", "claude")
     .option("--older-than <days>", "Inactivity threshold (e.g. 14d)", `${DEFAULT_OLDER_THAN_DAYS}d`)
     .option("--grace-hours <hours>", "Recent-activity grace window in hours")
+    .option("--max-duration <duration>", "Soft duration budget before stopping cleanly (e.g. 1440s)")
+    .option("--scheduled", "Exit 0 when pass succeeds even if <14d alerts remain")
     .option("--dry-run", "Evaluate pass without writing archives")
     .option("--json", "Emit machine-readable JSON")
-    .action((opts: { cli?: string; olderThan?: string; graceHours?: string; dryRun?: boolean; json?: boolean }) => {
+    .action((opts: {
+      cli?: string;
+      olderThan?: string;
+      graceHours?: string;
+      maxDuration?: string;
+      scheduled?: boolean;
+      dryRun?: boolean;
+      json?: boolean;
+    }) => {
       parseCliFlag(opts.cli);
       const olderThanDays = parseOlderThanDays(opts.olderThan);
       const graceHours = parseGraceHours(opts.graceHours, olderThanDays);
+      const maxDurationMs = parseMaxDurationMs(opts.maxDuration);
       try {
         const pass = runArchivePassOnce({
           olderThanDays,
           graceHours,
           dryRun: opts.dryRun === true,
+          ...(maxDurationMs !== undefined ? { maxDurationMs } : {}),
+          ...(opts.scheduled === true ? { scheduled: true } : {}),
         });
         if (opts.json) {
           process.stdout.write(`${JSON.stringify(pass, null, 2)}\n`);
@@ -449,6 +516,121 @@ export function registerArchiveCommand(program: Command): void {
         if (!result.ok) process.exitCode = 2;
       } catch (error) {
         handleArchiveCliError("h2a archive unlock", error, opts.json);
+      }
+    });
+
+  const schedule = archive
+    .command("schedule")
+    .description("Manage the systemd --user scheduled archive timer via @sentropic/local-scheduler")
+    .action(() => {
+      schedule.outputHelp();
+    });
+
+  schedule
+    .command("enable")
+    .description("Install and enable the scheduled Claude archive pass timer")
+    .option("--calendar <expr>", "Systemd OnCalendar preset or expression (default: daily)", "daily")
+    .option("--older-than <days>", "Inactivity threshold (e.g. 14d)", `${DEFAULT_OLDER_THAN_DAYS}d`)
+    .option("--json", "Emit machine-readable JSON")
+    .action(async (opts: { calendar?: string; olderThan?: string; json?: boolean }) => {
+      try {
+        const enableOpts: { calendar?: string; olderThan?: string } = {};
+        if (opts.calendar !== undefined) enableOpts.calendar = opts.calendar;
+        if (opts.olderThan !== undefined) enableOpts.olderThan = opts.olderThan;
+        const result = await runArchiveScheduleEnable(enableOpts, scheduleDeps);
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } else {
+          process.stdout.write(
+            `Enabled scheduled archive task ${result.manifest.spec.taskId} (calendar=${result.manifest.spec.schedule.onCalendar}, persistent=${result.manifest.spec.schedule.persistent})\n` +
+              `  service : ${result.servicePath}\n` +
+              `  timer   : ${result.timerPath}\n`,
+          );
+          if (result.lingerNotice) {
+            process.stdout.write(`  linger  : ${result.lingerNotice}\n`);
+          }
+        }
+      } catch (error) {
+        handleArchiveCliError("h2a archive schedule enable", error, opts.json);
+      }
+    });
+
+  schedule
+    .command("disable")
+    .description("Disable the scheduled Claude archive timer while keeping state and history")
+    .option("--json", "Emit machine-readable JSON")
+    .action(async (opts: { json?: boolean }) => {
+      try {
+        const result = await runArchiveScheduleDisable(scheduleDeps);
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } else {
+          process.stdout.write(
+            `Disabled scheduled archive task ${result.taskId} (manifest enabled=${result.manifest.enabled})\n`,
+          );
+        }
+      } catch (error) {
+        handleArchiveCliError("h2a archive schedule disable", error, opts.json);
+      }
+    });
+
+  schedule
+    .command("status")
+    .description("Inspect scheduled archive health, systemd timer state, linger status, and hints")
+    .option("--json", "Emit machine-readable JSON")
+    .action(async (opts: { json?: boolean }) => {
+      try {
+        const st = await runArchiveScheduleStatus({}, scheduleDeps);
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify(st, null, 2)}\n`);
+        } else {
+          process.stdout.write(formatArchiveScheduleHumanStatus(st));
+        }
+      } catch (error) {
+        handleArchiveCliError("h2a archive schedule status", error, opts.json);
+      }
+    });
+
+  schedule
+    .command("uninstall")
+    .description("Disable and remove scheduled archive systemd units")
+    .option("--purge-state", "Also delete task witness, skips.jsonl, and runs.log")
+    .option("--json", "Emit machine-readable JSON")
+    .action(async (opts: { purgeState?: boolean; json?: boolean }) => {
+      try {
+        const result = await runArchiveScheduleUninstall(
+          { purgeState: opts.purgeState === true },
+          scheduleDeps,
+        );
+        if (opts.json) {
+          process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } else {
+          process.stdout.write(
+            `Uninstalled scheduled archive task ${result.taskId} (removedUnits=${result.removedUnits.length}, purgedState=${result.purgedState})\n`,
+          );
+        }
+      } catch (error) {
+        handleArchiveCliError("h2a archive schedule uninstall", error, opts.json);
+      }
+    });
+
+  archive
+    .command("_schedule-exec <taskId>", { hidden: true })
+    .description("Internal systemd ExecStart runner trampoline")
+    .action(async (taskId: string) => {
+      try {
+        const res = await runArchiveScheduleExec(taskId, scheduleDeps);
+        if (res.error) {
+          process.stderr.write(`[local-scheduler] ${res.error.code}: ${res.error.message}\n`);
+        }
+        process.exitCode = res.exitCode;
+      } catch (error) {
+        const matched = isLocalSchedulerLikeError(error) ? error : undefined;
+        const code = matched ? matched.code : "INVALID_TASK_SPEC";
+        const exitCode = matched ? matched.exitCode : 2;
+        const msg = formatCliErrorMessage(error);
+        process.stderr.write(`[local-scheduler] ${code}: ${msg}\n`);
+        process.exitCode = exitCode;
       }
     });
 }

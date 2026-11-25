@@ -260,3 +260,220 @@ test("h2a archive CLI (scan, dry-run, pass kill-switch, status alert, list, veri
   assert.equal(JSON.parse(unlockForce.stdout).unlocked, true);
   assert.equal(existsSync(lockPath), false);
 });
+
+test("h2a archive schedule CLI fails closed without @sentropic/local-scheduler and surfaces scheduler banners in status", async (t) => {
+  const iso = makeIsolatedEnv();
+  t.after(() => {
+    rmSync(iso.root, { recursive: true, force: true });
+  });
+
+  // 1. Help surface exposes enable/disable/status/uninstall and hides _schedule-exec; restore stays separate.
+  const schedHelp = runCli(["archive", "schedule", "--help"], iso.env, iso.workspace);
+  assert.equal(schedHelp.status, 0, schedHelp.stderr);
+  for (const verb of ["enable", "disable", "status", "uninstall"]) {
+    assert.match(schedHelp.stdout, new RegExp(`\\b${verb}\\b`));
+  }
+  assert.doesNotMatch(schedHelp.stdout, /_schedule-exec/);
+
+  const archiveHelp = runCli(["archive", "--help"], iso.env, iso.workspace);
+  assert.equal(archiveHelp.status, 0);
+  assert.doesNotMatch(archiveHelp.stdout, /_schedule-exec/);
+
+  const restoreHelp = runCli(["restore", "--help"], iso.env, iso.workspace);
+  assert.equal(restoreHelp.status, 0);
+  assert.doesNotMatch(restoreHelp.stdout, /\bschedule\b/);
+
+  // 2. Real-package resolution absent -> explicit LOCAL_SCHEDULER_NOT_INSTALLED (exit 69) without installing anything.
+  for (const subcmd of ["enable", "disable", "status", "uninstall"]) {
+    const res = runCli(["archive", "schedule", subcmd, "--json"], iso.env, iso.workspace);
+    assert.equal(res.status, 69, `${subcmd}: ${res.stderr} ${res.stdout}`);
+    const body = JSON.parse(res.stdout);
+    assert.equal(body.ok, false);
+    assert.equal(body.errorCode, "LOCAL_SCHEDULER_NOT_INSTALLED");
+    assert.equal(body.exitCode, 69);
+    assert.match(body.error, /local-scheduler not installed/i);
+  }
+
+  const textEnable = runCli(["archive", "schedule", "enable"], iso.env, iso.workspace);
+  assert.equal(textEnable.status, 69);
+  assert.match(textEnable.stderr, /local-scheduler not installed/i);
+
+  const execAbsent = runCli(["archive", "_schedule-exec", "h2a-session-archive"], iso.env, iso.workspace);
+  assert.equal(execAbsent.status, 69);
+  assert.match(execAbsent.stderr, /LOCAL_SCHEDULER_NOT_INSTALLED/);
+  assert.match(execAbsent.stderr, /local-scheduler not installed/i);
+
+  // 3. --scheduled & --max-duration & H2A_ARCHIVE_OFF on BIN_JS entrypoint.
+  const sessionUuid = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const jsonlPath = join(iso.projectDir, `${sessionUuid}.jsonl`);
+  writeFileSync(
+    jsonlPath,
+    JSON.stringify({
+      type: "user",
+      sessionId: sessionUuid,
+      cwd: iso.workspace,
+      timestamp: "2026-10-01T10:00:00.000Z",
+      message: { role: "user", content: "scheduled smoke" },
+    }) + "\n",
+    "utf8",
+  );
+  const aged19d = new Date(Date.now() - 19 * DAY_MS);
+  utimesSync(jsonlPath, aged19d, aged19d);
+
+  const passKillSwitch = runCli(
+    ["archive", "run", "--once", "--scheduled", "--json"],
+    { ...iso.env, H2A_ARCHIVE_OFF: "1" },
+    iso.workspace,
+  );
+  assert.equal(passKillSwitch.status, 0, passKillSwitch.stderr);
+  const killJson = JSON.parse(passKillSwitch.stdout);
+  assert.equal(killJson.ok, true);
+  assert.equal(killJson.witness.status, "skipped");
+  assert.equal(killJson.witness.reason, "disabled-by-env:H2A_ARCHIVE_OFF");
+
+  // --dry-run + --scheduled --max-duration 1440s exits 0 even outside host init PID namespace.
+  const passDryScheduled = runCli(
+    [
+      "archive",
+      "run",
+      "--once",
+      "--cli",
+      "claude",
+      "--older-than",
+      "14d",
+      "--max-duration",
+      "1440s",
+      "--scheduled",
+      "--dry-run",
+      "--json",
+    ],
+    iso.env,
+    iso.workspace,
+  );
+  assert.equal(passDryScheduled.status, 0, passDryScheduled.stderr);
+  const drySchedJson = JSON.parse(passDryScheduled.stdout);
+  assert.equal(drySchedJson.ok, true);
+  assert.equal(drySchedJson.witness.status, "ok");
+  assert.deepEqual(drySchedJson.runResult.wouldArchive, [sessionUuid]);
+
+  // Real CLI mutating `--scheduled` outside host init PID ns refuses on PID_NAMESPACE_GUARD.
+  let inInitPidNs = false;
+  try {
+    inInitPidNs = readlinkSync("/proc/self/ns/pid") === "pid:[4026531836]";
+  } catch {
+    inInitPidNs = false;
+  }
+  const passLiveScheduled = runCli(
+    [
+      "archive",
+      "run",
+      "--once",
+      "--cli",
+      "claude",
+      "--older-than",
+      "14d",
+      "--max-duration",
+      "1440s",
+      "--scheduled",
+      "--json",
+    ],
+    iso.env,
+    iso.workspace,
+  );
+  if (inInitPidNs) {
+    assert.equal(passLiveScheduled.status, 0, passLiveScheduled.stderr);
+    const liveJson = JSON.parse(passLiveScheduled.stdout);
+    assert.equal(liveJson.ok, true);
+    assert.equal(liveJson.witness.archived, 1);
+  } else {
+    assert.equal(passLiveScheduled.status, 2);
+    const blockedSched = JSON.parse(passLiveScheduled.stdout);
+    assert.equal(blockedSched.ok, false);
+    assert.equal(blockedSched.witness.reason, "PID_NAMESPACE_GUARD");
+  }
+
+  // 4. Synthetic scheduler state with stale (>36h) last-run surfaces CRITICAL alerts on h2a status and h2a status --human.
+  const stateDir = join(iso.env.XDG_STATE_HOME, "sentropic", "local-scheduler");
+  const taskDir = join(stateDir, "tasks", "h2a-session-archive");
+  mkdirSync(taskDir, { recursive: true });
+  chmodSync(stateDir, 0o700);
+  chmodSync(taskDir, 0o700);
+
+  const staleIso = new Date(Date.now() - 40 * 3_600_000).toISOString();
+  const manifest = {
+    v: 1,
+    enabled: true,
+    installedAt: staleIso,
+    enabledAt: staleIso,
+    stateDir,
+    envFilePath: join(iso.env.XDG_CONFIG_HOME, "sentropic", "local-scheduler", "env"),
+    expectedIntervalMs: 86_400_000,
+    runner: {
+      bin: process.execPath,
+      args: [BIN_JS, "archive", "_schedule-exec"],
+    },
+    units: {
+      serviceSha256: "a".repeat(64),
+      timerSha256: "b".repeat(64),
+    },
+    spec: {
+      v: 1,
+      taskId: "h2a-session-archive",
+      owner: "h2a",
+      description: "Periodic Claude Code session archive pass",
+      schedule: {
+        onCalendar: "daily",
+        persistent: true,
+        expectedIntervalMs: 86_400_000,
+        graceMultiplier: 1.5,
+      },
+      command: {
+        bin: process.execPath,
+        args: [
+          BIN_JS,
+          "archive",
+          "run",
+          "--cli",
+          "claude",
+          "--older-than",
+          "14d",
+          "--max-duration",
+          "1440s",
+          "--scheduled",
+        ],
+      },
+      timeoutMs: 1_500_000,
+      killSwitchEnv: "H2A_ARCHIVE_OFF",
+    },
+  };
+  writeFileSync(join(taskDir, "manifest.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
+
+  const staleWitness = {
+    v: 1,
+    taskId: "h2a-session-archive",
+    owner: "h2a",
+    runId: "11111111-1111-4111-8111-111111111111",
+    trigger: "systemd-timer",
+    host: "synthetic-host",
+    pid: 12345,
+    startedAt: staleIso,
+    finishedAt: staleIso,
+    durationMs: 250,
+    outcome: "succeeded",
+    exitCode: 0,
+    signal: null,
+    consecutiveFailures: 0,
+    lastSuccessAt: staleIso,
+    lastSuccessRunId: "11111111-1111-4111-8111-111111111111",
+  };
+  writeFileSync(join(taskDir, "last-run.json"), JSON.stringify(staleWitness, null, 2), { mode: 0o600 });
+
+  const statusJsonRes = runCli(["status", "--root", iso.h2aRoot], iso.env, iso.workspace);
+  assert.equal(statusJsonRes.status, 0, statusJsonRes.stderr);
+  assert.doesNotThrow(() => JSON.parse(statusJsonRes.stdout));
+  assert.match(statusJsonRes.stderr, /\[archive-schedule CRITICAL\] status=schedule_missed/);
+
+  const statusHumanRes = runCli(["status", "--root", iso.h2aRoot, "--human"], iso.env, iso.workspace);
+  assert.equal(statusHumanRes.status, 0, statusHumanRes.stderr);
+  assert.match(statusHumanRes.stderr, /h2a status: \[archive-schedule CRITICAL\] status=schedule_missed/);
+});

@@ -342,7 +342,7 @@ if (argv[0] === "__operator-break") {
     join(homedir(), "h2a-workspace", ".h2a");
   runAsync("status", (async () => {
     const { runStatusSurfaceCli } = await import("./status-surface.js");
-    return runStatusSurfaceCli(
+    const rc = await runStatusSurfaceCli(
       flags,
       { stdout: process.stdout, stderr: process.stderr },
       {
@@ -357,6 +357,24 @@ if (argv[0] === "__operator-break") {
         }
       }
     );
+    if (!argv.includes("--bar") && !argv.includes("--watch")) {
+      try {
+        const alertsPkg: string = "@sentropic/h2a-runtime/session-archive-alerts";
+        const mod = (await import(alertsPkg)) as {
+          readArchiveScheduleHealth?: () => unknown;
+          formatArchiveScheduleResumeBannerLines?: (snapshot: unknown) => readonly string[];
+        };
+        if (mod.readArchiveScheduleHealth && mod.formatArchiveScheduleResumeBannerLines) {
+          const snapshot = mod.readArchiveScheduleHealth();
+          for (const line of mod.formatArchiveScheduleResumeBannerLines(snapshot)) {
+            process.stderr.write(`h2a status: ${line}\n`);
+          }
+        }
+      } catch {
+        // Best-effort schedule banner emission never breaks human status exit code.
+      }
+    }
+    return rc;
   })());
 } else if (shouldDispatchRuntime(argv)) {
   runAsync(`runtime:${argv[0]}`, dispatchRuntime());
@@ -385,6 +403,8 @@ if (argv[0] === "__operator-break") {
                 readonly severity: "warning" | "error";
                 readonly message: string;
               }) => string;
+              readArchiveScheduleHealth?: () => unknown;
+              formatArchiveScheduleStatusLines?: (snapshot: unknown) => readonly string[];
             };
             const alerts = mod.readClaudeArchiveAlerts?.() ?? [];
             for (const alert of alerts) {
@@ -392,6 +412,12 @@ if (argv[0] === "__operator-break") {
                 ? mod.formatArchiveAlertLine(alert)
                 : alert.message;
               process.stderr.write(`h2a status: ${formatted}\n`);
+            }
+            if (mod.readArchiveScheduleHealth && mod.formatArchiveScheduleStatusLines) {
+              const schedSnapshot = mod.readArchiveScheduleHealth();
+              for (const line of mod.formatArchiveScheduleStatusLines(schedSnapshot)) {
+                process.stderr.write(`h2a status: ${line}\n`);
+              }
             }
           } catch {
             // Optional peer runtime or read error never breaks core status exit 0.
