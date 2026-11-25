@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import type { H2AWorkspaceRef } from "../../identity.js";
 import {
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -9,9 +10,8 @@ import {
   type H2ASession,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
-  type H2ASessionState,
-  type H2AWorkspaceRef
-} from "@sentropic/h2a";
+  type H2ASessionState
+} from "../../session.js";
 
 import {
   deletePresence,
@@ -50,6 +50,8 @@ export interface OpenSessionRequest {
 export interface SessionRegistryOptions {
   /** Heartbeat interval (ms). Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS. */
   readonly heartbeatIntervalMs?: number;
+  /** Optional initial delay before first heartbeat (ms) to stagger central attachments. */
+  readonly initialDelayMs?: number;
   /** Expiry window (ms). Defaults to H2A_SESSION_DEFAULT_EXPIRY_MS. */
   readonly expiryMs?: number;
   /**
@@ -62,6 +64,7 @@ export interface SessionRegistryOptions {
 
 interface SessionEntry {
   session: H2ASession;
+  heartbeatDelayHandle?: ReturnType<typeof setTimeout>;
   heartbeatHandle?: ReturnType<typeof setInterval>;
   touchInFlight?: boolean;
   /**
@@ -114,6 +117,7 @@ export class SessionRegistry {
   private readonly entries = new Map<string, SessionEntry>();
   private readonly openingSessionIds = new Set<string>();
   private readonly heartbeatIntervalMs: number;
+  private readonly initialDelayMs: number;
   private readonly expiryMs: number;
   private readonly autoHeartbeat: boolean;
   private readonly onHeartbeatError?: (error: unknown) => void;
@@ -124,21 +128,51 @@ export class SessionRegistry {
   ) {
     this.heartbeatIntervalMs =
       options.heartbeatIntervalMs ?? H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS;
+    this.initialDelayMs = options.initialDelayMs ?? 0;
     this.expiryMs = options.expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS;
     this.autoHeartbeat = options.autoHeartbeat ?? true;
     this.onHeartbeatError = options.onHeartbeatError;
   }
 
+  private clearHeartbeatTimers(entry: SessionEntry | undefined): void {
+    if (!entry) return;
+    if (entry.heartbeatDelayHandle) {
+      clearTimeout(entry.heartbeatDelayHandle);
+      entry.heartbeatDelayHandle = undefined;
+    }
+    if (entry.heartbeatHandle) {
+      clearInterval(entry.heartbeatHandle);
+      entry.heartbeatHandle = undefined;
+    }
+  }
+
   private armHeartbeat(sessionId: string, entry: SessionEntry): void {
     // R2-04: never arm long-lived timers while lockOwnership ALS is bound.
     withoutLockOwnership(() => {
-      entry.heartbeatHandle = setInterval(() => {
-        if (entry.touchInFlight) return;
-        void this.touchAsync(sessionId, { nonBlocking: true }).catch((error) => {
-          try { this.onHeartbeatError?.(error); } catch { /* diagnostic only */ }
-        });
-      }, this.heartbeatIntervalMs);
-      entry.heartbeatHandle.unref?.();
+      const armInterval = () => {
+        entry.heartbeatHandle = setInterval(() => {
+          if (entry.touchInFlight) return;
+          void this.touchAsync(sessionId, { nonBlocking: true }).catch((error) => {
+            try { this.onHeartbeatError?.(error); } catch { /* diagnostic only */ }
+          });
+        }, this.heartbeatIntervalMs);
+        entry.heartbeatHandle.unref?.();
+      };
+      if (this.initialDelayMs > 0) {
+        entry.heartbeatDelayHandle = setTimeout(() => {
+          entry.heartbeatDelayHandle = undefined;
+          if (!this.entries.has(sessionId)) return;
+          if (!entry.touchInFlight) {
+            void this.touchAsync(sessionId, { nonBlocking: true }).catch((error) => {
+              try { this.onHeartbeatError?.(error); } catch { /* diagnostic only */ }
+            });
+          }
+          armInterval();
+        }, this.initialDelayMs);
+        entry.heartbeatDelayHandle.unref?.();
+      } else {
+        armInterval();
+      }
     });
   }
 
@@ -211,10 +245,7 @@ export class SessionRegistry {
 
   close(sessionId: string, finalState: H2ASessionState = "closed"): H2ASession | undefined {
     const entry = this.entries.get(sessionId);
-    if (entry?.heartbeatHandle) {
-      clearInterval(entry.heartbeatHandle);
-      entry.heartbeatHandle = undefined;
-    }
+    this.clearHeartbeatTimers(entry);
     try {
       const updated = updatePresence(this.root, sessionId, {
         state: finalState,
@@ -235,10 +266,7 @@ export class SessionRegistry {
     options?: { timeoutMs?: number; nonBlocking?: boolean }
   ): Promise<H2ASession | undefined> {
     const entry = this.entries.get(sessionId);
-    if (entry?.heartbeatHandle) {
-      clearInterval(entry.heartbeatHandle);
-      entry.heartbeatHandle = undefined;
-    }
+    this.clearHeartbeatTimers(entry);
     try {
       const updated = await updatePresenceAsync(this.root, sessionId, {
         state: finalState,
@@ -331,7 +359,7 @@ export class SessionRegistry {
         heartbeatAt: nowIso(),
         ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {}),
         ...(nextName ? { name: nextName } : {})
-      }, options);
+      }, { ...options, instance: entry.session.instance });
       if (!updated) {
         updated = {
           ...entry.session,
@@ -366,15 +394,14 @@ export class SessionRegistry {
   /** Suspend owner heartbeats without deleting the checkpointed presence. */
   suspend(): void {
     for (const entry of this.entries.values()) {
-      if (entry.heartbeatHandle) clearInterval(entry.heartbeatHandle);
-      entry.heartbeatHandle = undefined;
+      this.clearHeartbeatTimers(entry);
     }
   }
 
   resume(): void {
     if (!this.autoHeartbeat) return;
     for (const [id, entry] of this.entries) {
-      if (!entry.heartbeatHandle) {
+      if (!entry.heartbeatHandle && !entry.heartbeatDelayHandle) {
         this.armHeartbeat(id, entry);
       }
     }

@@ -24,7 +24,8 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 
-import { effectiveOrgInstances, type H2AActorRegistration } from "@sentropic/h2a";
+import { effectiveOrgInstances } from "../../org.js";
+import type { H2AActorRegistration } from "../../types.js";
 
 import type { LocalStore } from "../local-files/store.js";
 import { encodeFrame, type FrameBudget } from "./frame-budget.js";

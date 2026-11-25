@@ -37,10 +37,9 @@
  * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readAgyClaudeQuotaStatus } from "./runtime/agy-claude.js";
 import { generateKeyPairSync } from "node:crypto";
-import { once } from "node:events";
 import {
   chmodSync,
   copyFileSync,
@@ -81,13 +80,14 @@ import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js"
 import { cmdHostedLock, cmdRegistry, cmdRegistryBridge, type BridgeServeDeps } from "./registry/cli-registry.js";
 import { runCentralShim } from "./runtime/mcp-central-shim.js";
 import { canonicalCentralRoot } from "./runtime/mcp-central-policy.js";
-import { centralStateDirectory } from "./runtime/mcp-central-discovery.js";
-import { readState as readHandoverState } from "./runtime/handover/state.js";
 import { readInstallReceipt } from "./registry/host-bootstrap.js";
-import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
 import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
 import { centralCompact, centralOperator, centralOperatorExitCode, centralFailureExitCode, centralResidueReport, parseCentralCompactArgs } from "./runtime/mcp-central-operator.js";
+import { buildMcpIdentityRequest, resolveRoot, resolveRootInfo, runMcpServe, warnIfCwdRootFallback } from "./runtime/mcp/serve.js";
+import { classifyCentralServeExitCode, runCentralMcpServe } from "./runtime/mcp-central-serve.js";
+import { buildDriveDriver } from "./runtime/drive/cli-driver.js";
+export { buildMcpIdentityRequest, classifyCentralServeExitCode, runCentralMcpServe, runMcpServe };
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } from "./hosts/native-paths.js";
 import { convergeNativeHost } from "./hosts/native-convergence.js";
@@ -190,16 +190,7 @@ import {
   writePresence
 } from "./runtime/local-files/index.js";
 import { messageBackend, sendMessage } from "./runtime/send.js";
-import {
-  getActiveMcpTrace,
-  H2A_MCP_READY_FILE_ENV,
-  H2A_MCP_READY_NONCE_ENV,
-  runMcpStdio,
-  type McpIdentityRequest,
-  type ResolvedIdentityMessage,
-  type RunMcpStdioOptions
-} from "./runtime/mcp/index.js";
-import { bridgeCentralMcpStdio, startCentralMcpServer } from "./runtime/mcp-central.js";
+import { bridgeCentralMcpStdio } from "./runtime/mcp-central.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
@@ -241,7 +232,6 @@ import {
   type H2ARelauncherKind,
   type ReflexiveDecider
 } from "./runtime/drumbeat/index.js";
-import { createRelauncherRuntime } from "./runtime/drumbeat/relaunchers.js";
 import { gatherNhiSnapshot } from "./runtime/nhi.js";
 import {
   raiseBlockage,
@@ -255,16 +245,10 @@ import {
 } from "./runtime/escalation/index.js";
 import {
   authorizeDrive,
-  chainDriver,
   formatSignedDriveInstruction,
-  headlessDriver,
-  localTmuxDriver,
-  loggingDriver,
-  nativeBackchannelDriver,
   remoteDriveServerForStore,
   verifyDriveOnReceive,
   type H2ADriveInstructionPayload,
-  type H2ADriver,
   type H2ADriverKind
 } from "./runtime/drive/index.js";
 import { verifyEnvelopeSysmlRef } from "./runtime/sysml/index.js";
@@ -274,16 +258,11 @@ import {
   isQuietUpgradeOutcome,
   currentCliVersion,
   upgradeCachePath,
-  runBootUpgrade,
-  describeBootUpgrade,
   resolveH4ManagedRoot,
   resolveH4Target,
   readH4ExclusionEvidence,
   createH4UpgradeId,
   H2A_CLI_PACKAGE,
-  H2A_AUTO_UPGRADE_CHECK_TTL_MS,
-  H2A_REEXEC_GUARD_ENV,
-  H2A_UPGRADE_CHECK_TTL_MS,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
 import { parseUpgradeCommand, upgradeExitCode } from "./runtime/upgrade/upgrade-cli.js";
@@ -645,30 +624,6 @@ function parseFlags(argv: readonly string[], literalValueFlags: readonly string[
   return { command, flags };
 }
 
-/**
- * Resolve the h2a store root, with its provenance.
- *
- * Precedence: explicit `--root` flag → `H2A_ROOT` env → the shared global
- * default `~/h2a-workspace/.h2a`. The global default lets all agents on the
- * same machine share one bus without any explicit configuration — eliminating
- * the split-brain failure (F4) that the old `cwd/.h2a` fallback caused.
- * Callers on long-lived paths (`mcp-serve`, `connect`) warn when a repo-local
- * `.h2a` exists and is being ignored in favour of the shared bus.
- */
-function resolveRootInfo(
-  flags: Record<string, string>,
-  cwd: () => string
-): { root: string; source: "flag" | "env" | "default" } {
-  if (flags.root) return { root: flags.root, source: "flag" };
-  const env = process.env.H2A_ROOT;
-  if (env && env.length > 0) return { root: env, source: "env" };
-  return { root: join(homedir(), "h2a-workspace", ".h2a"), source: "default" };
-}
-
-function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
-  return resolveRootInfo(flags, cwd).root;
-}
-
 function cmdSend(argv: readonly string[], streams: H2ACliStreams): number | Promise<number> {
   const flags: Record<string, string> = {};
   const positionals: string[] = [];
@@ -774,40 +729,6 @@ function cmdSend(argv: readonly string[], streams: H2ACliStreams): number | Prom
   } catch (error) {
     streams.stderr.write(`h2a send: ${(error as Error).message}\n`);
     return classifyStoreError((error as Error).message);
-  }
-}
-
-/**
- * Warn (once, to stderr) when the resolved root (from the shared default OR
- * from H2A_ROOT env) differs from a repo-local `.h2a` that exists in the
- * current working directory. The user may have intended to use the local bus —
- * so we alert them to pass `--root <cwd>/.h2a` if that was their intent. When
- * no local `.h2a` exists around the cwd, or when an explicit `--root` flag was
- * used (the user was unambiguous), stay silent. Used by `mcp-serve` and `connect`.
- */
-function warnIfCwdRootFallback(
-  flags: Record<string, string>,
-  cwd: () => string,
-  streams: H2ACliStreams
-): void {
-  const info = resolveRootInfo(flags, cwd);
-  // Only warn for implicit resolution (default or env). An explicit --root flag
-  // means the user was unambiguous about which bus to use.
-  if (info.source === "flag") return;
-  const cwdLocal = join(cwd(), ".h2a");
-  try {
-    if (!existsSync(cwdLocal)) return;
-    const resolvedLocal = realpathSync(cwdLocal);
-    const resolvedRoot = (() => {
-      try { return realpathSync(info.root); } catch { return info.root; }
-    })();
-    if (resolvedLocal === resolvedRoot) return;
-    streams.stderr.write(
-      `h2a: a repo-local .h2a exists here but I'm using the shared bus ${info.root}. ` +
-        `Pass --root ${cwdLocal} if you meant the local one.\n`
-    );
-  } catch {
-    // silently ignore filesystem errors
   }
 }
 
@@ -1831,29 +1752,6 @@ function cmdComprehension(
  * with `PassThrough` streams instead of going through this verb.
  */
 /**
- * L2: build the DEFERRED identity request from `mcp-serve` flags — pure, total,
- * and lock-free (no key read, no registry parse, no lock wait). The transport
- * hands this to a child worker that resolves identity OFF the MCP event loop, so
- * `initialize` / `tools/list` / `h2a_identity_status` answer immediately. The
- * synchronous {@link resolveAutoOpen} is kept unchanged for existing consumers.
- */
-export function buildMcpIdentityRequest(
-  flags: Record<string, string>,
-  cwd: () => string
-): McpIdentityRequest {
-  const host = flags.host ?? "agent";
-  return {
-    root: resolveRoot(flags, cwd),
-    host,
-    cwd: cwd(),
-    declaredCapabilities: [...H2A_CLI_DECLARED_CAPABILITIES],
-    ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
-    ...(flags.name !== undefined ? { name: flags.name } : {}),
-    ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
-  };
-}
-
-/**
  * DEC-105 (EVO-6): resolve the auto-open session config from `mcp-serve` flags.
  * `--auto-open` enables it; the instance is `--instance <id>` or, if absent,
  * `<host>:<cwd-leaf>` (host = `--host` or "agent"). Pure + total so it can be
@@ -2385,521 +2283,6 @@ export function cmdPresenceReap(
     )}\n`
   );
   return 0;
-}
-
-export async function runMcpServe(
-  flags: Record<string, string>,
-  io: {
-    stdin: NodeJS.ReadableStream;
-    stdout: NodeJS.WritableStream;
-    stderr: NodeJS.WritableStream;
-    cwd?: () => string;
-    /** Test seam for the internal structured-readiness environment. */
-    env?: NodeJS.ProcessEnv;
-    /**
-     * Test seam for boot upgrade ordering: managed root the H4 automatic
-     * pass adopts from. Production leaves it unset (the worker resolves the
-     * managed installation itself); tests point it at a fixture.
-     */
-    upgradeManagedRoot?: string;
-    /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
-    signal?: AbortSignal;
-    /** Internal central attachment adapter. */
-    sharedStore?: ReturnType<typeof createLocalStore>;
-    participant?: import('./runtime/handover/participants.js').AttachmentParticipant;
-    onServer?: RunMcpStdioOptions["onServer"];
-    reclaimOnly?: boolean;
-    expectedInstance?: string;
-    centralAttachment?: boolean;
-    runExecutor?: H2aRunExecutor;
-  } = {
-    stdin: process.stdin,
-    stdout: process.stdout,
-    stderr: process.stderr
-  }
-): Promise<number> {
-  const trace = getActiveMcpTrace();
-  trace?.phase("mcp_serve_enter");
-  const cwd = io.cwd ?? (() => process.cwd());
-  warnIfCwdRootFallback(flags, cwd, { stderr: io.stderr, stdout: io.stdout, cwd });
-  const root = trace
-    ? trace.span("root_resolve", () => resolveRoot(flags, cwd))
-    : resolveRoot(flags, cwd);
-  // L2: identity is resolved ASYNCHRONOUSLY in a dedicated child worker so
-  // `initialize` / `tools/list` / `h2a_identity_status` answer immediately even
-  // under a live lock. Here we ONLY capture the deferred request — no key read,
-  // no lock wait, no ~17 MB registry parse on this event loop (the #249
-  // "move-don't-shrink" trap is avoided by not resolving synchronously at all).
-  // `--auto-open` absent → no identity (the explicit mode, unchanged).
-  const readinessEnv = io.env ?? process.env;
-  const identityRequest = flags["auto-open"] !== undefined ? {
-    ...buildMcpIdentityRequest(flags, cwd),
-    providerEnv: Object.fromEntries(Object.entries(readinessEnv).filter((entry): entry is [string, string] => entry[1] !== undefined)),
-    ...(io.reclaimOnly ? { reclaimOnly: true } : {}),
-    ...(io.expectedInstance ? { expectedInstance: io.expectedInstance } : {})
-  } : undefined;
-  const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
-  const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
-  let readiness: { file: string; nonce: string } | undefined;
-  if (readyFile !== undefined || readyNonce !== undefined) {
-    if (
-      !readyFile ||
-      !isAbsolute(readyFile) ||
-      readyFile.includes("\0") ||
-      !readyNonce ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        readyNonce
-      )
-    ) {
-      io.stderr.write("h2a mcp-serve: invalid internal readiness challenge\n");
-      return 1;
-    }
-    readiness = { file: readyFile, nonce: readyNonce };
-  }
-
-  // DEC-107/108 (EVO-8 levels 2/3): version handling at boot. **Opt-in** — no
-  // network on a default boot. Production check/install work runs in a
-  // detached process: spawnSync there cannot freeze the live MCP event loop,
-  // and the installed version applies on the next launch. Never re-exec this
-  // stdio process: replacing its image tears the connected JSON-RPC session.
-  // The guard remains honored when an older h2a re-execs into this version.
-  const wantAutoUpgrade = flags["auto-upgrade"] !== undefined;
-  const wantCheckOnly = flags["upgrade-check"] !== undefined;
-  if (
-    (wantAutoUpgrade || wantCheckOnly) && !io.centralAttachment &&
-    process.env[H2A_REEXEC_GUARD_ENV] === undefined
-  ) {
-    try {
-      // `--auto-upgrade` is opt-in to stay current → short (1h) cache so a
-      // same-day release isn't masked by the 24h notice cache; the passive
-      // `--upgrade-check` notice keeps the 24h throttle.
-      const ttlMs = wantAutoUpgrade ? H2A_AUTO_UPGRADE_CHECK_TTL_MS : H2A_UPGRADE_CHECK_TTL_MS;
-      if (io.upgradeManagedRoot !== undefined) {
-        // Injectable ordering seam for tests: the SAME H4 pass the detached
-        // worker runs (`runBootUpgrade`, explicit: false), scheduled off the
-        // serve path so readiness and initialize never wait for it. The legacy
-        // staged engine is unreachable here.
-        setImmediate(() => {
-          try {
-            const result = runBootUpgrade({
-              root,
-              ttlMs,
-              mode: wantAutoUpgrade ? "auto" : "check",
-              managedRoot: io.upgradeManagedRoot
-            });
-            const notice = describeBootUpgrade(result);
-            if (notice !== null) io.stderr.write(`${notice}\n`);
-          } catch {
-            // best-effort: a check/upgrade failure must never affect serving.
-          }
-        });
-      } else {
-        const worker = spawn(
-          process.execPath,
-          [
-            fileURLToPath(new URL("./runtime/upgrade/boot-worker.js", import.meta.url)),
-            root,
-            String(ttlMs),
-            wantAutoUpgrade ? "auto" : "check"
-          ],
-          {
-            detached: true,
-            stdio: ["ignore", "ignore", "inherit"]
-          }
-        );
-        worker.once("error", () => {});
-        worker.unref();
-        trace?.phase("upgrade_launch", { code: wantAutoUpgrade ? "auto" : "check" });
-      }
-    } catch {
-      // best-effort: worker launch failure must never block serving.
-    }
-  }
-
-  // EVO-1 inbox wake (bug #3): --wake <driver-kind> injects a signed wake on
-  // inbox arrival (requires --auto-open + a resolvable private key). The KIND is
-  // validated eagerly; the driver is BUILT only after asynchronous activation,
-  // when the resolved private key is available (deferred `buildWake`).
-  const WAKE_KINDS: readonly string[] = ["logging", "native", "local-tmux", "headless", "auto"];
-  const nativeSessionId = nativePtyWakeTarget(readinessEnv);
-  let wakeKind: string | undefined;
-  if (flags.wake !== undefined && !WAKE_KINDS.includes(flags.wake)) {
-    io.stderr.write(
-      "h2a mcp-serve: --wake must be one of logging|native|local-tmux|headless|auto; ignored\n"
-    );
-  } else if (flags.wake === "headless") {
-    io.stderr.write(
-      "h2a mcp-serve: --wake headless is unsafe (it would spawn a NEW agent on inbox arrival, not wake this one); use auto. ignored\n"
-    );
-  } else if (flags.wake !== undefined && identityRequest === undefined) {
-    io.stderr.write("h2a mcp-serve: --wake requires --auto-open; ignored\n");
-  } else if (flags.wake !== undefined) {
-    wakeKind = flags.wake;
-  }
-
-  // L2 activation wiring: turn the ASYNC-resolved identity into the presence
-  // config + wake driver + live signer. Runs only once identity is really bound.
-  const buildAutoOpen = (identity: ResolvedIdentityMessage): NonNullable<
-    RunMcpStdioOptions["autoOpen"]
-  > => {
-    const host = flags.host;
-    if (identity.migrationNotice) {
-      io.stderr.write(`h2a mcp-serve: ${identity.migrationNotice}\n`);
-    }
-    // §D1b: follow the host title only when the name was implicit and a real
-    // provider session id was readable, and only for a host we can re-read.
-    const refreshableHost = host === "claude" || host === "codex";
-    const refreshDisplayName =
-      flags.name === undefined && identity.providerSessionId !== undefined && refreshableHost
-        ? createHostSessionNameRefresher({
-            host,
-            cwd: cwd(),
-            sessionId: identity.providerSessionId,
-            readers: readinessEnv.HOME
-              ? { ...defaultHostNameReaders, homedir: () => readinessEnv.HOME! }
-              : defaultHostNameReaders
-          })
-        : undefined;
-    // The worker sends the real workspace object over IPC (typed `unknown` there
-    // because IPC carries no nominal types); it is an H2AWorkspaceRef at runtime.
-    const workspace = identity.workspace as H2AWorkspaceRef | undefined;
-    return {
-      instance: identity.instance,
-      ...(host ? { host } : {}),
-      ...(workspace !== undefined ? { workspace } : {}),
-      ...(identity.name !== undefined ? { name: identity.name } : {}),
-      ...(refreshDisplayName ? { refreshDisplayName } : {}),
-      ...(flags.scope ? { scopes: [flags.scope] } : {}),
-      // An explicit --instance is an operator label, not an owned identity: it
-      // may open presence but never attributes an h2a_run delegation.
-      ...(flags.instance === undefined ? { delegationEligible: true as const } : {})
-    };
-  };
-  const buildWake = (
-    privateKeyPem: string,
-    _instance: string,
-    host: string | undefined
-  ): NonNullable<RunMcpStdioOptions["wake"]> | undefined => {
-    if (wakeKind === undefined) return undefined;
-    try {
-      const log = (line: string) => io.stderr.write(`${line}\n`);
-      const driver =
-        wakeKind === "auto"
-          ? chainDriver(nativePtyBackchannelDriver(log, readinessEnv), localTmuxDriver({ log, runtime: createRelauncherRuntime(readinessEnv) }))
-          : buildDriveDriver(
-              nativeSessionId !== undefined && wakeKind === "local-tmux"
-                ? "native"
-                : (wakeKind as H2ADriverKind),
-              log,
-              readinessEnv
-            );
-      void host;
-      return {
-        driver,
-        privateKeyPem,
-        ...(nativeSessionId !== undefined ? { nativeSessionId } : {})
-      };
-    } catch (err) {
-      io.stderr.write(`h2a mcp-serve: --wake disabled: ${(err as Error).message}\n`);
-      return undefined;
-    }
-  };
-
-  try {
-    const backend = messageBackend(flags.backend ?? readinessEnv.H2A_MESSAGE_BACKEND);
-    const modulePath = readinessEnv.H2A_CLUSTER_MESH_MODULE;
-    if (backend === "cluster-mesh") {
-      if (!identityRequest) throw new Error("cluster-mesh requires --auto-open and a local signing key");
-      if (!modulePath || !isAbsolute(modulePath)) throw new Error("cluster-mesh requires an absolute H2A_CLUSTER_MESH_MODULE");
-    }
-    const bindMessaging: NonNullable<RunMcpStdioOptions["identityActivation"]>["bindMessaging"] = backend === "cluster-mesh"
-      ? async (signer, signal) => {
-          const { loadClusterMeshMessaging } = await import("./runtime/cluster-mesh-messaging.js");
-          signal.throwIfAborted();
-          return loadClusterMeshMessaging(createLocalStore({ root, initialize: false }), signer, modulePath);
-        }
-      : undefined;
-    trace?.phase("transport_enter");
-    await runMcpStdio({
-      root,
-      messageBackend: backend,
-      workspaceRoot: cwd(),
-      sessionEnv: readinessEnv,
-      ...(io.sharedStore ? { store: io.sharedStore } : {}),
-      ...(io.participant ? { participant: io.participant } : {}),
-      ...(io.centralAttachment ? { centralAttachment: true } : {}),
-      ...(io.onServer ? { onServer: io.onServer } : {}),
-      ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
-        runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)
-      } : {}),
-      stdin: io.stdin as never,
-      stdout: io.stdout as never,
-      stderr: io.stderr as never,
-      ...(identityRequest
-        ? { identityRequest, identityActivation: { buildAutoOpen, buildWake, ...(bindMessaging ? { bindMessaging } : {}) } }
-        : {}),
-      ...(readiness ? { readiness } : {}),
-      ...(io.signal ? { signal: io.signal } : {})
-    });
-    return 0;
-  } catch (err) {
-    io.stderr.write(`h2a mcp-serve: ${(err as Error).message}\n`);
-    return 1;
-  }
-}
-
-const CENTRAL_SERVE_CONFIG_ERROR_PREFIXES = [
-  "prefix_owner_mismatch",
-  "foreign_installation_authority",
-  "authority_profile_unqualified",
-  "authority_reference_invalid",
-  "authority_reference_required",
-  "authority_namespace_mismatch",
-  "selected_entry_required",
-  "legacy_prefix_mismatch",
-  "successor_failed",
-  "central MCP root must be an absolute path",
-  "H2A_MCP_CENTRAL_ENDPOINT"
-] as const;
-
-const CENTRAL_SERVE_DISK_ERRNOS = new Set(["EACCES", "EPERM", "EROFS", "ENOSPC", "EDQUOT", "EIO"]);
-const CENTRAL_SERVE_DISK_PREFIXES = [
-  "private_directory_required",
-  "private_state_required",
-  "private_lock_required"
-] as const;
-
-function extractErrorCodes(error: unknown): string[] {
-  const codes: string[] = [];
-  let current: unknown = error;
-  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth++) {
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === "string" && code.length > 0) codes.push(code);
-    current = (current as { cause?: unknown }).cause;
-  }
-  return codes;
-}
-
-function matchesPrefix(value: string, prefix: string): boolean {
-  return value === prefix || value.startsWith(`${prefix}:`) || value.startsWith(`${prefix} `) || value.startsWith(prefix);
-}
-
-/**
- * Closed exit-code classification for `h2a mcp-central-serve` (L3 §3.3, B-10):
- *   0 — operator pause / normal stop
- *   2 — permanent configuration / qualification failure (RestartPreventExitStatus=2 3)
- *   3 — permanent disk / permissions failure (RestartPreventExitStatus=2 3)
- *   1 — transient / crash / watchdog freeze (restarted by systemd Restart=on-failure)
- */
-export function classifyCentralServeExitCode(error: unknown): 0 | 1 | 2 | 3 {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  const codes = extractErrorCodes(error);
-  if (matchesPrefix(message, "deferred_paused") || codes.includes("deferred_paused")) return 0;
-  for (const prefix of CENTRAL_SERVE_CONFIG_ERROR_PREFIXES) {
-    if (matchesPrefix(message, prefix) || codes.includes(prefix)) return 2;
-  }
-  for (const code of codes) {
-    if (CENTRAL_SERVE_DISK_ERRNOS.has(code)) return 3;
-  }
-  for (const prefix of CENTRAL_SERVE_DISK_PREFIXES) {
-    if (matchesPrefix(message, prefix) || codes.includes(prefix)) return 3;
-  }
-  return 1;
-}
-
-function isCentralOperatorPaused(runtimeBaseFlag: string | undefined, env: NodeJS.ProcessEnv): boolean {
-  const paths = { ...(runtimeBaseFlag ? { runtimeBase: runtimeBaseFlag } : {}), env };
-  try {
-    const stateDir = centralStateDirectory(paths);
-    const pausePath = join(stateDir, "operator-stop.json");
-    if (!existsSync(pausePath)) return false;
-    try {
-      return readHandoverState(pausePath, "pause")?.value.paused === true;
-    } catch {
-      return false;
-    }
-  } catch {
-    return false;
-  }
-}
-
-function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-/**
- * `h2a mcp-central-serve` — the opt-in, one-per-UID Streamable HTTP MCP
- * process. Unlike mcp-serve it has no stdio protocol: clients connect directly
- * to H2A_MCP_CENTRAL_ENDPOINT. The startup primitive performs every ownership,
- * liveness, and divergence check before this function reports readiness.
- */
-export async function runCentralMcpServe(
-  flags: Record<string, string>,
-  io: {
-    stderr: NodeJS.WritableStream;
-    cwd?: () => string;
-    env?: NodeJS.ProcessEnv;
-    signal?: AbortSignal;
-    physicalPrefix?: string;
-    standbyPollMs?: number;
-    watchdogIntervalMs?: number;
-    watchdogTimeoutMs?: number;
-    watchdogMaxFailures?: number;
-    probeOptions?: Record<string, unknown>;
-    evictionOptions?: Record<string, unknown>;
-    onStateChange?: (state: "ACQUIRING" | "STANDBY" | "SERVING" | "STOPPING") => void;
-  } = { stderr: process.stderr }
-): Promise<number> {
-  const cwd = io.cwd ?? (() => process.cwd());
-  const env = io.env ?? process.env;
-  const supervised = flags.supervised === "true";
-  const root = supervised ? (flags.root ? resolveRoot(flags, cwd) : canonicalCentralRoot(env)) : resolveRoot(flags, cwd);
-  const runtimeBaseFlag = flags["runtime-base"];
-  try {
-    if (!supervised) {
-      const started = await startCentralMcpServer({
-        root,
-        env,
-        automatic: flags["auto-start"] === "true",
-        ...(io.physicalPrefix ? { physicalPrefix: io.physicalPrefix } : {}),
-        ...(io.probeOptions ? { probeOptions: io.probeOptions } : {}),
-        ...(io.evictionOptions ? { evictionOptions: io.evictionOptions } : {}),
-        ...(flags["handover-id"] ? { successor: { handoverId: flags["handover-id"],
-          transactionEpoch: Number(flags["transaction-epoch"]), attempt: Number(flags["successor-attempt"]) } } : {}),
-        runtimeBase: runtimeBaseFlag
-      });
-      if (started.kind === "reused") {
-        io.stderr.write(
-          `h2a mcp-central-serve: reusing live central MCP at ${started.endpoint}\n`
-        );
-        return 0;
-      }
-      io.stderr.write(
-        `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
-      );
-      if (!io.signal) await started.closed;
-      else if (!io.signal.aborted) await Promise.race([once(io.signal, "abort"), started.closed]);
-      await started.stop();
-      return 0;
-    }
-
-    // Supervised closed state machine: ACQUIRING -> STANDBY | SERVING -> STOPPING (L3 §3.3, B-10).
-    const { startSupervisorWatchdog } = await import("./runtime/handover/supervisor-watchdog.js");
-    const {
-      currentIdentity,
-      observeProcess,
-      probeOwnerHealth,
-      readMarkerObservation
-    } = await import("./runtime/handover/admission.js");
-    const standbyPollMs = io.standbyPollMs ?? 2_000;
-    let state: "ACQUIRING" | "STANDBY" | "SERVING" | "STOPPING" = "ACQUIRING";
-    let reusedEndpoint = "";
-    let reusedMarkerPath = "";
-
-    for (;;) {
-      if (io.signal?.aborted) return 0;
-      if (state === "ACQUIRING") {
-        io.onStateChange?.("ACQUIRING");
-        if (isCentralOperatorPaused(runtimeBaseFlag, env)) {
-          io.stderr.write("h2a mcp-central-serve: operator pause active (operator-stop.json), exiting 0\n");
-          return 0;
-        }
-        const started = await startCentralMcpServer({
-          root,
-          env,
-          automatic: true,
-          idleTimeoutMs: 0,
-          ...(io.physicalPrefix ? { physicalPrefix: io.physicalPrefix } : {}),
-          ...(io.probeOptions ? { probeOptions: io.probeOptions } : {}),
-          ...(io.evictionOptions ? { evictionOptions: io.evictionOptions } : {}),
-          ...(flags["handover-id"] ? { successor: { handoverId: flags["handover-id"],
-            transactionEpoch: Number(flags["transaction-epoch"]), attempt: Number(flags["successor-attempt"]) } } : {}),
-          runtimeBase: runtimeBaseFlag
-        });
-        if (started.kind === "reused") {
-          reusedEndpoint = started.endpoint;
-          reusedMarkerPath = started.markerPath;
-          io.stderr.write(
-            `h2a mcp-central-serve: live central MCP already healthy at ${started.endpoint}; entering STANDBY\n`
-          );
-          state = "STANDBY";
-          continue;
-        }
-        state = "SERVING";
-        io.onStateChange?.("SERVING");
-        io.stderr.write(
-          `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
-        );
-        let watchdog: ReturnType<typeof startSupervisorWatchdog> | undefined;
-        try {
-          watchdog = startSupervisorWatchdog({
-            endpoint: started.endpoint,
-            ...(io.watchdogIntervalMs !== undefined ? { intervalMs: io.watchdogIntervalMs } : {}),
-            ...(io.watchdogTimeoutMs !== undefined ? { timeoutMs: io.watchdogTimeoutMs } : {}),
-            ...(io.watchdogMaxFailures !== undefined ? { maxFailures: io.watchdogMaxFailures } : {})
-          });
-          if (!io.signal) await started.closed;
-          else if (!io.signal.aborted) await Promise.race([once(io.signal, "abort"), started.closed]);
-        } finally {
-          state = "STOPPING";
-          io.onStateChange?.("STOPPING");
-          await watchdog?.stop();
-          await started.stop();
-        }
-        return 0;
-      }
-
-      if (state === "STANDBY") {
-        io.onStateChange?.("STANDBY");
-        for (;;) {
-          await sleepAbortable(standbyPollMs, io.signal);
-          if (io.signal?.aborted) return 0;
-          if (isCentralOperatorPaused(runtimeBaseFlag, env)) {
-            io.stderr.write("h2a mcp-central-serve: operator pause active in STANDBY, exiting 0\n");
-            return 0;
-          }
-          let observed;
-          try {
-            observed = readMarkerObservation(reusedMarkerPath);
-          } catch (readErr) {
-            if ((readErr as NodeJS.ErrnoException)?.code === "ENOENT") observed = undefined;
-            else throw readErr;
-          }
-          if (!observed) {
-            io.stderr.write(`h2a mcp-central-serve: marker absent (was ${reusedEndpoint}); transitioning STANDBY -> ACQUIRING\n`);
-            state = "ACQUIRING";
-            break;
-          }
-          const probe = await probeOwnerHealth(
-            reusedMarkerPath,
-            observed,
-            { domain: { canonicalRoot: root }, frame: currentIdentity(), observe: observeProcess },
-            io.probeOptions
-          );
-          if (probe.status === "healthy" || probe.status === "starting") continue;
-          if (probe.status === "unknown") throw new Error("owner_liveness_unknown");
-          io.stderr.write(`h2a mcp-central-serve: observed owner status=${probe.status}; transitioning STANDBY -> ACQUIRING\n`);
-          state = "ACQUIRING";
-          break;
-        }
-      }
-    }
-  } catch (error) {
-    io.stderr.write(`h2a mcp-central-serve: ${(error as Error).message}\n`);
-    return classifyCentralServeExitCode(error);
-  }
 }
 
 /**
@@ -4400,119 +3783,6 @@ function latestLaunchContext(root: string, instance: string): H2ALaunchContext |
   return listPresence(root)
     .filter((session) => session.instance === instance && session.launchContext)
     .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0]?.launchContext;
-}
-
-function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
-  const runtime = createRelauncherRuntime(env);
-  switch (kind) {
-    case "logging":
-      return loggingDriver(log);
-    case "native":
-      return nativePtyBackchannelDriver(log, env);
-    case "local-tmux":
-      return localTmuxDriver({ log, runtime });
-    case "headless":
-      return headlessDriver({ log, runtime });
-    case "auto":
-      return {
-        drive(request) {
-          for (const driver of [
-            nativePtyBackchannelDriver(log, env),
-            localTmuxDriver({ log, runtime }),
-            headlessDriver({ log, runtime })
-          ]) {
-            const result = driver.drive(request);
-            if (result === true) return true;
-          }
-          return false;
-        }
-      };
-  }
-}
-
-/**
- * The core CLI keeps its runtime dependency lazy. This synchronous bridge
- * reaches the runtime's native-terminal operation entrypoint, where the
- * NativeTerminalClient owns session resolution, liveness/activity checks, and
- * the controller lease used to write the submitted line.
- */
-function nativeTerminalOpPath(): string | undefined {
-  let entry: string | undefined;
-  try {
-    const resolver = (import.meta as unknown as {
-      resolve?: (specifier: string) => string;
-    }).resolve;
-    if (typeof resolver === "function") {
-      entry = fileURLToPath(resolver("@sentropic/h2a-runtime"));
-    }
-  } catch {
-    entry = undefined;
-  }
-  if (entry === undefined) {
-    try {
-      entry = createRequire(import.meta.url).resolve("@sentropic/h2a-runtime");
-    } catch {
-      return undefined;
-    }
-  }
-  const operation = join(dirname(entry), "native-terminal", "op.js");
-  return existsSync(operation) ? operation : undefined;
-}
-
-function nativePtyBackchannelDriver(log: (line: string) => void, env: NodeJS.ProcessEnv = process.env): H2ADriver {
-  return nativeBackchannelDriver({
-    log,
-    runtime: createRelauncherRuntime(env),
-    send(request) {
-      const operation = nativeTerminalOpPath();
-      if (operation === undefined) {
-        log(`drive[native-pty]: runtime unavailable for ${request.to}`);
-        return undefined;
-      }
-      const result = spawnSync(
-        process.execPath,
-        [
-          operation,
-          "drive",
-          "--target",
-          request.to,
-          "--b64",
-          Buffer.from(request.instructionLine, "utf8").toString("base64"),
-        ],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env },
-      );
-      let outcome: string | undefined;
-      if (result.status === 0) {
-        try {
-          const line = result.stdout.trim().split("\n").at(-1);
-          const payload = line ? JSON.parse(line) as { outcome?: unknown } : undefined;
-          outcome = typeof payload?.outcome === "string" ? payload.outcome : undefined;
-        } catch {
-          outcome = undefined;
-        }
-      }
-      const ok = outcome === "driven";
-      log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
-      if (outcome === "unresolved") return undefined;
-      return ok;
-    },
-  });
-}
-
-const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
-
-function nativePtyWakeTarget(env: NodeJS.ProcessEnv): string | undefined {
-  const value = env[H2A_NATIVE_TARGET_SESSION_ENV];
-  if (
-    value === undefined ||
-    value.length === 0 ||
-    value.length > 256 ||
-    value.trim() !== value ||
-    /[\u0000-\u001f\u007f-\u009f]/u.test(value)
-  ) {
-    return undefined;
-  }
-  return value;
 }
 
 function driveReplayGuard(root: string): H2AReplayGuard {

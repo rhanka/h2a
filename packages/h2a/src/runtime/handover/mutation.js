@@ -7,6 +7,7 @@ import { privateDirectory, readState, publishState, replaceState } from './state
 const lockOwnership = new AsyncLocalStorage();
 const execution = new AsyncLocalStorage();
 const localQueues = new Map();
+const freeWaiters = new Map();
 
 export class MutationLockUnavailableError extends Error {
   /** @param {{ status?: number | null, signal?: NodeJS.Signals | null, error?: unknown }} [result] */
@@ -242,6 +243,89 @@ export async function mutationLockAsync(directory, fn, options = {}) {
     return value;
   } finally {
     h.release();
+  }
+}
+
+/**
+ * Wait for `lockFile` to clear (both in-process FIFO queue and any external
+ * kernel flock holder) without registering a dummy waiter in `localQueues`,
+ * preventing nonBlocking probes in sibling lock-order retries from livelocking.
+ */
+export async function waitMutationLockFreeAsync(directory, options = {}) {
+  const { timeoutMs = 5000, lockFile = '.mutation.lock' } = options;
+  privateDirectory(directory);
+  const path = join(directory, lockFile);
+  const deadline = performance.now() + timeoutMs;
+
+  const existing = freeWaiters.get(path);
+  if (existing) {
+    let timer;
+    try {
+      await Promise.race([
+        existing,
+        new Promise(resolve => {
+          timer = setTimeout(resolve, Math.max(0, deadline - performance.now()));
+          timer.unref?.();
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    return performance.now() < deadline;
+  }
+
+  let done;
+  const barrier = new Promise(resolve => { done = resolve; });
+  freeWaiters.set(path, barrier);
+  try {
+    while (true) {
+      const prev = localQueues.get(path);
+      if (!prev) break;
+      const waitMs = deadline - performance.now();
+      if (waitMs <= 0) return false;
+      let timer;
+      const timedOut = await Promise.race([
+        prev.then(() => false),
+        new Promise(resolveWait => {
+          timer = setTimeout(() => resolveWait(true), waitMs);
+          timer.unref?.();
+        })
+      ]);
+      clearTimeout(timer);
+      if (timedOut) return false;
+    }
+
+    const remainingMs = deadline - performance.now();
+    if (remainingMs <= 0) return false;
+    const fd = openPrivateLockFd(path);
+    try {
+      const tool = resolveMutationFlock();
+      const remainingSec = Math.max(0.05, remainingMs / 1000).toFixed(3);
+      const result = await new Promise(resolveFlock => {
+        const child = spawn(tool, ['--exclusive', '--timeout', remainingSec, '3'],
+          { stdio: ['ignore', 'ignore', 'ignore', fd], env: {} });
+        let settled = false;
+        const finish = res => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(killTimer);
+          resolveFlock(res);
+        };
+        const killTimer = setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch { /* ignore */ }
+          finish({ status: null, signal: 'SIGKILL' });
+        }, Math.ceil(Math.max(50, remainingMs)) + 250);
+        killTimer.unref?.();
+        child.once('error', () => finish({ status: null, signal: null }));
+        child.once('exit', (status, signal) => finish({ status, signal }));
+      });
+      return result.status === 0;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } finally {
+    if (freeWaiters.get(path) === barrier) freeWaiters.delete(path);
+    done();
   }
 }
 

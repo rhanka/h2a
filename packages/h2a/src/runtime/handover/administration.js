@@ -20,17 +20,69 @@ export class ColdAdministration {
     this.controlPath = join(this.directory, 'component-control.json');
     this.pausePath = join(this.directory, 'operator-stop.json'); this.indeterminate = false;
     this.closeRequested = false;
+    this._cache = new Map();
+    this._dirStamp = null;
     const control = readState(this.controlPath, 'componentControl');
     if (!control) publishState(this.controlPath, { schemaVersion: 1, revision: 1, activeTransaction: null,
       sourceGeneration: this.marker.generation, ownerIdentity: this.marker.processIdentity, ownerState: 'ACTIVE',
       transactionEpoch: 0, operatorStopCommitted: false, operatorStopped: false }, 'componentControl');
   }
-  control() { return readState(this.controlPath, 'componentControl'); }
-  transaction() {
-    const control = this.control();
-    return control.value.activeTransaction ? readState(join(this.directory, control.value.activeTransaction), 'componentTransaction') : undefined;
+  _readCached(path, schema, fresh = false) {
+    if (fresh) {
+      this._cache.delete(path);
+      return readState(path, schema);
+    }
+    const uid = BigInt(process.getuid());
+    let dirSt;
+    try {
+      dirSt = fs.lstatSync(this.directory, { bigint: true });
+    } catch {
+      this._dirStamp = null;
+      this._cache.delete(path);
+      return readState(path, schema);
+    }
+    if (!dirSt.isDirectory() || dirSt.uid !== uid || (dirSt.mode & 0o777n) !== 0o700n) {
+      this._dirStamp = null;
+      this._cache.delete(path);
+      return readState(path, schema);
+    }
+    const dirKey = `${dirSt.dev}:${dirSt.ino}`;
+    if (this._dirStamp !== dirKey) {
+      this._cache.clear();
+      const loaded = readState(path, schema);
+      this._dirStamp = dirKey;
+      try {
+        const st = loaded ? fs.lstatSync(path, { bigint: true }) : null;
+        this._cache.set(path, st ? { stamp: `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`, value: loaded } : { stamp: 'absent', value: undefined });
+      } catch { /* next read will refresh */ }
+      return loaded;
+    }
+    const cached = this._cache.get(path);
+    if (cached) {
+      try {
+        const st = fs.lstatSync(path, { bigint: true });
+        if (st.isFile() && st.uid === uid && (st.mode & 0o777n) === 0o600n) {
+          const stamp = `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`;
+          if (cached.stamp === stamp) return cached.value;
+        }
+      } catch (err) {
+        if (err?.code === 'ENOENT' && cached.stamp === 'absent') return undefined;
+      }
+      this._cache.delete(path);
+    }
+    const loaded = readState(path, schema);
+    try {
+      const st = loaded ? fs.lstatSync(path, { bigint: true }) : null;
+      this._cache.set(path, st ? { stamp: `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`, value: loaded } : { stamp: 'absent', value: undefined });
+    } catch { /* ignore */ }
+    return loaded;
   }
-  pause() { return readState(this.pausePath, 'pause')?.value.paused ?? false; }
+  control(fresh = false) { return this._readCached(this.controlPath, 'componentControl', fresh); }
+  transaction(fresh = false) {
+    const control = this.control(fresh);
+    return control.value.activeTransaction ? this._readCached(join(this.directory, control.value.activeTransaction), 'componentTransaction', fresh) : undefined;
+  }
+  pause(fresh = false) { return this._readCached(this.pausePath, 'pause', fresh)?.value.paused ?? false; }
   status() {
     const tx = this.transaction()?.value;
     return { state: tx?.state ?? (this.control().value.operatorStopCommitted ? 'STOP_COMMITTED' : 'READY'),
@@ -89,6 +141,7 @@ export class ColdAdministration {
     return this.options.withMutationLock ? this.options.withMutationLock(persist) : persist();
   }
   persist(path, value, schema, observed) {
+    this._cache.delete(path);
     try { return observed ? replaceState(path, value, schema, observed) : publishState(path, value, schema); }
     catch (error) { if (error.message.startsWith('persistence_indeterminate')) this.indeterminate = true; throw error; }
   }
@@ -97,9 +150,9 @@ export class ColdAdministration {
     this.closeRequested = true; this.options.close();
   }
   reconcile() {
-    const control = this.control(), transaction = this.transaction();
+    const control = this.control(true), transaction = this.transaction(true);
     this.options.verifyAuthority?.('reconcile', transaction?.value);
-    this.pause();
+    this.pause(true);
     for (const path of [this.controlPath, ...(control.value.activeTransaction ? [join(this.directory, control.value.activeTransaction)] : [])]) {
       const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
       try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
@@ -140,7 +193,7 @@ export class ColdAdministration {
     const m = this.marker;
     if (step.expectedGeneration !== m.generation || digest(step.expectedPublicationEpoch) !== digest(m.publicationEpoch)) throw new Error('source_authority_mismatch');
     if (this.indeterminate) throw new Error('reconciliation_required');
-    let observed = this.observeLivePublication(this.transaction());
+    let observed = this.observeLivePublication(this.transaction(true));
     const tx = observed?.value;
     this.options.verifyAuthority?.(operation, tx);
     this.options.reconcileParticipants?.(tx);

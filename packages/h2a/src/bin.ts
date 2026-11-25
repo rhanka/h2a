@@ -19,6 +19,26 @@ try {
   else if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
     process.stdout.write(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version + "\n");
     process.exitCode = 0;
+  } else if (argv[0] === "mcp-central-serve") {
+    const { runCentralMcpServe } = await import("./runtime/mcp-central-serve.js");
+    const ac = new AbortController();
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a mcp-central-serve: received ${sig}, shutting down gracefully\n`);
+      ac.abort();
+      setTimeout(() => process.exit(process.exitCode ?? 0), 12_000).unref();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+    try {
+      process.exitCode = await runCentralMcpServe(flags, {
+        stderr: process.stderr,
+        signal: ac.signal
+      });
+    } catch (err) {
+      process.stderr.write(`h2a mcp-central-serve: fatal: ${(err as Error).message}\n`);
+      process.exitCode = 1;
+    }
   } else {
   const { canonicalCentralRoot, centralRoutingEnabled, shouldUseCentralMcp } = await import("./runtime/mcp-central-policy.js");
   const { runCentralShim } = await import("./runtime/mcp-central-shim.js");

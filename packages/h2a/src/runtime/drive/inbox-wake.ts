@@ -9,7 +9,9 @@
  * smoke. Seeds `seen` from the inbox at construction so it does NOT wake on the
  * boot backlog — only on arrivals after the handler is wired.
  */
-import { decideInboxWake, type H2AEnvelope, type H2ALaunchContext } from "@sentropic/h2a";
+import type { H2ALaunchContext } from "../../session.js";
+import type { H2AEnvelope } from "../../types.js";
+import { decideInboxWake } from "../../wake.js";
 
 import { formatSignedDriveInstruction, type H2ADriver } from "./index.js";
 import type { WakeJournal } from "../handover/wake.js";

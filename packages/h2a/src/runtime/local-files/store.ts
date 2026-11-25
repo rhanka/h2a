@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   MutationLockUnavailableError,
-  mutationLockAsync,
+  waitMutationLockFreeAsync,
   withWriterMutation,
   withWriterMutationAsync,
   writerDirectory
@@ -685,7 +685,10 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       const wdir = writerDirectory(paths.root);
       if (existsSync(wdir)) {
         // Sleep in the kernel on .mutation.lock without holding any locks.ts lock (zero AB-BA deadlock).
-        await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+        const free = await waitMutationLockFreeAsync(wdir, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+        if (!free) {
+          throw new MutationLockUnavailableError({ status: 1, signal: null });
+        }
       }
     }
   }

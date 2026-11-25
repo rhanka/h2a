@@ -321,7 +321,7 @@ function createCentralApp(
   const idleEnabled = options.idleTimeoutMs > 0;
   const sweepPeriodMs = Math.max(
     25,
-    Math.min(1000, ...(idleEnabled ? [options.idleTimeoutMs] : []), options.sessionLeaseMs) / 2
+    Math.min(idleEnabled ? 1000 : 2000, ...(idleEnabled ? [options.idleTimeoutMs] : []), options.sessionLeaseMs) / 2
   );
   // A connecting client needs a few loop turns before its challenge lands
   // (TCP handshake plus challenge roundtrip): never declare absence sooner,
@@ -349,7 +349,9 @@ function createCentralApp(
       if (owner && owner.pendingFinishes.length > 0) {
         await owner.flushPendingFinishesAsync({ nonBlocking: true });
       }
-      const liveTransaction = administration()?.transaction()?.value;
+      const admin = administration();
+      let transaction = admin?.transaction()?.value;
+      const liveTransaction = transaction;
       for (const [id, attachment] of sessions) {
         if (!(liveTransaction?.mode === 'live-transfer' && !['ABORTED', 'RETIRED'].includes(liveTransaction.state)) &&
             (attachment.disconnected || now - attachment.touched > options.sessionLeaseMs)) {
@@ -362,7 +364,6 @@ function createCentralApp(
           }
         }
       }
-      const admin = administration();
       if (admin) {
         // L5A-(b): idle fast-path — a quiet central with no live transaction,
         // a clean revision stamp, no pause and no indeterminate flag needs no
@@ -371,7 +372,7 @@ function createCentralApp(
         // indeterminate checks are a single file read plus in-memory flags
         // (no spawn); skipping poll() while either is set would wedge a
         // closed-but-live central (B-1), so they force the full path.
-        const hasActiveTx = liveTransaction && !["ABORTED", "READY"].includes(liveTransaction.state);
+        const hasActiveTx = Boolean(liveTransaction && !["ABORTED", "READY"].includes(liveTransaction.state));
         // NB-5: resync after an external participant-revision.json write so a
         // supervised central (idleTimeoutMs 0, no retirement probe) recovers
         // its fast path instead of wedging on a stale dirty stamp. Gated on
@@ -380,11 +381,14 @@ function createCentralApp(
         // history before retirement (T2.1b). Clean state costs one extra stat
         // (early return, no spawn); the resync itself only runs when the
         // stamp actually moved.
-        if (!idleEnabled && owner && sessions.size === 0 && pendingClosures.size === 0 &&
+        if (!idleEnabled && owner && pendingClosures.size === 0 &&
           owner.pendingFinishes.length === 0 && !hasActiveTx) {
           owner.registry.syncIfExternalChange();
         }
-        const idleClean = owner && sessions.size === 0 && pendingClosures.size === 0 &&
+        // Admin expire()/poll() only have work during an active transaction,
+        // pause, indeterminate state, pending closure/finish or dirty revision —
+        // whether or not sessions are attached.
+        const idleClean = owner && pendingClosures.size === 0 &&
           owner.pendingFinishes.length === 0 && !hasActiveTx && owner.registry.isRevisionClean() &&
           !admin.indeterminate && !owner.registry.indeterminate && !admin.pause();
         if (!idleClean) {
@@ -403,9 +407,9 @@ function createCentralApp(
             admin.indeterminate = true;
             process.stderr.write(`h2a central: recovery_blocked: ${(error as Error).message}\n`);
           }
+          transaction = admin.transaction()?.value;
         }
       }
-      const transaction = administration()?.transaction()?.value;
       const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
       // A connecting client holding a live challenge is not an orphan, even when
       // no session exists yet: the handshake it started must be allowed to land.
@@ -419,13 +423,14 @@ function createCentralApp(
         try {
           if (owner && !owner.registry.indeterminate && owner.ledger.ledgerMigrationComplete === true &&
               owner.pendingFinishes.length === 0 && await administration()?.admissionsOpenAsync({ nonBlocking: true })) {
-            // Probe for a busy writer on each tick, but reconcile and read
-            // durable history only when this tick could retire the server.
-            // L5A-(b) keeps this probe (1 flock spawn) to reset quietTicks on
-            // contention (T2.1a); the admin bothLocks above are skipped when idle.
+            // Probe for a busy writer on each tick, but reconcile, read durable
+            // history, and probe .presence.lock (NB-4 option A) only on the final
+            // tick before retiring. L5A-(b) keeps 1 flock spawn on earlier ticks
+            // to reset quietTicks on writer contention (T2.1a).
+            const retiring = quietTicks + 1 >= quietTicksForIdle;
             quiet = await owner.registry.withLockAsync(
-              () => quietTicks + 1 < quietTicksForIdle || owner.drain().complete,
-              { nonBlocking: true }
+              () => !retiring || owner.drain().complete,
+              { nonBlocking: true, ...(retiring ? { bothLocks: true } : {}) }
             );
           }
         } catch (error) {
@@ -495,6 +500,7 @@ function createCentralApp(
       }
       a.challengeNonce ??= randomUUID();
       a.activation.participant.advertisement = advertisement;
+      context.header('x-h2a-session-lease-ms', String(options.sessionLeaseMs));
       return context.json({ challengeNonce: a.challengeNonce, sourceView: a.sourceView, inventoryRevision: transports.revision });
     } catch (error) {
       if (isLockUnavailableError(error)) {
@@ -562,6 +568,7 @@ function createCentralApp(
       }
       a.resumeResultBytes += Buffer.byteLength(JSON.stringify(reply));
       a.resumeResults.set(body.resumeAttemptId, reply);
+      context.header('x-h2a-session-lease-ms', String(options.sessionLeaseMs));
       return context.json(reply);
     } catch (error) {
       if (isLockUnavailableError(error)) {
@@ -613,6 +620,7 @@ function createCentralApp(
     const status = await attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
     const value = JSON.parse(status.content[0].text);
     if (attachment.logical && value.state === 'identity_ready') attachment.logical.expectedInstance = value.instance;
+    context.header('x-h2a-session-lease-ms', String(options.sessionLeaseMs));
     return context.json(value);
   });
   app.all(new URL(endpoint).pathname, async context => {
@@ -696,6 +704,9 @@ function createCentralApp(
         if (isLockUnavailableError(error)) {
           return context.json({ error: "mutation_lock_unavailable", accepted: false, execution: "not_started", retrySafe: true }, 503);
         }
+        if (error instanceof Error && error.message === "ownership_exists") {
+          return context.json({ error: "attachment_exists_resume_required" }, 409);
+        }
         throw error;
       }
       participant.initialized = false;
@@ -713,36 +724,43 @@ function createCentralApp(
         if (protocol) {
           callbacks++; drainRevision++;
           try {
-            // L2 §4 item 3 (NB-5 trade-off): nonBlocking callback admission drops live
-            // push delivery when .mutation.lock is contended instead of blocking the
-            // central loop. On shim attachments the event is already buffered above in
-            // logical.notifications for resume replay; stdio.ts advances its sync
-            // NotificationDispatcher snapshot immediately because emitNotification is sync.
-            let operation: unknown;
-            try {
-              operation = await participant.beginAsync('callback', { nonBlocking: true });
-            } catch (error) {
-              if (isLockUnavailableError(error)) return;
-              throw error;
-            }
-            try {
+            if (notification.method === 'notifications/h2a') {
+              // notifications/h2a is a level-triggered push hint: stdio advances NotificationDispatcher
+              // synchronously and logical.notifications buffers up to 256 messages for resume replay,
+              // so per-notification ledger persistence (10 fsyncs + 2 locks) is redundant overhead.
               await protocol.notification(notification);
+            } else {
+              // L2 §4 item 3 (NB-5 trade-off): nonBlocking callback admission drops live
+              // push delivery when .mutation.lock is contended instead of blocking the
+              // central loop. On shim attachments the event is already buffered above in
+              // logical.notifications for resume replay; stdio.ts advances its sync
+              // NotificationDispatcher snapshot immediately because emitNotification is sync.
+              let operation: unknown;
               try {
-                await participant.finishAsync(operation, { delivered: true }, false, { nonBlocking: true });
-              } catch (finishErr) {
-                if (isLockUnavailableError(finishErr)) {
-                  participants()?.enqueuePendingFinish(operation, { delivered: true }, false);
-                }
+                operation = await participant.beginAsync('callback', { nonBlocking: true });
+              } catch (error) {
+                if (isLockUnavailableError(error)) return;
+                throw error;
               }
-            } catch (error) {
               try {
-                await participant.finishAsync(operation, { state: 'unknown', error: String(error) }, true, { nonBlocking: true });
-              } catch (finishErr) {
-                if (isLockUnavailableError(finishErr)) {
-                  participants()?.enqueuePendingFinish(operation, { state: 'unknown', error: String(error) }, true);
+                await protocol.notification(notification);
+                try {
+                  await participant.finishAsync(operation, { delivered: true }, false, { nonBlocking: true });
+                } catch (finishErr) {
+                  if (isLockUnavailableError(finishErr)) {
+                    participants()?.enqueuePendingFinish(operation, { delivered: true }, false);
+                  }
                 }
+              } catch (error) {
+                try {
+                  await participant.finishAsync(operation, { state: 'unknown', error: String(error) }, true, { nonBlocking: true });
+                } catch (finishErr) {
+                  if (isLockUnavailableError(finishErr)) {
+                    participants()?.enqueuePendingFinish(operation, { state: 'unknown', error: String(error) }, true);
+                  }
+                }
+                throw error;
               }
-              throw error;
             }
           } finally { callbacks--; drainRevision++; }
         }
@@ -795,7 +813,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; lag.reset(); }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,

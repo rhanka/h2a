@@ -8,7 +8,7 @@
  */
 import { PassThrough, Writable } from "node:stream";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
-import { runMcpServe } from "../cli.js";
+import { runMcpServe } from "./mcp/serve.js";
 import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpCallContext, type McpServer } from "./mcp/server.js";
 import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";

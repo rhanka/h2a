@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import {computeHash,signCanonical,type H2AJournalPayload} from '@sentropic/h2a';
+import {computeHash} from '../../canonical.js';
+import type {H2AJournalPayload} from '../../journal.js';
+import {signCanonical} from '../../signature.js';
 import {MutationLockUnavailableError} from '../handover/mutation.js';
 import {LockTimeoutError} from '../local-files/locks.js';
 import type {LocalStore} from '../local-files/store.js';

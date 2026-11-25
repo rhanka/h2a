@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import fs, { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import fs, { chmodSync, mkdirSync, mkdtempSync, openSync, closeSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { resolveMutationFlock, writerDirectory } from "../dist/runtime/handover/mutation.js";
 import { startCentralMcpServer } from "../dist/runtime/mcp-central.js";
 import { publishState, readState, replaceState } from "../dist/runtime/handover/state.js";
 
@@ -86,4 +89,95 @@ test("B-1: indeterminate on idle central reconciles in <= 2 ticks, admissions re
   assert.equal(owner.registry.indeterminate, false, "idle poll must reconcile registry indeterminate (B-1)");
   const open = await admin.admissionsOpenAsync({ nonBlocking: true });
   assert.equal(open, true, "admissions must reopen after reconcile (B-1)");
+});
+
+async function holdPresenceLockInChild(lockPath) {
+  const flockTool = resolveMutationFlock();
+  mkdirSync(join(lockPath, ".."), { recursive: true, mode: 0o700 });
+  const fd = openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_RDWR | fs.constants.O_NOFOLLOW, 0o600);
+  closeSync(fd);
+  const child = spawn(flockTool, [
+    "--exclusive", "--no-fork", lockPath, process.execPath, "-e",
+    "process.stdout.write('locked'); process.stdin.resume();"
+  ], { stdio: ["pipe", "pipe", "ignore"] });
+  const exited = once(child, "exit");
+  await Promise.race([
+    once(child.stdout, "data"),
+    exited.then(() => assert.fail(`flock holder exited before acquiring ${lockPath}`)),
+  ]);
+  return {
+    child,
+    async release() {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      child.stdin.end();
+      const killTimer = setTimeout(() => {
+        if (child.exitCode === null) child.kill("SIGKILL");
+      }, 2_000);
+      await Promise.race([once(child, "exit"), new Promise((r) => setTimeout(r, 2_500))]);
+      clearTimeout(killTimer);
+    },
+  };
+}
+
+test("NB-4 option A: retirement final tick probes .presence.lock, resets quietTicks while held, and retires after release", { timeout: 20_000 }, async (t) => {
+  const f = fixture(t);
+  const central = await f.start({ idleTimeoutMs: 200, sessionLeaseMs: 90_000 });
+  const wdir = writerDirectory(f.root);
+  const presLock = join(wdir, ".presence.lock");
+  const owner = central.__test.participants();
+  const origWithLockAsync = owner.registry.withLockAsync.bind(owner.registry);
+  const lockOptsSeen = [];
+  owner.registry.withLockAsync = (fn, opts) => {
+    lockOptsSeen.push(Boolean(opts?.bothLocks));
+    return origWithLockAsync(fn, opts);
+  };
+
+  let closedResolved = false;
+  void central.closed.then(() => { closedResolved = true; });
+
+  const holder = await holdPresenceLockInChild(presLock);
+  t.after(() => holder.release());
+  try {
+    // 1. Run 12 ticks (2+ full quiet cycles) while .presence.lock is held.
+    // Early ticks only probe .mutation.lock (bothLocks=false); the 5th tick probes bothLocks=true,
+    // sees .presence.lock held, resets quietTicks = 0, and keeps the server open.
+    for (let i = 0; i < 12; i++) {
+      await f.tick();
+      assert.equal(closedResolved, false, `tick ${i + 1}: central must stay open while .presence.lock is held`);
+    }
+    assert.deepEqual(lockOptsSeen.slice(0, 10), [
+      false, false, false, false, true,
+      false, false, false, false, true,
+    ], "only the final tick of each cycle may probe bothLocks (.presence.lock)");
+    const ping = await fetch(new URL("/_h2a-central/ping", central.endpoint));
+    assert.equal(ping.status, 200, "central still serves ping while .presence.lock contention prevents retirement");
+  } finally {
+    await holder.release();
+  }
+
+  // Wait a tick for OS fd release/exit settlement, then run one full cycle of 5 quiet ticks to retire.
+  for (let i = 0; i < 4; i++) {
+    await f.tick();
+    assert.equal(closedResolved, false, `post-release early tick ${i + 1} must complete full cycle before retiring`);
+  }
+  await f.tick();
+  await Promise.race([
+    central.closed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("central failed to retire after .presence.lock release")), 3_000)),
+  ]);
+  assert.equal(closedResolved, true);
+});
+
+test("NB-4 option A: supervised mode (idleTimeoutMs 0) is unchanged by retirement .presence.lock probe", { timeout: 20_000 }, async (t) => {
+  const f = fixture(t);
+  const central = await f.start({ idleTimeoutMs: 0, sessionLeaseMs: 90_000 });
+  const owner = central.__test.participants();
+  const withLockAsync = owner.registry.withLockAsync.bind(owner.registry);
+  let probeCalls = 0;
+  owner.registry.withLockAsync = (fn, opts) => {
+    probeCalls++;
+    return withLockAsync(fn, opts);
+  };
+  for (let i = 0; i < 6; i++) await f.tick();
+  assert.equal(probeCalls, 0, "supervised central must never run the retirement quiet probe");
 });

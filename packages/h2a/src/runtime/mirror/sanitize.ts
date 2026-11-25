@@ -161,7 +161,7 @@
  * symmetric half of the rule and is recorded as owed — see the feed contract's
  * "Send boundary" section.
  */
-import { H2A_ROLES } from "@sentropic/h2a";
+import { H2A_ROLES } from "../../types.js";
 import type {
   H2AActorRef,
   H2AActorRegistration,

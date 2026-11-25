@@ -23,6 +23,7 @@ function readThreadCpuUsage(previous = undefined) {
 }
 
 const ARCHIVED_OPERATION_CACHE_MAX = 256;
+const MIGRATION_DURABILITY_CHECKPOINT_FILES = 512;
 const MIGRATION_MAX_TRANSIENT_RETRIES = 6;
 const MIGRATION_RETRY_BASE_DELAY_MS = 10;
 const MIGRATION_RETRY_MAX_DELAY_MS = 500;
@@ -55,6 +56,16 @@ function tryFileStamp(path) {
 function fsyncDirectory(dirPath) {
   const fd = fs.openSync(dirPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+async function fsyncDirectoryAsync(dirPath) {
+  const fh = await fs.promises.open(dirPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  try { await fh.sync(); } finally { await fh.close(); }
+}
+
+async function fsyncFileAsync(filePath) {
+  const fh = await fs.promises.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { await fh.sync(); } finally { await fh.close(); }
 }
 
 function utcBatchDirName(now = new Date()) {
@@ -1383,7 +1394,8 @@ export class OperationLedger {
     return selected;
   }
 
-  _commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved) {
+  _commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved, options = {}) {
+    const deferDurability = Boolean(options?.deferDurability);
     let movedCount = 0;
     // 1. Sync external state once, revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
     this.registry.syncIfExternalChange();
@@ -1461,7 +1473,7 @@ export class OperationLedger {
       this.registry._evictRootFile(cand.name);
     }
 
-    if (movedCount === 0) return;
+    if (movedCount === 0 || deferDurability) return movedCount;
 
     // 2. fsyncSync(batchDirFd) then fsyncSync(stateDirFd)
     fsyncDirectory(batchPath);
@@ -1491,6 +1503,7 @@ export class OperationLedger {
 
     // 4. Bump participant-revision.json
     this.registry.bump();
+    return movedCount;
   }
 
   _commitArchiveSubLot(subLot, reason, batchName) {
@@ -1529,7 +1542,9 @@ export class OperationLedger {
     const runBody = () => {
       fs.mkdirSync(this.archiveDirectory, { recursive: true, mode: 0o700 });
       fs.mkdirSync(batchPath, { recursive: true, mode: 0o700 });
-      return this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved);
+      return this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved, {
+        deferDurability: Boolean(options?.deferDurability)
+      });
     };
     const run = typeof wrapSync === 'function' ? () => wrapSync(runBody) : runBody;
     if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
@@ -1581,13 +1596,101 @@ export class OperationLedger {
     return { dryRun: false, archived: counts, totalArchived };
   }
 
+  async _flushMigrationDurabilityAsync(batchName, records, runLockedAsync, onCommitted) {
+    if (records.length === 0 || this._migrationStopped) return;
+    const batchPath = join(this.archiveDirectory, batchName);
+    // 1. Flush renamed archive entries + parent directory entries on libuv threadpool (0 main-thread stall).
+    await fsyncDirectoryAsync(batchPath);
+    if (this._migrationStopped) return;
+    await fsyncDirectoryAsync(this.directory);
+    if (this._migrationStopped) return;
+
+    const manifestChunk = Buffer.concat(records.map(rec => Buffer.concat([canonicalBytes(rec), Buffer.from('\n')])));
+    // 2. Stage participant-revision.json bump temp file + fsync off the event loop before locking.
+    const oldRev = readState(this.registry.revisionPath, 'participantRevision');
+    let tempRevPath = null;
+    let tempConsumed = false;
+    try {
+      if (oldRev) {
+        const nextRev = { ...oldRev.value, revision: oldRev.value.revision + 1 };
+        validate('participantRevision', nextRev);
+        const { randomUUID } = await import('node:crypto');
+        tempRevPath = join(this.directory, `.${randomUUID()}.tmp`);
+        const fh = await fs.promises.open(tempRevPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+        try {
+          await fh.writeFile(Buffer.concat([canonicalBytes(nextRev), Buffer.from('\n')]));
+          await fh.sync();
+        } finally {
+          await fh.close();
+        }
+        if (this._migrationStopped) return;
+      }
+
+      // 3. Under short sync lock (0 fsyncSync calls): append manifest lines and CAS-rename revision file.
+      let wrote = false;
+      await runLockedAsync(() => {
+        if (this._migrationStopped) return;
+        const mfd = fs.openSync(this.manifestPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
+        try {
+          fs.writeFileSync(mfd, manifestChunk);
+        } finally {
+          fs.closeSync(mfd);
+        }
+        const mStat = fs.lstatSync(this.manifestPath, { bigint: true });
+        this.manifestReadOffset = Number(mStat.size);
+        this.manifestDev = mStat.dev;
+        this.manifestIno = mStat.ino;
+        this.lastManifestStamp = statStamp(mStat);
+
+        if (oldRev && tempRevPath) {
+          const prevStamp = tryFileStamp(this.registry.revisionPath);
+          const wasClean = prevStamp !== null && prevStamp === this.registry.lastRevisionStamp;
+          const nowRev = readState(this.registry.revisionPath, 'participantRevision');
+          if (nowRev && nowRev.dev === oldRev.dev && nowRev.ino === oldRev.ino && nowRev.digest === oldRev.digest) {
+            fs.renameSync(tempRevPath, this.registry.revisionPath);
+            tempConsumed = true;
+            if (wasClean) this.registry.lastRevisionStamp = tryFileStamp(this.registry.revisionPath);
+          } else {
+            this.registry.bump();
+          }
+        } else {
+          this.registry.bump();
+        }
+        wrote = true;
+        onCommitted();
+      });
+      if (!wrote || this._migrationStopped) return;
+
+      // 4. Flush manifest file and state directory entries asynchronously off the event loop.
+      await fsyncFileAsync(this.manifestPath);
+      if (this._migrationStopped) return;
+      await fsyncDirectoryAsync(this.directory);
+    } finally {
+      if (tempRevPath && !tempConsumed) {
+        try { fs.unlinkSync(tempRevPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+    }
+  }
+
   _scheduleBackgroundMigration(pendingNames) {
     let scanIndex = 0;
     const inspected = [];
     let archiveQueue = null;
     let commitIndex = 0;
     let transientRetries = 0;
+    let pendingRecords = [];
+    let pendingFiles = 0;
+    let needFlush = false;
     const batchName = utcBatchDirName();
+    const countMoved = moved =>
+      moved.operations.length + moved.effects.length + moved.generationEnds.length +
+      moved.ownerships.length + moved.launches.length + moved.wakes.length + moved.checkpoints.length;
+    const runLockedAsync = (fn, lockOptions) => {
+      if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
+        return Promise.resolve(this.registry.withLock(fn, lockOptions));
+      }
+      return this.registry.withLockAsync(fn, lockOptions);
+    };
 
     const scheduleNext = (delayMs = null) => {
       if (this._migrationStopped) return;
@@ -1684,19 +1787,46 @@ export class OperationLedger {
           return;
         }
 
-        // Phase 2: commit archive sub-lots of <= 32 files under async lock, yielding with a 1 ms timer so
-        // foreground HTTP I/O (ping/initialize) and writer lock acquisitions never starve behind migration.
+        // Flush accumulated durability checkpoints (dir/manifest/revision fsyncs) asynchronously off the event loop.
+        if (needFlush && pendingRecords.length > 0) {
+          await this._flushMigrationDurabilityAsync(batchName, pendingRecords, runLockedAsync, () => {
+            pendingRecords = [];
+            pendingFiles = 0;
+            needFlush = false;
+          });
+          if (this._migrationStopped) return;
+          transientRetries = 0;
+          scheduleNext(1);
+          return;
+        }
+
+        // Phase 2: commit archive sub-lots of <= 32 files under short async lock (renameSync only,
+        // durability fsyncs batched off the event loop), yielding so foreground HTTP I/O never starves.
         if (commitIndex < archiveQueue.length) {
           const subLot = archiveQueue.slice(commitIndex, commitIndex + MIGRATION_COMMIT_BATCH_SIZE);
-          await this._commitArchiveSubLotAsync(
+          const moved = await this._commitArchiveSubLotAsync(
             subLot,
             'startup-migration',
             batchName,
-            undefined,
+            { deferDurability: true },
             run => runMeasuredSlice('commit', () => subLot.length, true, run)
           );
           if (this._migrationStopped) return;
+          const movedCount = countMoved(moved);
+          if (movedCount > 0) {
+            pendingRecords.push({
+              archivedAt: new Date().toISOString(),
+              reason: 'startup-migration',
+              generation: this.registry.generation,
+              batchDir: batchName,
+              ...moved
+            });
+            pendingFiles += movedCount;
+          }
           commitIndex += subLot.length;
+          if (pendingRecords.length > 0 && (pendingFiles >= MIGRATION_DURABILITY_CHECKPOINT_FILES || commitIndex >= archiveQueue.length)) {
+            needFlush = true;
+          }
           transientRetries = 0;
           scheduleNext(1);
           return;

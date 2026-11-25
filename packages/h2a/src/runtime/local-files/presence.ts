@@ -55,7 +55,8 @@ function ensurePresenceDir(paths: LocalStorePaths): void {
  */
  function writePresenceUnfenced(
   root: string,
-  session: H2ASession
+  session: H2ASession,
+  options: { updateRecipientHint?: boolean } = {}
 ): PresenceWriteResult {
   if (!isH2ASession(session)) {
     throw new TypeError("writePresence: argument is not a valid H2ASession");
@@ -83,8 +84,10 @@ function ensurePresenceDir(paths: LocalStorePaths): void {
     }
     renameSync(tmpPath, finalPath);
     // Keep addressing evidence independently of TTL, explicit close and reap.
-    // Best-effort only: a failed hint must not prevent activation or heartbeat.
-    rememberRecipient(root, session);
+    // Best-effort only: skip redundant 1024-entry hint scans on routine heartbeats when name didn't change.
+    if (options.updateRecipientHint !== false) {
+      rememberRecipient(root, session);
+    }
   } finally {
     // Includes serialization, write, close and rename failures. Never leave
     // our own partial publication behind for a future GC pass.
@@ -272,7 +275,7 @@ export function listPresence(
     // Empty-string guard: never blank out a name that is already correct.
     ...(patch.name ? { name: patch.name } : {})
   };
-  writePresenceUnfenced(root, next);
+  writePresenceUnfenced(root, next, { updateRecipientHint: patch.name !== undefined });
   return next;
 }
 
@@ -445,7 +448,7 @@ export async function updatePresenceAsync(
   root: string,
   sessionId: string,
   patch: Parameters<typeof updatePresenceUnfenced>[2],
-  options?: { timeoutMs?: number; nonBlocking?: boolean }
+  options?: { timeoutMs?: number; nonBlocking?: boolean; instance?: string }
 ): Promise<H2ASession | undefined> {
-  return withPresenceMutationAsync(root, sessionId, () => readPresence(root, sessionId)?.instance, () => updatePresenceUnfenced(root, sessionId, patch), options);
+  return withPresenceMutationAsync(root, sessionId, () => options?.instance ?? readPresence(root, sessionId)?.instance, () => updatePresenceUnfenced(root, sessionId, patch), options);
 }

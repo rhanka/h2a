@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 
-import type { H2AWorkspaceRef } from "@sentropic/h2a";
+import type { H2AWorkspaceRef } from "../../identity.js";
+import { H2A_SESSION_DEFAULT_EXPIRY_MS } from "../../session.js";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
 import {
@@ -19,6 +20,10 @@ import { agentVersion } from "../version/agent-version.js";
 import { currentCliVersion } from "../upgrade/index.js";
 import { captureHostOperatorNotices } from '../../hosts/operator-notices.js';
 import { getActiveMcpTrace } from "./phase-trace.js";
+
+// Monotonic phase slot across central attachments in the same daemon so
+// multiple shims do not heartbeat/notify in lockstep on .presence.lock.
+let centralAttachmentPhaseSlot = 0;
 import {
   createMcpServer,
   isMcpTransportResult,
@@ -513,13 +518,26 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // deferred identity path is used. The server guards signed/mutating tools by
   // reading its state on every call.
   let identityController: McpIdentityController | undefined;
-  const heartbeatIntervalMs =
-    options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS", sessionEnv);
-  const notifyIntervalMs =
-    options.notifyIntervalMs ??
-    envInt("H2A_NOTIFY_INTERVAL_MS", sessionEnv) ??
-    heartbeatIntervalMs;
   const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS", sessionEnv);
+  // Central hosts all attached shims in one daemon sharing .presence.lock and
+  // the directory store: scale default intervals to 15s (6x within 90s expiry)
+  // unless overridden explicitly, preserving standalone 5s behavior & test env overrides.
+  const centralDefaultIntervalMs = options.centralAttachment
+    ? Math.min(30_000, Math.max(5_000, Math.floor((expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS) / 3)))
+    : undefined;
+  const explicitHeartbeat = options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS", sessionEnv);
+  const heartbeatIntervalMs = explicitHeartbeat ?? centralDefaultIntervalMs;
+  const explicitNotify = options.notifyIntervalMs ?? envInt("H2A_NOTIFY_INTERVAL_MS", sessionEnv);
+  const notifyIntervalMs = explicitNotify ?? heartbeatIntervalMs;
+  const centralSlot = options.centralAttachment ? centralAttachmentPhaseSlot++ : undefined;
+  const heartbeatInitialDelayMs =
+    centralSlot !== undefined && explicitHeartbeat === undefined && heartbeatIntervalMs !== undefined
+      ? Math.max(2_000, Math.floor((heartbeatIntervalMs * ((centralSlot % 5) + 1)) / 5))
+      : undefined;
+  const notifyInitialDelayMs =
+    centralSlot !== undefined && explicitNotify === undefined && notifyIntervalMs !== undefined
+      ? Math.max(1_000, Math.floor((notifyIntervalMs * (centralSlot % 5)) / 5) + 3_000)
+      : undefined;
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.
   let delegation: H2aRunDelegation | undefined;
@@ -565,11 +583,13 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       autoHeartbeat: true,
       onHeartbeatError: (error) => stderr.write(`h2a mcp-serve: presence heartbeat failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
+      ...(heartbeatInitialDelayMs !== undefined ? { initialDelayMs: heartbeatInitialDelayMs } : {}),
       ...(expiryMs !== undefined ? { expiryMs } : {})
     },
     notifications: {
       onError: (error) => stderr.write(`h2a mcp-serve: notification scan failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
+      ...(notifyInitialDelayMs !== undefined ? { initialDelayMs: notifyInitialDelayMs } : {}),
       sink: (notification, sequence) =>
         emitNotification(notification, {
           method: notification.method,
