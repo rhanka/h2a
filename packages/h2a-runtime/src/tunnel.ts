@@ -129,14 +129,14 @@ export async function ensureConnected(
   const reopening = tunnelAlive();
   stopTunnel();
   stderr.write(
-    `[h2a] control-plane unreachable — ${reopening ? "tunnel stale, reopening" : "opening tunnel"} (kubectl port-forward ${tunnel.service} :${tunnel.localPort})\n`,
+    `[h2a] control-plane unreachable — ${reopening ? "tunnel stale, reopening" : "opening tunnel"} (kubectl port-forward ${tunnel.service} :${tunnel.localPort})\r\n`,
   );
   startTunnelProcess(tunnel);
 
   for (let attempt = 0; attempt < 30; attempt++) {
     await new Promise<void>((r) => setTimeout(r, 500));
     if (await isReachable(url)) {
-      stderr.write(`[h2a] tunnel up\n`);
+      stderr.write(`[h2a] tunnel up\r\n`);
       return;
     }
   }

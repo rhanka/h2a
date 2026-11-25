@@ -394,7 +394,7 @@ class FakeClient implements StationHostClient {
     id: string,
     controllerId: string,
     _activity: "human" | "automation" = "human",
-    options: { takeover?: boolean; pid?: number; tty?: string } = {},
+    options: { takeover?: boolean; passive?: boolean; terminalResponder?: boolean; pid?: number; tty?: string } = {},
   ): Promise<NativeTerminalControllerLease> {
     this.#guard();
     const session = this.#session(id);
@@ -5032,5 +5032,90 @@ describe("S2 D guards, D2 rows and mixed fleet (plan 09-S2 steps 5-6)", () => {
     });
     expect(h.broker().replaceCalls).toEqual([]);
     expect(h.broker().deleteCalls).toEqual([]);
+  });
+});
+
+describe("Rule 2 & 3 — Station terminalResponder promotion/demotion and catch-up boundary", () => {
+  it("keeps guards non-responders, flips responder ON in #paint (updating catchUpUntilSeq) and OFF in #leave, and sets terminalResponder in #reconnect", async () => {
+    const prevTerm = process.env["TERM"];
+    process.env["TERM"] = "xterm-256color";
+    try {
+    const h = new Harness({
+      tty: true,
+      brokerProtected: false,
+      sessions: [
+        { id: "h2a-alpha", project: "h2a", label: "alpha", host: "/fake/host-1.sock", mtime: 1_700_000_200_000 },
+        { id: "h2a-beta", project: "h2a", label: "beta", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+    });
+    const alpha = h.fleet.session("h2a-alpha");
+    const beta = h.fleet.session("h2a-beta");
+    // Pre-switch output in beta contains queries (DA1, XTQMODKEYS, DSR)
+    alpha.emit("ALPHA");
+    beta.emit("BETA_PRE\x1b[c\x1b[>4;?m\x1b[6n");
+
+    const responderCalls: Array<{ id: string; enabled: boolean }> = [];
+    const acquireCalls: Array<{ id: string; options: unknown }> = [];
+    const baseRuntime = h.runtime();
+    const wrappedRuntime: StationRuntime = {
+      ...baseRuntime,
+      connect: async (socketPath) => {
+        const client = await baseRuntime.connect(socketPath);
+        const origAcquire = client.acquireController.bind(client);
+        return {
+          readOutput: (id, afterSeq, timeoutMs) => client.readOutput(id, afterSeq, timeoutMs),
+          state: (id) => client.state(id),
+          list: () => client.list(),
+          ping: () => client.ping(),
+          write: (lease, data) => client.write(lease, data),
+          resize: (lease, cols, rows) => client.resize(lease, cols, rows),
+          releaseController: (lease) => client.releaseController(lease),
+          close: () => client.close(),
+          acquireController: async (id, cid, act, opts) => {
+            acquireCalls.push({ id, options: opts });
+            return await origAcquire(id, cid, act, opts);
+          },
+          setControllerResponder: async (lease, enabled) => {
+            responderCalls.push({ id: lease.id, enabled });
+            const s = h.fleet.session(lease.id);
+            const maxSeq = s.chunks.at(-1)?.seq ?? 0;
+            return enabled ? { responderFromSeq: maxSeq } : null;
+          },
+        };
+      },
+    };
+
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-alpha"]);
+        x.activate("h2a-beta");
+      },
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-alpha", "h2a-beta"]);
+        // Live post-switch DSR on beta must pass through untouched
+        beta.emit("\x1b[6nLIVE_B");
+      },
+      tick,
+      tick,
+    );
+    const code = await runStation(wrappedRuntime, h.options());
+    if (h.stepError !== undefined) throw h.stepError;
+    expect(code).toBe(0);
+
+    // #hold never requests terminalResponder; #paint promotes it explicitly
+    expect(acquireCalls.every((c) => !(c.options as { terminalResponder?: boolean } | undefined)?.terminalResponder)).toBe(true);
+    expect(responderCalls).toContainEqual({ id: "h2a-alpha", enabled: true });
+    expect(responderCalls).toContainEqual({ id: "h2a-alpha", enabled: false });
+    expect(responderCalls).toContainEqual({ id: "h2a-beta", enabled: true });
+
+    const out = h.stdout.text();
+    expect(out).toContain("BETA_PRE");
+    expect(out).not.toContain("\x1b[c");
+    expect(out).not.toContain("\x1b[>4;?m");
+    expect(out).toContain("\x1b[6nLIVE_B");
+    } finally {
+      if (prevTerm === undefined) delete process.env["TERM"];
+      else process.env["TERM"] = prevTerm;
+    }
   });
 });

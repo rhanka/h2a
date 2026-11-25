@@ -60,7 +60,12 @@ export type NativeTerminalAttachClient = Pick<
   | "write"
   | "resize"
   | "close"
->;
+> & {
+  readonly setControllerResponder?: (
+    lease: NativeTerminalControllerLease,
+    enabled: boolean,
+  ) => Promise<{ readonly responderFromSeq?: number } | null | void>;
+};
 
 export type ActiveAttachConnection = {
   client: NativeTerminalAttachClient;
@@ -128,6 +133,7 @@ export type NativeSessionViewOptions = {
   readonly tty: string;
   readonly statusBar: SessionViewStatusBar;
   readonly takeover?: boolean | undefined;
+  readonly terminalResponder?: boolean | undefined;
   readonly remoteObserver?: boolean | undefined;
   readonly ownOuterMouse?: boolean | undefined;
   readonly saveTerminalReset?: ((sequence: string) => void) | undefined;
@@ -164,6 +170,7 @@ export class NativeSessionView {
   readonly #now: () => number;
   readonly #delay: (ms: number) => Promise<void>;
   readonly #tty: string;
+  readonly #terminalResponder: boolean | undefined;
   readonly #remoteObserver: boolean;
   readonly #ownOuterMouse: boolean;
   readonly #saveTerminalReset: ((sequence: string) => void) | undefined;
@@ -188,6 +195,8 @@ export class NativeSessionView {
   observerClient: NativeTerminalAttachClient | undefined;
   observerIncarnation: { generation: string; incarnation: string } | undefined;
   #observerFilter: ReplayFilter | undefined;
+  #catchUpUntilSeq = 0;
+  #catchUpFilter: ReplayFilter | undefined;
   readonly #observerInput = new ObserverInputClassifier();
   #pendingInputTimerToken = 0;
   #takebackInFlight: Promise<void> | undefined;
@@ -213,6 +222,7 @@ export class NativeSessionView {
       options.delay ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.#tty = options.tty;
+    this.#terminalResponder = options.terminalResponder;
     this.#remoteObserver = options.remoteObserver === true;
     this.#ownOuterMouse = options.ownOuterMouse === true;
     this.#saveTerminalReset = options.saveTerminalReset;
@@ -297,10 +307,18 @@ export class NativeSessionView {
     this.stdout.write(this.statusBar.transformChildOutput(data));
   }
 
+  setCatchUpUntilSeq(seq: number): void {
+    if (Number.isSafeInteger(seq) && seq > this.#catchUpUntilSeq) {
+      this.#catchUpUntilSeq = seq;
+    }
+  }
+
   /**
    * Relay a replay. `catchUp` marks retained bytes repainted at a switch (or
    * after a retention gap): terminal queries and one-shot side effects are
-   * removed from them, never from live output (S1.5, INJ D10 (b)).
+   * removed from them, never from live output (S1.5, INJ D10 (b)). In
+   * controller mode, retained catch-up chunks (`seq <= catchUpUntilSeq`) are
+   * always filtered before entering live passthrough (`seq > catchUpUntilSeq`).
    */
   feedReplay(
     replay: NativeTerminalReplay,
@@ -309,11 +327,6 @@ export class NativeSessionView {
     const observerFilter = this.observing
       ? (this.#observerFilter ?? (this.#observerFilter = new ReplayFilter()))
       : undefined;
-    const catchUpFilter =
-      observerFilter === undefined && options.catchUp === true
-        ? new ReplayFilter()
-        : undefined;
-    const filter = observerFilter ?? catchUpFilter;
     if (replay.gap) {
       this.resetModes();
       this.modes = new TerminalModeTracker();
@@ -328,20 +341,58 @@ export class NativeSessionView {
       this.statusBar.resumeAfterReset();
       if (this.observing) {
         this.#observerFilter = new ReplayFilter();
+      } else {
+        this.#catchUpFilter = undefined;
+        if (Number.isSafeInteger(replay.latestSeq) && replay.latestSeq > 0) {
+          this.setCatchUpUntilSeq(replay.latestSeq);
+        }
       }
       if (replay.terminalModePrefix) {
         this.resetRelay.feed(replay.terminalModePrefix);
       }
     }
-    const activeFilter = this.observing ? this.#observerFilter : catchUpFilter;
+    if (this.observing) {
+      const activeObserverFilter = this.#observerFilter ?? observerFilter;
+      for (const chunk of replay.chunks) {
+        const data = activeObserverFilter ? activeObserverFilter.filter(chunk.data) : chunk.data;
+        if (data) this.resetRelay.feed(data);
+        this.seq = chunk.seq;
+      }
+      this.statusBar.flushAfterOutputBatch();
+      return;
+    }
+
+    const explicitCatchUpFilter =
+      options.catchUp === true ? new ReplayFilter() : undefined;
     for (const chunk of replay.chunks) {
-      const data = activeFilter ? activeFilter.filter(chunk.data) : chunk.data;
-      if (data) this.resetRelay.feed(data);
+      if (explicitCatchUpFilter) {
+        const data = explicitCatchUpFilter.filter(chunk.data);
+        if (data) this.resetRelay.feed(data);
+      } else if (chunk.seq <= this.#catchUpUntilSeq) {
+        const cf = (this.#catchUpFilter ??= new ReplayFilter());
+        const data = cf.filter(chunk.data);
+        if (data) this.resetRelay.feed(data);
+      } else {
+        if (this.#catchUpFilter) {
+          const tail = this.#catchUpFilter.flush();
+          this.#catchUpFilter = undefined;
+          if (tail) this.resetRelay.feed(tail);
+        }
+        this.resetRelay.feed(chunk.data);
+      }
       this.seq = chunk.seq;
     }
-    if (catchUpFilter) {
+    if (explicitCatchUpFilter) {
       // An unfinished sequence goes out unchanged: live output completes it.
-      const tail = catchUpFilter.flush();
+      const tail = explicitCatchUpFilter.flush();
+      if (tail) this.resetRelay.feed(tail);
+    } else if (
+      this.#catchUpFilter &&
+      (this.seq >= this.#catchUpUntilSeq ||
+        (replay.chunks.length === 0 && replay.latestSeq >= this.#catchUpUntilSeq))
+    ) {
+      const tail = this.#catchUpFilter.flush();
+      this.#catchUpFilter = undefined;
       if (tail) this.resetRelay.feed(tail);
     }
     this.statusBar.flushAfterOutputBatch();
@@ -575,7 +626,14 @@ export class NativeSessionView {
           this.sessionId,
           this.#controllerId,
           "human",
-          { takeover: true, pid: process.pid, tty: this.#tty },
+          {
+            takeover: true,
+            ...(this.#terminalResponder !== undefined
+              ? { terminalResponder: this.#terminalResponder }
+              : {}),
+            pid: process.pid,
+            tty: this.#tty,
+          },
         );
         if (
           this.detached ||
@@ -603,6 +661,21 @@ export class NativeSessionView {
     });
   }
 
+  async #promotePassiveResponderIfNeeded(
+    client: NativeTerminalAttachClient,
+    lease: NativeTerminalControllerLease,
+  ): Promise<void> {
+    if (this.#terminalResponder !== true) return;
+    try {
+      const promoted = await client.setControllerResponder?.(lease, true);
+      if (typeof promoted?.responderFromSeq === "number") {
+        this.setCatchUpUntilSeq(promoted.responderFromSeq);
+      }
+    } catch {
+      // Older host or mock without set-controller-responder.
+    }
+  }
+
   async returnFromObserverPassive(): Promise<
     { returned: true } | { returned: false; retryState: NativeTerminalSessionState }
   > {
@@ -617,6 +690,15 @@ export class NativeSessionView {
         "human",
         { passive: true, pid: process.pid, tty: this.#tty },
       );
+      if (
+        this.detached ||
+        this.terminalEnded ||
+        this.observerClient !== client
+      ) {
+        await client.releaseController(lease).catch(() => {});
+        return { returned: true };
+      }
+      await this.#promotePassiveResponderIfNeeded(client, lease);
       if (
         this.detached ||
         this.terminalEnded ||
@@ -1027,6 +1109,9 @@ export class NativeSessionView {
           {
             takeover: this.takeoverPending,
             ...(passive ? { passive: true } : {}),
+            ...(passive || this.#terminalResponder === undefined
+              ? {}
+              : { terminalResponder: this.#terminalResponder }),
             pid: process.pid,
             tty: this.#tty,
           },
@@ -1034,6 +1119,13 @@ export class NativeSessionView {
         // A reconnect must never take the terminal back from a newer attach.
         this.takeoverPending = false;
         this.wasObservingBeforeReconnect = false;
+        if (passive) {
+          await this.#promotePassiveResponderIfNeeded(client, lease);
+        }
+        const frontier = lease.responderFromSeq ?? state.latestSeq;
+        if (typeof frontier === "number") {
+          this.setCatchUpUntilSeq(frontier);
+        }
         await this.attachLease({ client, lease }, afterAcquire);
         return state;
       } catch (acquireError) {
@@ -1072,6 +1164,9 @@ export class NativeSessionView {
     this.#afterAcquire = afterAcquire;
     this.active = connection;
     this.transportFailure = undefined;
+    if (typeof connection.lease.responderFromSeq === "number") {
+      this.setCatchUpUntilSeq(connection.lease.responderFromSeq);
+    }
     await this.statusBar.probe(true, "attached");
     afterAcquire?.();
     this.sendChildResize();

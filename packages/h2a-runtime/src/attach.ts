@@ -3,11 +3,15 @@ import type { RemoteEventEnvelope } from "./protocol-local.js";
 import { authHeaders, DEFAULT_SESSION_TARGET } from "./config.js";
 import { ensureConnected } from "./tunnel.js";
 import { appendCrashLog, crashSignalName } from "./crash-log.js";
+import { publishAttachReset } from "./native-terminal/attach-recovery.js";
 import {
+  CLIENT_TERMINAL_RESET_SEQUENCE,
+  enterRawOutputTty,
+  installTtySuspendHandlers,
   resetClientTerminal,
   restoreTtyState,
-  saveTtyState,
   SIGNAL_NUMBERS,
+  type TtyState,
 } from "./terminal-reset.js";
 
 export type InputRetryOptions = {
@@ -139,21 +143,69 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   });
 
   // rev351-2/3.2: the remote session drives the REAL client terminal via
-  // relayed VT bytes (plus raw stdin). Every close path — detach, remote
-  // exit, 404, give-up — must emit the VT reset and restore termios/raw,
-  // even when the live session keeps running server-side and emits no
-  // closing sequence of its own.
-  // rev351r2-2: shared save/restore home (terminal-reset.ts), no local copy.
-  const ttyState = saveTtyState(stdin);
+  // relayed VT bytes (plus raw stdin + -opost stdout). Install signal, exit,
+  // and fatal handlers BEFORE changing termios so any startup interruption
+  // still restores both VT modes and kernel termios.
+  let closed = false;
+  let ttyState: TtyState | undefined;
+  let uninstallSuspend: (() => void) | undefined;
   const restoreClientTerminal = (): void => {
-    restoreTtyState(ttyState, stdin, () => resetClientTerminal(stdout));
+    if (!ttyState) {
+      resetClientTerminal(stdout);
+      publishAttachReset("");
+      return;
+    }
+    restoreTtyState(ttyState, stdin, () => {
+      resetClientTerminal(stdout);
+      publishAttachReset("");
+    });
   };
-  if (stdin.isTTY) stdin.setRawMode?.(true);
+  const signalHandlers = new Map<string, () => void>();
+  const onExitOrFatal = (): void => {
+    restoreClientTerminal();
+  };
+  const uninstallSignals = (): void => {
+    for (const [signal, handler] of signalHandlers) {
+      process.removeListener(signal, handler);
+    }
+    signalHandlers.clear();
+    process.removeListener("exit", onExitOrFatal);
+    process.removeListener("uncaughtExceptionMonitor", onExitOrFatal);
+    uninstallSuspend?.();
+    uninstallSuspend = undefined;
+  };
+  for (const signal of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) {
+    const number = SIGNAL_NUMBERS[signal] ?? 0;
+    const handler = (): void => {
+      if (closed) {
+        process.exit(128 + (number as number));
+        return;
+      }
+      try {
+        restoreClientTerminal();
+      } finally {
+        uninstallSignals();
+        try {
+          controller.abort();
+        } catch {
+          // Best effort before exiting.
+        }
+        process.exit(128 + (number as number));
+      }
+    };
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+  process.on("exit", onExitOrFatal);
+  process.on("uncaughtExceptionMonitor", onExitOrFatal);
+
+  publishAttachReset(CLIENT_TERMINAL_RESET_SEQUENCE);
+  ttyState = enterRawOutputTty(stdin, stdout);
   stdin.resume();
 
   if (stdin.isTTY) {
     stderr.write(
-      "[h2a] press Ctrl+P Ctrl+Q to detach (session keeps running)\n",
+      "[h2a] press Ctrl+P Ctrl+Q to detach (session keeps running)\r\n",
     );
   }
 
@@ -180,7 +232,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         if (response.ok) return;
         if (response.status < 500) {
           stderr.write(
-            `[h2a] input rejected (${response.status} ${response.statusText}); not retried\n`,
+            `[h2a] input rejected (${response.status} ${response.statusText}); not retried\r\n`,
           );
           return;
         }
@@ -188,7 +240,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         if (aborted) return;
         if (attempt === retry.maxAttempts) {
           stderr.write(
-            `[h2a] input abandoned after ${retry.maxAttempts} attempts: ${String(error)}\n`,
+            `[h2a] input abandoned after ${retry.maxAttempts} attempts: ${String(error)}\r\n`,
           );
           return;
         }
@@ -202,7 +254,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       }
     }
     stderr.write(
-      `[h2a] input abandoned after ${retry.maxAttempts} attempts\n`,
+      `[h2a] input abandoned after ${retry.maxAttempts} attempts\r\n`,
     );
   };
 
@@ -227,9 +279,31 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         },
       );
     } catch (error) {
-      stderr.write(`[h2a] resize failed: ${String(error)}\n`);
+      stderr.write(`[h2a] resize failed: ${String(error)}\r\n`);
     }
   };
+  if (stdin.isTTY === true || stdout.isTTY === true) {
+    uninstallSuspend = installTtySuspendHandlers({
+      state: ttyState,
+      stdin,
+      stdout,
+      beforeSuspend: () => {
+        try {
+          resetClientTerminal(stdout);
+        } catch {
+          // Best effort before suspend.
+        }
+      },
+      afterResume: () => {
+        try {
+          publishAttachReset(CLIENT_TERMINAL_RESET_SEQUENCE);
+          void sendResize();
+        } catch {
+          // Best effort on resume.
+        }
+      },
+    });
+  }
 
   const CTRL_P = 0x10;
   const CTRL_Q = 0x11;
@@ -256,7 +330,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
             detachTimer = null;
           }
           flushPassthrough();
-          if (stdin.isTTY) stderr.write("\n[h2a] detached\n");
+          if (stdin.isTTY) stderr.write("\r\n[h2a] detached\r\n");
           void close();
           return;
         }
@@ -292,14 +366,6 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   // Async relay: the event loop runs, so handlers CAN execute (unlike the
   // blocking spawnSync wrappers). On a fatal signal, reset synchronously and
   // preserve signal-death semantics via 128+n.
-  const signalHandlers = new Map<string, () => void>();
-  const uninstallSignals = (): void => {
-    for (const [signal, handler] of signalHandlers) {
-      process.removeListener(signal, handler);
-    }
-    signalHandlers.clear();
-  };
-  let closed = false;
   const close = async () => {
     if (closed) return;
     closed = true;
@@ -324,28 +390,6 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
     stdin.pause();
     finishedResolve();
   };
-  for (const signal of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) {
-    const number = SIGNAL_NUMBERS[signal] ?? 0;
-    const handler = (): void => {
-      if (closed) {
-        process.exit(128 + (number as number));
-        return;
-      }
-      try {
-        restoreClientTerminal();
-      } finally {
-        uninstallSignals();
-        try {
-          controller.abort();
-        } catch {
-          // Best effort before exiting.
-        }
-        process.exit(128 + (number as number));
-      }
-    };
-    signalHandlers.set(signal, handler);
-    process.on(signal, handler);
-  }
 
   (async () => {
     let buffer = "";

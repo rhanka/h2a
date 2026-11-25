@@ -77,6 +77,14 @@ import {
   type BuildLiveRightPanelSnapshotOptions,
 } from "./right-panel-snapshot.js";
 import { readRemoteConfig } from "../config.js";
+import {
+  CLIENT_TERMINAL_RESET_SEQUENCE,
+  enterRawOutputTty,
+  installTtySuspendHandlers,
+  restoreTtyState,
+  type TtyState,
+  type TtyStdout,
+} from "../terminal-reset.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import {
   ATTACH_PENDING_INPUT_MAX_BYTES,
@@ -396,6 +404,7 @@ export type NativeTerminalAttachRuntime = {
   onTerminate?(listener: () => void): void;
   offTerminate?(listener: () => void): void;
   saveTerminalReset?(sequence: string): void;
+  readonly terminalResponder?: boolean;
 };
 
 const ATTACH_STATE_POLL_MS = 1_000;
@@ -2024,8 +2033,11 @@ export async function runAttach(
     );
   }
   statusBar.setRightPanel(rightPanel);
-  const isRawCapable = stdin.isTTY === true;
-  const wasRaw = stdin.isRaw === true;
+  const isTtyResponder =
+    runtime.terminalResponder ??
+    (stdin.isTTY === true &&
+      (stdout as { isTTY?: boolean }).isTTY === true &&
+      process.env["TERM"] !== "dumb");
   let tty = "not-a-tty";
   try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
 
@@ -2037,6 +2049,7 @@ export async function runAttach(
     tty,
     statusBar,
     takeover: options.takeover,
+    terminalResponder: isTtyResponder,
     remoteObserver: true,
     ownOuterMouse: rightPanel !== undefined,
     saveTerminalReset: runtime.saveTerminalReset,
@@ -2045,10 +2058,32 @@ export async function runAttach(
   });
   statusBar.setOnBeforeActivate(() => view.saveReset());
 
+  let ttyState: TtyState | undefined;
+  let uninstallSuspend: (() => void) | undefined;
+  let terminated = false;
+  const restoreAttachTty = (onReset?: () => void): void => {
+    const resetAction = (): void => {
+      try {
+        view.flushRelay();
+      } catch {
+        // Best effort on exit.
+      }
+      onReset?.();
+      view.resetModes();
+    };
+    if (ttyState) {
+      restoreTtyState(ttyState, stdin, resetAction);
+    } else {
+      resetAction();
+    }
+  };
   const terminate = (): void => {
+    if (terminated) return;
+    terminated = true;
     view.detached = true;
-    try { view.flushRelay(); view.resetModes(); } finally {
-      if (isRawCapable) stdin.setRawMode(wasRaw);
+    try {
+      restoreAttachTty();
+    } finally {
       stdin.pause();
       view.closeActive();
     }
@@ -2133,7 +2168,50 @@ export async function runAttach(
 
   // Paint the existing scrollback once, then follow the stream.
   try {
-    if (isRawCapable) stdin.setRawMode(true);
+    if (stdin.isTTY === true || (stdout as { isTTY?: boolean }).isTTY === true) {
+      runtime.saveTerminalReset?.(CLIENT_TERMINAL_RESET_SEQUENCE);
+    }
+    ttyState = enterRawOutputTty(stdin, stdout as TtyStdout);
+    if (stdin.isTTY === true || (stdout as { isTTY?: boolean }).isTTY === true) {
+      uninstallSuspend = installTtySuspendHandlers({
+        state: ttyState,
+        stdin,
+        stdout: stdout as TtyStdout,
+        beforeSuspend: () => {
+          const active = view.active;
+          if (active && isTtyResponder) {
+            void active.client.setControllerResponder?.(active.lease, false).catch(() => {});
+          }
+          try {
+            view.flushRelay();
+            view.resetModes();
+          } catch {
+            // Best effort before suspend.
+          }
+        },
+        afterResume: () => {
+          view.modesSuspended = false;
+          if (rightPanel) {
+            view.enableOuterMouse();
+            rightPanel.paint();
+          }
+          void view.statusBar.probe(true, "attached");
+          view.saveReset();
+          view.sendChildResize();
+          const active = view.active;
+          if (active && isTtyResponder) {
+            void active.client
+              .setControllerResponder?.(active.lease, true)
+              .then((res) => {
+                if (typeof res?.responderFromSeq === "number") {
+                  view.setCatchUpUntilSeq(res.responderFromSeq);
+                }
+              })
+              .catch(() => {});
+          }
+        },
+      });
+    }
     stdin.resume();
     let initial: NativeTerminalSessionState;
     try {
@@ -2429,18 +2507,18 @@ export async function runAttach(
     }
   } finally {
     try {
-      view.flushRelay();
-      if (view.detached) {
-        view.restoreBarForNotice();
-        stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
-      }
-      view.resetModes();
+      restoreAttachTty(() => {
+        if (view.detached) {
+          view.restoreBarForNotice();
+          stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+        }
+      });
     } finally {
       runtime.offTerminate?.(terminate);
       runtime.offResize(resize);
+      uninstallSuspend?.();
       stdin.removeListener("data", onInput);
       stdin.removeListener("end", onEnd);
-      if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
       await view.drainInputPump();
       rightPanelRefresher?.dispose();

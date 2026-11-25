@@ -50,6 +50,7 @@ export const REPLAY_FILTER_FAMILIES: readonly ReplayFilterFamily[] = Object.free
   { id: "osc-9", form: "OSC 9 ; … ST", kind: "side-effect" },
   { id: "osc-99", form: "OSC 99 ; … ST", kind: "side-effect" },
   { id: "osc-777", form: "OSC 777 ; … ST", kind: "side-effect" },
+  { id: "xtqmodkeys", form: "CSI > 4 ; ? m", kind: "query" },
 ] as const);
 
 export type ReplayFilterStats = { queries: number; sideEffects: number };
@@ -92,6 +93,7 @@ function csiIsQuery(params: string, intermediates: string, final: string): boole
     return intermediates === "" && XTWINOPS_REPORTS.has(params.split(";", 1)[0] ?? "");
   }
   if (final === "p") return intermediates === "$";
+  if (final === "m") return intermediates === "" && params === ">4;?";
   return false;
 }
 

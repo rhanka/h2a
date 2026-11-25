@@ -22,8 +22,22 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { writeSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { constants as osConstants } from "node:os";
+import { join } from "node:path";
+import { readProcessStartTime } from "./proc-identity.js";
 
 const ESC = "\x1b";
 
@@ -159,6 +173,11 @@ export type TtyStdin = Pick<
   readonly fd?: unknown;
 };
 
+export type TtyStdout = {
+  readonly isTTY?: boolean;
+  readonly fd?: unknown;
+};
+
 export type SttySaveResult = {
   readonly status?: number | null;
   readonly stdout?: unknown;
@@ -181,84 +200,1029 @@ const defaultSttySpawn: SttySpawn = (args, { stdinFd, capture }) => {
   return result as SttySaveResult;
 };
 
+export type TtyDeviceIdentity = {
+  readonly uid: number;
+  readonly dev: number;
+  readonly rdev: number;
+  readonly key: string;
+};
+
+export type TtyBaselineRole = "guard" | "active";
+
+export type TtyBaselineAcquireResult = {
+  readonly key: string;
+  readonly token: string;
+  readonly baseline: string | undefined;
+  readonly baselineWasRaw: boolean;
+};
+
+export type TtyBaselineSetSuspendedResult = {
+  readonly shouldRestoreNow: boolean;
+  readonly baseline: string | undefined;
+  readonly baselineWasRaw: boolean | undefined;
+};
+
+export type TtyBaselineReleaseResult = {
+  readonly released: boolean;
+  readonly restoreBaseline: boolean;
+  readonly isLastHolder: boolean;
+  readonly baseline: string | undefined;
+  readonly baselineWasRaw: boolean | undefined;
+};
+
+type TtyBaselineHolderRecord = {
+  token: string;
+  pid: number;
+  startTime?: number;
+  role: TtyBaselineRole;
+  wasRaw: boolean;
+  suspended: boolean;
+};
+
+type TtyBaselineFileRecord = {
+  baseline?: string;
+  baselineWasRaw?: boolean;
+  holders: TtyBaselineHolderRecord[];
+};
+
+export type TtyBaselineRegistryOptions = {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly runtimeDir?: string | null;
+  readonly pid?: number;
+  readonly now?: () => number;
+  readonly isPidAlive?: (pid: number) => boolean;
+  readonly readStartTime?: (pid: number) => number | undefined;
+  readonly resolveDevice?: (fd: number) => TtyDeviceIdentity | undefined;
+  readonly lockStaleMs?: number;
+  readonly lockMaxRetries?: number;
+  readonly lockRetryWaitMs?: number;
+  readonly sleepMs?: (ms: number) => void;
+};
+
+const LOCK_SLEEP_SAB = new Int32Array(new SharedArrayBuffer(4));
+
+function defaultSleepMs(ms: number): void {
+  if (ms <= 0) return;
+  Atomics.wait(LOCK_SLEEP_SAB, 0, 0, ms);
+}
+
+function defaultIsPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    return code === "EPERM";
+  }
+}
+
+export function resolveTtyDeviceIdentity(fd: number): TtyDeviceIdentity | undefined {
+  if (!Number.isInteger(fd) || fd < 0) return undefined;
+  try {
+    const st = fstatSync(fd);
+    if (!st.isCharacterDevice()) return undefined;
+    const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+    const dev = Number(st.dev);
+    const rdev = Number(st.rdev);
+    return { uid, dev, rdev, key: `${uid}-${dev}-${rdev}` };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Coordinates the original controlling-TTY baseline (`stty -g` + `wasRaw`)
+ * across guard parents, child attaches, suspend/resume, concurrent sessions,
+ * and uncatchable worker crashes. Keyed by `(uid, st_dev, st_rdev)`.
+ */
+export class TtyBaselineRegistry {
+  readonly #env: NodeJS.ProcessEnv | undefined;
+  readonly #runtimeDir: string | null | undefined;
+  readonly #pid: number | undefined;
+  readonly #now: () => number;
+  readonly #isPidAlive: (pid: number) => boolean;
+  readonly #readStartTime: (pid: number) => number | undefined;
+  readonly #resolveDevice: (fd: number) => TtyDeviceIdentity | undefined;
+  readonly #lockStaleMs: number;
+  readonly #lockMaxRetries: number;
+  readonly #lockRetryWaitMs: number;
+  readonly #sleepMs: (ms: number) => void;
+  readonly #memoryRecords = new Map<string, TtyBaselineFileRecord>();
+
+  constructor(options: TtyBaselineRegistryOptions = {}) {
+    this.#env = options.env;
+    this.#runtimeDir = options.runtimeDir;
+    this.#pid = options.pid;
+    this.#now = options.now ?? (() => Date.now());
+    this.#isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
+    this.#readStartTime = options.readStartTime ?? readProcessStartTime;
+    this.#resolveDevice = options.resolveDevice ?? resolveTtyDeviceIdentity;
+    this.#lockStaleMs = options.lockStaleMs ?? 5000;
+    this.#lockMaxRetries = options.lockMaxRetries ?? 40;
+    this.#lockRetryWaitMs = options.lockRetryWaitMs ?? 5;
+    this.#sleepMs = options.sleepMs ?? defaultSleepMs;
+  }
+
+  resolveKey(fd: number): TtyDeviceIdentity | undefined {
+    return this.#resolveDevice(fd);
+  }
+
+  #resolveRootDir(): string | undefined {
+    if (this.#runtimeDir !== undefined) {
+      return this.#runtimeDir ? join(this.#runtimeDir, "h2a-tty-baseline") : undefined;
+    }
+    const env = this.#env ?? process.env;
+    const xdg = env["XDG_RUNTIME_DIR"]?.trim();
+    if (xdg) return join(xdg, "h2a-tty-baseline");
+    const cfg = env["REMOTE_CLI_CONFIG_HOME"]?.trim();
+    if (cfg) return join(cfg, "h2a-tty-baseline");
+    return undefined;
+  }
+
+  #isHolderAlive(pid: number, recordedStartTime?: number): boolean {
+    if (!this.#isPidAlive(pid)) return false;
+    if (recordedStartTime !== undefined) {
+      const currentStartTime = this.#readStartTime(pid);
+      if (currentStartTime !== undefined && currentStartTime !== recordedStartTime) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  #pruneHolders(holders: readonly TtyBaselineHolderRecord[]): TtyBaselineHolderRecord[] {
+    return holders.filter((h) => this.#isHolderAlive(h.pid, h.startTime));
+  }
+
+  #toKey(fdOrKey: number | string | TtyDeviceIdentity): string | undefined {
+    if (typeof fdOrKey === "string") return fdOrKey;
+    if (typeof fdOrKey === "number") {
+      return this.#resolveDevice(fdOrKey)?.key;
+    }
+    return fdOrKey.key;
+  }
+
+  #mutateMemoryRecord<R>(
+    key: string,
+    mutate: (record: TtyBaselineFileRecord | undefined) => {
+      next: TtyBaselineFileRecord | undefined;
+      result: R;
+    },
+  ): R {
+    const current = this.#memoryRecords.get(key);
+    const clone: TtyBaselineFileRecord | undefined = current
+      ? {
+          ...(current.baseline !== undefined ? { baseline: current.baseline } : {}),
+          ...(current.baselineWasRaw !== undefined
+            ? { baselineWasRaw: current.baselineWasRaw }
+            : {}),
+          holders: current.holders.map((h) => ({ ...h })),
+        }
+      : undefined;
+    const { next, result } = mutate(clone);
+    if (!next || next.holders.length === 0) {
+      this.#memoryRecords.delete(key);
+    } else {
+      this.#memoryRecords.set(key, next);
+    }
+    return result;
+  }
+
+  #withRecord<R>(
+    key: string,
+    mutate: (record: TtyBaselineFileRecord | undefined) => {
+      next: TtyBaselineFileRecord | undefined;
+      result: R;
+    },
+  ): R {
+    const rootDir = this.#resolveRootDir();
+    if (!rootDir) {
+      return this.#mutateMemoryRecord(key, mutate);
+    }
+
+    try {
+      mkdirSync(rootDir, { recursive: true, mode: 0o700 });
+    } catch {
+      return this.#mutateMemoryRecord(key, mutate);
+    }
+    const filePath = join(rootDir, `${key}.json`);
+    const lockPath = `${filePath}.lock`;
+    const pid = this.#pid ?? process.pid;
+    const startTime = this.#readStartTime(pid);
+    let acquiredLock = false;
+
+    for (let attempt = 0; attempt < this.#lockMaxRetries; attempt += 1) {
+      try {
+        const lockFd = openSync(lockPath, "wx", 0o600);
+        try {
+          writeSync(lockFd, `${pid}:${startTime ?? ""}`);
+        } finally {
+          closeSync(lockFd);
+        }
+        acquiredLock = true;
+        break;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException | undefined)?.code;
+        if (code !== "EEXIST") break;
+        let brokeStale = false;
+        try {
+          const lockRaw = readFileSync(lockPath, "utf8");
+          const [pidPart, startPart] = lockRaw.trim().split(":");
+          const lockPid = Number(pidPart);
+          const lockStart = startPart ? Number(startPart) : undefined;
+          const dead =
+            !Number.isInteger(lockPid) ||
+            lockPid <= 0 ||
+            !this.#isHolderAlive(lockPid, Number.isFinite(lockStart) ? lockStart : undefined);
+          let aged = false;
+          if (!dead) {
+            try {
+              const st = statSync(lockPath);
+              aged = this.#now() - st.mtimeMs >= this.#lockStaleMs;
+            } catch {
+              aged = true;
+            }
+          }
+          if (dead || aged) {
+            unlinkSync(lockPath);
+            brokeStale = true;
+          }
+        } catch {
+          // Another contender may have unlinked the lock between check steps.
+        }
+        if (!brokeStale) {
+          this.#sleepMs(this.#lockRetryWaitMs);
+        }
+      }
+    }
+
+    try {
+      let current: TtyBaselineFileRecord | undefined;
+      try {
+        const parsed = JSON.parse(readFileSync(filePath, "utf8")) as TtyBaselineFileRecord;
+        if (parsed && Array.isArray(parsed.holders)) {
+          current = parsed;
+        }
+      } catch {
+        current = this.#memoryRecords.get(key);
+      }
+
+      const { next, result } = mutate(current);
+      if (!next || next.holders.length === 0) {
+        this.#memoryRecords.delete(key);
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Ignore ENOENT / read-only fallback
+        }
+      } else {
+        const tmpPath = `${filePath}.${pid}.${randomUUID()}.tmp`;
+        try {
+          writeFileSync(tmpPath, JSON.stringify(next), { mode: 0o600 });
+          renameSync(tmpPath, filePath);
+          this.#memoryRecords.delete(key);
+        } catch {
+          try {
+            unlinkSync(tmpPath);
+          } catch {
+            // Best-effort temp cleanup
+          }
+          // Read-only / out-of-space FS fallback (DESIGN-r2 Règle 1 #2): keep
+          // the computed baseline record in memory so attach never fails.
+          this.#memoryRecords.set(key, next);
+        }
+      }
+      return result;
+    } finally {
+      if (acquiredLock) {
+        try {
+          unlinkSync(lockPath);
+        } catch {
+          // Ignore ENOENT
+        }
+      }
+    }
+  }
+
+  acquire(
+    fdOrKey: number | string | TtyDeviceIdentity,
+    options: {
+      readonly role: TtyBaselineRole;
+      readonly wasRaw: boolean;
+      readonly captureBaseline: () => string | undefined;
+    },
+  ): TtyBaselineAcquireResult | undefined {
+    const key = this.#toKey(fdOrKey);
+    if (!key) return undefined;
+    const pid = this.#pid ?? process.pid;
+    const startTime = this.#readStartTime(pid);
+    const token = randomUUID();
+
+    return this.#withRecord<TtyBaselineAcquireResult>(key, (current) => {
+      const holders = current ? this.#pruneHolders(current.holders) : [];
+      const hasLiveNonSuspended = holders.some((h) => !h.suspended);
+      // Capture baseline BEFORE entering raw/-opost, and NEVER overwrite an
+      // already-live non-suspended session's S0 baseline with a dirty S1 capture.
+      let baseline = current?.baseline;
+      let baselineWasRaw = current?.baselineWasRaw;
+      if (!hasLiveNonSuspended || baseline === undefined || baseline.length === 0) {
+        const fresh = options.captureBaseline()?.trim();
+        if (fresh) {
+          baseline = fresh;
+        } else if (!hasLiveNonSuspended) {
+          baseline = undefined;
+        }
+        baselineWasRaw = options.wasRaw;
+      } else if (baselineWasRaw === undefined) {
+        baselineWasRaw = options.wasRaw;
+      }
+
+      holders.push({
+        token,
+        pid,
+        ...(startTime !== undefined ? { startTime } : {}),
+        role: options.role,
+        wasRaw: options.wasRaw,
+        suspended: false,
+      });
+
+      return {
+        next: {
+          ...(baseline !== undefined ? { baseline } : {}),
+          ...(baselineWasRaw !== undefined ? { baselineWasRaw } : {}),
+          holders,
+        },
+        result: {
+          key,
+          token,
+          baseline,
+          baselineWasRaw: baselineWasRaw ?? options.wasRaw,
+        },
+      };
+    });
+  }
+
+  setSuspended(
+    fdOrKey: number | string | TtyDeviceIdentity,
+    token: string,
+    suspended: boolean,
+    options?: { readonly refreshBaseline?: () => string | undefined },
+  ): TtyBaselineSetSuspendedResult | undefined {
+    const key = this.#toKey(fdOrKey);
+    if (!key) return undefined;
+    return this.#withRecord<TtyBaselineSetSuspendedResult | undefined>(key, (current) => {
+      if (!current) {
+        return { next: undefined, result: undefined };
+      }
+      const holders = this.#pruneHolders(current.holders);
+      const target = holders.find((h) => h.token === token);
+      if (!target) {
+        return {
+          next: {
+            ...(current.baseline !== undefined ? { baseline: current.baseline } : {}),
+            ...(current.baselineWasRaw !== undefined ? { baselineWasRaw: current.baselineWasRaw } : {}),
+            holders,
+          },
+          result: undefined,
+        };
+      }
+
+      target.suspended = suspended;
+      let baseline = current.baseline;
+      if (!suspended && options?.refreshBaseline) {
+        const otherLiveNonSuspended = holders.some((h) => h.token !== token && !h.suspended);
+        if (!otherLiveNonSuspended) {
+          const fresh = options.refreshBaseline()?.trim();
+          if (fresh) baseline = fresh;
+        }
+      }
+      const otherActive = holders.some(
+        (h) => h.token !== token && h.role === "active" && !h.suspended,
+      );
+      return {
+        next: {
+          ...(baseline !== undefined ? { baseline } : {}),
+          ...(current.baselineWasRaw !== undefined ? { baselineWasRaw: current.baselineWasRaw } : {}),
+          holders,
+        },
+        result: {
+          shouldRestoreNow: suspended ? !otherActive : false,
+          baseline,
+          baselineWasRaw: current.baselineWasRaw,
+        },
+      };
+    });
+  }
+
+  release(
+    fdOrKey: number | string | TtyDeviceIdentity,
+    token: string,
+  ): TtyBaselineReleaseResult | undefined {
+    const key = this.#toKey(fdOrKey);
+    if (!key) return undefined;
+    return this.#withRecord<TtyBaselineReleaseResult>(key, (current) => {
+      if (!current) {
+        return {
+          next: undefined,
+          result: {
+            released: false,
+            restoreBaseline: true,
+            isLastHolder: true,
+            baseline: undefined,
+            baselineWasRaw: undefined,
+          },
+        };
+      }
+      const pruned = this.#pruneHolders(current.holders);
+      const remaining = pruned.filter((h) => h.token !== token);
+      const otherActive = remaining.some((h) => h.role === "active" && !h.suspended);
+      const isLastHolder = remaining.length === 0;
+      return {
+        next: isLastHolder
+          ? undefined
+          : {
+              ...(current.baseline !== undefined ? { baseline: current.baseline } : {}),
+              ...(current.baselineWasRaw !== undefined ? { baselineWasRaw: current.baselineWasRaw } : {}),
+              holders: remaining,
+            },
+        result: {
+          released: pruned.length !== remaining.length,
+          restoreBaseline: !otherActive,
+          isLastHolder,
+          baseline: current.baseline,
+          baselineWasRaw: current.baselineWasRaw,
+        },
+      };
+    });
+  }
+
+  inspect(fdOrKey: number | string | TtyDeviceIdentity): TtyBaselineFileRecord | undefined {
+    const key = this.#toKey(fdOrKey);
+    if (!key) return undefined;
+    const rootDir = this.#resolveRootDir();
+    if (!rootDir) {
+      const current = this.#memoryRecords.get(key);
+      return current
+        ? {
+            ...(current.baseline !== undefined ? { baseline: current.baseline } : {}),
+            ...(current.baselineWasRaw !== undefined
+              ? { baselineWasRaw: current.baselineWasRaw }
+              : {}),
+            holders: current.holders.map((h) => ({ ...h })),
+          }
+        : undefined;
+    }
+    try {
+      return JSON.parse(readFileSync(join(rootDir, `${key}.json`), "utf8")) as TtyBaselineFileRecord;
+    } catch {
+      const fallback = this.#memoryRecords.get(key);
+      return fallback
+        ? {
+            ...(fallback.baseline !== undefined ? { baseline: fallback.baseline } : {}),
+            ...(fallback.baselineWasRaw !== undefined
+              ? { baselineWasRaw: fallback.baselineWasRaw }
+              : {}),
+            holders: fallback.holders.map((h) => ({ ...h })),
+          }
+        : undefined;
+    }
+  }
+}
+
+export const defaultTtyBaselineRegistry = new TtyBaselineRegistry();
+
+export type SaveTtyStateOptions = {
+  readonly stdout?: TtyStdout | undefined;
+  readonly stty?: SttySpawn | undefined;
+  readonly registry?: TtyBaselineRegistry | null | undefined;
+  readonly role?: TtyBaselineRole | undefined;
+  readonly platform?: NodeJS.Platform | undefined;
+};
+
 export type TtyState = {
   readonly stdinFd: number | undefined;
+  readonly stdoutFd?: number | undefined;
   readonly wasRaw: boolean;
   readonly saved: SttySaveResult | undefined;
+  readonly stdoutSaved?: SttySaveResult | undefined;
 };
+
+type RegisteredEntry = {
+  readonly registry: TtyBaselineRegistry;
+  readonly key: string;
+  readonly token: string;
+  readonly fd: number;
+};
+
+type TtyStateMeta = {
+  stdinEntry?: RegisteredEntry | undefined;
+  stdoutEntry?: RegisteredEntry | undefined;
+  rawSaved?: SttySaveResult | undefined;
+  rawStdoutSaved?: SttySaveResult | undefined;
+  restored: boolean;
+  stty: SttySpawn;
+  platform: NodeJS.Platform;
+};
+
+const ttyStateMeta = new WeakMap<TtyState, TtyStateMeta>();
+
+function resolveNumericFd(stream?: { readonly fd?: unknown }): number | undefined {
+  const fd = stream?.fd;
+  return typeof fd === "number" && Number.isInteger(fd) && fd >= 0 ? fd : undefined;
+}
+
+function captureSttyMode(fd: number, stty: SttySpawn): SttySaveResult | undefined {
+  try {
+    return stty(["-g"], { stdinFd: fd, capture: true });
+  } catch {
+    return undefined;
+  }
+}
+
+function sttyModeString(result: SttySaveResult | undefined): string | undefined {
+  if (result?.status !== 0 || typeof result.stdout !== "string") return undefined;
+  const trimmed = result.stdout.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function resolveDistinctStdoutFd(
+  stdinFd: number | undefined,
+  stdout: TtyStdout | undefined,
+  registry: TtyBaselineRegistry | null | undefined,
+): number | undefined {
+  if (stdout?.isTTY !== true) return undefined;
+  const outFd = resolveNumericFd(stdout);
+  if (outFd === undefined) return undefined;
+  if (stdinFd === undefined) return outFd;
+  if (outFd === stdinFd) return undefined;
+  const resolveFn = registry
+    ? (fd: number) => registry.resolveKey(fd)
+    : resolveTtyDeviceIdentity;
+  const inId = resolveFn(stdinFd);
+  const outId = resolveFn(outFd);
+  if (inId && outId) {
+    return inId.key === outId.key ? undefined : outFd;
+  }
+  return outFd;
+}
 
 /**
  * rev351r2-2: single home for the termios save every client-terminal owner
- * (`withClientTerminalReset`, `run`, `attach`, `auth login`) used to copy.
- * Captures stdin raw mode plus `stty -g` on a real TTY; elsewhere (or when
- * `stty` fails) the save is empty and the restore below degrades to the VT
- * reset plus the raw-mode restore.
+ * (`withClientTerminalReset`, `run`, `attach`, `auth login`, `op`, `station`)
+ * shares. Captures stdin raw mode plus `stty -g` on a real TTY (and distinct
+ * `stdout.fd` if `stdout.isTTY === true` targets a different TTY device), using
+ * `TtyBaselineRegistry` so concurrent or guarded attaches preserve `S0`.
  */
 export function saveTtyState(
   stdin: TtyStdin,
-  stty: SttySpawn = defaultSttySpawn,
+  sttyOrOptions: SttySpawn | SaveTtyStateOptions = defaultSttySpawn,
+  maybeOptions?: SaveTtyStateOptions,
 ): TtyState {
-  const wasRaw = (stdin as { isRaw?: boolean }).isRaw === true;
-  const fd = (stdin as { fd?: unknown }).fd;
-  const stdinFd = typeof fd === "number" ? fd : undefined;
-  if (
-    stdin.isTTY !== true ||
-    stdinFd === undefined ||
-    process.platform === "win32"
-  ) {
-    return { stdinFd, wasRaw, saved: undefined };
+  const opts: SaveTtyStateOptions =
+    typeof sttyOrOptions === "function"
+      ? { ...maybeOptions, stty: sttyOrOptions }
+      : sttyOrOptions ?? {};
+  const stty = opts.stty ?? defaultSttySpawn;
+  const platform = opts.platform ?? process.platform;
+  const role = opts.role ?? "active";
+  const registry = opts.registry === null ? null : (opts.registry ?? defaultTtyBaselineRegistry);
+  const stdinWasRaw = (stdin as { isRaw?: boolean }).isRaw === true;
+  const stdinFd = resolveNumericFd(stdin);
+  const distinctStdoutFd = resolveDistinctStdoutFd(stdinFd, opts.stdout, registry);
+
+  let effectiveWasRaw = stdinWasRaw;
+  let saved: SttySaveResult | undefined;
+  let stdoutSaved: SttySaveResult | undefined;
+  let stdinEntry: RegisteredEntry | undefined;
+  let stdoutEntry: RegisteredEntry | undefined;
+
+  if (stdin.isTTY === true && stdinFd !== undefined && platform !== "win32") {
+    let directCapture: SttySaveResult | undefined;
+    const capture = (): string | undefined => {
+      directCapture = captureSttyMode(stdinFd, stty);
+      return sttyModeString(directCapture);
+    };
+    const acquired = registry?.acquire(stdinFd, {
+      role,
+      wasRaw: stdinWasRaw,
+      captureBaseline: capture,
+    });
+    if (acquired) {
+      effectiveWasRaw = acquired.baselineWasRaw;
+      saved =
+        acquired.baseline !== undefined
+          ? { status: 0, stdout: `${acquired.baseline}\n` }
+          : directCapture;
+      stdinEntry = {
+        registry: registry!,
+        key: acquired.key,
+        token: acquired.token,
+        fd: stdinFd,
+      };
+    } else {
+      saved = captureSttyMode(stdinFd, stty);
+    }
   }
+
+  if (distinctStdoutFd !== undefined && platform !== "win32") {
+    let directOutCapture: SttySaveResult | undefined;
+    const captureOut = (): string | undefined => {
+      directOutCapture = captureSttyMode(distinctStdoutFd, stty);
+      return sttyModeString(directOutCapture);
+    };
+    const acquiredOut = registry?.acquire(distinctStdoutFd, {
+      role,
+      wasRaw: false,
+      captureBaseline: captureOut,
+    });
+    if (acquiredOut) {
+      stdoutSaved =
+        acquiredOut.baseline !== undefined
+          ? { status: 0, stdout: `${acquiredOut.baseline}\n` }
+          : directOutCapture;
+      stdoutEntry = {
+        registry: registry!,
+        key: acquiredOut.key,
+        token: acquiredOut.token,
+        fd: distinctStdoutFd,
+      };
+    } else {
+      stdoutSaved = captureSttyMode(distinctStdoutFd, stty);
+    }
+  }
+
+  const state: TtyState = {
+    stdinFd,
+    ...(distinctStdoutFd !== undefined ? { stdoutFd: distinctStdoutFd } : {}),
+    wasRaw: effectiveWasRaw,
+    saved,
+    ...(stdoutSaved !== undefined ? { stdoutSaved } : {}),
+  };
+
+  if (stdinEntry || stdoutEntry || opts.stdout !== undefined || opts.registry !== undefined) {
+    ttyStateMeta.set(state, {
+      stdinEntry,
+      stdoutEntry,
+      restored: false,
+      stty,
+      platform,
+    });
+  }
+
+  return state;
+}
+
+function applySavedStty(
+  fd: number | undefined,
+  saved: SttySaveResult | undefined,
+  baselineOverride: string | undefined,
+  stty: SttySpawn,
+): void {
+  if (fd === undefined) return;
+  const mode = baselineOverride?.trim() || sttyModeString(saved);
+  if (!mode) return;
   try {
-    return { stdinFd, wasRaw, saved: stty(["-g"], { stdinFd, capture: true }) };
+    stty([mode], { stdinFd: fd, capture: false });
   } catch {
-    return { stdinFd, wasRaw, saved: undefined };
+    // Best effort; the VT reset above already ran.
   }
 }
 
 /**
  * rev351r2-2: single home for the termios restore. Emits the VT reset, puts
  * stdin raw mode back the way it was, then re-applies the saved `stty` state
- * when there is one. Every step is best effort so teardown never masks the
- * session outcome.
+ * (and distinct `stdout.fd` state if present) unless another active non-suspended
+ * session still holds that TTY in `TtyBaselineRegistry`. Idempotent for states
+ * created with `TtyBaselineRegistry` / `enterRawOutputTty`.
  */
 export function restoreTtyState(
   state: TtyState,
   stdin: TtyStdin,
   doReset: () => void,
-  stty: SttySpawn = defaultSttySpawn,
+  sttyOrStdout: SttySpawn | TtyStdout = defaultSttySpawn,
 ): void {
+  const stty =
+    typeof sttyOrStdout === "function"
+      ? sttyOrStdout
+      : (ttyStateMeta.get(state)?.stty ?? defaultSttySpawn);
+
+  const meta = ttyStateMeta.get(state);
+  if (meta) {
+    if (meta.restored) return;
+    meta.restored = true;
+  }
+
+  const stdinRel = meta?.stdinEntry
+    ? meta.stdinEntry.registry.release(meta.stdinEntry.key, meta.stdinEntry.token)
+    : undefined;
+  const stdoutRel = meta?.stdoutEntry
+    ? meta.stdoutEntry.registry.release(meta.stdoutEntry.key, meta.stdoutEntry.token)
+    : undefined;
+
+  const restoreStdin = stdinRel ? stdinRel.restoreBaseline : true;
+  const restoreStdout = stdoutRel ? stdoutRel.restoreBaseline : true;
+  const shouldRunReset = meta ? restoreStdin && restoreStdout : true;
+
   try {
-    doReset();
+    if (shouldRunReset) {
+      doReset();
+    }
   } catch {
     // Best effort on teardown; the caller's own outcome takes precedence.
   }
-  try {
-    if (stdin.isTTY === true) {
+
+  if (restoreStdin) {
+    const targetRaw = stdinRel?.baselineWasRaw ?? state.wasRaw;
+    try {
+      if (stdin.isTTY === true) {
+        try {
+          stdin.setRawMode?.(targetRaw);
+        } catch {
+          // Restoring raw must never mask the caller's outcome.
+        }
+      }
+    } catch {
+      // Best effort on teardown.
+    }
+    applySavedStty(state.stdinFd, state.saved, stdinRel?.baseline, stty);
+  }
+
+  if (restoreStdout && state.stdoutFd !== undefined) {
+    applySavedStty(state.stdoutFd, state.stdoutSaved, stdoutRel?.baseline, stty);
+  }
+}
+
+export type EnterRawOutputTtyOptions = {
+  readonly stty?: SttySpawn | undefined;
+  readonly registry?: TtyBaselineRegistry | null | undefined;
+  readonly role?: TtyBaselineRole | undefined;
+  readonly platform?: NodeJS.Platform | undefined;
+};
+
+function applyRawAndNoOpost(
+  stdin: TtyStdin,
+  stdout: TtyStdout | undefined,
+  stty: SttySpawn,
+  platform: NodeJS.Platform,
+): void {
+  if (stdin.isTTY === true) {
+    try {
+      stdin.setRawMode?.(true);
+    } catch {
+      // Non-raw-capable mock or closed fd.
+    }
+  }
+  if (platform !== "win32" && stdout?.isTTY === true) {
+    const outFd = resolveNumericFd(stdout);
+    if (outFd !== undefined) {
       try {
-        stdin.setRawMode?.(state.wasRaw);
+        stty(["-opost"], { stdinFd: outFd, capture: false });
       } catch {
-        // Restoring raw must never mask the caller's outcome.
+        // Non-TTY / closed fd fallback.
       }
     }
-  } catch {
-    // Best effort on teardown.
   }
-  try {
-    const saved = state.saved;
-    if (
-      saved?.status === 0 &&
-      typeof saved.stdout === "string" &&
-      saved.stdout.trim() &&
-      state.stdinFd !== undefined
-    ) {
-      stty([saved.stdout.trim()], {
-        stdinFd: state.stdinFd,
-        capture: false,
-      });
+}
+
+/**
+ * Capture baseline termios (with `TtyBaselineRegistry`), put `stdin` into raw
+ * mode when `stdin.isTTY === true`, and apply `stty -opost` on `stdout.fd` ONLY
+ * when on POSIX and `stdout?.isTTY === true`. Captures the resulting `S1`
+ * raw/-opost mode (`stty -g`) so `SIGCONT` can restore full raw state even when
+ * libuv keeps `tty->mode` cached as raw across `SIGTSTP`.
+ */
+export function enterRawOutputTty(
+  stdin: TtyStdin,
+  stdout?: TtyStdout,
+  options: EnterRawOutputTtyOptions = {},
+): TtyState {
+  const stty = options.stty ?? defaultSttySpawn;
+  const platform = options.platform ?? process.platform;
+  const state = saveTtyState(stdin, {
+    stdout,
+    stty,
+    registry: options.registry,
+    role: options.role ?? "active",
+    platform,
+  });
+  applyRawAndNoOpost(stdin, stdout, stty, platform);
+  if (platform !== "win32") {
+    const rawSaved =
+      stdin.isTTY === true && state.stdinFd !== undefined
+        ? captureSttyMode(state.stdinFd, stty)
+        : undefined;
+    const rawStdoutSaved =
+      state.stdoutFd !== undefined
+        ? captureSttyMode(state.stdoutFd, stty)
+        : undefined;
+    const meta = ttyStateMeta.get(state) ?? {
+      restored: false,
+      stty,
+      platform,
+    };
+    if (rawSaved !== undefined) meta.rawSaved = rawSaved;
+    if (rawStdoutSaved !== undefined) meta.rawStdoutSaved = rawStdoutSaved;
+    ttyStateMeta.set(state, meta);
+  }
+  return state;
+}
+
+export type TtySuspendHandlerOptions = {
+  readonly state: TtyState;
+  readonly stdin: TtyStdin;
+  readonly stdout?: TtyStdout;
+  readonly beforeSuspend?: () => void;
+  readonly afterResume?: () => void;
+  readonly stty?: SttySpawn;
+  readonly platform?: NodeJS.Platform;
+  readonly processObj?: Pick<NodeJS.Process, "on" | "removeListener" | "kill" | "pid">;
+};
+
+/**
+ * Install paired `SIGTSTP`/`SIGCONT` handlers so Ctrl+Z restores the baseline
+ * TTY state before stopping and `fg` re-applies raw + `-opost` + UI repaint.
+ */
+export function installTtySuspendHandlers(options: TtySuspendHandlerOptions): () => void {
+  const meta = ttyStateMeta.get(options.state);
+  const platform = options.platform ?? meta?.platform ?? process.platform;
+  if (platform === "win32") return () => {};
+
+  const proc = options.processObj ?? process;
+  const stty = options.stty ?? meta?.stty ?? defaultSttySpawn;
+  let uninstalled = false;
+  let calledSetRawOnSuspend = false;
+  let suspendedByHandler = false;
+
+  const suspendStty: SttySpawn =
+    stty === defaultSttySpawn
+      ? (args, { stdinFd, capture }) =>
+          spawnSync(
+            "sh",
+            ["-c", 'trap "" TTOU; exec stty "$@"', "h2a-stty", ...args],
+            {
+              stdio: [stdinFd, capture ? "pipe" : "ignore", "ignore"],
+              encoding: "utf8",
+            },
+          ) as SttySaveResult
+      : stty;
+
+  const reapplyRawAndNoOpostOnResume = (): void => {
+    // Resume must NOT neutralize SIGTTOU: if the process is resumed in the
+    // background (`bg`), POSIX requires `tcsetattr` (`stty` / `setRawMode`)
+    // to stop the job on SIGTTOU without clobbering the shell's TTY.
+    const rawInMode = sttyModeString(meta?.rawSaved);
+    const rawOutMode = sttyModeString(meta?.rawStdoutSaved);
+    if (!calledSetRawOnSuspend && (rawInMode || rawOutMode)) {
+      if (options.state.stdinFd !== undefined) {
+        if (rawInMode) {
+          applySavedStty(options.state.stdinFd, meta?.rawSaved, undefined, stty);
+        } else {
+          if (options.stdin.isTTY === true) {
+            try {
+              options.stdin.setRawMode?.(false);
+            } catch {}
+          }
+          applyRawAndNoOpost(
+            options.stdin,
+            options.state.stdoutFd === undefined ? options.stdout : undefined,
+            stty,
+            platform,
+          );
+        }
+      } else if (options.stdin.isTTY === true) {
+        try {
+          options.stdin.setRawMode?.(false);
+          options.stdin.setRawMode?.(true);
+        } catch {}
+      }
+      if (options.state.stdoutFd !== undefined) {
+        if (rawOutMode) {
+          applySavedStty(options.state.stdoutFd, meta?.rawStdoutSaved, undefined, stty);
+        } else if (options.stdout?.isTTY === true) {
+          try {
+            stty(["-opost"], { stdinFd: options.state.stdoutFd, capture: false });
+          } catch {}
+        }
+      }
+      return;
     }
-  } catch {
-    // Best effort; the VT reset above already ran.
-  }
+
+    // Fallback (when S1 could not be captured or setRawMode ran on suspend):
+    // bounce setRawMode(false)->setRawMode(true) if needed so libuv's mode
+    // cache cannot suppress tcsetattr, then re-apply stty -opost.
+    if (!calledSetRawOnSuspend && options.stdin.isTTY === true) {
+      try {
+        options.stdin.setRawMode?.(false);
+      } catch {}
+    }
+    applyRawAndNoOpost(options.stdin, options.stdout, stty, platform);
+  };
+
+  const onSigCont = (): void => {
+    if (uninstalled || !suspendedByHandler) return;
+    suspendedByHandler = false;
+    proc.removeListener("SIGCONT", onSigCont);
+    // Capture any updated S0 baseline BEFORE re-applying S1 so refreshBaseline
+    // never snapshots S1 (even if SIGCONT arrives after SIGSTOP/SIGTTIN or bg->fg).
+    const refreshedIn = meta?.stdinEntry
+      ? sttyModeString(captureSttyMode(meta.stdinEntry.fd, stty))
+      : undefined;
+    const refreshedOut = meta?.stdoutEntry
+      ? sttyModeString(captureSttyMode(meta.stdoutEntry.fd, stty))
+      : undefined;
+    reapplyRawAndNoOpostOnResume();
+    if (uninstalled) return;
+    if (meta?.stdinEntry) {
+      meta.stdinEntry.registry.setSuspended(
+        meta.stdinEntry.key,
+        meta.stdinEntry.token,
+        false,
+        refreshedIn !== undefined ? { refreshBaseline: () => refreshedIn } : undefined,
+      );
+    }
+    if (meta?.stdoutEntry) {
+      meta.stdoutEntry.registry.setSuspended(
+        meta.stdoutEntry.key,
+        meta.stdoutEntry.token,
+        false,
+        refreshedOut !== undefined ? { refreshBaseline: () => refreshedOut } : undefined,
+      );
+    }
+    proc.removeListener("SIGTSTP", onSigTstp);
+    proc.on("SIGTSTP", onSigTstp);
+    try {
+      options.afterResume?.();
+    } catch {
+      // Best effort on resume.
+    }
+  };
+
+  const onSigTstp = (): void => {
+    if (uninstalled) return;
+    calledSetRawOnSuspend = false;
+    suspendedByHandler = true;
+    const inSusp = meta?.stdinEntry
+      ? meta.stdinEntry.registry.setSuspended(meta.stdinEntry.key, meta.stdinEntry.token, true)
+      : undefined;
+    const outSusp = meta?.stdoutEntry
+      ? meta.stdoutEntry.registry.setSuspended(meta.stdoutEntry.key, meta.stdoutEntry.token, true)
+      : undefined;
+
+    const shouldRestoreIn = inSusp ? inSusp.shouldRestoreNow : true;
+    const shouldRestoreOut = outSusp ? outSusp.shouldRestoreNow : true;
+    if (shouldRestoreIn && shouldRestoreOut) {
+      try {
+        options.beforeSuspend?.();
+      } catch {
+        // Best effort before suspend.
+      }
+    }
+    if (shouldRestoreIn) {
+      const targetRaw = inSusp?.baselineWasRaw ?? options.state.wasRaw;
+      const inBaselineMode =
+        inSusp?.baseline?.trim() || sttyModeString(options.state.saved);
+      // On real POSIX TTYs, `suspendStty` uses kernel SIG_IGN on SIGTTOU so it
+      // restores S0 (including canonical/echo/opost) atomically without risking
+      // libuv's EINTR loop on `setRawMode` when a wrapper guard stopped first.
+      if (!inBaselineMode || options.state.stdinFd === undefined) {
+        try {
+          if (options.stdin.isTTY === true) options.stdin.setRawMode?.(targetRaw);
+        } catch {}
+        calledSetRawOnSuspend = true;
+      }
+      applySavedStty(
+        options.state.stdinFd,
+        options.state.saved,
+        inSusp?.baseline,
+        suspendStty,
+      );
+    }
+    if (shouldRestoreOut && options.state.stdoutFd !== undefined) {
+      applySavedStty(
+        options.state.stdoutFd,
+        options.state.stdoutSaved,
+        outSusp?.baseline,
+        suspendStty,
+      );
+    }
+
+    proc.removeListener("SIGTSTP", onSigTstp);
+    proc.removeListener("SIGCONT", onSigCont);
+    proc.on("SIGCONT", onSigCont);
+    try {
+      proc.kill(proc.pid, "SIGTSTP");
+    } catch {
+      // Ignored in synthetic unit tests if kill throws.
+    }
+  };
+
+  proc.on("SIGTSTP", onSigTstp);
+  return () => {
+    uninstalled = true;
+    proc.removeListener("SIGTSTP", onSigTstp);
+    proc.removeListener("SIGCONT", onSigCont);
+  };
 }
 
 /**
@@ -275,8 +1239,13 @@ export function withClientTerminalReset<T>(
     resetClientTerminal();
   },
   stdin: TtyStdin = process.stdin,
+  stdout?: TtyStdout,
 ): T {
-  const state = saveTtyState(stdin);
+  const effectiveStdout = stdout ?? (stdin === process.stdin ? process.stdout : undefined);
+  const state = saveTtyState(
+    stdin,
+    effectiveStdout ? { stdout: effectiveStdout, role: "guard" } : { role: "guard" },
+  );
   try {
     return run();
   } finally {

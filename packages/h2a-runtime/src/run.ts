@@ -6,11 +6,15 @@ import {
 
 import { resolveProfile, withResume, type ProfileConfig } from "./profiles.js";
 import { nodePtySpawner, type PtyHandle, type PtySpawner } from "./pty.js";
+import { publishAttachReset } from "./native-terminal/attach-recovery.js";
 import {
+  CLIENT_TERMINAL_RESET_SEQUENCE,
+  enterRawOutputTty,
+  installTtySuspendHandlers,
   resetClientTerminal,
   restoreTtyState,
-  saveTtyState,
   SIGNAL_NUMBERS,
+  type TtyState,
 } from "./terminal-reset.js";
 
 export type RunOptions = {
@@ -154,22 +158,37 @@ export async function run(options: RunOptions): Promise<RunResult> {
   // both the VT modes and the kernel TTY state, even when the CLI dies by
   // signal after enabling focus/mouse/alternate-screen/Kitty modes.
   // rev351r2-2: shared save/restore home (terminal-reset.ts), no local copy.
-  const ttyState = saveTtyState(stdin);
+  let ttyState: TtyState | undefined;
   const restoreClientTerminal = (): void => {
-    restoreTtyState(ttyState, stdin, () => resetClientTerminal(stdout));
+    if (!ttyState) {
+      resetClientTerminal(stdout);
+      publishAttachReset("");
+      return;
+    }
+    restoreTtyState(ttyState, stdin, () => {
+      resetClientTerminal(stdout);
+      publishAttachReset("");
+    });
   };
+  let uninstallSuspend: (() => void) | undefined;
   // Async bridge: the event loop runs, so signal handlers CAN execute here
   // (unlike the blocking spawnSync wrappers). Reset + restore, then preserve
   // signal-death semantics via 128+n like the native attach path.
-  // rev351r2-5: installed BEFORE stdin goes raw and BEFORE the control-plane
-  // listen, so a signal during the startup window (or a listen failure below)
-  // still restores instead of leaving the terminal raw.
+  // rev351r2-5: installed BEFORE stdin goes raw/-opost and BEFORE listen,
+  // so signals, fatal errors, or exits still restore instead of leaving the TTY raw.
   const signalHandlers = new Map<string, () => void>();
+  const onExitOrFatal = (): void => {
+    restoreClientTerminal();
+  };
   const uninstallSignals = (): void => {
     for (const [signal, handler] of signalHandlers) {
       process.removeListener(signal, handler);
     }
     signalHandlers.clear();
+    process.removeListener("exit", onExitOrFatal);
+    process.removeListener("uncaughtExceptionMonitor", onExitOrFatal);
+    uninstallSuspend?.();
+    uninstallSuspend = undefined;
   };
   for (const signal of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) {
     const number = SIGNAL_NUMBERS[signal] ?? 0;
@@ -189,9 +208,32 @@ export async function run(options: RunOptions): Promise<RunResult> {
     signalHandlers.set(signal, handler);
     process.on(signal, handler);
   }
-  // Forward host stdin to the PTY.
-  if (stdin.isTTY) {
-    stdin.setRawMode?.(true);
+  process.on("exit", onExitOrFatal);
+  process.on("uncaughtExceptionMonitor", onExitOrFatal);
+  // Publish recovery sequence before entering raw + -opost so SIGKILL is still covered.
+  publishAttachReset(CLIENT_TERMINAL_RESET_SEQUENCE);
+  ttyState = enterRawOutputTty(stdin, stdout);
+  if (stdin.isTTY === true || stdout.isTTY === true) {
+    uninstallSuspend = installTtySuspendHandlers({
+      state: ttyState,
+      stdin,
+      stdout,
+      beforeSuspend: () => {
+        try {
+          resetClientTerminal(stdout);
+        } catch {
+          // Best effort before suspend.
+        }
+      },
+      afterResume: () => {
+        try {
+          publishAttachReset(CLIENT_TERMINAL_RESET_SEQUENCE);
+          handle.resize(stdout.columns ?? initialCols, stdout.rows ?? initialRows);
+        } catch {
+          // Best effort on resume.
+        }
+      },
+    });
   }
   stdin.resume();
   stdin.on("data", (data: Buffer | string) => {

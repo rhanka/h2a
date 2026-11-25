@@ -203,4 +203,35 @@ describe("run", () => {
     pty.emitExit(0);
     await result.exit;
   });
+
+  it("restores TTY state on exit and leaves no lingering signal/exit/suspend listeners after exit", async () => {
+    const { spawner, pty } = stubSpawner();
+    const stdin = Object.assign(stubStdin(), { isTTY: true, isRaw: false });
+    const stdout = Object.assign(stubStdout(), { isTTY: true });
+
+    const beforeExit = process.listenerCount("exit");
+    const beforeUncaught = process.listenerCount("uncaughtExceptionMonitor");
+    const beforeTstp = process.listenerCount("SIGTSTP");
+
+    const result = await run({
+      profile: "shell",
+      port: 0,
+      spawner,
+      stdin,
+      stdout,
+      initialSize: { cols: 80, rows: 24 },
+    });
+    expect(process.listenerCount("exit")).toBe(beforeExit + 1);
+    expect(process.listenerCount("uncaughtExceptionMonitor")).toBe(beforeUncaught + 1);
+    if (process.platform !== "win32") {
+      expect(process.listenerCount("SIGTSTP")).toBe(beforeTstp + 1);
+    }
+
+    pty.emitExit(0);
+    await result.exit;
+
+    expect(process.listenerCount("exit")).toBe(beforeExit);
+    expect(process.listenerCount("uncaughtExceptionMonitor")).toBe(beforeUncaught);
+    expect(process.listenerCount("SIGTSTP")).toBe(beforeTstp);
+  });
 });

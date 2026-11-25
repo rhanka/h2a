@@ -268,7 +268,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       }
       const id = requiredIdentifier(record.id, "session id");
       return {
-        ...host.readOutput(id, afterSeq as number),
+        ...host.readOutput(id, afterSeq as number, context.leases.get(id)),
         state: host.state(id),
       };
     }
@@ -282,6 +282,12 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       if (record.passive !== undefined && typeof record.passive !== "boolean") {
         throw new TypeError("terminal controller passive must be a boolean");
       }
+      if (
+        record.terminalResponder !== undefined &&
+        typeof record.terminalResponder !== "boolean"
+      ) {
+        throw new TypeError("terminal controller terminalResponder must be a boolean");
+      }
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
@@ -289,12 +295,23 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         {
           ...(record.takeover !== undefined ? { takeover: record.takeover as boolean } : {}),
           ...(record.passive !== undefined ? { passive: record.passive as boolean } : {}),
+          ...(record.terminalResponder !== undefined
+            ? { terminalResponder: record.terminalResponder as boolean }
+            : {}),
           ...(record.pid !== undefined ? { pid: requiredInteger(record.pid, "controller pid") } : {}),
           ...(record.tty !== undefined ? { tty: requiredString(record.tty, "controller tty") } : {}),
         },
       );
       context.leases.set(lease.id, lease);
       return lease;
+    }
+    case "set-controller-responder": {
+      const record = requiredRecord(params, "params");
+      const lease = ownedLease(context, record);
+      if (typeof record.enabled !== "boolean") {
+        throw new TypeError("terminal controller responder enabled must be a boolean");
+      }
+      return host.setControllerTerminalResponder(lease, record.enabled);
     }
     case "acquire-controller-if-no-recent-human": {
       const record = requiredRecord(params, "params");
