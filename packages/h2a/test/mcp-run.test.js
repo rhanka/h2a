@@ -474,7 +474,9 @@ test("canonical AGY run-once invocation is direct and keeps the prompt on stdin"
       "gemini-3.7-flash-high",
       "--effort",
       "high",
-      "--headless"
+      "--headless",
+      "--launch-budget-ms",
+      "240000"
     ]);
     assert.equal(invocation.args.includes(req.prompt), false);
   });
@@ -706,7 +708,7 @@ test("timeout after session creation was attempted forbids blind retry", () => {
 
 test("profile launch budgets should include readiness, paste, activity and cleanup", () => {
  withWorkspace(({workspaceRoot,workspace})=>{
-  for(const [profile,expected] of [["codex",270000],["muse",270000],["claude",180000],["agy",180000]]){
+  for(const [profile,expected] of [["codex",270000],["muse",270000],["claude",180000],["agy",240000]]){
    const req=validateH2aRunRequest({...request(workspace),profile,effort:"high"},workspaceRoot);
    executeH2aRunWithSpawn(req,(_command,_args,options)=>{
     assert.equal(options.timeout,expected);

@@ -5,6 +5,13 @@ import { join, resolve } from "node:path";
 import { writeHostLogLine } from "./crash-safe-log.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import type { PtyHandle, PtySpawner } from "../pty.js";
+import {
+  inspectAgyAgentsSliceSync,
+  resolveMemoryScopeSpec,
+  type NativeMemoryPolicy,
+  type NativeSessionClass,
+  type SliceGuardResult,
+} from "../onboarding-core.js";
 // Durable session identity (incl. pgid) lives in the single registry store by
 // design — one local store per the owner's durable-state direction (see the
 // longer rationale on `persistNativeTerminalPgid`/`readNativeTerminalPgid` in
@@ -696,6 +703,8 @@ export type NativeTerminalCreateOptions = Readonly<{
   env: Readonly<Record<string, string>>;
   cols: number;
   rows: number;
+  memoryPolicy?: NativeMemoryPolicy;
+  sessionClass?: NativeSessionClass;
 }>;
 
 /**
@@ -787,6 +796,10 @@ export type NativeTerminalReapOutcome = Readonly<
 type SessionRecord = {
   readonly id: string;
   readonly incarnation: string;
+  readonly memoryPolicy: NativeMemoryPolicy;
+  readonly sessionClass: NativeSessionClass;
+  readonly memorySlice: "app.slice" | "h2a-agents.slice";
+  readonly oomPreference: "avoid" | "none";
   pty: PtyHandle;
   ptyBirth: number | undefined;
   readonly application: ApplicationFacetState;
@@ -851,6 +864,8 @@ export class NativeTerminalHost {
   readonly #groupIsOnlyZombies: (pgid: number) => boolean;
   readonly #readFrame: () => NativeTerminalProcFrame;
   readonly #readApplicationForeground: ApplicationForegroundReader;
+  readonly #hostIsolated: boolean;
+  readonly #checkAgySlice: () => SliceGuardResult;
   readonly #applicationObservers = new Set<(state: ApplicationForegroundEvent) => void>();
   #applicationPoll: NodeJS.Timeout | undefined;
   readonly #pgidGuardCounters = {
@@ -906,6 +921,8 @@ export class NativeTerminalHost {
     readFrame?: () => NativeTerminalProcFrame;
     readApplicationForeground?: ApplicationForegroundReader;
     dsrFallbackTimeoutMs?: number;
+    hostIsolated?: boolean;
+    checkAgySlice?: () => SliceGuardResult;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -965,10 +982,16 @@ export class NativeTerminalHost {
     this.#groupIsOnlyZombies = options.groupIsOnlyZombies ?? groupIsOnlyZombies;
     this.#readFrame = options.readFrame ?? readCurrentProcFrame;
     this.#readApplicationForeground = options.readApplicationForeground ?? readApplicationForeground;
+    this.#hostIsolated = options.hostIsolated ?? false;
+    this.#checkAgySlice = options.checkAgySlice ?? inspectAgyAgentsSliceSync;
   }
 
   get generation(): string {
     return this.#generation;
+  }
+
+  get hostIsolated(): boolean {
+    return this.#hostIsolated;
   }
 
   onApplicationForegroundChange(observer: (state: ApplicationForegroundEvent) => void): () => void {
@@ -1102,6 +1125,23 @@ export class NativeTerminalHost {
     // simply gone, group still alive, no containment ever triggered (an
     // ordinary shell that exits normally leaving a backgrounded descendant).
     // See `groupCarriesSessionToken`/`#verifyGroupLeaderIdentity`.
+    const scope = resolveMemoryScopeSpec({
+      memoryPolicy: options.memoryPolicy,
+      sessionClass: options.sessionClass,
+    });
+    if (scope.policy === "agy" && scope.sessionClass === "background") {
+      const sliceGuard = this.#checkAgySlice();
+      if (!sliceGuard.ok) {
+        const envelope = JSON.stringify({
+          code: sliceGuard.code,
+          phase: "memory-slice",
+          error: sliceGuard.reason,
+          hint: sliceGuard.hint,
+        });
+        throw new Error(`[h2a-onboarding-error:${envelope}] ${sliceGuard.reason}`);
+      }
+    }
+
     const groupToken = randomUUID();
     const pty = this.#spawner({
       command: options.command,
@@ -1110,6 +1150,10 @@ export class NativeTerminalHost {
       env: { ...options.env, H2A_NATIVE_TERMINAL: "1", [H2A_SESSION_TOKEN_ENV_VAR]: groupToken },
       cols: options.cols,
       rows: options.rows,
+      memoryPolicy: scope.policy,
+      sessionClass: scope.sessionClass,
+      memorySlice: scope.slice,
+      oomPreference: scope.oomPreference,
     });
     // Known pre-existing narrow window: a host SIGKILL after this synchronous
     // spawn and before the following synchronous persist leaves no durable
@@ -1161,6 +1205,10 @@ export class NativeTerminalHost {
     const record: SessionRecord = {
       id: options.id,
       incarnation: options.launchFence?.incarnation ?? randomUUID(),
+      memoryPolicy: scope.policy,
+      sessionClass: scope.sessionClass,
+      memorySlice: scope.slice,
+      oomPreference: scope.oomPreference,
       pty,
       ptyBirth: leaderStartTime,
       application: new ApplicationFacetState(),
@@ -1907,6 +1955,10 @@ export class NativeTerminalHost {
         },
         cols: spawnCols,
         rows: spawnRows,
+        memoryPolicy: record.memoryPolicy,
+        sessionClass: record.sessionClass,
+        memorySlice: record.memorySlice,
+        oomPreference: record.oomPreference,
       });
     } catch (error) {
       delete record.pendingRespawnSize;

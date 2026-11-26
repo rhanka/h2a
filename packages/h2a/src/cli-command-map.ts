@@ -310,6 +310,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "check", summary: "End-to-end probe: create a session, await it, stop it (alias: smoke)." },
   { group: "SET_UP", verb: "sentropic", summary: "Sign in to sentropic (preprod) and bind this workspace for publishing." },
   { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
+  { group: "SET_UP", verb: "trust", summary: "Manage owner-only workspace trust baselines, approvals, and audit alerts." },
 
   { group: "SPECIALIST", verb: "identity", summary: "Inspect identity bindings or unlock identity/.lock by expected token." },
   { group: "SPECIALIST", verb: "lock", summary: "Recover a succession lock by expected token; never kill a PID." },

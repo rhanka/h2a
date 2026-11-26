@@ -24,6 +24,19 @@ import {
   groupRuntimeHelpItems,
 } from "./cli-help-groups.js";
 import { registerArchiveCommand } from "./archive-cli.js";
+import { registerTrustCommand } from "./trust-cli.js";
+import {
+  formatTrustOwnerAlertLines,
+  readTrustOwnerAlerts,
+} from "./trust-alerts.js";
+import {
+  canonicalizeWorkspacePath,
+  checkAgyQualifiedVersionWarning,
+  checkAgyTrustPrecheckSync,
+  classifyCliCommand,
+  OnboardingLaunchError,
+  withAgyStartQueueSync,
+} from "./onboarding-core.js";
 import {
   emitResumeArchiveNotices,
   emitResumeScheduleNotices,
@@ -105,6 +118,7 @@ import {
   existingLocalSessionSlugs,
   fanoutLabels,
   findLocalSession,
+  guardTmuxPaneBeforeInput,
   killLocalSession,
   localSessionGatewayEnvStatus,
   listLocalSessions,
@@ -205,7 +219,7 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { resolveGatewayModelAlias } from "./gateway-model-catalog/model-catalog.js";
-import { deriveSessionClass } from "./session-class.js";
+import { deriveSessionClass, SESSION_CLASS_ENV, sessionClassFromEnv } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
   isRelaunchKillable,
@@ -1684,6 +1698,17 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   } catch (err) {
     return { started: false, error: (err as Error).message };
   }
+  if (job.tool === "agy") {
+    try {
+      const precheck = checkAgyTrustPrecheckSync({ cwd: runCwd });
+      runCwd = precheck.realCwd;
+      if (!headless && precheck.needsSettingsOverride && precheck.settingsOverrideJson) {
+        argv = { ...argv, args: [...argv.args, "--settings", precheck.settingsOverrideJson] };
+      }
+    } catch (err) {
+      return { started: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
 
   // Propagate the child's remaining spawn-depth budget through the env so a job
   // that itself runs `h2a delegate` inherits a DECREMENTED budget (depth=0 →
@@ -2049,12 +2074,20 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
   const originCwd = job.originCwd ?? process.cwd();
   // The job's recorded `cwd` IS the runCwd it ran in (the worktree, or the
   // explicit/origin dir). Resume in the SAME tree — continue, don't re-isolate.
-  const runCwd = job.cwd;
+  let runCwd = job.cwd;
   let argv: { command: string; args: string[] };
   try {
     argv = buildThrottleResumeArgs(job.tool, task, job.model, job.effort);
   } catch (err) {
     return { started: false, error: (err as Error).message };
+  }
+  if (job.tool === "agy") {
+    try {
+      const precheck = checkAgyTrustPrecheckSync({ cwd: runCwd });
+      runCwd = precheck.realCwd;
+    } catch (err) {
+      return { started: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   // Same env plumbing as startJob (depth budget + REMOTE_JOB_ID). Provider
@@ -6196,14 +6229,44 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             opts.attach === true &&
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true,
+          ...(profile === "agy"
+            ? { inheritedClass: sessionClassFromEnv(process.env[SESSION_CLASS_ENV]) }
+            : {}),
         });
+        let resumeCwd = entry.cwd;
+        let resumeArgs = args;
+        if (profile === "agy") {
+          const verWarn = checkAgyQualifiedVersionWarning(command);
+          if (verWarn) process.stderr.write(`[h2a] ${verWarn}\n`);
+          try {
+            resumeCwd = canonicalizeWorkspacePath(entry.cwd);
+            if (sessionClass === "background") {
+              const precheck = checkAgyTrustPrecheckSync({ cwd: resumeCwd });
+              resumeCwd = precheck.realCwd;
+              for (const line of formatTrustOwnerAlertLines(precheck.alerts)) {
+                process.stderr.write(`[h2a] ${line}\n`);
+              }
+              if (precheck.needsSettingsOverride && precheck.settingsOverrideJson) {
+                resumeArgs = [...args, "--settings", precheck.settingsOverrideJson];
+              }
+            }
+          } catch (error) {
+            if (error instanceof OnboardingLaunchError) {
+              process.stderr.write(`[h2a] ${error.message}\n`);
+              if (error.hint) process.stderr.write(`[h2a] fix: ${error.hint}\n`);
+              process.exitCode = 1;
+              return;
+            }
+            throw error;
+          }
+        }
         const { name } =
           resumeHost === "native"
             ? startNativeSession(
                 profile,
                 command,
-                entry.cwd,
-                args,
+                resumeCwd,
+                resumeArgs,
                 resumeSlug,
                 {
                   sessionClass,
@@ -6213,8 +6276,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : startLocalSession(
                 profile,
                 command,
-                entry.cwd,
-                args,
+                resumeCwd,
+                resumeArgs,
                 resumeSlug,
                 undefined,
                 { sessionClass, attachedTerminal: true },
@@ -6327,6 +6390,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--no-bare",
       "keep Claude's native tools under --gw (default; overrides a pinned --bare on resume/restore)",
     )
+    .option(
+      "--launch-budget-ms <ms>",
+      "serialized start queue and launch wait budget in milliseconds",
+    )
     .action(
       async (
         profile: string,
@@ -6356,6 +6423,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noGw?: boolean;
           bare?: boolean;
           noBare?: boolean;
+          launchBudgetMs?: string;
         },
       ) => {
         const structuredLaunch =
@@ -6539,7 +6607,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
-        const cwd = path ? resolve(path) : process.cwd();
+        let launchBudgetMs: number | undefined;
+        if (opts.launchBudgetMs !== undefined) {
+          const parsedBudget = Number(opts.launchBudgetMs);
+          if (!Number.isSafeInteger(parsedBudget) || parsedBudget < 1_000 || parsedBudget > 600_000) {
+            process.stderr.write("[h2a] --launch-budget-ms must be an integer between 1000 and 600000\n");
+            process.exitCode = 2;
+            return;
+          }
+          launchBudgetMs = parsedBudget;
+        }
+        let cwd = path ? resolve(path) : process.cwd();
         // count==1 keeps the exact prior behaviour (label = opts.name, which may
         // be undefined -> slug derives from cwd). count>1 fans out distinct
         // labels <base>#k from the name or the cwd basename.
@@ -6728,11 +6806,52 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // A detached/background or run-once launch is a worker, even when its
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
         // so that hook cannot reclassify it as a human session.
-        const sessionClass = deriveSessionClass({
-          background: opts.background === true,
-          headless: opts.headless === true,
-          humanTerminal: opts.attachedTerminal !== false,
-        });
+        const sessionClass =
+          profile === "agy"
+            ? deriveSessionClass({
+                background:
+                  opts.background === true ||
+                  opts.attach !== true ||
+                  opts.promptStdin === true ||
+                  count > 1,
+                headless: opts.headless === true,
+                humanTerminal:
+                  opts.attach !== false &&
+                  process.stdin.isTTY === true &&
+                  process.stdout.isTTY === true,
+                inheritedClass: sessionClassFromEnv(process.env[SESSION_CLASS_ENV]),
+              })
+            : deriveSessionClass({
+                background: opts.background === true,
+                headless: opts.headless === true,
+                humanTerminal: opts.attachedTerminal !== false,
+              });
+        let agyPrecheck: ReturnType<typeof checkAgyTrustPrecheckSync> | undefined;
+        if (profile === "agy") {
+          const verWarn = checkAgyQualifiedVersionWarning(command);
+          if (verWarn) process.stderr.write(`[h2a] ${verWarn}\n`);
+          try {
+            cwd = canonicalizeWorkspacePath(cwd);
+            if (sessionClass === "background") {
+              agyPrecheck = checkAgyTrustPrecheckSync({ cwd });
+              cwd = agyPrecheck.realCwd;
+              for (const line of formatTrustOwnerAlertLines(agyPrecheck.alerts)) {
+                process.stderr.write(`[h2a] ${line}\n`);
+              }
+            }
+          } catch (error) {
+            if (error instanceof OnboardingLaunchError) {
+              process.stderr.write(`[h2a] ${error.message}\n`);
+              if (error.hint) process.stderr.write(`[h2a] fix: ${error.hint}\n`);
+              if (opts.json) {
+                process.stdout.write(`${JSON.stringify(error.toRunFailure(opts.name ?? slugify(cwd)))}\n`);
+              }
+              process.exitCode = 1;
+              return;
+            }
+            throw error;
+          }
+        }
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();
         const h2aSidecar = opts.h2a ?? h2a.enabled;
@@ -6833,6 +6952,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 2;
             return;
           }
+          if (profile === "agy" && !opts.headless && agyPrecheck?.needsSettingsOverride && agyPrecheck.settingsOverrideJson) {
+            args = [...args, "--settings", agyPrecheck.settingsOverrideJson];
+          }
           if (opts.resume && args.length === 0) {
             process.stderr.write(
               `[h2a] profile "${profile}" has no verified local resume argv; start it without -r/--resume\n`,
@@ -6889,6 +7011,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   launchGuard = startLaunchGuard(runDir, launchOwnership);
                 } : undefined,
                 opts.outputFile ? resolve(cwd, opts.outputFile) : undefined,
+                undefined,
+                launchBudgetMs,
               ));
             } else {
               ({ name, slug, agentPane, promptFile } = startHeadlessSession(
@@ -6905,6 +7029,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 sessionClass,
                 onCreateAttempt,
                 opts.outputFile ? resolve(cwd, opts.outputFile) : undefined,
+                launchBudgetMs,
               ));
             }
           } else if (sessionHost === "native") {
@@ -6928,6 +7053,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   launchGuard = startLaunchGuard(join(cwd, ".h2a", "runs", slugify(label ?? cwd)), launchOwnership);
                 } } : {}),
                 sessionClass,
+                ...(launchBudgetMs !== undefined ? { launchBudgetMs } : {}),
               },
             ));
           } else {
@@ -6950,6 +7076,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
                 attachedTerminal: opts.attachedTerminal !== false,
                 sessionClass,
+                ...(launchBudgetMs !== undefined ? { launchBudgetMs } : {}),
               },
             ));
           }
@@ -7298,6 +7425,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : attachLocalSession(only.name);
         return;
         } catch (error) {
+          if (error instanceof OnboardingLaunchError) {
+            process.stderr.write(`[h2a] ${error.message}\n`);
+            if (error.hint) process.stderr.write(`[h2a] fix: ${error.hint}\n`);
+            if (opts.json) {
+              const launchId = opts.name ?? slugify(cwd);
+              const payload = creationAttempted
+                ? { ...error.toRunFailure(launchId), creationAttempted: true, retrySafe: false }
+                : error.toRunFailure(launchId);
+              process.stdout.write(`${JSON.stringify(payload)}\n`);
+            }
+            process.exitCode = 1;
+            return;
+          }
           if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
           process.stderr.write(`[h2a] ${error.message}\n`);
           if (opts.json && opts.name) process.stdout.write(`${JSON.stringify(error.toRunFailure(opts.name))}\n`);
@@ -8969,6 +9109,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         (env as { body?: { request?: { instructionLine?: string } } }).body
           ?.request?.instructionLine ??
         `h2a inbox read --instance ${target} --root ${localRoot}`;
+      const paneGuard = guardTmuxPaneBeforeInput(pane, "cli-input");
+      if (!paneGuard.ok) {
+        process.stderr.write(
+          `[h2a] wake-request: blocking ${target} (${paneGuard.reason}; zero keystrokes sent)\n`,
+        );
+        continue;
+      }
       if (tmuxSessionName) {
         recordInjectionBestEffort(`tmux:${tmuxSessionName}`, instructionLine);
       }
@@ -9703,15 +9850,38 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             retypeCmd = scrubbedRetypeCommand(action.cmd);
           }
           const sessionId = retypeEntry?.id;
-          let relaunched = false;
-          try {
-            relaunched = sessionId !== undefined
+          const isAgyRetype =
+            retypeEntry?.tool === "agy" || classifyCliCommand(retypeCmd) === "agy";
+          const runRetype = () =>
+            sessionId !== undefined
               ? relaunchSessionWithLease({
                   sessionId,
                   tmuxSession: action.name,
                   command: retypeCmd,
                 })
               : relaunchInSession(action.name, retypeCmd);
+          let relaunched = false;
+          try {
+            if (isAgyRetype) {
+              if (retypeEntry?.cwd) {
+                checkAgyTrustPrecheckSync({ cwd: retypeEntry.cwd });
+              }
+              relaunched = withAgyStartQueueSync(() => ({
+                result: runRetype(),
+                workerPid: localSessionPanePid(resolveAgentPane(action.name) ?? ""),
+              }));
+            } else {
+              relaunched = runRetype();
+            }
+          } catch (error) {
+            if (error instanceof OnboardingLaunchError) {
+              process.stderr.write(
+                `[h2a] FAILED to relaunch ${action.slug}: ${error.message}\n`,
+              );
+              relaunched = false;
+            } else {
+              throw error;
+            }
           } finally {
             // A successful retype transfers cleanup to the private reader.
             if (!relaunched) cleanupRetypeEnv();
@@ -11039,9 +11209,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
       }
 
+      const emitTrustAlertsForLs = (): void => {
+        try {
+          for (const line of formatTrustOwnerAlertLines(readTrustOwnerAlerts())) {
+            process.stderr.write(`[h2a] ${line}\n`);
+          }
+        } catch {
+          /* Best-effort alert emission never breaks h2a ls. */
+        }
+      };
+
       if (opts.local) {
         if (local.length === 0)
           process.stderr.write("[h2a] no local sessions\n");
+        emitTrustAlertsForLs();
         return;
       }
 
@@ -11052,12 +11233,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             "[h2a] no local sessions and no remote configured\n",
           );
         }
+        emitTrustAlertsForLs();
         return;
       }
       await ensureConnected(remote);
       const sessions = await listRemoteSessions(remote);
       if (sessions.length === 0) {
         if (local.length === 0) process.stderr.write("[h2a] no sessions\n");
+        emitTrustAlertsForLs();
         return;
       }
       if (local.length > 0) process.stdout.write("\n");
@@ -11077,6 +11260,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (supWarn) process.stderr.write(`${supWarn}\n`);
       const claudeWarn = localClaudeExpiryAdvisory();
       if (claudeWarn) process.stderr.write(`${claudeWarn}\n`);
+      emitTrustAlertsForLs();
     });
 
   program
@@ -11790,6 +11974,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // │     of statement order, not an invariant. Recorded, not relied upon.
   // └──
   registerArchiveCommand(program);
+  registerTrustCommand(program);
   applyRuntimeHelpGroups(program.createHelp().visibleCommands(program));
   program.configureHelp({ groupItems: groupRuntimeHelpItems });
   program.addHelpText(

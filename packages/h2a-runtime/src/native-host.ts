@@ -47,6 +47,17 @@ import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { appendCrashLog } from "./crash-log.js";
 import { recordInjectionBestEffort } from "./injection-ledger.js";
+import {
+  classifyCliCommand,
+  OnboardingLaunchError,
+  safeRealpath,
+  withAgyStartQueueAsync,
+  withAgyStartQueueSync,
+  type MemorySliceFailureCode,
+  type OnboardingFailureCode,
+  type StartQueueFailureCode,
+  type StructuredLaunchPhase,
+} from "./onboarding-core.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
@@ -289,6 +300,26 @@ export function nativeHostAvailable():
   return nativePtyRequirements();
 }
 
+function decodeStructuredOnboardingError(payload: unknown): OnboardingLaunchError | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const p = payload as Record<string, unknown>;
+  const phase = p.phase;
+  const code = p.code;
+  if (
+    typeof code === "string" &&
+    (phase === "onboarding" || phase === "start-queue" || phase === "memory-slice")
+  ) {
+    return new OnboardingLaunchError({
+      code: code as OnboardingFailureCode | StartQueueFailureCode | MemorySliceFailureCode,
+      phase: phase as StructuredLaunchPhase,
+      message: typeof p.error === "string" ? p.error : typeof p.reason === "string" ? p.reason : code,
+      ...(typeof p.hint === "string" ? { hint: p.hint } : {}),
+      ...(typeof p.retrySafe === "boolean" ? { retrySafe: p.retrySafe } : {}),
+    });
+  }
+  return undefined;
+}
+
 function runOp(
   args: ReadonlyArray<string>,
   options: { allowFailure?: boolean; onCreateAttempt?: (() => void) | undefined; socketPath?: string | undefined; timeoutMs?: number | undefined } = {},
@@ -322,6 +353,11 @@ function runOp(
     }
   }
   if (status !== 0 && options.allowFailure !== true) {
+    const onboardingErr = decodeStructuredOnboardingError(payload);
+    if (onboardingErr) {
+      appendCrashLog("cli", { event: "refusal", reason: onboardingErr.code, detail: onboardingErr.message });
+      throw onboardingErr;
+    }
     const diagnostic = payload as ConstructorParameters<typeof NativeLaunchAdmissionError>[0] | undefined;
     if (args[0] === "ensure-host" && diagnostic?.code === "native-inventory-unknown") {
       appendCrashLog("cli", { event: "refusal", reason: diagnostic.code, detail: `ensure-host refused (${args[0]})` });
@@ -372,13 +408,13 @@ async function runOpAsync(args: ReadonlyArray<string>, onCreateAttempt?: () => v
 }
 
 /** Spawn-or-adopt the per-user host; returns its identity. */
-export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
+export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean; hostIsolated?: boolean } {
   const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : [])]);
-  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean } | undefined;
+  const record = payload as { hostPid?: number; socketPath?: string; generation?: string; launchFence?: boolean; hostIsolated?: boolean } | undefined;
   if (!record || typeof record.hostPid !== "number" || typeof record.socketPath !== "string" || typeof record.generation !== "string") {
     throw new Error("native host did not report a valid identity");
   }
-  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true };
+  return { hostPid: record.hostPid, socketPath: record.socketPath, generation: record.generation, launchFence: record.launchFence === true, hostIsolated: record.hostIsolated === true };
 }
 
 export type NativeLaunchOwnership = { name: string; generation: string; incarnation: string; socketPath: string };
@@ -565,7 +601,12 @@ export type NativeLaunchMetadata = {
   readonly terminateOnAgentExit?: boolean;
   readonly refuseExisting?: boolean;
   readonly seat?: MaterializedSeat;
+  readonly launchBudgetMs?: number;
 };
+
+function isAgyNativeLaunch(profile: string, command: string, args: ReadonlyArray<string>): boolean {
+  return profile === "agy" || classifyCliCommand([command, ...args]) === "agy";
+}
 
 /**
  * startLocalSession twin. Runs the SAME bash wrapper contract as the tmux
@@ -614,11 +655,15 @@ export function startNativeSession(
         command,
         ...args,
       ];
+  const isAgy = isAgyNativeLaunch(profile, command, args);
+  const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
+  const effectiveSessionClass = metadata.sessionClass ?? "background";
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
   if (!metadata.seat) ensureH2aBinOnPath(env);
+  if (isAgy) env["PWD"] = effectiveCwd;
   env["TERM"] = "xterm-256color";
   // The launch runtime may still be connected to an older protocol-v1 host.
   env["H2A_NATIVE_TERMINAL"] = "1";
@@ -630,39 +675,48 @@ export function startNativeSession(
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
-  // Env goes through a file: it can exceed argv limits and must not leak into
-  // process listings.
-  const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
-  const envFile = join(envDir, "env.json");
-  try {
-    // Private IPC payload consumed by the PTY child, including its auth.
-    // Seat launches already supply the materializer's closed childEnv.
-    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
-    const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
-    const { payload } = runOp([
-      "create",
-      ...ownershipArgs,
-      "--id",
-      name,
-      "--cwd",
-      cwd,
-      "--cols",
-      String(HEADLESS_TERMINAL_SIZE.cols),
-      "--rows",
-      String(HEADLESS_TERMINAL_SIZE.rows),
-      "--env-file",
-      envFile,
-      "--",
-      ...agentCommand,
-    ], { onCreateAttempt: metadata.onCreateAttempt });
-    const state = payload as NativeSessionState | undefined;
-    if (!state || typeof state.pid !== "number") {
-      throw new Error(`native host did not return a session state for ${slug}`);
+  const runCreate = () => {
+    const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
+    const envFile = join(envDir, "env.json");
+    try {
+      // Private IPC payload consumed by the PTY child, including its auth.
+      // Seat launches already supply the materializer's closed childEnv.
+      writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
+      const ownershipArgs = prepareNativeOwnership(name, metadata.beforeCreate, nativeSidecarName(name));
+      const { payload } = runOp([
+        "create",
+        ...ownershipArgs,
+        "--id",
+        name,
+        "--cwd",
+        effectiveCwd,
+        "--cols",
+        String(HEADLESS_TERMINAL_SIZE.cols),
+        "--rows",
+        String(HEADLESS_TERMINAL_SIZE.rows),
+        "--memory-policy",
+        isAgy ? "agy" : "default",
+        "--session-class",
+        effectiveSessionClass,
+        "--env-file",
+        envFile,
+        "--",
+        ...agentCommand,
+      ], { onCreateAttempt: metadata.onCreateAttempt });
+      const state = payload as NativeSessionState | undefined;
+      if (!state || typeof state.pid !== "number") {
+        throw new Error(`native host did not return a session state for ${slug}`);
+      }
+      return { result: { name, slug, pid: state.pid }, workerPid: state.pid };
+    } finally {
+      rmSync(envDir, { recursive: true, force: true });
     }
-    return { name, slug, pid: state.pid };
-  } finally {
-    rmSync(envDir, { recursive: true, force: true });
-  }
+  };
+  return isAgy
+    ? withAgyStartQueueSync(runCreate, {
+        ...(metadata.launchBudgetMs !== undefined ? { timeoutMs: metadata.launchBudgetMs } : {}),
+      })
+    : runCreate().result;
 }
 
 export type NativeSingleShotResult = NativeStartResult & {
@@ -708,11 +762,15 @@ export async function startNativeSessionSingleShot(
         command,
         ...args,
       ];
+  const isAgy = isAgyNativeLaunch(profile, command, args);
+  const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
+  const effectiveSessionClass = metadata.sessionClass ?? "background";
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
   if (!metadata.seat) ensureH2aBinOnPath(env);
+  if (isAgy) env["PWD"] = effectiveCwd;
   env["TERM"] = "xterm-256color";
   env["H2A_NATIVE_TERMINAL"] = "1";
   env["H2A_NATIVE_PTY_SESSION"] = name;
@@ -721,76 +779,95 @@ export async function startNativeSessionSingleShot(
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
-  const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
-  const envFile = join(envDir, "env.json");
-  try {
-    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
-    // Fenced path (launch-guard): pin generation first so `beforeCreate`
-    // still records ownership before the creation it guards.
-    let fencedArgs: string[] = [];
-    if (metadata.beforeCreate) {
-      const selected = ensureNativeHost({ fenced: true });
-      const { generation, launchFence, hostPid, socketPath } = selected;
-      if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
-      const incarnation = randomUUID();
-      metadata.beforeCreate({ name, generation, incarnation, socketPath });
-      fencedArgs = ["--socket", socketPath, "--generation", generation, "--incarnation", incarnation,
-        "--sidecar", nativeSidecarName(name)];
+  const runSingleShot = async () => {
+    const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
+    const envFile = join(envDir, "env.json");
+    try {
+      writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
+      // Fenced path (launch-guard): pin generation first so `beforeCreate`
+      // still records ownership before the creation it guards.
+      let fencedArgs: string[] = [];
+      if (metadata.beforeCreate) {
+        const selected = ensureNativeHost({ fenced: true });
+        const { generation, launchFence, hostPid, socketPath } = selected;
+        if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+        const incarnation = randomUUID();
+        metadata.beforeCreate({ name, generation, incarnation, socketPath });
+        fencedArgs = ["--socket", socketPath, "--generation", generation, "--incarnation", incarnation,
+          "--sidecar", nativeSidecarName(name)];
+      }
+      // Always fenced, like the synchronous path (no silent downgrade).
+      const payload = await runOpAsync([
+        "launch",
+        ...fencedArgs,
+        ...(!metadata.beforeCreate ? ["--sidecar", nativeSidecarName(name)] : []),
+        ...(metadata.refuseExisting ? ["--refuse-existing", "true"] : []),
+        "--fenced", "true",
+        "--id",
+        name,
+        "--cwd",
+        effectiveCwd,
+        "--cols",
+        String(HEADLESS_TERMINAL_SIZE.cols),
+        "--rows",
+        String(HEADLESS_TERMINAL_SIZE.rows),
+        "--memory-policy",
+        isAgy ? "agy" : "default",
+        "--session-class",
+        effectiveSessionClass,
+        "--env-file",
+        envFile,
+        "--",
+        ...agentCommand,
+      ], metadata.onCreateAttempt);
+      const record = payload as (NativeSessionState & { code?: string; id?: string;
+        socketPath?: string; hostPid?: number; generation?: string;
+        launchFence?: boolean; adopted?: boolean; reason?: string; hosts?: unknown } | undefined);
+      if (!record || typeof record.pid !== "number") {
+        const onboardingErr = decodeStructuredOnboardingError(record);
+        if (onboardingErr) {
+          appendCrashLog("cli", { event: "refusal", sessionId: name, reason: onboardingErr.code, detail: onboardingErr.message });
+          throw onboardingErr;
+        }
+        if (record?.code === "native-host-capability-mismatch") {
+          const host = { generation: typeof record.generation === "string" ? record.generation : "",
+            hostPid: typeof record.hostPid === "number" ? record.hostPid : 0,
+            socketPath: record.socketPath ?? "" };
+          appendCrashLog("cli", { event: "refusal", sessionId: name, instanceId: host.generation,
+            reason: "native-host-capability-mismatch", detail: host.socketPath });
+          throw new NativeHostCapabilityMismatchError(host);
+        }
+        if (record?.code === "native-name-collision") {
+          if (metadata.beforeCreate) throw new NativeLaunchAdmissionError({ code: "native-name-collision",
+            id: record.id ?? name, ...(record.socketPath ? { socketPath: record.socketPath } : {}) });
+          throw new Error(`native session ${slug} already exists; no agent was started`);
+        }
+        if (record?.code === "native-inventory-unknown") {
+          appendCrashLog("cli", { event: "refusal", sessionId: name, reason: "native-inventory-unknown",
+            detail: "launch refused before creation" });
+          throw new NativeLaunchAdmissionError({ code: "native-inventory-unknown",
+            ...(record.socketPath ? { socketPath: record.socketPath } : {}), hosts: record.hosts });
+        }
+        throw new Error(`native host did not return a session state for ${slug}`);
+      }
+      const socketPath = record.socketPath ?? "";
+      const generation = typeof (record as { generation?: unknown }).generation === "string"
+        ? (record as { generation: string }).generation : "";
+      let workerPid: number | undefined;
+      try { workerPid = readWorkerPid(record.pid, procReaderDeps(record.pid)); } catch { workerPid = undefined; }
+      return {
+        result: { name, slug, pid: record.pid, socketPath, generation, ...(workerPid !== undefined ? { workerPid } : {}) },
+        workerPid: workerPid ?? record.pid,
+      };
+    } finally {
+      rmSync(envDir, { recursive: true, force: true });
     }
-    // Always fenced, like the synchronous path (no silent downgrade).
-    const payload = await runOpAsync([
-      "launch",
-      ...fencedArgs,
-      ...(!metadata.beforeCreate ? ["--sidecar", nativeSidecarName(name)] : []),
-      ...(metadata.refuseExisting ? ["--refuse-existing", "true"] : []),
-      "--fenced", "true",
-      "--id",
-      name,
-      "--cwd",
-      cwd,
-      "--cols",
-      String(HEADLESS_TERMINAL_SIZE.cols),
-      "--rows",
-      String(HEADLESS_TERMINAL_SIZE.rows),
-      "--env-file",
-      envFile,
-      "--",
-      ...agentCommand,
-    ], metadata.onCreateAttempt);
-    const record = payload as (NativeSessionState & { code?: string; id?: string;
-      socketPath?: string; hostPid?: number; generation?: string;
-      launchFence?: boolean; adopted?: boolean; reason?: string; hosts?: unknown } | undefined);
-    if (!record || typeof record.pid !== "number") {
-      if (record?.code === "native-host-capability-mismatch") {
-        const host = { generation: typeof record.generation === "string" ? record.generation : "",
-          hostPid: typeof record.hostPid === "number" ? record.hostPid : 0,
-          socketPath: record.socketPath ?? "" };
-        appendCrashLog("cli", { event: "refusal", sessionId: name, instanceId: host.generation,
-          reason: "native-host-capability-mismatch", detail: host.socketPath });
-        throw new NativeHostCapabilityMismatchError(host);
-      }
-      if (record?.code === "native-name-collision") {
-        if (metadata.beforeCreate) throw new NativeLaunchAdmissionError({ code: "native-name-collision",
-          id: record.id ?? name, ...(record.socketPath ? { socketPath: record.socketPath } : {}) });
-        throw new Error(`native session ${slug} already exists; no agent was started`);
-      }
-      if (record?.code === "native-inventory-unknown") {
-        appendCrashLog("cli", { event: "refusal", sessionId: name, reason: "native-inventory-unknown",
-          detail: "launch refused before creation" });
-        throw new NativeLaunchAdmissionError({ code: "native-inventory-unknown",
-          ...(record.socketPath ? { socketPath: record.socketPath } : {}), hosts: record.hosts });
-      }
-      throw new Error(`native host did not return a session state for ${slug}`);
-    }
-    const socketPath = record.socketPath ?? "";
-    const generation = typeof (record as { generation?: unknown }).generation === "string"
-      ? (record as { generation: string }).generation : "";
-    let workerPid: number | undefined;
-    try { workerPid = readWorkerPid(record.pid, procReaderDeps(record.pid)); } catch { workerPid = undefined; }
-    return { name, slug, pid: record.pid, socketPath, generation, ...(workerPid !== undefined ? { workerPid } : {}) };
-  } finally {
-    rmSync(envDir, { recursive: true, force: true });
-  }
+  };
+  return isAgy
+    ? withAgyStartQueueAsync(runSingleShot, {
+        ...(metadata.launchBudgetMs !== undefined ? { timeoutMs: metadata.launchBudgetMs } : {}),
+      })
+    : (await runSingleShot()).result;
 }
 
 const pendingNativeInput = new Map<string, string>();
@@ -1241,6 +1318,7 @@ export function startNativeHeadlessSession(
   beforeCreate?: (value: NativeLaunchOwnership) => void,
   outputFile?: string,
   seat?: MaterializedSeat,
+  launchBudgetMs?: number,
 ): NativeStartResult & { promptFile?: string } {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -1260,52 +1338,70 @@ export function startNativeHeadlessSession(
     }
     return { name, slug, pid: existing.session.pid };
   }
-  const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
-  if (promptInput !== undefined) {
-    writeFileSync(promptFile, promptInput, {
-      encoding: "utf8",
-      mode: 0o600,
-      flag: "wx",
-    });
-  }
-  const agentCommand = headlessCommand(profile, command, args, resultJson, outputLog, promptFile, outputFile);
+  const isAgy = isAgyNativeLaunch(profile, command, args);
+  const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
+  const effectiveSessionClass = sessionClass ?? "background";
+  const agentCommand = headlessCommand(profile, command, args, resultJson, outputLog, promptInput === undefined ? "" : `${resultJson}.prompt`, outputFile);
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(seat?.childEnv ?? process.env)) {
     if (value !== undefined) env[key] = value;
   }
   if (!seat) ensureH2aBinOnPath(env);
+  if (isAgy) env["PWD"] = effectiveCwd;
   env["TERM"] = "xterm-256color";
   // Same last-point scrub sentinel as the interactive native path.
   stampDirectRoutingScrub(env);
   if (sessionClass !== undefined) env[SESSION_CLASS_ENV] = sessionClass;
-  const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
-  const envFile = join(envDir, "env.json");
-  try {
-    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
-    const { payload } = runOp([
-      "create",
-      ...prepareNativeOwnership(name, beforeCreate, nativeSidecarName(name)),
-      "--id",
-      name,
-      "--cwd",
-      cwd,
-      "--cols",
-      String(HEADLESS_TERMINAL_SIZE.cols),
-      "--rows",
-      String(HEADLESS_TERMINAL_SIZE.rows),
-      "--env-file",
-      envFile,
-      "--",
-      ...agentCommand,
-    ], { onCreateAttempt });
-    const state = payload as NativeSessionState | undefined;
-    if (!state || typeof state.pid !== "number") {
-      throw new Error(`native host did not return a session state for ${slug}`);
+  const runHeadlessCreate = () => {
+    const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
+    if (promptInput !== undefined) {
+      writeFileSync(promptFile, promptInput, {
+        encoding: "utf8",
+        mode: 0o600,
+        flag: "wx",
+      });
     }
-    return { name, slug, pid: state.pid, ...(promptFile ? { promptFile } : {}) };
-  } finally {
-    rmSync(envDir, { recursive: true, force: true });
-  }
+    const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
+    const envFile = join(envDir, "env.json");
+    try {
+      writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
+      const { payload } = runOp([
+        "create",
+        ...prepareNativeOwnership(name, beforeCreate, nativeSidecarName(name)),
+        "--id",
+        name,
+        "--cwd",
+        effectiveCwd,
+        "--cols",
+        String(HEADLESS_TERMINAL_SIZE.cols),
+        "--rows",
+        String(HEADLESS_TERMINAL_SIZE.rows),
+        "--memory-policy",
+        isAgy ? "agy" : "default",
+        "--session-class",
+        effectiveSessionClass,
+        "--env-file",
+        envFile,
+        "--",
+        ...agentCommand,
+      ], { onCreateAttempt });
+      const state = payload as NativeSessionState | undefined;
+      if (!state || typeof state.pid !== "number") {
+        throw new Error(`native host did not return a session state for ${slug}`);
+      }
+      return { result: { name, slug, pid: state.pid, ...(promptFile ? { promptFile } : {}) }, workerPid: state.pid };
+    } catch (error) {
+      if (promptFile) rmSync(promptFile, { force: true });
+      throw error;
+    } finally {
+      rmSync(envDir, { recursive: true, force: true });
+    }
+  };
+  return isAgy
+    ? withAgyStartQueueSync(runHeadlessCreate, {
+        ...(launchBudgetMs !== undefined ? { timeoutMs: launchBudgetMs } : {}),
+      })
+    : runHeadlessCreate().result;
 }
 
 /**

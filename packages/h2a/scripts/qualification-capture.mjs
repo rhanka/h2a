@@ -17,6 +17,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
+import { withAgyStartQueueSync } from "../dist/runtime/onboarding-core.js";
 import {
   chmodSync,
   existsSync,
@@ -909,7 +910,8 @@ export function runCaptureProbe({
   keepWorkspace = false,
   baseTmpDir = process.env.TMPDIR || tmpdir(),
   transcriptPaths = [],
-  env = process.env
+  env = process.env,
+  startLockOptions
 }) {
   const existedBefore = existsSync(baseTmpDir);
   mkdirSync(baseTmpDir, { recursive: true, mode: 0o700 });
@@ -934,13 +936,20 @@ export function runCaptureProbe({
       H2A_3Q_HOOK_CONFIG: configPath
     };
 
-    const run = spawnSync(inv.command, inv.args, {
-      cwd: projectDir,
-      env: effectiveEnv,
-      encoding: "utf8",
-      timeout: timeoutMs,
-      maxBuffer: 4 * 1024 * 1024
-    });
+    const execSpawn = () =>
+      spawnSync(inv.command, inv.args, {
+        cwd: projectDir,
+        env: effectiveEnv,
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: 4 * 1024 * 1024
+      });
+    const run = cli === "agy"
+      ? withAgyStartQueueSync(() => ({ result: execSpawn() }), {
+          env: effectiveEnv,
+          ...(startLockOptions ?? {})
+        })
+      : execSpawn();
 
     const records = readProbeRecords(recordPath);
     const messageRecord = records.find((r) => r.eventTag === "message") ?? records[0] ?? null;

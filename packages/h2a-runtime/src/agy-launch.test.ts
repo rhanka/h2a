@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,6 +45,8 @@ let stderr: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   dir=mkdtempSync(join(tmpdir(),"agy-launch-"));
   for(const key of ["HOME","XDG_RUNTIME_DIR","XDG_STATE_HOME","XDG_CONFIG_HOME","REMOTE_CLI_CONFIG_HOME","H2A_ROOT"]) vi.stubEnv(key,dir);
+  mkdirSync(join(dir,".gemini","antigravity-cli"),{recursive:true,mode:0o700});
+  writeFileSync(join(dir,".gemini","antigravity-cli","settings.json"),JSON.stringify({trustedWorkspaces:[realpathSync(dir)]}),{mode:0o600});
   fake.start.mockReset().mockReturnValue({name:"h2a-agy-review",slug:"agy-review",agentPane:"%1"});
   fake.headless.mockReset().mockReturnValue({name:"h2a-agy-review",slug:"agy-review",agentPane:"%1"});
   fake.pid.mockReset().mockReturnValue(process.pid);
@@ -88,7 +90,7 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     const screen=await renderTerminalScreen(`AGY Claude\r\n${quota}\r\n${footer}`);
     let clock=Date.now(), pasted="", submitted=false;
     fake.delivery.mockImplementation((_pane, prompt) => deliverInitialPrompt("fake-agy",prompt,{
-      capturePane:()=>submitted?screen:`AGY Claude\nReview workspace\n❯ ${pasted || "Ready"}`,
+      capturePane:()=>submitted?screen:`AGY Claude\n╭───────────────────────────╮\n│ > ${pasted || "Ready"} │\n╰───────────────────────────╯\n  ? for shortcuts`,
       clearComposer:()=>true, pasteBlock:(_pane,text)=>{pasted=text;return true;},
       submit:()=>{submitted=true;return true;}, cpuMs:()=>submitted?1000:0,
       now:()=>clock, sleep:ms=>{clock+=ms;},

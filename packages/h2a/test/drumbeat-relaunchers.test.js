@@ -29,6 +29,7 @@ function fakeRuntime(options = {}) {
       },
       capture: (file, args) => {
         calls.capture.push([file, ...args]);
+        if (args.includes("capture-pane")) return options.paneCapture ?? "$ \n";
         if (options.clientActivityEpochSec === undefined) return undefined;
         if (args.includes("display-message")) return "main\n";
         if (args.includes("list-clients")) return `${options.clientActivityEpochSec}\n`;

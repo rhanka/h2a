@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { H2ALaunchContext, H2ASession } from "../../session.js";
+import { classifyCliCommand } from "../onboarding-core.js";
 import { listPresence } from "../local-files/presence.js";
 import type { RelauncherRuntime } from "../drumbeat/relaunchers.js";
 import type { H2ARelauncher } from "../drumbeat/watch.js";
@@ -408,6 +409,9 @@ export function createH2aPtyActuator(
         const command = launchContext?.resumeCommand ?? launchContext?.command;
         if (!command || command.trim().length === 0) {
           return result(input, "deferred");
+        }
+        if (classifyCliCommand(command) === "unknown") {
+          return result(input, "failed");
         }
         let acted = false;
         try {

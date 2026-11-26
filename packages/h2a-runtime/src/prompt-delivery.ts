@@ -31,8 +31,19 @@ import { recordInjectionBestEffort } from "./injection-ledger.js";
 import { AGY_AUTH_REQUIRED, AGY_LOGIN_MENU } from "./agy-auth.js";
 
 /** A host modal that will never be answered inside a background lane. */
+import {
+  agyPaneHasComposer,
+  detectNamedHostModal,
+  MODAL_CONFIRM as CORE_MODAL_CONFIRM,
+  type HostModalCode,
+  type PaneGuardDecision,
+  type PaneGuardMode,
+} from "./onboarding-core.js";
+
+export type { HostModalCode, PaneGuardDecision, PaneGuardMode };
+
 export type HostModal = {
-  readonly code?: typeof AGY_AUTH_REQUIRED.code;
+  readonly code?: HostModalCode;
   readonly reason: string;
   readonly hint: string;
 };
@@ -44,7 +55,7 @@ export type HostModal = {
  * the shape — `› 1.` choices plus an explicit "press enter to …".
  */
 const MODAL_CHOICE = /(^|\n)\s*[›>❯]?\s*1\.\s+\S/;
-const MODAL_CONFIRM = /(?:press\s+)?(?:enter|return) to (?:continue|confirm|select)/i;
+const MODAL_CONFIRM = CORE_MODAL_CONFIRM;
 
 /**
  * Claude Code's stale-session resume gate. This is deliberately narrower than
@@ -102,22 +113,14 @@ const NAMED_MODALS: ReadonlyArray<{
  * exact reason so the launch can FAIL LOUDLY instead of waiting forever.
  */
 export function detectHostModal(capture: string, profile?: string): HostModal | undefined {
-  if (profile === "agy" && AGY_LOGIN_MENU.test(capture)) return AGY_AUTH_REQUIRED;
-  // Muse 1.4.2's native stream removes cursor positioning and joins the choices.
-  if (/Do you trust this workspace\?/.test(capture) && /Trust and continue/.test(capture)) {
-    return {
-      reason: "Muse is waiting on its workspace-trust prompt",
-      hint: "trust this workspace in an interactive Muse session, then relaunch",
-    };
-  }
+  const named = detectNamedHostModal(capture, profile);
+  if (named !== undefined) return named;
+
   // A modal is a choice list AWAITING a key press. Requiring both halves keeps
   // passive banners (an "Update available!" notice above a live composer) from
   // failing a perfectly healthy launch.
   if (!MODAL_CHOICE.test(capture) || !MODAL_CONFIRM.test(capture)) {
     return undefined;
-  }
-  for (const entry of NAMED_MODALS) {
-    if (entry.match.test(capture)) return entry.modal;
   }
   return {
     reason: "the host is waiting on a modal choice prompt",
@@ -252,6 +255,10 @@ export function paneHasBlockingActivity(capture: string): boolean {
 /** Profile-specific composer evidence also works on compact native captures. */
 export function paneIsReady(capture: string, profile?: string): boolean {
   if (paneHasBlockingActivity(capture)) return false;
+  if (detectHostModal(capture, profile) !== undefined) return false;
+  if (profile === "agy") {
+    return agyPaneHasComposer(capture);
+  }
   if (profile === "codex") {
     if (/model:\s*loading/i.test(capture)) return false;
     return /›/.test(capture) && /·\s*(?:~|\/)/.test(capture);
@@ -261,6 +268,37 @@ export function paneIsReady(capture: string, profile?: string): boolean {
     return /❯/.test(capture) && /·\s*(?:~|\/)/.test(capture);
   }
   return paneHasDrawnUi(capture);
+}
+
+export function guardPaneBeforeAutomatedInput(
+  capture: string | undefined,
+  profile: string | undefined,
+  mode: PaneGuardMode,
+): PaneGuardDecision {
+  if (capture === undefined) {
+    return {
+      ok: false,
+      outcome: "deferred",
+      reason: "capture-unavailable",
+    };
+  }
+  const modal = detectHostModal(capture, profile);
+  if (modal !== undefined) {
+    return {
+      ok: false,
+      outcome: "blocked",
+      reason: modal.code ?? "host-modal",
+      modal,
+    };
+  }
+  if (mode === "cli-input" && profile === "agy" && !paneIsReady(capture, profile)) {
+    return {
+      ok: false,
+      outcome: "deferred",
+      reason: "agy-pane-not-ready",
+    };
+  }
+  return { ok: true };
 }
 
 export function promptReadinessTimeoutMs(profile?: string): number {
@@ -528,15 +566,27 @@ export function deliverInitialPrompt(
   }
 
   // 2. A modal will never be answered by a background lane.
-  const before = deps.capturePane(pane) ?? "";
-  const modal = detectHostModal(before, options.profile);
-  if (modal) {
+  const rawBefore = deps.capturePane(pane);
+  const guard = guardPaneBeforeAutomatedInput(rawBefore, options.profile, "cli-input");
+  if (!guard.ok) {
+    if (guard.outcome === "blocked" && guard.modal) {
+      const redact = guard.modal.code === AGY_AUTH_REQUIRED.code || guard.modal.code === "cli-auth-required";
+      return {
+        state: "host-modal",
+        ...guard.modal,
+        capture: redact ? "" : captureTail(rawBefore ?? ""),
+      };
+    }
     return {
-      state: "host-modal",
-      ...modal,
-      capture: modal.code === AGY_AUTH_REQUIRED.code ? "" : captureTail(before),
+      state: "undelivered",
+      reason: guard.reason === "capture-unavailable"
+        ? "capture-unavailable: pane capture failed before prompt delivery"
+        : "the host stopped accepting input before delivery, so the prompt was not typed",
+      waitedMs: deps.now() - startedAt,
+      capture: rawBefore ? captureTail(rawBefore) : "",
     };
   }
+  const before = rawBefore!;
   if ((options.profile === "codex" || options.profile === "muse") &&
       !paneIsReady(before, options.profile)) {
     return { state: "undelivered",

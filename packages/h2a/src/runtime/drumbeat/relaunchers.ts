@@ -17,6 +17,15 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import {
+  checkAgyTrustPrecheckSync,
+  classifyCliCommand,
+  guardPaneBeforeAutomatedInput,
+  type PaneGuardMode,
+} from "../onboarding-core.js";
 
 import type {
   H2AActorRef,
@@ -42,7 +51,7 @@ export interface RelauncherRuntime {
   run(file: string, args: readonly string[]): boolean;
   /** Spawn a detached background process; return true if it started. */
   spawnDetached(
-    command: string | { file: string; args: readonly string[]; cwd?: string },
+    command: string | { file: string; args: readonly string[]; cwd?: string; input?: string },
     options: { cwd?: string }
   ): boolean;
   /** Run a command and return its stdout (undefined on failure). For probes. */
@@ -71,6 +80,7 @@ export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRunt
   },
   spawnDetached(command, options) {
     try {
+      const hasInput = typeof command !== "string" && command.input !== undefined;
       const child =
         typeof command === "string"
           ? spawn(command, {
@@ -83,9 +93,13 @@ export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRunt
           : spawn(command.file, [...command.args], {
               cwd: command.cwd ?? options.cwd,
               detached: true,
-              stdio: "ignore",
+              stdio: [hasInput ? "pipe" : "ignore", "ignore", "ignore"],
               env
             });
+      if (hasInput && child.stdin) {
+        child.stdin.on("error", () => {});
+        child.stdin.end((command as { input?: string }).input);
+      }
       child.unref();
       return child.pid !== undefined;
     } catch {
@@ -172,11 +186,29 @@ function resolveTmuxSessionNameForSubmit(
  * second Enter covers TUIs that buffer the first. The single shared submit path
  * for both the drumbeat relauncher and the EVO-1 wake/drive local-tmux driver.
  */
+function resolveTmuxProfileForSubmit(
+  runtime: Partial<Pick<RelauncherRuntime, "capture">>,
+  target: string,
+): string | undefined {
+  if (!runtime.capture) return undefined;
+  const sessionName = resolveTmuxSessionNameForSubmit(runtime, target);
+  if (!sessionName) return undefined;
+  const raw = runtime.capture("tmux", ["show-options", "-t", sessionName, "-v", "@profile"]);
+  const profile = raw?.trim();
+  return profile ? profile : undefined;
+}
+
 export function tmuxSendSubmit(
   runtime: Pick<RelauncherRuntime, "run"> & Partial<Pick<RelauncherRuntime, "capture">>,
   target: string,
-  text: string
+  text: string,
+  options?: { readonly profile?: string; readonly mode?: PaneGuardMode },
 ): boolean {
+  if (typeof runtime.capture !== "function") return false;
+  const capture = runtime.capture("tmux", ["capture-pane", "-p", "-t", target]);
+  const profile = options?.profile ?? resolveTmuxProfileForSubmit(runtime, target);
+  const guard = guardPaneBeforeAutomatedInput(capture, profile, options?.mode ?? "cli-input");
+  if (!guard.ok) return false;
   const sessionName = resolveTmuxSessionNameForSubmit(runtime, target);
   if (sessionName) {
     recordInjectionBestEffort(`tmux:${sessionName}`, text);
@@ -256,6 +288,19 @@ export function localTmuxRelauncher(options: RelauncherCommonOptions = {}): H2AR
       const lc = finding.launchContext;
       if (!lc?.tmux) return false; // not a tmux-launched agent — let the chain fall through
       const command = lc.resumeCommand ?? lc.command;
+      const cls = classifyCliCommand(command);
+      if (cls === "unknown") {
+        options.log?.(`drumbeat[local-tmux]: refusing unclassified relaunch command for ${finding.instance}`);
+        return false;
+      }
+      if (cls === "agy") {
+        try {
+          if (lc.cwd) checkAgyTrustPrecheckSync({ cwd: lc.cwd });
+        } catch (err) {
+          options.log?.(`drumbeat[local-tmux]: agy precheck refused for ${finding.instance}: ${(err as Error).message}`);
+          return false;
+        }
+      }
       const target = tmuxTarget(lc.tmux);
       if (paneHasRecentHumanActivity(runtime, target)) {
         markDeferred(relauncher, true);
@@ -267,7 +312,10 @@ export function localTmuxRelauncher(options: RelauncherCommonOptions = {}): H2AR
       // literal command + separate Enter(s) — a combined `send-keys cmd Enter`
       // doesn't commit in a TUI (the reported "line written, no Enter") and
       // without -l the command keys can be misread as tmux key names.
-      const ok = tmuxSendSubmit(runtime, target, command);
+      const ok = tmuxSendSubmit(runtime, target, command, {
+        profile: cls,
+        mode: "shell-relaunch",
+      });
       options.log?.(
         `drumbeat[local-tmux]: relance ${finding.instance} → tmux send-keys -t ${target} (${ok ? "ok" : "failed"})`
       );
@@ -285,7 +333,36 @@ export function headlessRelauncher(options: RelauncherCommonOptions = {}): H2ARe
       const lc = finding.launchContext;
       const command = lc?.resumeCommand ?? lc?.command;
       if (!command) return false; // nothing to respawn
-      const ok = runtime.spawnDetached(command, { cwd: lc?.cwd });
+      const cls = classifyCliCommand(command);
+      if (cls === "unknown") {
+        options.log?.(`drumbeat[headless]: refusing unclassified relaunch command for ${finding.instance}`);
+        return false;
+      }
+      let spawnTarget: string | { file: string; args: readonly string[]; cwd?: string } = command;
+      if (cls === "agy") {
+        const cwd = lc?.cwd;
+        if (!cwd) {
+          options.log?.(`drumbeat[headless]: refusing agy relaunch without cwd for ${finding.instance}`);
+          return false;
+        }
+        try {
+          checkAgyTrustPrecheckSync({ cwd });
+        } catch (err) {
+          options.log?.(`drumbeat[headless]: agy precheck refused for ${finding.instance}: ${(err as Error).message}`);
+          return false;
+        }
+        const bin = fileURLToPath(new URL("../../bin.js", import.meta.url));
+        if (!existsSync(bin)) {
+          options.log?.(`drumbeat[headless]: missing h2a bin for agy relaunch (${bin})`);
+          return false;
+        }
+        spawnTarget = {
+          file: process.execPath,
+          args: [bin, "run", "agy", cwd, "--no-attach", "--background", "--no-h2a"],
+          cwd,
+        };
+      }
+      const ok = runtime.spawnDetached(spawnTarget, { cwd: lc?.cwd });
       const note = `drumbeat[headless]: relance ${finding.instance} → detached "${command}" (${ok ? "spawned" : "failed"})`;
       options.log?.(note);
       runtime.notify?.(note);
