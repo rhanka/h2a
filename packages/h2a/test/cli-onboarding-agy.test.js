@@ -674,14 +674,17 @@ esac
 });
 
 test("B-2 & B-3 & NB-4: baseline non-replay, no-init-baseline hint, human precheck behavior, and 3-starter flock proof", async () => {
+  const strippedKeys = new Set([
+    "H2A_SESSION_CLASS",
+    "H2A_NATIVE_TERMINAL",
+    "H2A_NATIVE_PTY_SESSION",
+    "H2A_SESSION_TOKEN",
+    "H2A_JOB_ID",
+    "TMUX",
+    "TMUX_PANE",
+  ]);
   const cleanBaseEnv = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([k]) =>
-        !k.startsWith("H2A_") &&
-        !k.startsWith("CLAUDE") &&
-        k !== "TMUX" &&
-        k !== "TMUX_PANE",
-    ),
+    Object.entries(process.env).filter(([k]) => !strippedKeys.has(k) && !k.startsWith("CLAUDE")),
   );
   const { root, home, config, state, runtime, ws } = makeDisposableWorkspace();
   try {
@@ -693,6 +696,13 @@ test("B-2 & B-3 & NB-4: baseline non-replay, no-init-baseline hint, human preche
       XDG_DATA_HOME: join(root, "data"),
       XDG_CACHE_HOME: join(root, "cache"),
       XDG_RUNTIME_DIR: runtime,
+      TMUX_TMPDIR: runtime,
+      TMUX: "",
+      H2A_NATIVE_SOCKET: join(runtime, "h.sock"),
+      H2A_MCP_CENTRAL: "off",
+      H2A_ROOT: join(root, "h2a-root"),
+      REMOTE_CLI_CONFIG_HOME: join(root, "remote-cli"),
+      H2A_SESSION_HOST: "tmux",
     };
     const settingsDir = join(home, ".gemini", "antigravity-cli");
     mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
@@ -757,7 +767,7 @@ test("B-2 & B-3 & NB-4: baseline non-replay, no-init-baseline hint, human preche
     const runRefused = spawnSync(
       process.execPath,
       [BIN_JS, "run", "agy", refusedDir, "--name", "refused-human-check", "--no-h2a"],
-      { env: { ...env, TMUX: "", H2A_MCP_CENTRAL: "off", H2A_SESSION_HOST: "tmux" }, encoding: "utf8" },
+      { env, encoding: "utf8" },
     );
     assert.equal(runRefused.status, 1);
     assert.match(runRefused.stderr, /marked as refused/i);
