@@ -22,7 +22,6 @@ import {
   statSync,
   writeFileSync,
   writeSync,
-  ftruncateSync,
   appendFileSync,
 } from "node:fs";
 import { homedir, totalmem } from "node:os";
@@ -32,6 +31,8 @@ import { setTimeout as delay } from "node:timers/promises";
 export const AGY_QUALIFIED_VERSION = "1.5.17" as const;
 export const MIN_AGY_START_SPACING_MS = 13_000;
 export const MAX_AGY_START_SPACING_MS = 300_000;
+export const MIN_AGY_QUEUE_TIMEOUT_MS = 15_000;
+export const AGY_LAUNCH_BUDGET_RESERVE_MS = 168_000;
 export const DEFAULT_AGY_LOCK_TIMEOUT_MS = 72_000;
 export const MCP_AGY_LAUNCH_BUDGET_MS = 240_000;
 export const POST_SPAWN_MAX_HOLD_MS = 3_000;
@@ -140,30 +141,96 @@ export class OnboardingLaunchError extends Error {
   }
 }
 
+export const CLAUDE_LONG_CONTEXT_CONFIRM =
+  /this session is\s+\d+(?:d|h)(?:\s+\d+(?:h|m))?\s+old and\s+\d+(?:\.\d+)?[kmg]?\s+tokens\.[\s\S]*?resuming the full session will consume a substantial portion of your usage limits\.\s+we recommend resuming from a summary\.[\s\S]*?❯\s*1\.\s*resume from summary\s*\(recommended\)[\s\S]*?2\.\s*resume full session as-is[\s\S]*?3\.\s*don't ask me again[\s\S]*?enter to confirm/i;
+export const CLAUDE_LONG_CONTEXT_CONFIRM_REASON =
+  "Claude is waiting for the exact stale-session summary confirmation";
+
+export function isClaudeLongContextConfirm(capture: string): boolean {
+  return CLAUDE_LONG_CONTEXT_CONFIRM.test(capture);
+}
+
 export const AGY_LOGIN_MENU =
-  /Select login method:\s*>?\s*1\. Google OAuth\s*>?\s*2\. Use a Google Cloud project\s*↑\/↓ Navigate · enter Select\s*$/i;
+  /Select\s+login\s+method:\s*(?:[>›❯]\s*)?1\.\s+Google\s+OAuth[\s\S]{0,160}2\.\s+Use\s+a\s+Google\s+Cloud\s+project[\s\S]{0,160}↑\/↓\s+Navigate\s*·\s*enter\s+Select/i;
 
 export const MODAL_CHOICE = /(^|\n)\s*[›>❯]?\s*1\.\s+\S/;
 export const MODAL_CONFIRM = /(?:press\s+)?(?:enter|return)(?:\s+to\s+(?:continue|confirm|select)|\s+(?:continue|confirm))/i;
 export const BLOCKING_ACTIVITY =
-  /\b(?:compacting conversation|summarizing conversation|generating summary)\b|\besc to interrupt\b|\bctrl\+c to cancel\b/i;
+  /\b(?:compacting conversation|summarizing conversation|generating summary)\b|\besc to interrupt\b|\bctrl\+c to cancel\b|press up to edit queued messages/i;
 
 function captureTailLines(text: string, lineCount = 35): string {
   const lines = text.split(/\r?\n/);
   return lines.slice(-lineCount).join("\n");
 }
 
+function hasBottomComposerWithoutModalFooter(
+  tail: string,
+  promptLineRe: RegExp,
+  options: { readonly allowBarePrompt?: boolean; readonly requireChrome?: RegExp } = {},
+): boolean {
+  const lines = tail.split(/\r?\n/);
+  let lastIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (promptLineRe.test(lines[i]!)) {
+      lastIdx = i;
+      break;
+    }
+  }
+  if (lastIdx < 0) return false;
+  const fromPromptDown = lines.slice(lastIdx).join("\n");
+  if (
+    MODAL_CONFIRM.test(fromPromptDown) ||
+    /(?:^|\n)\s*[›>❯]?\s*\d+\.\s+\S/.test(fromPromptDown) ||
+    /↑\/↓\s*Navigate|\bNo,\s*exit\b|\besc\s+(?:to\s+)?(?:cancel|back)\b/i.test(fromPromptDown)
+  ) {
+    return false;
+  }
+  if (options.requireChrome && !options.requireChrome.test(fromPromptDown)) {
+    if (!options.allowBarePrompt) return false;
+    const promptLine = lines[lastIdx]!.trim();
+    if (!/^[❯›>]\s*(?:Ready)?\s*$/.test(promptLine)) return false;
+  }
+  return true;
+}
+
 function activeComposerAfterMatch(capture: string, matchEndIndex: number, profile?: string): boolean {
   const after = capture.slice(matchEndIndex);
   if (after.trim().length === 0) return false;
-  if (MODAL_CONFIRM.test(after)) return false;
+  const tail = captureTailLines(after, 12);
   if (profile === "agy") {
-    return /\?\s*for shortcuts/i.test(after) && /(?:^|\n)\s*(?:│\s*)?>/m.test(after);
+    return hasBottomComposerWithoutModalFooter(tail, /^\s*(?:│\s*)?>/, {
+      requireChrome: /\?\s*for\s+shortcuts/i,
+    });
   }
-  if (/›/.test(after) && /·\s*(?:~|\/)/.test(after)) return true;
-  if (/❯/.test(after) && /·\s*(?:~|\/)/.test(after)) return true;
-  if (profile === "codex" || profile === "muse") return false;
-  return /(?:^|\n)\s*[❯›]\s*(?:Ready|\S.*)?\s*$/m.test(after) && !MODAL_CHOICE.test(after);
+  if (profile === "codex") {
+    return hasBottomComposerWithoutModalFooter(tail, /^\s*›(?:\s+(?!\d+\.)|\s*$)/, {
+      requireChrome: /(?:·\s*(?:~|\/)|\?\s*for\s+shortcuts)/i,
+    });
+  }
+  if (profile === "muse") {
+    return hasBottomComposerWithoutModalFooter(tail, /^\s*❯(?:\s+(?!\d+\.)|\s*$)/, {
+      requireChrome: /·\s*(?:~|\/)/,
+    });
+  }
+  if (
+    hasBottomComposerWithoutModalFooter(tail, /^\s*(?:│\s*)?>/, {
+      requireChrome: /\?\s*for\s+shortcuts/i,
+    })
+  ) {
+    return true;
+  }
+  if (
+    hasBottomComposerWithoutModalFooter(tail, /^\s*›(?:\s+(?!\d+\.)|\s*$)/, {
+      requireChrome: /(?:·\s*(?:~|\/)|\?\s*for\s+shortcuts)/i,
+    })
+  ) {
+    return true;
+  }
+  return hasBottomComposerWithoutModalFooter(tail, /^\s*❯(?:\s+(?!\d+\.)|\s*$)/, {
+    allowBarePrompt: true,
+    requireChrome:
+      /(?:·\s*(?:~|\/)|auto mode on|shift\+tab|\?\s*for\s+shortcuts|bypass\s+permissions|plan\s+mode|claude\s*·)/i,
+  });
 }
 
 function testNamedModal(capture: string, pattern: RegExp, profile?: string): boolean {
@@ -182,26 +249,106 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
   readonly modal: HostModal;
 }> = [
   {
+    profiles: ["claude"],
+    match: CLAUDE_LONG_CONTEXT_CONFIRM,
+    modal: {
+      reason: CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+      hint: "answer the summary confirmation once interactively (or let Claude resume from summary), then relaunch",
+    },
+  },
+  {
+    profiles: ["agy"],
+    match: AGY_LOGIN_MENU,
+    modal: {
+      code: "agy-auth-required",
+      reason: "AGY requires authentication",
+      hint: "run agy interactively to sign in, then relaunch",
+    },
+  },
+  {
+    profiles: ["agy"],
     match:
-      /(?:Folder\s+access[\s\S]{0,240}(?:Yes,\s*continue|trust\s+this\s+(?:folder|directory)|this\s+directory)|Trust\s+this\s+(?:folder|directory)\?|Do\s+you\s+trust(?:\s+the\s+contents\s+of)?\s+this\s+(?:directory|folder|workspace)\??|Quick\s+safety\s+check:\s*Is\s+this\s+a\s+project\s+you\s+created\s+or\s+one\s+you\s+trust\?|Do\s+you\s+trust\s+the\s+files\s+in\s+this\s+folder\?|Trust\s+and\s+continue)/i,
+      /(?:Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+project\?[\s\S]{0,360}Yes,\s*I\s+trust\s+this\s+folder[\s\S]{0,200}(?:No,\s*exit|↑\/↓\s+Navigate\s*·\s*enter\s+Confirm)|Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?[\s\S]{0,240}(?:1\.\s+|Yes,\s*)[\s\S]{0,160}(?:enter\s+to\s+confirm|confirm))/i,
+    modal: {
+      code: "cli-workspace-not-trusted",
+      reason: "AGY is waiting on its project-trust prompt (directory-trust)",
+      hint: "approve this directory once in an owner terminal via `h2a trust agy <dir>` (never inside an agent session), then relaunch",
+    },
+  },
+  {
+    profiles: ["agy"],
+    match:
+      /(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI[\s\S]{0,240}Choose\s+(?:your\s+)?color\s+(?:scheme|theme)[\s\S]{0,900}(?:\[Next\]|enter\s+(?:Confirm|to\s+continue))|Terms\s+of\s+Service\s*&\s*Data\s+Use[\s\S]{0,900}(?:\[Done\]|enter\s+Confirm))/i,
+    modal: {
+      code: "cli-first-run-wizard",
+      reason: "AGY is waiting on its first-run onboarding wizard",
+      hint: "complete first-run onboarding once in an interactive owner terminal, then relaunch",
+    },
+  },
+  {
+    profiles: ["muse"],
+    match:
+      /Do\s+you\s+trust\s+this\s+workspace\?[\s\S]{0,320}Trust\s+and\s+continue/i,
+    modal: {
+      code: "cli-workspace-not-trusted",
+      reason: "Muse is waiting on its workspace-trust prompt (directory-trust)",
+      hint: "trust this workspace in an interactive Muse session, then relaunch",
+    },
+  },
+  {
+    profiles: ["codex"],
+    match:
+      /(?:Folder\s+access[\s\S]{0,300}(?:Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}Trust\s+and\s+continue|You\s+are\s+running\s+Codex[\s\S]{0,200}1\.\s+Yes,\s*continue)[\s\S]{0,200}(?:enter\s+(?:to\s+)?(?:continue|confirm)|Back\s+to\s+Agent\s+Command\s+Center)|Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}(?:›\s*1\.|1\.)?\s*Trust\s+and\s+continue[\s\S]{0,200}(?:enter\s+continue|Back\s+to\s+Agent\s+Command\s+Center))/i,
+    modal: {
+      code: "cli-workspace-not-trusted",
+      reason: "Codex is waiting on its folder-trust prompt (directory-trust)",
+      hint: "trust this directory once in an interactive Codex session, then relaunch",
+    },
+  },
+  {
+    profiles: ["claude"],
+    match:
+      /(?:Quick\s+safety\s+check:\s*Is\s+this\s+a\s+project\s+you\s+created\s+or\s+one\s+you\s+trust\?|Do\s+you\s+trust\s+the\s+files\s+in\s+this\s+folder\?)[\s\S]{0,260}(?:[›>❯]?\s*1\.|Yes,\s*(?:proceed|I\s+trust\s+this\s+folder|continue))[\s\S]{0,160}(?:(?:Enter|Return)\s+to\s+(?:confirm|continue)|Esc\s+to\s+(?:cancel|exit)|No,\s*exit)/i,
+    modal: {
+      code: "cli-workspace-not-trusted",
+      reason: "Claude Code is waiting on its directory-trust prompt",
+      hint: "trust this workspace once in an interactive Claude Code session, then relaunch",
+    },
+  },
+  {
+    profiles: ["gemini"],
+    match:
+      /(?:Folder\s+access[\s\S]{0,240}(?:1\.|Yes)|Do\s+you\s+trust\s+this\s+(?:folder|directory)\?)[\s\S]{0,240}(?:1\.|Yes,\s*trust)[\s\S]{0,160}(?:enter|return|confirm|continue|esc)/i,
     modal: {
       code: "cli-workspace-not-trusted",
       reason: "the host is waiting on its directory-trust prompt",
-      hint: "approve this directory once interactively (for agy: run `h2a trust agy <dir>` in an owner terminal; the host records trust per repository root), then relaunch",
+      hint: "approve this directory once interactively, then relaunch",
     },
   },
   {
+    profiles: ["claude", "codex", "gemini", "muse"],
     match:
-      /(?:hooks?\s+(?:need\s+review|are\s+new\s+or\s+changed|require\s+review)|hook\s+is\s+new\s+or\s+changed|new\s+or\s+changed\s+hooks?|Review\s+plugin\s+hooks?|Review\s+project\s+hooks?)/i,
+      /(?:hooks?\s+(?:need\s+review|are\s+new\s+or\s+changed|require\s+review)|hook\s+is\s+new\s+or\s+changed|new\s+or\s+changed\s+hooks?|Review\s+(?:plugin|project)\s+hooks?)[\s\S]{0,360}(?:[›>❯]?\s*1\.\s+\S|Review\s+hooks|Trust\s+and\s+continue|Continue\s+without\s+trusting)[\s\S]{0,200}(?:(?:press\s+)?(?:enter|return)|esc\s+to\s+(?:cancel|back)|\[y\/N\])/i,
     modal: {
       code: "cli-hooks-review-required",
       reason: "the host is waiting on its hook-review prompt",
-      hint: "review and approve hooks once interactively in this workspace (on Codex, an interactive session can also choose '3. Continue without trusting (hooks won't run)' for a non-persistent run), then relaunch",
+      hint: "review and approve hooks once interactively in this workspace (on Codex, an interactive session can also choose '3. Continue without trusting (hooks won't run)' for this session (persistence not verified)), then relaunch",
     },
   },
   {
+    profiles: ["claude"],
     match:
-      /(?:Welcome\s+to\s+(?:Antigravity|Gemini\s+CLI|Claude\s+Code|Mistral\s+Vibe)|Choose\s+the\s+text\s+style\s+that\s+looks\s+best|(?:Select|Choose)\s+(?:a\s+)?(?:color\s+)?theme[\s\S]{0,200}(?:Enter|Continue|Apply)|Get\s+started[\s\S]{0,180}(?:Login|Theme|Continue)|Terms\s+of\s+Service[\s\S]{0,200}(?:Accept|Continue|Enter))/i,
+      /(?:Welcome\s+to\s+Claude\s+Code[\s\S]{0,240}(?:Choose\s+the\s+text\s+style|Let's\s+get\s+started|Select\s+login\s+method)[\s\S]{0,240}(?:1\.|Dark\s+mode|Press\s+Enter|Enter\s+to\s+continue)|Choose\s+the\s+text\s+style\s+that\s+looks\s+best[\s\S]{0,240}(?:Press\s+Enter|Enter\s+to\s+continue|1\.))/i,
+    modal: {
+      code: "cli-first-run-wizard",
+      reason: "Claude Code is waiting on its first-run onboarding wizard",
+      hint: "complete first-run onboarding once in an interactive owner terminal, then relaunch",
+    },
+  },
+  {
+    profiles: ["codex", "gemini", "muse"],
+    match:
+      /(?:Welcome\s+to\s+(?:Gemini\s+CLI|Mistral\s+Vibe)[\s\S]{0,240}(?:1\.|Theme|Login|Enter|Continue)|Get\s+started[\s\S]{0,180}(?:Login|Theme)[\s\S]{0,180}(?:1\.|Enter|Continue)|(?:Select|Choose)\s+(?:a\s+)?(?:color\s+)?theme[\s\S]{0,240}(?:1\.|Enter\s+to\s+(?:continue|confirm)|Apply))/i,
     modal: {
       code: "cli-first-run-wizard",
       reason: "the host is waiting on its first-run onboarding wizard",
@@ -209,8 +356,9 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     },
   },
   {
+    profiles: ["claude", "codex", "gemini", "muse", "agy"],
     match:
-      /(?:WARNING:\s*Claude\s+Code\s+running\s+in\s+Bypass\s+Permissions\s+mode[\s\S]{0,200}Yes,\s*I\s+accept|(?:Allow\s+once|Allow\s+always|Yes,\s*allow)[\s\S]{0,120}(?:No,\s*reject|Deny|Esc\s+to\s+cancel)|(?:Do\s+you\s+want\s+to\s+proceed\?|Allow\s+this\s+(?:tool|command)\?)[\s\S]{0,140}(?:1\.|Yes|Allow|Continue))/i,
+      /(?:WARNING:\s*Claude\s+Code\s+running\s+in\s+Bypass\s+Permissions\s+mode[\s\S]{0,240}Yes,\s*I\s+accept|(?:[›>❯]?\s*1\.\s+Yes\b[\s\S]{0,120}(?:No,\s*reject|Esc\s+to\s+cancel)|Allow\s+once[\s\S]{0,120}(?:Allow\s+always|No,\s*reject|Deny|Esc\s+to\s+cancel))|(?:Do\s+you\s+want\s+to\s+proceed\?|Allow\s+this\s+(?:tool|command)\?)[\s\S]{0,160}(?:1\.|Yes|Allow)[\s\S]{0,120}(?:Enter\s+to|Esc|Deny|\b2\.\s*No))/i,
     modal: {
       code: "cli-permission-prompt-required",
       reason: "the host is waiting on an interactive permission prompt",
@@ -218,7 +366,9 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     },
   },
   {
-    match: /update\s+available[\s\S]{0,240}(?:\b1\.|Press\s+(?:Enter|Return)|Enter\s+to\s+(?:update|continue|confirm|select)|\[y\/N\])/i,
+    profiles: ["claude", "codex", "gemini", "muse", "agy"],
+    match:
+      /update\s+available[\s\S]{0,240}(?:\b1\.\s+\S[\s\S]{0,120}(?:Enter|Return|esc)|Press\s+(?:Enter|Return)\s+to\s+(?:update|continue|confirm)|Enter\s+to\s+(?:update|continue|confirm)|\[y\/N\])/i,
     modal: {
       code: "cli-update-modal-blocking",
       reason: "the host is waiting on its update prompt",
@@ -226,8 +376,9 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     },
   },
   {
+    profiles: ["claude", "codex", "gemini", "muse"],
     match:
-      /(?:Sign\s+in\s+with[\s\S]{0,200}(?:Enter|Browser|API\s+key)|Please\s+authenticate\s+to\s+continue|Enter\s+your\s+(?:Anthropic|OpenAI|Google|Mistral)\s+API\s+key|Choose\s+login\s+method:[\s\S]{0,200}Enter)/i,
+      /(?:Sign\s+in\s+with[\s\S]{0,200}(?:\b1\.|Browser|API\s+key)[\s\S]{0,120}(?:Enter|Return|Select|Continue)|Please\s+authenticate\s+to\s+continue[\s\S]{0,160}(?:Enter|Browser|key)|Enter\s+your\s+(?:Anthropic|OpenAI|Google|Mistral)\s+API\s+key\s*:?|Choose\s+login\s+method:[\s\S]{0,200}(?:1\.[\s\S]{0,120}Enter))/i,
     exclude: /Google\s+OAuth[\s\S]{0,120}Google\s+Cloud\s+project/i,
     modal: {
       code: "cli-auth-required",
@@ -238,23 +389,9 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
 ];
 
 export function detectNamedHostModal(capture: string, profile?: string): HostModal | undefined {
-  if (profile === "agy" && AGY_LOGIN_MENU.test(capture)) {
-    return {
-      code: "agy-auth-required",
-      reason: "AGY requires authentication",
-      hint: "run agy interactively to sign in, then relaunch",
-    };
-  }
-  if (/Do you trust this workspace\?/.test(capture) && /Trust and continue/.test(capture)) {
-    return {
-      code: "cli-workspace-not-trusted",
-      reason: "Muse is waiting on its workspace-trust prompt (directory-trust)",
-      hint: "trust this workspace in an interactive Muse session, then relaunch",
-    };
-  }
   const activeRegion = capture.length > 4096 ? captureTailLines(capture, 50) : capture;
   for (const entry of NAMED_HOST_MODALS) {
-    if (entry.profiles && (!profile || !entry.profiles.includes(profile))) continue;
+    if (entry.profiles && profile !== undefined && !entry.profiles.includes(profile)) continue;
     if (entry.exclude?.test(activeRegion)) continue;
     if (testNamedModal(activeRegion, entry.match, profile)) {
       return entry.modal;
@@ -266,8 +403,17 @@ export function detectNamedHostModal(capture: string, profile?: string): HostMod
 export function detectHostModal(capture: string, profile?: string): HostModal | undefined {
   const named = detectNamedHostModal(capture, profile);
   if (named !== undefined) return named;
-  const activeRegion = capture.length > 4096 ? captureTailLines(capture, 50) : capture;
-  if (!MODAL_CHOICE.test(activeRegion) || !MODAL_CONFIRM.test(activeRegion)) {
+  const activeRegion = captureTailLines(capture.length > 4096 ? captureTailLines(capture, 50) : capture, 25);
+  const choiceMatch = MODAL_CHOICE.exec(activeRegion);
+  const confirmMatch = MODAL_CONFIRM.exec(activeRegion);
+  if (!choiceMatch || !confirmMatch) {
+    return undefined;
+  }
+  const matchEnd = Math.max(
+    choiceMatch.index + choiceMatch[0].length,
+    confirmMatch.index + confirmMatch[0].length,
+  );
+  if (activeComposerAfterMatch(activeRegion, matchEnd, profile)) {
     return undefined;
   }
   return {
@@ -323,6 +469,14 @@ export function paneIsReady(capture: string, profile?: string): boolean {
   if (profile === "muse") {
     return /❯/.test(capture) && /·\s*(?:~|\/)/.test(capture);
   }
+  if (profile === undefined) {
+    if (/(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI|Antigravity\s+CLI\s+1\.\d|Accessing\s+workspace:)/i.test(capture)) {
+      return agyPaneHasComposer(capture);
+    }
+    if (/(?:OpenAI\s+Codex|model:\s*loading)/i.test(capture)) {
+      return /›/.test(capture) && /·\s*(?:~|\/)/.test(capture) && !/model:\s*loading/i.test(capture);
+    }
+  }
   return paneHasDrawnUi(capture);
 }
 
@@ -358,11 +512,11 @@ export function guardPaneBeforeAutomatedInput(
       modal,
     };
   }
-  if (mode === "cli-input" && profile === "agy" && !paneIsReady(capture, profile)) {
+  if (mode === "cli-input" && (profile === "agy" || profile === undefined) && !paneIsReady(capture, profile)) {
     return {
       ok: false,
       outcome: "deferred",
-      reason: "agy-pane-not-ready",
+      reason: profile === "agy" ? "agy-pane-not-ready" : "pane-not-ready",
     };
   }
   return { ok: true };
@@ -757,33 +911,14 @@ function openAgyStartLockFd(lockPath: string, expectedUid: number): number {
   }
 }
 
-interface LockStamp {
-  startedAtMs?: number;
-  releasedAtMs?: number;
-}
-
-function readLockStampFromFd(fd: number): LockStamp | undefined {
+function writeAgyStartStampSidecar(
+  lockPath: string,
+  stamp: { pid: number; startedAtMs: number; releasedAtMs: number },
+): void {
   try {
-    const raw = readFileSync(fd, "utf8").trim();
-    if (!raw) return undefined;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return undefined;
-    const obj = parsed as Record<string, unknown>;
-    return {
-      ...(typeof obj.startedAtMs === "number" ? { startedAtMs: obj.startedAtMs } : {}),
-      ...(typeof obj.releasedAtMs === "number" ? { releasedAtMs: obj.releasedAtMs } : {}),
-    };
+    writeFileAtomicPrivate(`${lockPath}.stamp`, `${JSON.stringify(stamp)}\n`);
   } catch {
-    return undefined;
-  }
-}
-
-function writeLockStampToFd(fd: number, stamp: { pid: number; startedAtMs: number; releasedAtMs: number }): void {
-  try {
-    ftruncateSync(fd, 0);
-    writeSync(fd, Buffer.from(`${JSON.stringify(stamp)}\n`, "utf8"), 0, undefined, 0);
-  } catch {
-    /* Non-fatal: kernel flock already provided mutual exclusion. */
+    /* Non-fatal: kernel flock + spacing sleep already serialized starts. */
   }
 }
 
@@ -870,6 +1005,7 @@ export interface AgyStartQueueOptions {
   readonly flockCandidates?: readonly string[];
   readonly spacingMs?: number;
   readonly timeoutMs?: number;
+  readonly launchBudgetMs?: number;
   readonly postSpawnMaxHoldMs?: number;
   readonly uid?: number;
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -886,11 +1022,25 @@ export interface AgyStartQueueResult<T> {
 const agyStartLockStorage = new AsyncLocalStorage<Set<string>>();
 const inProcessAgyAsyncQueues = new Map<string, Promise<void>>();
 
-export function resolveAgyQueueTimeoutMs(budgetMs?: number): number {
-  if (budgetMs !== undefined && Number.isFinite(budgetMs) && budgetMs > 0) {
-    return budgetMs;
+export function resolveAgyQueueTimeoutMs(
+  launchBudgetMs?: number,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): number {
+  const envRaw = env["H2A_AGY_LOCK_TIMEOUT_MS"];
+  let envCap = DEFAULT_AGY_LOCK_TIMEOUT_MS;
+  if (envRaw !== undefined && envRaw.trim() !== "") {
+    const parsed = Number(envRaw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      envCap = Math.trunc(parsed);
+    }
   }
-  return DEFAULT_AGY_LOCK_TIMEOUT_MS;
+  if (launchBudgetMs !== undefined && Number.isFinite(launchBudgetMs) && launchBudgetMs > 0) {
+    return Math.min(
+      envCap,
+      Math.max(MIN_AGY_QUEUE_TIMEOUT_MS, Math.trunc(launchBudgetMs) - AGY_LAUNCH_BUDGET_RESERVE_MS),
+    );
+  }
+  return envCap;
 }
 
 export function withAgyStartQueueSync<T>(
@@ -901,7 +1051,8 @@ export function withAgyStartQueueSync<T>(
   const uid = options.uid ?? process.getuid?.() ?? 0;
   const lockPath = options.lockPath ?? resolveAgyStartLockPath(uid);
   const spacingMs = options.spacingMs ?? resolveAgyStartSpacingMs(env);
-  const timeoutMs = resolveAgyQueueTimeoutMs(options.timeoutMs);
+  const timeoutMs = options.timeoutMs ?? resolveAgyQueueTimeoutMs(options.launchBudgetMs, env);
+  const totalBudgetMs = options.launchBudgetMs ?? options.timeoutMs;
   const postSpawnMaxHoldMs = options.postSpawnMaxHoldMs ?? POST_SPAWN_MAX_HOLD_MS;
   const onWait =
     options.onWait ?? ((msg: string) => { process.stderr.write(`${msg}\n`); });
@@ -951,22 +1102,24 @@ export function withAgyStartQueueSync<T>(
       }
     }
 
-    const prevStamp = readLockStampFromFd(fd);
-    const prevRefMs = prevStamp?.startedAtMs ?? prevStamp?.releasedAtMs;
-    if (prevRefMs !== undefined) {
-      const waitRemaining = prevRefMs + spacingMs - Date.now();
-      if (waitRemaining > 0) {
-        if (Date.now() + waitRemaining > deadline) {
-          throw new OnboardingLaunchError({
-            code: "cli-start-lock-timeout",
-            phase: "start-queue",
-            message: `agy start spacing wait (${Math.ceil(waitRemaining)}ms) exceeds launch budget (${timeoutMs}ms)`,
-            hint: "retry once the spacing window clears or increase --launch-budget-ms",
-            retrySafe: true,
-          });
-        }
-        onWait(`[h2a] agy start spacing: waiting ${Math.ceil(waitRemaining)}ms before starting next agy`);
-        syncSleepMs(waitRemaining);
+    // Never trust lock-file contents or a separate stamp file to skip spacing:
+    // external scripts truncate agy-start.lock with `9>` and don't update .stamp.
+    if (spacingMs > 0) {
+      if (totalBudgetMs !== undefined && Date.now() + spacingMs > enteredAt + totalBudgetMs) {
+        throw new OnboardingLaunchError({
+          code: "cli-start-lock-timeout",
+          phase: "start-queue",
+          message: `agy start spacing wait (${Math.ceil(spacingMs)}ms) exceeds launch budget (${totalBudgetMs}ms)`,
+          hint: "retry once the spacing window clears or increase --launch-budget-ms",
+          retrySafe: true,
+        });
+      }
+      onWait(`[h2a] agy start spacing: waiting ${Math.ceil(spacingMs)}ms before starting next agy`);
+      const spacingTarget = performance.now() + spacingMs;
+      for (;;) {
+        const remaining = spacingTarget - performance.now();
+        if (remaining <= 0) break;
+        syncSleepMs(remaining);
       }
     }
 
@@ -982,7 +1135,7 @@ export function withAgyStartQueueSync<T>(
         syncSleepMs(Math.min(50, Math.max(1, holdDeadline - Date.now())));
       }
     }
-    writeLockStampToFd(fd, {
+    writeAgyStartStampSidecar(lockPath, {
       pid: process.pid,
       startedAtMs: actualStartMs || startedAtMs,
       releasedAtMs: Date.now(),
@@ -1005,7 +1158,8 @@ export async function withAgyStartQueueAsync<T>(
   const uid = options.uid ?? process.getuid?.() ?? 0;
   const lockPath = options.lockPath ?? resolveAgyStartLockPath(uid);
   const spacingMs = options.spacingMs ?? resolveAgyStartSpacingMs(env);
-  const timeoutMs = resolveAgyQueueTimeoutMs(options.timeoutMs);
+  const timeoutMs = options.timeoutMs ?? resolveAgyQueueTimeoutMs(options.launchBudgetMs, env);
+  const totalBudgetMs = options.launchBudgetMs ?? options.timeoutMs;
   const postSpawnMaxHoldMs = options.postSpawnMaxHoldMs ?? POST_SPAWN_MAX_HOLD_MS;
   const onWait =
     options.onWait ?? ((msg: string) => { process.stderr.write(`${msg}\n`); });
@@ -1016,7 +1170,8 @@ export async function withAgyStartQueueAsync<T>(
   }
 
   const flockTool = resolveFlockTool(options.flockCandidates, uid);
-  const deadline = Date.now() + timeoutMs;
+  const enteredAt = Date.now();
+  const deadline = enteredAt + timeoutMs;
 
   const prevQueue = inProcessAgyAsyncQueues.get(lockPath);
   let releaseTurn!: () => void;
@@ -1067,7 +1222,6 @@ export async function withAgyStartQueueAsync<T>(
 
   let fd: number | undefined;
   let actualStartMs = Date.now();
-  let lockAcquired = false;
   try {
     fd = openAgyStartLockFd(lockPath, uid);
     const nonBlock = spawnSync(flockTool, ["--exclusive", "--nonblock", "3"], {
@@ -1082,6 +1236,7 @@ export async function withAgyStartQueueAsync<T>(
           code: "cli-start-lock-timeout",
           phase: "start-queue",
           message: `timed out waiting for agy start lock ${lockPath} after ${timeoutMs}ms`,
+          hint: "wait for in-flight agy starts or increase --launch-budget-ms",
           retrySafe: true,
         });
       }
@@ -1099,27 +1254,29 @@ export async function withAgyStartQueueAsync<T>(
           code: "cli-start-lock-timeout",
           phase: "start-queue",
           message: `timed out waiting for agy start lock ${lockPath} after ${timeoutMs}ms`,
+          hint: "wait for in-flight agy starts or increase --launch-budget-ms",
           retrySafe: true,
         });
       }
     }
-    lockAcquired = true;
 
-    const prevStamp = readLockStampFromFd(fd);
-    const prevRefMs = prevStamp?.startedAtMs ?? prevStamp?.releasedAtMs;
-    if (prevRefMs !== undefined) {
-      const waitRemaining = prevRefMs + spacingMs - Date.now();
-      if (waitRemaining > 0) {
-        if (Date.now() + waitRemaining > deadline) {
-          throw new OnboardingLaunchError({
-            code: "cli-start-lock-timeout",
-            phase: "start-queue",
-            message: `agy start spacing wait (${Math.ceil(waitRemaining)}ms) exceeds launch budget (${timeoutMs}ms)`,
-            retrySafe: true,
-          });
-        }
-        onWait(`[h2a] agy start spacing: waiting ${Math.ceil(waitRemaining)}ms before starting next agy`);
-        await delay(waitRemaining);
+    // Never trust lock-file contents or a separate stamp file to skip spacing.
+    if (spacingMs > 0) {
+      if (totalBudgetMs !== undefined && Date.now() + spacingMs > enteredAt + totalBudgetMs) {
+        throw new OnboardingLaunchError({
+          code: "cli-start-lock-timeout",
+          phase: "start-queue",
+          message: `agy start spacing wait (${Math.ceil(spacingMs)}ms) exceeds launch budget (${totalBudgetMs}ms)`,
+          hint: "retry once the spacing window clears or increase --launch-budget-ms",
+          retrySafe: true,
+        });
+      }
+      onWait(`[h2a] agy start spacing: waiting ${Math.ceil(spacingMs)}ms before starting next agy`);
+      const spacingTarget = performance.now() + spacingMs;
+      for (;;) {
+        const remaining = spacingTarget - performance.now();
+        if (remaining <= 0) break;
+        await delay(Math.ceil(remaining));
       }
     }
 
@@ -1137,7 +1294,7 @@ export async function withAgyStartQueueAsync<T>(
         await delay(Math.min(50, Math.max(1, holdDeadline - Date.now())));
       }
     }
-    writeLockStampToFd(fd, {
+    writeAgyStartStampSidecar(lockPath, {
       pid: process.pid,
       startedAtMs: actualStartMs,
       releasedAtMs: Date.now(),
@@ -1436,29 +1593,58 @@ export function deterministicOutOfBandAlertId(realPath: string): string {
   return `oob-agy-${hash}`;
 }
 
+export function deterministicMismatchAlertId(realPath: string): string {
+  return `mismatch-${createHash("sha256").update(realPath).digest("hex").slice(0, 8)}`;
+}
+
+export function hasBaselineImportInAuditSync(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const events = readTrustAuditEventsStrict(h2aTrustAuditPath(env));
+  return events.some((ev) => ev.cli === "agy" && ev.action === "baseline-import");
+}
+
 function buildAuditedPathSets(events: readonly TrustAuditEvent[]): {
-  readonly approvedPaths: Set<string>;
+  readonly approvedExactPaths: Set<string>;
+  readonly approvedSubtreePaths: Set<string>;
+  readonly auditedSettingsPaths: Set<string>;
   readonly ackedIds: Set<string>;
 } {
-  const approvedPaths = new Set<string>();
+  const approvedExactPaths = new Set<string>();
+  const approvedSubtreePaths = new Set<string>();
+  const auditedSettingsPaths = new Set<string>();
   const ackedIds = new Set<string>();
   for (const ev of events) {
     if (ev.cli !== "agy") continue;
-    const norm = safeRealpath(ev.path) ?? resolve(ev.path);
-    if (ev.action === "approve" || ev.action === "baseline-import") {
-      approvedPaths.add(norm);
-    } else if (ev.action === "remove" || ev.action === "refuse") {
-      approvedPaths.delete(norm);
-    } else if (ev.action === "ack" && ev.ackedAlertId) {
+    if (ev.action === "ack" && ev.ackedAlertId) {
       ackedIds.add(ev.ackedAlertId);
+      continue;
+    }
+    const norm = safeRealpath(ev.path) ?? resolve(ev.path);
+    if (ev.action === "approve") {
+      auditedSettingsPaths.add(norm);
+      approvedExactPaths.add(norm);
+      if (ev.scope === "subtree") {
+        approvedSubtreePaths.add(norm);
+      } else {
+        approvedSubtreePaths.delete(norm);
+      }
+    } else if (ev.action === "baseline-import") {
+      // Initial baseline-import records existing settings.json entries without
+      // authorizing entries in h2a's trust-approvals.json.
+      auditedSettingsPaths.add(norm);
+    } else if (ev.action === "remove" || ev.action === "refuse") {
+      approvedExactPaths.delete(norm);
+      approvedSubtreePaths.delete(norm);
+      auditedSettingsPaths.delete(norm);
     }
   }
-  return { approvedPaths, ackedIds };
+  return { approvedExactPaths, approvedSubtreePaths, auditedSettingsPaths, ackedIds };
 }
 
 export function isUnsupportedTrustRoot(realPath: string, env: Readonly<Record<string, string | undefined>> = process.env): boolean {
   const homeReal = safeRealpath(resolveHomeDir(env)) ?? resolve(resolveHomeDir(env));
-  return realPath === "/" || realPath === homeReal;
+  return realPath === "/" || isPathUnderPrefix(homeReal, realPath);
 }
 
 export function isPathUnderPrefix(candidateReal: string, rootReal: string): boolean {
@@ -1496,7 +1682,6 @@ export function checkAgyTrustPrecheckSync(options: {
 }): AgyTrustPrecheckResult {
   const env = options.env ?? process.env;
   const realCwd = canonicalizeWorkspacePath(options.cwd);
-  const homeReal = safeRealpath(resolveHomeDir(env)) ?? resolve(resolveHomeDir(env));
 
   if (isUnsupportedTrustRoot(realCwd, env)) {
     throw new OnboardingLaunchError({
@@ -1515,27 +1700,45 @@ export function checkAgyTrustPrecheckSync(options: {
   const settings = readAgySettingsTrustedWorkspaces(settingsFile);
   const approvals = readTrustApprovalsStrict(approvalsFile);
   const auditEvents = readTrustAuditEventsStrict(auditFile);
-  const { approvedPaths, ackedIds } = buildAuditedPathSets(auditEvents);
+  const {
+    approvedExactPaths,
+    approvedSubtreePaths,
+    auditedSettingsPaths,
+    ackedIds,
+  } = buildAuditedPathSets(auditEvents);
 
   // Every active entry inside h2a's own trust-approvals.json MUST have a matching
-  // approval/baseline entry in trust-audit.jsonl (fail closed on manual tampering).
-  for (const listed of [...approvals.subtrees, ...approvals.exact]) {
-    const norm = safeRealpath(listed) ?? resolve(listed);
-    if (!approvedPaths.has(norm)) {
+  // explicit `approve` entry (with matching scope for subtrees) in trust-audit.jsonl.
+  for (const listedSubtree of approvals.subtrees) {
+    const norm = safeRealpath(listedSubtree) ?? resolve(listedSubtree);
+    if (!approvedSubtreePaths.has(norm)) {
       throw new OnboardingLaunchError({
         code: "cli-trust-audit-mismatch",
         phase: "onboarding",
-        message: `trust-approvals.json contains "${listed}" without matching entry in ${auditFile}`,
-        hint: `run \`h2a trust audit\` or \`h2a trust init-baseline\` in an owner terminal to reconcile trust records`,
+        message: `trust-approvals.json subtree "${listedSubtree}" lacks an audited subtree approval in ${auditFile}`,
+        hint: `run \`h2a trust audit\` in an owner terminal to inspect and reconcile trust records`,
+        retrySafe: true,
+      });
+    }
+  }
+  for (const listedExact of approvals.exact) {
+    const norm = safeRealpath(listedExact) ?? resolve(listedExact);
+    if (!approvedExactPaths.has(norm)) {
+      throw new OnboardingLaunchError({
+        code: "cli-trust-audit-mismatch",
+        phase: "onboarding",
+        message: `trust-approvals.json contains "${listedExact}" without matching approval entry in ${auditFile}`,
+        hint: `run \`h2a trust audit\` in an owner terminal to inspect and reconcile trust records`,
         retrySafe: true,
       });
     }
   }
 
-  const normalizedRefused = new Set(approvals.refused.map((p) => safeRealpath(p) ?? resolve(p)));
+  const normalizedRefusedList = approvals.refused.map((p) => safeRealpath(p) ?? resolve(p));
+  const normalizedRefused = new Set(normalizedRefusedList);
 
-  // Reject any explicitly refused directory immediately (even if present in an ancestor subtree or settings).
-  if (normalizedRefused.has(realCwd)) {
+  // Reject any explicitly refused directory or descendant immediately (even if present in an ancestor subtree or settings).
+  if (normalizedRefusedList.some((refusedRoot) => isPathUnderPrefix(realCwd, refusedRoot))) {
     throw new OnboardingLaunchError({
       code: "cli-trust-refused",
       phase: "onboarding",
@@ -1552,7 +1755,7 @@ export function checkAgyTrustPrecheckSync(options: {
   for (const rawEntry of settings.trustedWorkspaces) {
     const norm = safeRealpath(rawEntry) ?? resolve(rawEntry);
     normalizedSettings.push(norm);
-    if (!approvedPaths.has(norm)) {
+    if (!auditedSettingsPaths.has(norm)) {
       untrackedPaths.push(norm);
       const id = deterministicOutOfBandAlertId(norm);
       if (!ackedIds.has(id)) {
@@ -1588,12 +1791,12 @@ export function checkAgyTrustPrecheckSync(options: {
   }
 
   // 2. Q2-C: approved root covering internal subdirs (realpath prefix),
-  //    never $HOME, never "/", never a refused path, and external worktrees don't inherit.
+  //    never $HOME or ancestors, never "/", never a refused path, and external worktrees don't inherit.
   const cwdGitRoot = findEnclosingGitRoot(realCwd);
   const matchingRoots = approvals.subtrees
     .map((r) => safeRealpath(r) ?? resolve(r))
     .filter((rootReal) => {
-      if (rootReal === "/" || rootReal === homeReal) return false;
+      if (isUnsupportedTrustRoot(rootReal, env)) return false;
       if (normalizedRefused.has(rootReal)) return false;
       if (!isPathUnderPrefix(realCwd, rootReal)) return false;
       // If cwd lies inside a nested independent git worktree/repo whose root is
@@ -1685,25 +1888,45 @@ export function collectTrustAlertsReadOnly(
     return { alerts };
   }
 
-  const { approvedPaths, ackedIds } = buildAuditedPathSets(auditEvents);
+  const {
+    approvedExactPaths,
+    approvedSubtreePaths,
+    auditedSettingsPaths,
+    ackedIds,
+  } = buildAuditedPathSets(auditEvents);
 
-  for (const listed of [...approvals.subtrees, ...approvals.exact]) {
-    const norm = safeRealpath(listed) ?? resolve(listed);
-    if (!approvedPaths.has(norm) && !ackedIds.has(`mismatch-${norm}`)) {
+  for (const listedSubtree of approvals.subtrees) {
+    const norm = safeRealpath(listedSubtree) ?? resolve(listedSubtree);
+    const id = deterministicMismatchAlertId(norm);
+    if (!approvedSubtreePaths.has(norm) && !ackedIds.has(id)) {
       alerts.push({
-        id: `mismatch-${createHash("sha256").update(norm).digest("hex").slice(0, 8)}`,
+        id,
         severity: "error",
         kind: "trust-audit-mismatch",
         cli: "agy",
         path: norm,
-        message: `trust-approvals.json lists ${norm} without matching trust-audit entry`,
+        message: `trust-approvals.json subtree lists ${norm} without matching audited subtree approval`,
+      });
+    }
+  }
+  for (const listedExact of approvals.exact) {
+    const norm = safeRealpath(listedExact) ?? resolve(listedExact);
+    const id = deterministicMismatchAlertId(norm);
+    if (!approvedExactPaths.has(norm) && !ackedIds.has(id)) {
+      alerts.push({
+        id,
+        severity: "error",
+        kind: "trust-audit-mismatch",
+        cli: "agy",
+        path: norm,
+        message: `trust-approvals.json lists ${norm} without matching trust-audit approval entry`,
       });
     }
   }
 
   for (const rawEntry of trustedWorkspaces) {
     const norm = safeRealpath(rawEntry) ?? resolve(rawEntry);
-    if (!approvedPaths.has(norm)) {
+    if (!auditedSettingsPaths.has(norm)) {
       const id = deterministicOutOfBandAlertId(norm);
       if (!ackedIds.has(id)) {
         alerts.push({
@@ -2007,15 +2230,19 @@ export function inspectAgyAgentsSliceSync(options: SliceGuardCheckOptions = {}):
   return evalNumericCeiling(parsedProp, "systemd-show");
 }
 
-export function verifyNativeHostScopeFromProc(hostPid: number, expectedIsolated: boolean): boolean {
+export function verifyNativeHostScopeFromProc(
+  hostPid: number,
+  expectedIsolated: boolean,
+  procRoot = "/proc",
+): boolean {
   if (!expectedIsolated) return false;
   if (process.platform !== "linux") return true;
   if (!Number.isSafeInteger(hostPid) || hostPid <= 0) return false;
   try {
-    const raw = readFileSync(`/proc/${hostPid}/cgroup`, "utf8");
-    return raw.split(/\r?\n/).some((line) => /app\.slice\/h2a-native-.*\.scope$/.test(line.trim()));
+    const raw = readFileSync(join(procRoot, String(hostPid), "cgroup"), "utf8");
+    const unitRe = new RegExp(`app\\.slice\\/h2a-native-${hostPid}-[^/]+\\.scope$`);
+    return raw.split(/\r?\n/).some((line) => unitRe.test(line.trim()));
   } catch {
-    // If host /proc isn't inspectable from this test fixture, rely on ping.hostIsolated.
-    return expectedIsolated;
+    return false;
   }
 }

@@ -1,0 +1,40 @@
+Script started on 2026-11-25 20:54:32-05:00 [COMMAND="<SANDBOX>/run-H1-settings-session.sh" <not executed on terminal>]
+[>q   [>4m    [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+   ▄ ▀ ▀      ▀▀ ▄
+  ▄ ▀ ▀        ▀ ▀ ▄
+ Welcome to the  Antigravity CLI . You are currently not signed in.
+ ⣷  Signing in...[>4m[<1u [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+  ▄ ▀ ▀      ▀▀ ▄
+   ▄ ▀ ▀        ▀ ▀ ▄
+   Antigravity CLI 1.5.17
+  [<REDACTED_EMAIL>
+   <SANDBOX>/untrusted
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts
+       Gemini 4 Hydrogen (XHigh)
+   <SANDBOX>/untrusted
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts    Gemini 4 Hydrogen · xhigh
+      Auto mode: edits & safe commands auto-approved (shift+tab to cycle)
+ auto  ·
+M
+  ┃   Introducing Gemini 4 Neon
+  ┃  Our best balance of intelligence, cost, and latency. Get building today with Neon.
+  ┃   esc to dismiss
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >   Auto mode: edits & safe commands auto-approved (shift+tab to cycle)
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts    auto  · Gemini 4 Hydrogen · xhigh
+         (Google AI Ultra)
+ press ctrl+d again to exit    [>4m[<1u
+Script done on 2026-11-25 20:54:39-05:00 [COMMAND_EXIT_CODE="0"]

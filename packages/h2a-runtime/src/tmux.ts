@@ -1229,7 +1229,7 @@ export function startLocalSession(
   };
   return isAgy
     ? withAgyStartQueueSync(startFn, {
-        ...(launchBudgetMs !== undefined ? { timeoutMs: launchBudgetMs } : {}),
+        ...(launchBudgetMs !== undefined ? { launchBudgetMs } : {}),
       })
     : startFn().result;
 }
@@ -1366,7 +1366,7 @@ export function startHeadlessSession(
   };
   return isAgy
     ? withAgyStartQueueSync(startFn, {
-        ...(launchBudgetMs !== undefined ? { timeoutMs: launchBudgetMs } : {}),
+        ...(launchBudgetMs !== undefined ? { launchBudgetMs } : {}),
       })
     : startFn().result;
 }
@@ -2561,13 +2561,19 @@ export function guardTmuxPaneBeforeInput(
   return guardPaneBeforeAutomatedInput(capture, profile, mode);
 }
 
-export function relaunchInSession(name: string, command: string): boolean {
+export function relaunchInSession(
+  name: string,
+  command: string,
+  options: { readonly mode?: PaneGuardMode; readonly profile?: string } = {},
+): boolean {
   const sessionName = resolveTmuxSessionNameForLedger(name);
-  const cmdProfile = classifyCliCommand(command);
+  // Never infer the currently-displayed pane profile from the *next* command:
+  // an unlabeled pane (`@profile` absent) may be showing another CLI's modal.
   const profile =
-    (sessionName ? readSessionOption(sessionName, "@profile") : undefined) ??
-    (cmdProfile !== "unknown" ? cmdProfile : undefined);
-  const guard = guardTmuxPaneBeforeInput(name, "shell-relaunch", profile);
+    options.profile ??
+    (sessionName ? readSessionOption(sessionName, "@profile") : undefined);
+  const mode = options.mode ?? "shell-relaunch";
+  const guard = guardTmuxPaneBeforeInput(name, mode, profile);
   if (!guard.ok) return false;
   if (sessionName) {
     recordInjectionBestEffort(`tmux:${sessionName}`, command);

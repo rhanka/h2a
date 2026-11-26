@@ -1,0 +1,7 @@
+agy_version=1.5.17
+date_utc=2026-11-26T01:52:07Z
+sandbox_path=/home/antoinefa/src/h2a/tmp/h-cond/cli-onboarding/agy-trust-probe/.sandbox-agy-6905 (deleted on exit)
+real_settings_sha256_before=184732931db2cf64e54d86e8ec4e62b8682c94f62edaab3cef9aecaa8f6bfa48
+dbus_inherited=yes
+auth_mechanism=DBUS_SESSION_BUS_ADDRESS -> Secret Service (github.com/zalando/go-keyring); zero token files copied or opened
+real_settings_sha256_after=184732931db2cf64e54d86e8ec4e62b8682c94f62edaab3cef9aecaa8f6bfa48

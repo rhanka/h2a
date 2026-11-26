@@ -36,7 +36,30 @@ import {
   classifyCliCommand,
   OnboardingLaunchError,
   withAgyStartQueueSync,
+  type AgyTrustPrecheckResult,
+  type PaneGuardMode,
 } from "./onboarding-core.js";
+
+function resolveHumanAgyTrustPrecheck(cwd: string): AgyTrustPrecheckResult | undefined {
+  try {
+    const precheck = checkAgyTrustPrecheckSync({ cwd });
+    for (const line of formatTrustOwnerAlertLines(precheck.alerts)) {
+      process.stderr.write(`[h2a] ${line}\n`);
+    }
+    return precheck;
+  } catch (error) {
+    if (
+      error instanceof OnboardingLaunchError &&
+      (error.code === "cli-workspace-not-trusted" || error.code === "cli-trust-unsupported-cwd")
+    ) {
+      for (const line of formatTrustOwnerAlertLines(readTrustOwnerAlerts())) {
+        process.stderr.write(`[h2a] ${line}\n`);
+      }
+      return undefined;
+    }
+    throw error;
+  }
+}
 import {
   emitResumeArchiveNotices,
   emitResumeScheduleNotices,
@@ -1989,10 +2012,23 @@ export function relaunchSessionWithLease(input: {
   tmuxSession: string;
   command: string;
   resolvingBoundMs?: number;
+  mode?: PaneGuardMode;
+  profile?: string;
 }): boolean {
   const store = sessionLeaseStore();
   const lease = store.forSession(input.sessionId);
-  if (lease === undefined) return relaunchInSession(input.tmuxSession, input.command);
+  const relaunchOpts =
+    input.mode !== undefined || input.profile !== undefined
+      ? {
+          ...(input.mode !== undefined ? { mode: input.mode } : {}),
+          ...(input.profile !== undefined ? { profile: input.profile } : {}),
+        }
+      : undefined;
+  if (lease === undefined) {
+    return relaunchOpts
+      ? relaunchInSession(input.tmuxSession, input.command, relaunchOpts)
+      : relaunchInSession(input.tmuxSession, input.command);
+  }
   const pane = resolveAgentPane(input.tmuxSession);
   const outcome = store.relaunch({
     sessionId: lease.sessionId,
@@ -2000,7 +2036,10 @@ export function relaunchSessionWithLease(input: {
     ...(input.resolvingBoundMs !== undefined
       ? { resolvingBoundMs: input.resolvingBoundMs }
       : {}),
-    act: () => relaunchInSession(input.tmuxSession, input.command),
+    act: () =>
+      relaunchOpts
+        ? relaunchInSession(input.tmuxSession, input.command, relaunchOpts)
+        : relaunchInSession(input.tmuxSession, input.command),
     resolveWorker: () => (pane ? paneWorkerAttribution(pane) : undefined),
   });
   return outcome.succeeded;
@@ -6240,11 +6279,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (verWarn) process.stderr.write(`[h2a] ${verWarn}\n`);
           try {
             resumeCwd = canonicalizeWorkspacePath(entry.cwd);
-            if (sessionClass === "background") {
-              const precheck = checkAgyTrustPrecheckSync({ cwd: resumeCwd });
+            const precheck =
+              sessionClass === "background"
+                ? checkAgyTrustPrecheckSync({ cwd: resumeCwd })
+                : resolveHumanAgyTrustPrecheck(resumeCwd);
+            if (precheck) {
               resumeCwd = precheck.realCwd;
-              for (const line of formatTrustOwnerAlertLines(precheck.alerts)) {
-                process.stderr.write(`[h2a] ${line}\n`);
+              if (sessionClass === "background") {
+                for (const line of formatTrustOwnerAlertLines(precheck.alerts)) {
+                  process.stderr.write(`[h2a] ${line}\n`);
+                }
               }
               if (precheck.needsSettingsOverride && precheck.settingsOverrideJson) {
                 resumeArgs = [...args, "--settings", precheck.settingsOverrideJson];
@@ -6837,6 +6881,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               cwd = agyPrecheck.realCwd;
               for (const line of formatTrustOwnerAlertLines(agyPrecheck.alerts)) {
                 process.stderr.write(`[h2a] ${line}\n`);
+              }
+            } else {
+              agyPrecheck = resolveHumanAgyTrustPrecheck(cwd);
+              if (agyPrecheck) {
+                cwd = agyPrecheck.realCwd;
               }
             }
           } catch (error) {
@@ -10255,8 +10304,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 sessionId,
                 tmuxSession: r.name,
                 command: interactiveResumeNudge(r.type),
+                mode: "cli-input",
+                profile: r.type,
               })
-            : relaunchInSession(r.name, interactiveResumeNudge(r.type));
+            : relaunchInSession(r.name, interactiveResumeNudge(r.type), {
+                mode: "cli-input",
+                profile: r.type,
+              });
         if (ok) {
           nudged += 1;
           throttleState.set(r.name, r.next);

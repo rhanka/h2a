@@ -1,6 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, chmodSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, chmodSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,17 +12,25 @@ import {
   classifyCliCommand,
   collectTrustAlertsReadOnly,
   computeAgyMemoryLimits,
+  detectHostModal,
+  deterministicMismatchAlertId,
   deterministicOutOfBandAlertId,
   guardPaneBeforeAutomatedInput,
+  h2aTrustApprovalsPath,
+  h2aTrustAuditPath,
   inspectAgyAgentsSliceSync,
+  isUnsupportedTrustRoot,
   MCP_AGY_LAUNCH_BUDGET_MS,
   MIN_AGY_START_SPACING_MS,
   OnboardingLaunchError,
   paneIsReady,
+  resolveAgyQueueTimeoutMs,
   resolveMemoryScopeSpec,
+  verifyNativeHostScopeFromProc,
   withAgyStartQueueAsync,
   withAgyStartQueueSync,
 } from "./onboarding-core.js";
+import { renderTerminalScreen } from "./native-terminal/screen.js";
 import { deriveSessionClass, sessionClassFromEnv } from "./session-class.js";
 import {
   assertOwnerTerminalAccess,
@@ -240,10 +250,12 @@ describe("trust pre-check (Q1-A, Q2-C) and owner-only h2a trust", () => {
     }
   });
 
-  it("handles init-baseline without deleting absent paths silently, and surfaces ackable out-of-band alerts", async () => {
+  it("handles init-baseline with confirmation, keeps baseline separate from trust-approvals, blocks unconfirmed replay, and acks mismatch/oob alerts", async () => {
     const { env, home, startLockPath, ws } = makeSandboxEnv();
     const settingsDir = join(home, ".gemini", "antigravity-cli");
     const settingsFile = join(settingsDir, "settings.json");
+    const approvalsFile = h2aTrustApprovalsPath(env);
+    const auditFile = h2aTrustAuditPath(env);
     const absentDir = join(home, "deleted-old-project");
     mkdirSync(settingsDir, { recursive: true, mode: 0o700 });
     writeFileSync(
@@ -257,29 +269,70 @@ describe("trust pre-check (Q1-A, Q2-C) and owner-only h2a trust", () => {
     expect(oobAlerts.some((a) => a.path === realpathSync(ws) && a.kind === "out-of-band-trust")).toBe(true);
     expect(formatTrustOwnerAlertLines(oobAlerts)[0]).toContain("TRUST ALERT");
 
-    // init-baseline answering "n" keeps absentDir intact.
-    expect(await runTrustInitBaselineCommand(ownerDeps(env, startLockPath, ["n"]))).toBe(0);
+    // Declining baseline import confirmation aborts cleanly without mutating files.
+    expect(await runTrustInitBaselineCommand(ownerDeps(env, startLockPath, ["n", "n"]))).toBe(1);
+    expect(existsSync(auditFile)).toBe(false);
+
+    // Initial confirmed init-baseline (keep absentDir: "n", confirm import: "y")
+    // records baseline-import in audit log without writing trust-approvals.json.
+    expect(await runTrustInitBaselineCommand(ownerDeps(env, startLockPath, ["n", "y"]))).toBe(0);
     const afterKeep = JSON.parse(readFileSync(settingsFile, "utf8")) as { trustedWorkspaces: string[] };
     expect(afterKeep.trustedWorkspaces).toContain(absentDir);
+    expect(existsSync(approvalsFile)).toBe(false);
 
-    // Protected $HOME in baseline still cannot launch children via Q2-C.
+    // Retained baseline entries (including kept absentDir & $HOME) do not emit permanent OOB alerts.
+    expect(readTrustOwnerAlerts(env)).toHaveLength(0);
+
+    // Protected $HOME & ancestors (/home) are unsupported roots and cannot launch via Q2-C.
+    expect(isUnsupportedTrustRoot(dirname(realpathSync(home)), env)).toBe(true);
     const protectedChild = join(home, "random-child");
     mkdirSync(protectedChild, { recursive: true });
     expect(() => checkAgyTrustPrecheckSync({ cwd: protectedChild, env })).toThrowError(OnboardingLaunchError);
 
-    // Re-running init-baseline answering "y" removes absentDir and writes backup.
-    expect(await runTrustInitBaselineCommand(ownerDeps(env, startLockPath, ["y"]))).toBe(0);
-    const afterRemove = JSON.parse(readFileSync(settingsFile, "utf8")) as { trustedWorkspaces: string[] };
-    expect(afterRemove.trustedWorkspaces).not.toContain(absentDir);
+    // Re-running init-baseline without replay confirmation is refused.
+    expect(await runTrustInitBaselineCommand(ownerDeps(env, startLockPath, ["n"]))).toBe(1);
 
-    // Manual out-of-band addition creates an ackable alert cleared by `--ack <id>`.
+    // Forged subtree or exact entry in trust-approvals.json relying on baseline-import
+    // fails closed with cli-trust-audit-mismatch whose hint NEVER suggests init-baseline.
+    mkdirSync(dirname(approvalsFile), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      approvalsFile,
+      JSON.stringify({ agy: { subtrees: [realpathSync(ws)], exact: [], refused: [] } }),
+      { mode: 0o600 },
+    );
+    let mismatchErr: OnboardingLaunchError | undefined;
+    try {
+      checkAgyTrustPrecheckSync({ cwd: join(ws, "nested"), env });
+    } catch (err) {
+      mismatchErr = err as OnboardingLaunchError;
+    }
+    expect(mismatchErr?.code).toBe("cli-trust-audit-mismatch");
+    expect(mismatchErr?.hint).not.toContain("init-baseline");
+    const mismatchAlertId = deterministicMismatchAlertId(realpathSync(ws));
+    expect(readTrustOwnerAlerts(env).some((a) => a.id === mismatchAlertId)).toBe(true);
+    expect(await runTrustAuditCommand({ ack: mismatchAlertId }, ownerDeps(env, startLockPath, []))).toBe(0);
+    expect(readTrustOwnerAlerts(env).some((a) => a.id === mismatchAlertId)).toBe(false);
+
+    // Clean approvals file so manual OOB test can proceed.
+    writeFileSync(
+      approvalsFile,
+      JSON.stringify({ agy: { subtrees: [], exact: [], refused: [] } }),
+      { mode: 0o600 },
+    );
+
+    // Manual out-of-band addition creates an ackable alert that replay CANNOT erase.
     const extraDir = join(home, "extra-project");
     mkdirSync(extraDir, { recursive: true });
     writeFileSync(
       settingsFile,
-      JSON.stringify({ trustedWorkspaces: [...afterRemove.trustedWorkspaces, realpathSync(extraDir)] }),
+      JSON.stringify({ trustedWorkspaces: [...afterKeep.trustedWorkspaces, realpathSync(extraDir)] }),
       { mode: 0o600 },
     );
+    // Confirmed replay cleans absentDir ("y", "y"), but STILL preserves the OOB alert on extraDir.
+    expect(await runTrustInitBaselineCommand(ownerDeps(env, startLockPath, ["y", "y"]))).toBe(0);
+    const afterRemove = JSON.parse(readFileSync(settingsFile, "utf8")) as { trustedWorkspaces: string[] };
+    expect(afterRemove.trustedWorkspaces).not.toContain(absentDir);
+
     const precheckWithOob = checkAgyTrustPrecheckSync({ cwd: realpathSync(extraDir), env });
     expect(precheckWithOob.untrackedTrustApproval).toBe(true);
     const alertId = deterministicOutOfBandAlertId(realpathSync(extraDir));
@@ -287,6 +340,15 @@ describe("trust pre-check (Q1-A, Q2-C) and owner-only h2a trust", () => {
 
     expect(await runTrustAuditCommand({ ack: alertId }, ownerDeps(env, startLockPath, []))).toBe(0);
     expect(readTrustOwnerAlerts(env).some((a) => a.id === alertId)).toBe(false);
+
+    // Refused directory also blocks descendant subdirectories even under approved subtree.
+    const subRoot = join(home, "src", "subtree-parent");
+    const refChild = join(subRoot, "secret");
+    const refGrandChild = join(refChild, "deep");
+    mkdirSync(refGrandChild, { recursive: true });
+    expect(await runTrustAgyCommand(subRoot, {}, ownerDeps(env, startLockPath, [basename(subRoot)]))).toBe(0);
+    expect(await runTrustAgyCommand(refChild, { refuse: true }, ownerDeps(env, startLockPath, [basename(refChild)]))).toBe(0);
+    expect(() => checkAgyTrustPrecheckSync({ cwd: refGrandChild, env })).toThrowError(/marked as refused/i);
   });
 });
 
@@ -326,7 +388,7 @@ describe("command classification, guards, and Q4-A modals", () => {
     expect(classifyCliCommand("/usr/bin/python3 custom_script.py")).toBe("unknown");
   });
 
-  it("blocks keystrokes on undefined capture, Codex/Muse Q4-A hook prompts, wizards, and enforces strict agy readiness", () => {
+  it("blocks keystrokes on undefined capture, Codex/Muse Q4-A hook prompts, wizards, and enforces strict agy readiness", async () => {
     expect(guardPaneBeforeAutomatedInput(undefined, "agy", "cli-input")).toMatchObject({
       ok: false,
       outcome: "deferred",
@@ -346,7 +408,7 @@ describe("command classification, guards, and Q4-A modals", () => {
       reason: "cli-hooks-review-required",
     });
     expect(codexGuard.ok === false && codexGuard.modal?.hint).toContain("Continue without trusting");
-    expect(codexGuard.ok === false && codexGuard.modal?.hint).toContain("non-persistent");
+    expect(codexGuard.ok === false && codexGuard.modal?.hint).toContain("persistence not verified");
 
     const museHooks = "Review plugin hooks\n1. Approve\nEnter to confirm";
     expect(guardPaneBeforeAutomatedInput(museHooks, "muse", "cli-input")).toMatchObject({
@@ -393,8 +455,78 @@ describe("command classification, guards, and Q4-A modals", () => {
       "╰──────────────────────────────────────────╯",
       "  ? for shortcuts",
     ].join("\n");
-    expect(paneIsReady(agyReadyWithAuthNoise, "agy")).toBe(true);
-    expect(guardPaneBeforeAutomatedInput(agyReadyWithAuthNoise, "agy", "cli-input")).toEqual({ ok: true });
+    // Also prove real agy 1.5.17, codex, and claude captures under fixtures/.
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const fixturesBase = join(repoRoot, "packages", "h2a", "test", "fixtures", "cli-onboarding");
+    const agyOutDir = join(fixturesBase, "agy-outputs");
+    const blockedAgyFixtures = new Set([
+      "B-child.txt",
+      "B2-grandchild.txt",
+      "C-home-child.txt",
+      "E1-symlink-logical-pwd.txt",
+      "F-symlink-entry.txt",
+      "G1-git-sub.txt",
+      "G2-git-worktree.txt",
+      "H2a-settings-array-merge.txt",
+    ]);
+    for (const file of readdirSync(agyOutDir).filter((f) => f.endsWith(".txt") && f !== "meta.txt")) {
+      const capture = readFileSync(join(agyOutDir, file), "utf8");
+      if (file === "00-no-dbus.txt") {
+        expect(detectHostModal(capture, "agy")?.code).toBe("agy-auth-required");
+        expect(detectHostModal(capture, undefined)?.code).toBe("agy-auth-required");
+        expect(detectHostModal(capture, "claude")).toBeUndefined();
+      } else if (blockedAgyFixtures.has(file)) {
+        for (const prof of ["agy", undefined] as const) {
+          expect(detectHostModal(capture, prof)?.code).toBe("cli-workspace-not-trusted");
+          expect(paneIsReady(capture, prof)).toBe(false);
+          expect(guardPaneBeforeAutomatedInput(capture, prof, "cli-input")).toMatchObject({ ok: false, outcome: "blocked" });
+          expect(guardPaneBeforeAutomatedInput(capture, prof, "shell-relaunch")).toMatchObject({ ok: false, outcome: "blocked" });
+        }
+      } else if (!file.startsWith("I1-") && !file.startsWith("I2-")) {
+        expect(detectHostModal(capture, "agy")).toBeUndefined();
+        expect(paneIsReady(capture, "agy")).toBe(true);
+        expect(guardPaneBeforeAutomatedInput(capture, "agy", "cli-input")).toEqual({ ok: true });
+      }
+    }
+    const bChildRendered = await renderTerminalScreen(readFileSync(join(agyOutDir, "B-child.raw"), "utf8"));
+    for (const prof of ["agy", undefined] as const) {
+      expect(detectHostModal(bChildRendered, prof)?.code).toBe("cli-workspace-not-trusted");
+      expect(paneIsReady(bChildRendered, prof)).toBe(false);
+      expect(guardPaneBeforeAutomatedInput(bChildRendered, prof, "shell-relaunch")).toMatchObject({ ok: false, outcome: "blocked" });
+    }
+
+    // Normal claude and codex screens (including quoted modal phrases) must never be falsely blocked.
+    const claudeWithQuotedNoise = [
+      "Welcome to Claude Code",
+      "Discussing docs: Hooks need review, Trust and continue, Do you trust the contents of this project?",
+      "1. First point in markdown",
+      "2. Second point in markdown",
+      "────────────────────────────────────────",
+      "❯ ",
+      "────────────────────────────────────────",
+      "  ⏵⏵ auto mode on (shift+tab to cycle)",
+    ].join("\n");
+    expect(detectHostModal(claudeWithQuotedNoise, "claude")).toBeUndefined();
+    expect(paneIsReady(claudeWithQuotedNoise, "claude")).toBe(true);
+    expect(guardPaneBeforeAutomatedInput(claudeWithQuotedNoise, "claude", "cli-input")).toEqual({ ok: true });
+
+    const claudeHooksProseOnly = "Hooks need review\n1. Read the docs\n2. Check settings\n❯ ";
+    expect(detectHostModal(claudeHooksProseOnly, "claude")).toBeUndefined();
+    expect(paneIsReady(claudeHooksProseOnly, "claude")).toBe(true);
+    expect(guardPaneBeforeAutomatedInput(claudeHooksProseOnly, "claude", "cli-input")).toEqual({ ok: true });
+
+    const codexTrustProseNoDot = "Trust and continue mentioned in explanation\n› ";
+    expect(detectHostModal(codexTrustProseNoDot, "codex")).toBeUndefined();
+    expect(guardPaneBeforeAutomatedInput(codexTrustProseNoDot, "codex", "cli-input")).toEqual({ ok: true });
+
+    const pty18Dir = join(fixturesBase, "pty18-outputs");
+    for (const file of readdirSync(pty18Dir).filter((f) => f.endsWith(".out.raw"))) {
+      const profile = file.includes("claude") ? "claude" : "codex";
+      const screen = await renderTerminalScreen(readFileSync(join(pty18Dir, file), "utf8"));
+      expect(detectHostModal(screen, profile)).toBeUndefined();
+      expect(paneIsReady(screen, profile)).toBe(true);
+      expect(guardPaneBeforeAutomatedInput(screen, profile, "cli-input")).toEqual({ ok: true });
+    }
   });
 });
 
@@ -439,16 +571,17 @@ describe("serialized agy starts and memory slice guard", () => {
     const waitMessages: string[] = [];
     const startTimes: number[] = [];
 
-    // Also prove pre-spawn throw does not stamp spacing delay.
+    // Also prove pre-spawn throw still enforces clean 0600 hardening on unlock.
     await expect(
       withAgyStartQueueAsync(
         async () => {
           throw new Error("pre-spawn fail");
         },
-        { lockPath: startLockPath, spacingMs: 5_000, postSpawnMaxHoldMs: 50 },
+        { lockPath: startLockPath, spacingMs: 30, postSpawnMaxHoldMs: 50 },
       ),
     ).rejects.toThrow("pre-spawn fail");
     expect(statSync(startLockPath).mode & 0o777).toBe(0o600);
+    expect(readFileSync(startLockPath, "utf8")).toBe("");
 
     const results = await Promise.all([1, 2, 3].map((id) =>
       withAgyStartQueueAsync(
@@ -475,6 +608,59 @@ describe("serialized agy starts and memory slice guard", () => {
     expect(waitMessages.length).toBeGreaterThan(0);
     expect(startTimes[1]! - startTimes[0]!).toBeGreaterThanOrEqual(50);
     expect(startTimes[2]! - startTimes[1]!).toBeGreaterThanOrEqual(50);
+    expect(readFileSync(startLockPath, "utf8")).toBe("");
+  });
+
+  it("B-3 counterexample: 3 starters (h2a A -> external script 9> truncate -> h2a B) stay spaced with real flock", async () => {
+    const { startLockPath } = makeSandboxEnv();
+    writeFileSync(startLockPath, "stale", { mode: 0o664 });
+    chmodSync(startLockPath, 0o664);
+
+    // 1. h2a A starts.
+    let spawnAMs = 0;
+    await withAgyStartQueueAsync(
+      async () => {
+        spawnAMs = Date.now();
+        return { result: "A", workerPid: process.pid };
+      },
+      { lockPath: startLockPath, spacingMs: 180, postSpawnMaxHoldMs: 20, checkWorkerAgy: () => true },
+    );
+
+    // 2. External script truncates agy-start.lock with `9>` under real flock and waits 200ms (like run-lane-agy.sh).
+    let scriptDoneMs = 0;
+    const bashRes = spawnSync(
+      "/bin/bash",
+      ["-c", `( flock 9; sleep 0.2 ) 9>"$LOCK"; date +%s%3N`],
+      { env: { LOCK: startLockPath }, encoding: "utf8" },
+    );
+    expect(bashRes.status).toBe(0);
+    scriptDoneMs = Number(bashRes.stdout.trim());
+    expect(scriptDoneMs - spawnAMs).toBeGreaterThanOrEqual(150);
+
+    // 3. h2a B arrives right after S even though .stamp from A is now >= 200ms old and lock was truncated to 0 bytes.
+    let spawnBMs = 0;
+    await withAgyStartQueueAsync(
+      async () => {
+        spawnBMs = Date.now();
+        return { result: "B", workerPid: process.pid };
+      },
+      { lockPath: startLockPath, spacingMs: 180, postSpawnMaxHoldMs: 20, checkWorkerAgy: () => true },
+    );
+    expect(spawnBMs - scriptDoneMs).toBeGreaterThanOrEqual(160);
+    expect(resolveAgyQueueTimeoutMs(240_000, {})).toBe(72_000);
+    expect(resolveAgyQueueTimeoutMs(200_000, {})).toBe(32_000);
+    expect(resolveAgyQueueTimeoutMs(30_000, {})).toBe(15_000);
+    expect(resolveAgyQueueTimeoutMs(240_000, { H2A_AGY_LOCK_TIMEOUT_MS: "45000" })).toBe(45_000);
+
+    // NB-11: verifyNativeHostScopeFromProc fails closed on missing /proc entry or mismatched hostPid.
+    const fakeProc = mkdtempSync(join(tmpdir(), "h2a-proc-"));
+    tempDirs.push(fakeProc);
+    expect(verifyNativeHostScopeFromProc(4242, true, fakeProc)).toBe(false);
+    mkdirSync(join(fakeProc, "4242"), { recursive: true });
+    writeFileSync(join(fakeProc, "4242", "cgroup"), "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-native-9999-abc.scope\n");
+    expect(verifyNativeHostScopeFromProc(4242, true, fakeProc)).toBe(false);
+    writeFileSync(join(fakeProc, "4242", "cgroup"), "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-native-4242-abc.scope\n");
+    expect(verifyNativeHostScopeFromProc(4242, true, fakeProc)).toBe(true);
   });
 
   it("computes agy memory policy and validates h2a-agents.slice bounds fail-closed", () => {

@@ -36,6 +36,7 @@ import {
   h2aTrustApprovalsPath,
   h2aTrustAuditPath,
   h2aTrustWriteLockPath,
+  hasBaselineImportInAuditSync,
   isUnsupportedTrustRoot,
   OnboardingLaunchError,
   resolveAgyStartLockPath,
@@ -424,9 +425,24 @@ export async function runTrustInitBaselineCommand(
   assertOwnerTerminalAccess(deps);
 
   const settingsFile = agySettingsPath(env);
-  const approvalsFile = h2aTrustApprovalsPath(env);
   const auditFile = h2aTrustAuditPath(env);
   const ts = new Date(nowMs).toISOString();
+
+  const alreadyInitialized = hasBaselineImportInAuditSync(env);
+  if (alreadyInitialized) {
+    stderr(
+      `[h2a trust] initial baseline already recorded in ${auditFile}; re-running init-baseline will NOT clear out-of-band alerts or approve new entries.\n`,
+    );
+    const confirmReplay = (
+      await promptLine("Re-run init-baseline maintenance (absent-path cleanup only)? [y/N]: ")
+    )
+      .trim()
+      .toLowerCase();
+    if (confirmReplay !== "y" && confirmReplay !== "yes") {
+      stderr("[h2a trust] init-baseline aborted (already initialized).\n");
+      return 1;
+    }
+  }
 
   const initialSettings = readSettingsRawStrict(settingsFile);
   const configured = Array.isArray(initialSettings["trustedWorkspaces"])
@@ -456,6 +472,13 @@ export async function runTrustInitBaselineCommand(
     validPaths.push(real);
   }
 
+  if (!alreadyInitialized) {
+    stdout(`Discovered ${configured.length} entry(ies) in ${settingsFile}:\n`);
+    for (const p of validPaths) stdout(`  [valid]     ${p}\n`);
+    for (const p of protectedPaths) stdout(`  [protected] ${p}\n`);
+    for (const p of absentPaths) stdout(`  [absent]    ${p}\n`);
+  }
+
   for (const prot of protectedPaths) {
     stderr(`[h2a trust] protected root (${prot}) will not be granted subtree inheritance\n`);
   }
@@ -471,17 +494,37 @@ export async function runTrustInitBaselineCommand(
     }
   }
 
+  if (!alreadyInitialized) {
+    const importAns = (
+      await promptLine(
+        `Confirm one-time baseline audit import of ${configured.length} settings.json entry(ies) into ${auditFile}? [y/N]: `,
+      )
+    )
+      .trim()
+      .toLowerCase();
+    if (importAns !== "y" && importAns !== "yes") {
+      stderr("[h2a trust] baseline import cancelled; no files modified.\n");
+      return 1;
+    }
+  }
+
+  const importedEntries = alreadyInitialized
+    ? []
+    : [
+        ...validPaths,
+        ...protectedPaths.map((p) => safeRealpath(p) ?? resolve(p)),
+        ...(removeAbsent ? [] : absentPaths.map((p) => resolve(p))),
+      ];
+
   withTrustMutationLocksSync(deps, () => {
     const settingsObj = readSettingsRawStrict(settingsFile);
-    const approvals = readApprovalsMutable(approvalsFile);
     const existingList = Array.isArray(settingsObj["trustedWorkspaces"])
       ? [...(settingsObj["trustedWorkspaces"] as string[])]
       : [];
 
-    for (const real of validPaths) {
-      if (!approvals.agy.exact.includes(real) && !approvals.agy.subtrees.includes(real)) {
-        approvals.agy.exact.push(real);
-      }
+    // Initial baseline records pre-existing settings.json entries only in the
+    // audit log; it must NEVER populate or authorize entries in trust-approvals.json.
+    for (const real of importedEntries) {
       const ev: TrustAuditEvent = {
         id: randomUUID(),
         timestamp: ts,
@@ -512,13 +555,11 @@ export async function runTrustInitBaselineCommand(
         } satisfies TrustAuditEvent);
       }
     }
-
-    writeFileAtomicPrivate(approvalsFile, `${JSON.stringify(approvals, null, 2)}\n`);
   });
 
   stdout(
-    `[h2a trust] baseline initialized (${validPaths.length} imported` +
-      `${removeAbsent ? `, ${absentPaths.length} absent removed` : absentPaths.length > 0 ? `, ${absentPaths.length} absent kept` : ""}).\n`,
+    `[h2a trust] ${alreadyInitialized ? "baseline maintenance complete" : `baseline initialized (${importedEntries.length} audited)`}` +
+      `${removeAbsent ? `, ${absentPaths.length} absent removed` : absentPaths.length > 0 ? `, ${absentPaths.length} absent kept` : ""}.\n`,
   );
   return 0;
 }

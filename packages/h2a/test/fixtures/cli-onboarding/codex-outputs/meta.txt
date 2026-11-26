@@ -1,0 +1,4 @@
+codex_version=codex-cli 0.171.0
+date_utc=2026-11-26T01:42:51Z
+sandbox_path=/home/antoinefa/src/h2a/tmp/h-cond/cli-onboarding/agy-trust-probe/.sandbox-codex-3278 (deleted on exit)
+auth_mechanism=dummy OPENAI_API_KEY in disposable CODEX_HOME/auth.json; real ~/.codex never accessed

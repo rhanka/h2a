@@ -1,0 +1,34 @@
+Script started on 2026-11-25 20:55:12-05:00 [COMMAND="<SANDBOX>/run-J-accept-symlink.sh" <not executed on terminal>]
+[>q   [>4m    [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+   ▄ ▀ ▀      ▀▀ ▄
+  ▄ ▀ ▀        ▀ ▀ ▄
+ Welcome to the  Antigravity CLI . You are currently not signed in.
+ ⣷  Signing in...  Accessing workspace:
+ <SANDBOX>/link-to-target
+Do you trust the contents of this project?
+ Antigravity CLI  requires permission to read, edit, and execute files here.
+ > Yes, I trust this folder
+   No, exit
+   ↑/↓  Navigate ·  enter  Confirm   Gemini 4 Hydrogen · xhigh
+  auto  ·  [>4m[<1u [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+  ▄ ▀ ▀      ▀▀ ▄
+   ▄ ▀ ▀        ▀ ▀ ▄
+   Antigravity CLI 1.5.17
+  [<REDACTED_EMAIL> (Google AI Ultra)
+   Gemini 4 Hydrogen (XHigh)
+   <SANDBOX>/link-to-target
+  ┃   Introducing Gemini 4 Neon
+  ┃  Our best balance of intelligence, cost, and latency. Get building today with Neon.
+  ┃   esc to dismiss
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >   Auto mode: edits & safe commands auto-approved (shift+tab to cycle)
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts    auto  · Gemini 4 Hydrogen · xhigh
+ press ctrl+d again to exit    [>4m[<1u
+Script done on 2026-11-25 20:55:21-05:00 [COMMAND_EXIT_CODE="0"]

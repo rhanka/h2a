@@ -714,7 +714,7 @@ export function startNativeSession(
   };
   return isAgy
     ? withAgyStartQueueSync(runCreate, {
-        ...(metadata.launchBudgetMs !== undefined ? { timeoutMs: metadata.launchBudgetMs } : {}),
+        ...(metadata.launchBudgetMs !== undefined ? { launchBudgetMs: metadata.launchBudgetMs } : {}),
       })
     : runCreate().result;
 }
@@ -865,7 +865,7 @@ export async function startNativeSessionSingleShot(
   };
   return isAgy
     ? withAgyStartQueueAsync(runSingleShot, {
-        ...(metadata.launchBudgetMs !== undefined ? { timeoutMs: metadata.launchBudgetMs } : {}),
+        ...(metadata.launchBudgetMs !== undefined ? { launchBudgetMs: metadata.launchBudgetMs } : {}),
       })
     : (await runSingleShot()).result;
 }
@@ -1399,7 +1399,7 @@ export function startNativeHeadlessSession(
   };
   return isAgy
     ? withAgyStartQueueSync(runHeadlessCreate, {
-        ...(launchBudgetMs !== undefined ? { timeoutMs: launchBudgetMs } : {}),
+        ...(launchBudgetMs !== undefined ? { launchBudgetMs } : {}),
       })
     : runHeadlessCreate().result;
 }

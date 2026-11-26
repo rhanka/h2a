@@ -30,109 +30,32 @@ import { agyClaudeQuotaError, detectAgyClaudeQuotaExhaustion, type AgyClaudeQuot
 import { recordInjectionBestEffort } from "./injection-ledger.js";
 import { AGY_AUTH_REQUIRED, AGY_LOGIN_MENU } from "./agy-auth.js";
 
-/** A host modal that will never be answered inside a background lane. */
+/** Canonical modal detection, readiness, and pane guards live in `./onboarding-core.js`. */
 import {
-  agyPaneHasComposer,
-  detectNamedHostModal,
-  MODAL_CONFIRM as CORE_MODAL_CONFIRM,
+  CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+  detectHostModal,
+  guardPaneBeforeAutomatedInput,
+  isClaudeLongContextConfirm,
+  paneHasBlockingActivity,
+  paneIsReady,
+  type HostModal,
   type HostModalCode,
   type PaneGuardDecision,
   type PaneGuardMode,
 } from "./onboarding-core.js";
 
-export type { HostModalCode, PaneGuardDecision, PaneGuardMode };
-
-export type HostModal = {
-  readonly code?: HostModalCode;
-  readonly reason: string;
-  readonly hint: string;
+export {
+  CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+  detectHostModal,
+  guardPaneBeforeAutomatedInput,
+  isClaudeLongContextConfirm,
+  paneHasBlockingActivity,
+  paneIsReady,
+  type HostModal,
+  type HostModalCode,
+  type PaneGuardDecision,
+  type PaneGuardMode,
 };
-
-/**
- * A numbered choice list waiting on a key press. GENERIC on purpose: three
- * different codex modals were measured in one afternoon, so enumerating known
- * wordings would only ever list the ones that already bit us. What they share is
- * the shape — `› 1.` choices plus an explicit "press enter to …".
- */
-const MODAL_CHOICE = /(^|\n)\s*[›>❯]?\s*1\.\s+\S/;
-const MODAL_CONFIRM = CORE_MODAL_CONFIRM;
-
-/**
- * Claude Code's stale-session resume gate. This is deliberately narrower than
- * the generic modal detector: relaunch may auto-confirm this one safe choice,
- * but must leave every other host decision to a human.
- */
-const CLAUDE_LONG_CONTEXT_CONFIRM =
-  /this session is\s+\d+(?:d|h)(?:\s+\d+(?:h|m))?\s+old and\s+\d+(?:\.\d+)?[kmg]?\s+tokens\.[\s\S]*?resuming the full session will consume a substantial portion of your usage limits\.\s+we recommend resuming from a summary\.[\s\S]*?❯\s*1\.\s*resume from summary\s*\(recommended\)[\s\S]*?2\.\s*resume full session as-is[\s\S]*?3\.\s*don't ask me again[\s\S]*?enter to confirm/i;
-
-export const CLAUDE_LONG_CONTEXT_CONFIRM_REASON =
-  "Claude is waiting for the exact stale-session summary confirmation";
-
-export function isClaudeLongContextConfirm(capture: string): boolean {
-  return CLAUDE_LONG_CONTEXT_CONFIRM.test(capture);
-}
-
-const NAMED_MODALS: ReadonlyArray<{
-  readonly match: RegExp;
-  readonly modal: HostModal;
-}> = [
-  {
-    match: CLAUDE_LONG_CONTEXT_CONFIRM,
-    modal: {
-      reason: CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
-      hint: "h2a relaunch may confirm this exact summary-resume choice once before re-injecting the continuation objective",
-    },
-  },
-  {
-    // Recorded per repository root, so a workspace outside an approved repo
-    // blocks here — and nobody will ever answer it in a background lane.
-    match: /do you trust the contents of this directory/i,
-    modal: {
-      reason: "the host is waiting on its directory-trust prompt",
-      hint: "approve this directory once in an interactive session (the host records trust per repository root), then relaunch",
-    },
-  },
-  {
-    match: /update available/i,
-    modal: {
-      reason: "the host is waiting on its update prompt",
-      hint: "answer the host update prompt once in an interactive session (or update the CLI), then relaunch",
-    },
-  },
-  {
-    match: /hooks (?:need review|are new or changed)|hook is new or changed/i,
-    modal: {
-      reason: "the host is waiting on its hook-review prompt",
-      hint: "review/trust the changed hooks once in an interactive session in this workspace, then relaunch",
-    },
-  },
-];
-
-/**
- * Is the pane sitting on a host modal that consumes the brief? Returns the
- * exact reason so the launch can FAIL LOUDLY instead of waiting forever.
- */
-export function detectHostModal(capture: string, profile?: string): HostModal | undefined {
-  if (isClaudeLongContextConfirm(capture)) {
-    return {
-      reason: CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
-      hint: "h2a relaunch may confirm this exact summary-resume choice once before re-injecting the continuation objective",
-    };
-  }
-  const named = detectNamedHostModal(capture, profile);
-  if (named !== undefined) return named;
-
-  // A modal is a choice list AWAITING a key press. Requiring both halves keeps
-  // passive banners (an "Update available!" notice above a live composer) from
-  // failing a perfectly healthy launch.
-  if (!MODAL_CHOICE.test(capture) || !MODAL_CONFIRM.test(capture)) {
-    return undefined;
-  }
-  return {
-    reason: "the host is waiting on a modal choice prompt",
-    hint: "attach to the session, answer the host prompt once, then relaunch the lane",
-  };
-}
 
 /** Collapse every whitespace run so a soft-wrapped composer still matches. */
 export function normalizePaneText(text: string): string {
@@ -244,67 +167,6 @@ export function paneHasDrawnUi(capture: string, minLines = 3): boolean {
     capture.split("\n").filter((line) => line.trim().length > 0).length >=
     minLines
   );
-}
-
-/**
- * A drawn composer is not necessarily ready: after stale-session confirmation
- * Claude renders a composer while summary compaction is still running, and a
- * submitted prompt is only queued. That work must never count as the resumed
- * objective's activity proof.
- */
-export function paneHasBlockingActivity(capture: string): boolean {
-  return /compacting conversation|press up to edit queued messages/i.test(
-    capture,
-  );
-}
-
-/** Profile-specific composer evidence also works on compact native captures. */
-export function paneIsReady(capture: string, profile?: string): boolean {
-  if (paneHasBlockingActivity(capture)) return false;
-  if (detectHostModal(capture, profile) !== undefined) return false;
-  if (profile === "agy") {
-    return agyPaneHasComposer(capture);
-  }
-  if (profile === "codex") {
-    if (/model:\s*loading/i.test(capture)) return false;
-    return /›/.test(capture) && /·\s*(?:~|\/)/.test(capture);
-  }
-  if (profile === "muse") {
-    // Measured Muse 1.4.2: an empty ❯ composer followed by model · effort · cwd.
-    return /❯/.test(capture) && /·\s*(?:~|\/)/.test(capture);
-  }
-  return paneHasDrawnUi(capture);
-}
-
-export function guardPaneBeforeAutomatedInput(
-  capture: string | undefined,
-  profile: string | undefined,
-  mode: PaneGuardMode,
-): PaneGuardDecision {
-  if (capture === undefined) {
-    return {
-      ok: false,
-      outcome: "deferred",
-      reason: "capture-unavailable",
-    };
-  }
-  const modal = detectHostModal(capture, profile);
-  if (modal !== undefined) {
-    return {
-      ok: false,
-      outcome: "blocked",
-      reason: modal.code ?? "host-modal",
-      modal,
-    };
-  }
-  if (mode === "cli-input" && profile === "agy" && !paneIsReady(capture, profile)) {
-    return {
-      ok: false,
-      outcome: "deferred",
-      reason: "agy-pane-not-ready",
-    };
-  }
-  return { ok: true };
 }
 
 export function promptReadinessTimeoutMs(profile?: string): number {
