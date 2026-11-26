@@ -1862,6 +1862,12 @@ function collectTrustedPluginUpgradeMetadata(
  * Any tampered digest (arbitrary hash, modified config, or unknown source)
  * returns `{ refreshed: false }` without modifying a single byte of `lockPath`.
  */
+const PRIOR_SHIPPED_H2A_ENTRY_DIGESTS: ReadonlyMap<string, string> = new Map([
+  // Exact SHA-256 digests of the previous `@sentropic/h2a` (`sentropic.h2a`) v0.98.11-rc.15 / pre-async-focus descriptor (66 tools).
+  ["9451fa7f46bd00d9b19d54459446442003c8d2304461edff7af6ef2384596c76", "0.98.11-rc.15"],
+  ["38e1244358ff2f46cdb93bb77bec82649fc09c9486783aa1168d1d90fe9b9558", "0.98.11-rc.15"]
+]);
+
 export function refreshUpgradedPluginLock(
   options: PluginInstallOptions & { memoryEntry?: RegistryEntry }
 ): { refreshed: boolean; lockPath: string; priorVersions?: string[]; quarantinePath?: string } {
@@ -1974,6 +1980,17 @@ export function refreshUpgradedPluginLock(
         proven = true;
         if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0) {
           matchedPriorVersions.add(declaration.pluginVersion);
+        }
+      }
+      if (!proven && selected.id === "sentropic.h2a" && trustedVersions.size > 0) {
+        const priorRelease = PRIOR_SHIPPED_H2A_ENTRY_DIGESTS.get(record["digest"]);
+        if (priorRelease !== undefined) {
+          proven = true;
+          matchedPriorVersions.add(
+            typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0
+              ? declaration.pluginVersion
+              : priorRelease
+          );
         }
       }
       if (!proven) return { refreshed: false, lockPath };
