@@ -34,9 +34,11 @@ import {
   handleH2aFocusBuild,
   startCentralMcpServer
 } from "../dist/index.js";
+import { buildFocusDossierWithDiagnostics } from "../dist/focus-build.js";
 import { authenticatedHttpRequest } from "../dist/runtime/handover/authenticated-http.js";
 const CENTRAL_PING_PATH = "/_h2a-central/ping";
 const TEMPLATE_PATH = fileURLToPath(new URL("../focus-kit/dossier.template.json", import.meta.url));
+const TWO_LEVEL_FIXTURE_PATH = fileURLToPath(new URL("./fixtures/focus-2level-27entities.json", import.meta.url));
 
 function withTempFixture(fn) {
   const wsBase = join(realpathSync(process.cwd()), "tmp");
@@ -168,6 +170,48 @@ function buildHeavyDossier({ sceneCount = 3, nodesPerScene = 30, edgesPerScene =
   };
 }
 
+function loadTwoLevelScene(linkCount) {
+  const full = JSON.parse(readFileSync(TWO_LEVEL_FIXTURE_PATH, "utf8"));
+  const relations = {};
+  for (const [id, rel] of Object.entries(full.relations)) {
+    if (rel.type !== "link") {
+      relations[id] = rel;
+      continue;
+    }
+    const idx = Number(id.replace("relation:link-", ""));
+    if (idx < linkCount) {
+      relations[id] = rel;
+    }
+  }
+  return {
+    ...full,
+    documentId: `document:two-level-27entities-${linkCount}links`,
+    relations
+  };
+}
+
+function buildTwoLevelDossier(linkCount, ref = `dec-two-level-${linkCount}`) {
+  const base = JSON.parse(readFileSync(TEMPLATE_PATH, "utf8"));
+  const scene = loadTwoLevelScene(linkCount);
+  const diagramSection = {
+    id: `diagram_2level_${linkCount}`,
+    targetRef: `diagram_2level_${linkCount}`,
+    kind: "diagram",
+    diagramType: "architecture",
+    syntax: "mermaid",
+    source: "flowchart LR\n  A[Domain] --> B[Service]",
+    scene,
+    alt: `Synthetic 2-level architecture view with 27 entities and ${linkCount} links.`
+  };
+  return {
+    ...base,
+    ref,
+    title: "Two-Level Synthetic Architecture Curve",
+    subject: "Verify bounded routing across 0/6/12/20/45 links on 2-level nested containers.",
+    sections: base.sections.map((section) => (section.kind === "diagram" ? diagramSection : section))
+  };
+}
+
 function makeFakeJwt(claims) {
   const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
   return `${b64({ alg: "EdDSA", typ: "JWT" })}.${b64(claims)}.sig-${randomUUID()}`;
@@ -290,9 +334,23 @@ function parseEnvelopePayload(html) {
 
 test("async build compiles heavy 3x30x45 generic@1 dossier via submit/result with zero card problems", async () => {
   await withTempFixture(async ({ workspace, state }) => {
+    const heavyDoc = buildHeavyDossier({ sceneCount: 3, nodesPerScene: 30, edgesPerScene: 45 });
+    const tInProc = performance.now();
+    const inProcOutcome = buildFocusDossierWithDiagnostics(heavyDoc);
+    const inProcElapsed = performance.now() - tInProc;
+    assert.ok(
+      inProcElapsed < 5_000,
+      `3x30x45 in-process render must stay within 5s CI budget (took ${inProcElapsed.toFixed(1)}ms)`
+    );
+    const inProcEnvelope = parseEnvelopePayload(inProcOutcome.html);
+    for (const s of ["diagram_0", "diagram_1", "diagram_2"]) {
+      assert.equal(inProcEnvelope.diagrams[s].wide.problems.length, 0);
+      assert.equal(inProcEnvelope.diagrams[s].narrow.problems.length, 0);
+    }
+
     const input = join(workspace, "heavy-3x30x45.json");
     const output = join(workspace, "heavy-3x30x45.html");
-    writeFileSync(input, JSON.stringify(buildHeavyDossier({ sceneCount: 3, nodesPerScene: 30, edgesPerScene: 45 })), "utf8");
+    writeFileSync(input, JSON.stringify(heavyDoc), "utf8");
 
     const server = createMcpServer({ root: state, workspaceRoot: workspace });
     try {
@@ -323,6 +381,7 @@ test("async build compiles heavy 3x30x45 generic@1 dossier via submit/result wit
         const rendered = envelope.diagrams[s];
         assert.ok(rendered, `rendered diagram ${s} must be present`);
         assert.equal(rendered.wide.problems.length, 0, `${s} wide variant must have 0 geometry problems`);
+        assert.equal(rendered.narrow.problems.length, 0, `${s} narrow variant must have 0 geometry problems`);
         assert.equal(
           rendered.wide.cards.length + rendered.wide.zones.length,
           30,
@@ -332,9 +391,55 @@ test("async build compiles heavy 3x30x45 generic@1 dossier via submit/result wit
         assert.match(rendered.wide.svg, /<svg\b/);
       }
       assert.ok(
-        totalElapsed < 20_000,
-        `3x30x45 build should remain cleanly bounded off-loop (took ${totalElapsed.toFixed(1)}ms)`
+        totalElapsed < 15_000,
+        `3x30x45 off-loop build should remain cleanly bounded (took ${totalElapsed.toFixed(1)}ms)`
       );
+    } finally {
+      await server.focusBuildManager.close();
+    }
+  });
+});
+
+test("2-level 27-entity generic@1 curve (0/6/12/20/45 links) renders cleanly within budget", async () => {
+  for (const linkCount of [0, 6, 12, 20, 45]) {
+    const doc = buildTwoLevelDossier(linkCount);
+    const t0 = performance.now();
+    const outcome = buildFocusDossierWithDiagnostics(doc);
+    const elapsed = performance.now() - t0;
+    const envelope = parseEnvelopePayload(outcome.html);
+    const rendered = envelope.diagrams[`diagram_2level_${linkCount}`];
+    assert.ok(rendered, `rendered 2-level diagram at ${linkCount} links must exist`);
+    assert.equal(rendered.wide.problems.length, 0, `2-level ${linkCount} wide must have 0 problems`);
+    assert.equal(rendered.narrow.problems.length, 0, `2-level ${linkCount} narrow must have 0 problems`);
+    assert.equal(rendered.wide.cards.length + rendered.wide.zones.length, 27);
+    assert.equal(rendered.narrow.cards.length + rendered.narrow.zones.length, 27);
+    assert.equal(rendered.wide.edges.length, linkCount);
+    assert.equal(rendered.narrow.edges.length, linkCount);
+    assert.match(rendered.wide.svg, /<svg\b/);
+    assert.match(rendered.narrow.svg, /<svg\b/);
+    assert.ok(
+      elapsed < 5_000,
+      `2-level 27-entity scene (${linkCount} links) exceeded 5s budget: ${elapsed.toFixed(1)}ms`
+    );
+  }
+
+  await withTempFixture(async ({ workspace, state }) => {
+    const input = join(workspace, "two-level-45.json");
+    const output = join(workspace, "two-level-45.html");
+    writeFileSync(input, JSON.stringify(buildTwoLevelDossier(45, "dec-two-level-async")), "utf8");
+    const server = createMcpServer({ root: state, workspaceRoot: workspace });
+    try {
+      const t0 = performance.now();
+      const submitted = await server.callTool("h2a_focus_submit_build", { input, output });
+      assert.equal(submitted.ok, true);
+      const result = await server.callTool("h2a_focus_build_result", {
+        jobId: submitted.jobId,
+        waitMs: 15_000
+      });
+      const elapsed = performance.now() - t0;
+      assert.equal(result.ok, true, JSON.stringify(result));
+      assert.equal(result.state, "succeeded");
+      assert.ok(elapsed < 10_000, `async 2-level 45-link build took ${elapsed.toFixed(1)}ms`);
     } finally {
       await server.focusBuildManager.close();
     }
@@ -881,5 +986,111 @@ setInterval(() => {}, 1000);
     assert.equal(expired.ok, false);
     assert.equal(expired.refusals[0].code, "job_not_found");
     await mgr2.close();
+  });
+});
+
+test("edge-case guarantees: ephemeral timeout refuses cleanly, dual mode writes HTML before publish, noisy stdout preserves trailing result", async () => {
+  await withTempFixture(async ({ rootDir, workspace, state }) => {
+    // 1) NB-7: handleH2aFocusBuild without a persistent manager must not return an unrecoverable pending jobId.
+    const heavyInput = join(workspace, "ephemeral-heavy.json");
+    const heavyOutput = join(workspace, "ephemeral-heavy.html");
+    writeFileSync(heavyInput, JSON.stringify(buildHeavyDossier({ sceneCount: 3, nodesPerScene: 30, edgesPerScene: 45 })), "utf8");
+    const prevSyncWait = process.env.H2A_FOCUS_SYNC_WAIT_MS;
+    process.env.H2A_FOCUS_SYNC_WAIT_MS = "1";
+    try {
+      const timedOut = await handleH2aFocusBuild({ input: heavyInput, output: heavyOutput }, workspace);
+      assert.equal(timedOut.ok, false);
+      assert.equal(timedOut.pending, undefined);
+      assert.equal(timedOut.refusals[0].code, "build_timeout");
+    } finally {
+      if (prevSyncWait === undefined) delete process.env.H2A_FOCUS_SYNC_WAIT_MS;
+      else process.env.H2A_FOCUS_SYNC_WAIT_MS = prevSyncWait;
+    }
+
+    // 2) NB-11: stdout > 2 MiB before the final result marker must still parse the trailing marker cleanly.
+    const noisyWorker = join(rootDir, "noisy-worker.mjs");
+    writeFileSync(
+      noisyWorker,
+      `
+import { writeFileSync } from "node:fs";
+import { FOCUS_WORKER_RESULT_MARKER } from ${JSON.stringify(new URL("../dist/runtime/mcp/focus-jobs.js", import.meta.url).href)};
+let buf = "";
+process.stdin.setEncoding("utf8");
+for await (const chunk of process.stdin) buf += chunk;
+const payload = JSON.parse(buf);
+process.stdout.write("NOISE\\n".repeat(450_000));
+const html = "<!doctype html><html><title>Noisy</title><body>ok</body></html>";
+writeFileSync(payload.output, html, "utf8");
+process.stdout.write(FOCUS_WORKER_RESULT_MARKER + JSON.stringify({
+  ok: true,
+  output: payload.output,
+  bytes: Buffer.byteLength(html, "utf8"),
+  warnings: []
+}) + "\\n");
+`,
+      "utf8"
+    );
+    const noisyInput = join(workspace, "noisy.json");
+    const noisyOutput = join(workspace, "noisy.html");
+    writeFileSync(noisyInput, JSON.stringify(buildTwoLevelDossier(0, "dec-noisy")), "utf8");
+    const noisyMgr = createFocusBuildManager({ stateRoot: join(state, "noisy"), workerScript: noisyWorker });
+    try {
+      const sub = noisyMgr.submit({ workspaceRoot: workspace, input: noisyInput, output: noisyOutput, options: {} });
+      assert.equal(sub.ok, true);
+      const done = await noisyMgr.getResult(sub.jobId, 10_000);
+      assert.equal(done.ok, true, JSON.stringify(done));
+      assert.equal(done.state, "succeeded");
+    } finally {
+      await noisyMgr.close();
+    }
+
+    // 3) NB-8: Dual mode writes local HTML before invoking Sentropic publish; an HTML write failure skips publish.
+    const fakeSentropic = await startFakeSentropicMcpServer();
+    const roDir = join(workspace, "readonly-out");
+    mkdirSync(roDir, { mode: 0o700 });
+    try {
+      const sentropicHome = join(rootDir, "sentropic-home-nb8");
+      mkdirSync(sentropicHome, { recursive: true, mode: 0o700 });
+      const env = {
+        ...process.env,
+        H2A_SENTROPIC_HOME: sentropicHome,
+        H2A_SENTROPIC_CLIENT_ID: "h2a-cli",
+        H2A_SENTROPIC_MCP_URL: fakeSentropic.mcpUrl,
+        H2A_SENTROPIC_ISSUER: "https://preprod.auth.sent-tech.ca"
+      };
+      const config = resolvePublishConfig(env, rootDir);
+      writeAuth(
+        {
+          server: serverKey(config.mcpUrl),
+          issuer: config.issuer,
+          federation: config.federation,
+          resource: config.mcpUrl,
+          subject: "user-nb8",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          accessToken: makeFakeJwt({ iss: config.issuer, aud: config.mcpUrl, sub: "user-nb8", tid: "t", scope: "mcp:discover mcp:resources:read mcp:tools:invoke", client_id: "h2a-cli" })
+        },
+        sentropicHome,
+        configAuthScope(config)
+      );
+      chmodSync(roDir, 0o500);
+      const server = createMcpServer({ root: join(state, "nb8"), workspaceRoot: workspace, focusEnv: env });
+      try {
+        const sub = await server.callTool("h2a_focus_submit_build", {
+          input: noisyInput,
+          output: join(roDir, "blocked.html"),
+          publish: { workspaceRef: "ws-bound-1", title: "Should Not Publish" }
+        });
+        assert.equal(sub.ok, true, JSON.stringify(sub));
+        const failed = await server.callTool("h2a_focus_build_result", { jobId: sub.jobId, waitMs: 10_000 });
+        assert.equal(failed.ok, false);
+        assert.equal(failed.state, "failed");
+        assert.equal(fakeSentropic.calls.length, 0, "HTML write failure must prevent artifacts_ensure/artifacts_publish");
+      } finally {
+        await server.focusBuildManager.close();
+      }
+    } finally {
+      chmodSync(roDir, 0o700);
+      await fakeSentropic.close();
+    }
   });
 });

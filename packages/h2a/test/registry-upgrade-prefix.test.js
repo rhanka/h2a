@@ -148,6 +148,9 @@ test("B-6 upgrade: N-1 (next tag) upgrades to built package (host+bridge+central
   const n1Entry = JSON.parse(readFileSync(n1EntriesPath, "utf8")).entries[0];
   const n1Digest = validateRegistryEntry(n1Entry).digest;
   const candidateDigest = validateRegistryEntry(registryPackageManifest.entries[0]).digest;
+  // Note (NB-2): when a PR adds MCP tools relative to `dist-tags.next` (e.g.
+  // 66 -> 68 tools), `nextEntriesUnchanged` is `false` until the next release
+  // publishes the updated descriptor, so step 5a exercises the drifted-N-1 path.
   const nextEntriesUnchanged = n1Digest === candidateDigest;
 
   // 3. Reuse the once-per-run candidate, upgrade the prefix.

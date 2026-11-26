@@ -76,6 +76,15 @@ async function runWorker(): Promise<void> {
       ...(previousManifest !== undefined ? { previousManifest } : {})
     });
 
+    let outputBytes = 0;
+    if (wantHtml) {
+      if (bundle.html === undefined) {
+        throw new Error("Focus HTML output missing after compilation");
+      }
+      writeFocusArtifactFile(payload.output!, bundle.html);
+      outputBytes = Buffer.byteLength(bundle.html, "utf8");
+    }
+
     let publishResult;
     let artifactBytes = 0;
     if (wantArtifact) {
@@ -131,19 +140,10 @@ async function runWorker(): Promise<void> {
       });
     }
 
-    let outputBytes = artifactBytes;
-    if (wantHtml) {
-      if (bundle.html === undefined) {
-        throw new Error("Focus HTML output missing after compilation");
-      }
-      writeFocusArtifactFile(payload.output!, bundle.html);
-      outputBytes = Buffer.byteLength(bundle.html, "utf8");
-    }
-
     emitResult({
       ok: true,
       ...(payload.output !== undefined ? { output: payload.output } : {}),
-      bytes: outputBytes,
+      bytes: wantHtml ? outputBytes : artifactBytes,
       warnings: bundle.warnings,
       ...(publishResult !== undefined ? { publish: publishResult } : {})
     });

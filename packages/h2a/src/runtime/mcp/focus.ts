@@ -783,6 +783,14 @@ export async function handleH2aFocusBuild(
         warnings: [...outcome.warnings]
       };
     }
+    if (!manager) {
+      const msg = "Focus build exceeded bounded wait without a persistent job manager";
+      return {
+        ok: false,
+        error: msg,
+        refusals: [{ code: "build_timeout", message: msg }]
+      };
+    }
     return {
       ok: true,
       pending: true,

@@ -667,13 +667,15 @@ export class FocusBuildManager {
     this.activeWorkers.set(withPid.jobId, activeHandle);
 
     child.stdout.on("data", (chunk: Buffer) => {
-      if (stdoutBuf.length < MAX_WORKER_STDIO_BYTES) {
-        stdoutBuf += chunk.toString("utf8");
+      stdoutBuf += chunk.toString("utf8");
+      if (stdoutBuf.length > MAX_WORKER_STDIO_BYTES) {
+        stdoutBuf = stdoutBuf.slice(-MAX_WORKER_STDIO_BYTES);
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      if (stderrBuf.length < MAX_WORKER_STDIO_BYTES) {
-        stderrBuf += chunk.toString("utf8");
+      stderrBuf += chunk.toString("utf8");
+      if (stderrBuf.length > MAX_WORKER_STDIO_BYTES) {
+        stderrBuf = stderrBuf.slice(-MAX_WORKER_STDIO_BYTES);
       }
     });
 
