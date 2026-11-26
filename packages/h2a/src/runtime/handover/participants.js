@@ -5,7 +5,7 @@ import { OwnershipRegistry, OperationLedger } from './ownership.js';
 import { WakeJournal } from './wake.js';
 import { LaunchJournal } from './launch-memo.js';
 import { establishWriterControl, establishWriterControlAsync, updateWriterControl, writerDirectory, withExecution, currentExecution, MutationLockUnavailableError } from './mutation.js';
-import { readState, publishState } from './state.js';
+import { readState, readStateAsync, publishState } from './state.js';
 import { digest } from './wire.js';
 import { ownerLiveness, currentIdentity } from './admission.js';
 import { endedOwner } from './generation-end.js';
@@ -28,7 +28,7 @@ export class Participants {
     await establishWriterControlAsync(root, options.directory);
     const registry = await OwnershipRegistry.createAsync({ directory: options.directory, generation: options.marker.generation,
       processIdentity: options.marker.processIdentity, lockDirectory: writerDirectory(root) });
-    const ledger = new OperationLedger(registry);
+    const ledger = await OperationLedger.createAsync(registry);
     return new Participants({ ...options, _registry: registry, _ledger: ledger });
   }
   enqueuePendingFinish(operation, result, unknown = false) {
@@ -76,8 +76,21 @@ export class Participants {
   attach(attachmentId, context = {}) {
     return this.registry.withLock(() => this._attachLocked(attachmentId, context));
   }
+  async _attachAsyncLocked(attachmentId, context = {}) {
+    const control = (await readStateAsync(join(writerDirectory(this.root), 'control.json'), 'writerControl')).value;
+    if (control.gate !== 'OPEN') throw new Error('store_admission_closed');
+    const input = { attachmentId, presenceSessionId: `pending:${attachmentId}`, expectedInstance: context.expectedInstance ?? 'identity_disabled' };
+    const previous = await readStateAsync(this.registry.ownerPath(attachmentId), 'ownership');
+    const token = previous && context.attachment?.resume
+      ? await this.registry.rebaselineAsync(input, owner => ownerLiveness({ processIdentity: owner.ownerProcessIdentity }, currentIdentity()) === 'dead' ||
+        Boolean(this.authenticationKey && endedOwner(owner, this.marker, this.authenticationKey, this.ledger)))
+      : await this.registry.claimAsync(input);
+    const participant = new AttachmentParticipant(this, token, context);
+    this.attachments.set(attachmentId, participant); this.inventoryRevision++;
+    return participant;
+  }
   attachAsync(attachmentId, context = {}, options) {
-    return this.registry.withLockAsync(() => this._attachLocked(attachmentId, context), options);
+    return this.registry.withLockTaskAsync(() => this._attachAsyncLocked(attachmentId, context), options);
   }
   inventory() {
     this.registry.syncIfExternalChange();

@@ -69,7 +69,7 @@ import {
   callTrackReadTool
 } from "@sentropic/track/mcp";
 
-import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "@sentropic/h2a";
+import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "../../session.js";
 import {
   executeH2aRun,
   createH2aRunLauncher,
@@ -147,6 +147,7 @@ export interface CreateMcpServerOptions {
    */
   notifications?: {
     intervalMs?: number;
+    initialDelayMs?: number;
     sink?: NotificationSink;
     onError?: (error: unknown) => void;
   };
@@ -338,7 +339,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     options.notifications?.sink,
     options.notifications?.intervalMs ??
       H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
-    options.notifications?.onError
+    options.notifications?.onError,
+    options.notifications?.initialDelayMs !== undefined
+      ? { initialDelayMs: options.notifications.initialDelayMs }
+      : undefined
   );
 
   // L1: per-root recovery store + per-server paginating discovery pager. The

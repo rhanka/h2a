@@ -4,7 +4,11 @@ import { randomUUID } from "node:crypto";
 import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 
-import type { H2AWorkspaceRef } from "@sentropic/h2a";
+import type { H2AWorkspaceRef } from "../../identity.js";
+import {
+  H2A_SESSION_DEFAULT_EXPIRY_MS,
+  H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS
+} from "../../session.js";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
 import {
@@ -19,6 +23,10 @@ import { agentVersion } from "../version/agent-version.js";
 import { currentCliVersion } from "../upgrade/index.js";
 import { captureHostOperatorNotices } from '../../hosts/operator-notices.js';
 import { getActiveMcpTrace } from "./phase-trace.js";
+
+// Monotonic phase slot across central attachments in the same daemon so
+// multiple shims do not heartbeat/notify in lockstep on .presence.lock.
+let centralAttachmentPhaseSlot = 0;
 import {
   createMcpServer,
   isMcpTransportResult,
@@ -47,7 +55,7 @@ import type { PayloadRecoveryRef } from "./payload-store.js";
 import { createUiRenderModule } from "./ui-render/index.js";
 import { negotiateUiExtension, serverUiExtensionCapability } from "./ui-render/negotiation.js";
 import { UnknownResourceError, type UiExtensionCapability } from "./ui-render/types.js";
-import type { UiRenderModule } from "./ui-render/index.js";
+import type { UiRenderCore, UiRenderModule } from "./ui-render/index.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -83,6 +91,10 @@ export interface RunMcpStdioOptions {
   participant?: import('../handover/participants.js').AttachmentParticipant;
   /** True when hosted inside the machine-local central daemon (enforces 0 spawnSync). */
   centralAttachment?: boolean;
+  /** Pre-verified shared assets + validator reused across central attachments. */
+  uiRenderCore?: UiRenderCore;
+  /** Cached central initialization error if ui-render could not be verified. */
+  uiRenderError?: string;
   /** Captured launch environment, never the daemon's environment. */
   sessionEnv?: NodeJS.ProcessEnv;
   /** Internal transport adapter seam; does not change the MCP tool contract. */
@@ -103,13 +115,16 @@ export interface RunMcpStdioOptions {
   stderr: Writable;
   /**
    * Optional override for the SessionRegistry heartbeat interval in ms.
-   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS or, if set, the
+   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS (5000 ms) for
+   * standalone stdio, or up to 30 000 ms (floor(expiryMs / 3), clamped
+   * [5000, 30000]) for central attachments, or, if set, the
    * H2A_HEARTBEAT_INTERVAL_MS environment variable.
    */
   heartbeatIntervalMs?: number;
   /**
    * Optional override for the NotificationDispatcher poll interval in ms.
-   * Defaults to the heartbeat interval or, if set, the
+   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS (5000 ms) for central
+   * attachments or the heartbeat interval for standalone stdio, or, if set, the
    * H2A_NOTIFY_INTERVAL_MS environment variable.
    */
   notifyIntervalMs?: number;
@@ -498,11 +513,15 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // load failure) NEVER takes the transport down (§7.2): the server starts
   // without the ui:// resource surface, the refusal noted on stderr only.
   let uiRender: UiRenderModule | undefined;
-  try {
-    uiRender = createUiRenderModule();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+  if (options.uiRenderError !== undefined) {
+    stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${options.uiRenderError}\n`);
+  } else {
+    try {
+      uiRender = createUiRenderModule(options.uiRenderCore !== undefined ? { core: options.uiRenderCore } : undefined);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+    }
   }
   // L2: the live signing identity, set only once identity is really bound. The
   // server reads it on each h2a_send via `getSendContext`, so a signer that only
@@ -513,13 +532,29 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // deferred identity path is used. The server guards signed/mutating tools by
   // reading its state on every call.
   let identityController: McpIdentityController | undefined;
-  const heartbeatIntervalMs =
-    options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS", sessionEnv);
-  const notifyIntervalMs =
-    options.notifyIntervalMs ??
-    envInt("H2A_NOTIFY_INTERVAL_MS", sessionEnv) ??
-    heartbeatIntervalMs;
   const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS", sessionEnv);
+  // Central hosts all attached shims in one daemon sharing .presence.lock and
+  // the directory store: stretch default presence heartbeat to 30s (3x within
+  // 90s expiry) unless overridden explicitly, while keeping notification polling
+  // at 5s default so inbox push, peer presence, and wake retain <= 5s latency.
+  const centralHeartbeatDefaultMs = options.centralAttachment
+    ? Math.min(30_000, Math.max(5_000, Math.floor((expiryMs ?? H2A_SESSION_DEFAULT_EXPIRY_MS) / 3)))
+    : undefined;
+  const explicitHeartbeat = options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS", sessionEnv);
+  const heartbeatIntervalMs = explicitHeartbeat ?? centralHeartbeatDefaultMs;
+  const explicitNotify = options.notifyIntervalMs ?? envInt("H2A_NOTIFY_INTERVAL_MS", sessionEnv);
+  const notifyIntervalMs =
+    explicitNotify ??
+    (options.centralAttachment ? H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS : explicitHeartbeat);
+  const centralSlot = options.centralAttachment ? centralAttachmentPhaseSlot++ : undefined;
+  const heartbeatInitialDelayMs =
+    centralSlot !== undefined && explicitHeartbeat === undefined && heartbeatIntervalMs !== undefined
+      ? Math.max(2_000, Math.floor((heartbeatIntervalMs * ((centralSlot % 5) + 1)) / 5))
+      : undefined;
+  const notifyInitialDelayMs =
+    centralSlot !== undefined && explicitNotify === undefined && notifyIntervalMs !== undefined
+      ? Math.max(1_000, Math.floor((notifyIntervalMs * ((centralSlot % 5) + 1)) / 5))
+      : undefined;
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.
   let delegation: H2aRunDelegation | undefined;
@@ -565,11 +600,13 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       autoHeartbeat: true,
       onHeartbeatError: (error) => stderr.write(`h2a mcp-serve: presence heartbeat failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
+      ...(heartbeatInitialDelayMs !== undefined ? { initialDelayMs: heartbeatInitialDelayMs } : {}),
       ...(expiryMs !== undefined ? { expiryMs } : {})
     },
     notifications: {
       onError: (error) => stderr.write(`h2a mcp-serve: notification scan failed; retrying next tick: ${error instanceof Error ? error.message : String(error)}\n`),
       ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
+      ...(notifyInitialDelayMs !== undefined ? { initialDelayMs: notifyInitialDelayMs } : {}),
       sink: (notification, sequence) =>
         emitNotification(notification, {
           method: notification.method,

@@ -1,9 +1,9 @@
+import { isActiveBlockage } from "../../blockage.js";
 import {
   H2A_SESSION_NOTIFICATION_TOPICS,
-  isActiveBlockage,
   type H2ASession,
   type H2ASessionNotificationTopic
-} from "@sentropic/h2a";
+} from "../../session.js";
 
 import { listBlockages } from "../blockage/registry.js";
 import { withoutLockOwnership } from "../handover/mutation.js";
@@ -100,6 +100,8 @@ export class NotificationDispatcher {
   private deliveredSequence = 0;
   private readonly truncations: Array<{ negotiationId: string; previousCount: number; count: number; lastHash: string }> = [];
   private timer?: ReturnType<typeof setInterval>;
+  private delayTimer?: ReturnType<typeof setTimeout>;
+  private readonly initialDelayMs: number;
 
   constructor(
     private readonly registry: SessionRegistry,
@@ -107,8 +109,11 @@ export class NotificationDispatcher {
     private readonly root: string,
     private sink: NotificationSink | undefined,
     private readonly intervalMs: number,
-    private readonly onError?: (error: unknown) => void
-  ) {}
+    private readonly onError?: (error: unknown) => void,
+    options?: { initialDelayMs?: number }
+  ) {
+    this.initialDelayMs = options?.initialDelayMs ?? 0;
+  }
 
   setSink(sink: NotificationSink | undefined): void {
     this.sink = sink;
@@ -124,24 +129,43 @@ export class NotificationDispatcher {
     this.onInboxArrival = cb;
   }
 
+  private runTickSafely(): void {
+    try {
+      this.tick();
+    } catch (error) {
+      // A scan or sink failure must not kill the MCP or its heartbeats.
+      // Unadvanced snapshots are retried on the next scheduled tick.
+      try { this.onError?.(error); } catch { /* diagnostic only */ }
+    }
+  }
+
+  private armInterval(): void {
+    this.timer = setInterval(() => this.runTickSafely(), this.intervalMs);
+    this.timer.unref?.();
+  }
+
   start(): void {
-    if (this.timer) return;
+    if (this.timer || this.delayTimer) return;
     // R2-04: never capture an ambient lockOwnership ALS context in the interval timer.
     withoutLockOwnership(() => {
-      this.timer = setInterval(() => {
-        try {
-          this.tick();
-        } catch (error) {
-          // A scan or sink failure must not kill the MCP or its heartbeats.
-          // Unadvanced snapshots are retried on the next scheduled tick.
-          try { this.onError?.(error); } catch { /* diagnostic only */ }
-        }
-      }, this.intervalMs);
-      this.timer.unref?.();
+      if (this.initialDelayMs > 0) {
+        this.delayTimer = setTimeout(() => {
+          this.delayTimer = undefined;
+          this.runTickSafely();
+          this.armInterval();
+        }, this.initialDelayMs);
+        this.delayTimer.unref?.();
+      } else {
+        this.armInterval();
+      }
     });
   }
 
   stop(): void {
+    if (this.delayTimer) {
+      clearTimeout(this.delayTimer);
+      this.delayTimer = undefined;
+    }
     if (!this.timer) return;
     clearInterval(this.timer);
     this.timer = undefined;

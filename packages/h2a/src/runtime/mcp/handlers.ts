@@ -1,42 +1,41 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { hostname } from "node:os";
 
+import { H2A_ATTESTER_COMPREHENSION_RIGHT } from "../../authority.js";
+import { computeHash } from "../../canonical.js";
 import {
-  H2A_ACTIVITY_WINDOW_DEFAULT_MS,
-  H2A_ATTESTER_COMPREHENSION_RIGHT,
   H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
-  H2A_ROLES,
-  H2A_DECLARATION_INTERET_BODY_KIND,
-  H2A_SESSION_NOTIFICATION_TOPICS,
-  H2A_SESSION_STATES,
-  auditNhiPosture,
-  deriveConnectionConfidence,
   buildComprehensionAttestation,
   canAttestComprehension,
-  computeHash,
-  createEnvelope,
-  deriveWorkspaceId,
-  effectiveOrgInstances,
-  isComprehensionAttestation,
-  nhiAttestationEnvelope,
-  nhiInventory,
-  nhiTrustBundle,
-  signCanonical,
-  signEnvelope,
-  slugify,
-  type H2AActorRegistration,
-  type H2AActorRef,
-  type H2AEnvelope,
-  type H2AJournalPayload,
-  type H2ANegotiationRecord,
-  type H2ARole,
+  isComprehensionAttestation
+} from "../../comprehension-attestation.js";
+import { H2A_DECLARATION_INTERET_BODY_KIND } from "../../conflit-interet.js";
+import { createEnvelope, signEnvelope } from "../../envelope.js";
+import { deriveWorkspaceId, slugify, type H2AWorkspaceRef } from "../../identity.js";
+import { auditNhiPosture, nhiAttestationEnvelope, nhiInventory } from "../../nhi.js";
+import type { H2AJournalPayload } from "../../journal.js";
+import { nhiTrustBundle } from "../../nhi-export.js";
+import { effectiveOrgInstances } from "../../org.js";
+import {
+  H2A_ACTIVITY_WINDOW_DEFAULT_MS,
+  H2A_SESSION_NOTIFICATION_TOPICS,
+  H2A_SESSION_STATES,
+  deriveConnectionConfidence,
   type H2AConnectionConfidence,
   type H2ASession,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
-  type H2ASessionState,
-  type H2AWorkspaceRef
-} from "@sentropic/h2a";
+  type H2ASessionState
+} from "../../session.js";
+import { signCanonical } from "../../signature.js";
+import {
+  H2A_ROLES,
+  type H2AActorRef,
+  type H2AActorRegistration,
+  type H2AEnvelope,
+  type H2ANegotiationRecord,
+  type H2ARole
+} from "../../types.js";
 
 function mcpReadMachineId(): string {
   for (const p of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {

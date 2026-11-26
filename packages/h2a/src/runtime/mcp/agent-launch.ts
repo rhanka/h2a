@@ -1,7 +1,7 @@
 import { digest as argumentsDigest } from "../handover/wire.js";
 import {
   MutationLockUnavailableError,
-  mutationLockAsync,
+  waitMutationLockFreeAsync,
   withWriterMutation,
   withWriterMutationAsync,
   writerDirectory
@@ -884,7 +884,8 @@ export async function recordMcpRunDelegationAsync(
       if (waitRemaining <= 0) return;
       const wdir = writerDirectory(root);
       if (existsSync(wdir)) {
-        await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+        const free = await waitMutationLockFreeAsync(wdir, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
+        if (!free) return;
       }
     }
   } catch (error) {

@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { digest, canonicalBytes } from './wire.js';
 import { validate, safeRelative } from './formats.js';
-import { privateDirectory, readState, publishState, replaceState } from './state.js';
-import { mutationLock, mutationLockAsync, readWriterGate, currentExecution } from './mutation.js';
+import { privateDirectory, readState, readStateAsync, publishState, publishStateAsync, replaceState, replaceStateAsync } from './state.js';
+import { mutationLock, mutationLockAsync, mutationLockTaskAsync, readWriterGate, currentExecution } from './mutation.js';
 import { ownerLiveness, currentIdentity } from './admission.js';
 
 export const MAX_RETAINED_TERMINAL_PER_FAMILY = 64;
@@ -14,6 +14,8 @@ export const MIGRATION_SCAN_BATCH_SIZE = 100;
 export const MIGRATION_COMMIT_BATCH_SIZE = 32;
 export const MIGRATION_MAX_SLICE_MS = 8;
 export const MIGRATION_SLICE_MEASURE_NAME = 'h2a:ledger-migration:slice';
+const STARTUP_SLICE_BUDGET_MS = 4;
+const yieldEventLoop = () => new Promise(resolve => setImmediate(resolve));
 
 function readThreadCpuUsage(previous = undefined) {
   if (typeof process.threadCpuUsage === 'function') {
@@ -23,6 +25,7 @@ function readThreadCpuUsage(previous = undefined) {
 }
 
 const ARCHIVED_OPERATION_CACHE_MAX = 256;
+const MIGRATION_DURABILITY_CHECKPOINT_FILES = 512;
 const MIGRATION_MAX_TRANSIENT_RETRIES = 6;
 const MIGRATION_RETRY_BASE_DELAY_MS = 10;
 const MIGRATION_RETRY_MAX_DELAY_MS = 500;
@@ -55,6 +58,16 @@ function tryFileStamp(path) {
 function fsyncDirectory(dirPath) {
   const fd = fs.openSync(dirPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+async function fsyncDirectoryAsync(dirPath) {
+  const fh = await fs.promises.open(dirPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  try { await fh.sync(); } finally { await fh.close(); }
+}
+
+async function fsyncFileAsync(filePath) {
+  const fh = await fs.promises.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { await fh.sync(); } finally { await fh.close(); }
 }
 
 function utcBatchDirName(now = new Date()) {
@@ -116,13 +129,13 @@ export class OwnershipRegistry {
   static async createAsync(options) {
     const registry = new OwnershipRegistry({ ...options, skipSyncInit: true });
     if (!registry.readOnly) {
-      await registry.withLockAsync(() => {
-        if (!readState(registry.revisionPath, 'participantRevision')) {
-          publishState(registry.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
+      await registry.withLockTaskAsync(async () => {
+        if (!(await readStateAsync(registry.revisionPath, 'participantRevision'))) {
+          await publishStateAsync(registry.revisionPath, { schemaVersion: 1, revision: 1 }, 'participantRevision');
         }
       });
     }
-    registry._hydrateControlFiles();
+    await registry._hydrateControlFilesAsync();
     return registry;
   }
 
@@ -141,6 +154,87 @@ export class OwnershipRegistry {
       }
     }
     this.lastRevisionStamp = tryFileStamp(this.revisionPath);
+  }
+
+  async _hydrateControlFilesAsync() {
+    let entries;
+    try {
+      entries = await fs.promises.readdir(this.directory);
+    } catch (error) {
+      if (error.code === 'ENOENT') entries = [];
+      else throw error;
+    }
+    const jsonNames = [];
+    let sliceStart = performance.now();
+    for (let i = 0; i < entries.length; i++) {
+      const name = entries[i];
+      if (name.endsWith('.json')) jsonNames.push(name);
+      if ((i & 511) === 511 && performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+        await yieldEventLoop();
+        sliceStart = performance.now();
+      }
+    }
+    this._initialJsonNames = jsonNames;
+    sliceStart = performance.now();
+    for (let i = 0; i < jsonNames.length; i++) {
+      const name = jsonNames[i];
+      if (name.startsWith('ownership-') || LAUNCH_MEMO_RE.test(name) || LAUNCH_LOC_RE.test(name) || name.startsWith('wake-')) {
+        await this._ingestRootFileAsync(name);
+        if (performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+          await yieldEventLoop();
+          sliceStart = performance.now();
+        }
+      } else if ((i & 511) === 511 && performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+        await yieldEventLoop();
+        sliceStart = performance.now();
+      }
+    }
+    try {
+      this.lastRevisionStamp = statStamp(await fs.promises.lstat(this.revisionPath, { bigint: true }));
+    } catch (error) {
+      if (error.code === 'ENOENT') this.lastRevisionStamp = null;
+      else throw error;
+    }
+  }
+
+  async _ingestRootFileAsync(name, knownStamp = undefined) {
+    const filePath = join(this.directory, name);
+    let stamp = knownStamp;
+    if (stamp === undefined) {
+      try {
+        stamp = statStamp(await fs.promises.lstat(filePath, { bigint: true }));
+      } catch (error) {
+        if (error.code === 'ENOENT') stamp = null;
+        else throw error;
+      }
+    }
+    if (stamp === null) {
+      this._evictRootFile(name);
+      return null;
+    }
+    const schemas = [
+      [n => n.startsWith('ownership-'), 'ownership', obs => this._applyRootOwnership(name, obs.value, stamp)],
+      [n => LAUNCH_MEMO_RE.test(n), 'launchMemo', obs => this.recordLaunchMemo(name, obs.value, stamp)],
+      [n => LAUNCH_LOC_RE.test(n), 'launchLocation', obs => this.recordLaunchLocation(name, obs.value, stamp)],
+      [n => n.startsWith('wake-'), 'wakeIntent', obs => this.recordWakeIntent(name, obs.value, stamp)]
+    ];
+    for (const [match, schema, apply] of schemas) {
+      if (!match(name)) continue;
+      const obs = await readStateAsync(filePath, schema);
+      if (!obs) { this._evictRootFile(name); return null; }
+      apply(obs);
+      return obs.value;
+    }
+    if (this.ledger) {
+      return this.ledger._ingestLedgerRootFile(name, stamp);
+    }
+    return null;
+  }
+
+  _applyRootOwnership(name, value, stamp) {
+    this.ownersById.set(value.attachmentId, value);
+    this.rootFileStamps.set(name, stamp);
+    this._rootMeta.set(name, { kind: 'ownership', id: value.attachmentId });
   }
 
   _ingestRootFile(name, knownStamp = undefined) {
@@ -334,6 +428,20 @@ export class OwnershipRegistry {
     }, options);
   }
 
+  /** @param {{ timeoutMs?: number, nonBlocking?: boolean, lockFile?: string, bothLocks?: boolean }} [options] */
+  async withLockTaskAsync(fn, options) {
+    return mutationLockTaskAsync(this.lockDirectory, async () => {
+      if (this.indeterminate) throw new Error('reconciliation_required');
+      try { return await fn(); }
+      catch (error) {
+        if (error?.message?.startsWith('persistence_indeterminate')) {
+          this.indeterminate = true; this.onIndeterminate?.();
+        }
+        throw error;
+      }
+    }, options);
+  }
+
   reconcile() {
     return mutationLock(this.lockDirectory, () => {
       const formats = { ownership: 'ownership', operation: 'admittedOperation', effect: 'ownerEffect',
@@ -374,6 +482,26 @@ export class OwnershipRegistry {
     }
   }
 
+  async bumpAsync() {
+    let prevStamp = null;
+    try {
+      prevStamp = statStamp(await fs.promises.lstat(this.revisionPath, { bigint: true }));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    const wasClean = prevStamp !== null && prevStamp === this.lastRevisionStamp;
+    const old = await readStateAsync(this.revisionPath, 'participantRevision');
+    await replaceStateAsync(this.revisionPath, { ...old.value, revision: old.value.revision + 1 }, 'participantRevision', old);
+    if (wasClean) {
+      try {
+        this.lastRevisionStamp = statStamp(await fs.promises.lstat(this.revisionPath, { bigint: true }));
+      } catch (error) {
+        if (error.code === 'ENOENT') this.lastRevisionStamp = null;
+        else throw error;
+      }
+    }
+  }
+
   revision() {
     return readState(this.revisionPath, 'participantRevision').value.revision;
   }
@@ -395,12 +523,22 @@ export class OwnershipRegistry {
     return this.token(value);
   }
 
+  async _claimAsyncLocked(input) {
+    if (await readStateAsync(this.ownerPath(input.attachmentId), 'ownership')) throw new Error('ownership_exists');
+    const value = { schemaVersion: 1, ...input, ownerGeneration: this.generation, ownershipEpoch: 1,
+      ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
+    await publishStateAsync(this.ownerPath(input.attachmentId), value, 'ownership');
+    this.recordOwner(value);
+    await this.bumpAsync();
+    return this.token(value);
+  }
+
   claim(input) {
     return this.withLock(() => this._claimLocked(input));
   }
 
   claimAsync(input, options) {
-    return this.withLockAsync(() => this._claimLocked(input), options);
+    return this.withLockTaskAsync(() => this._claimAsyncLocked(input), options);
   }
 
   token(value) {
@@ -419,21 +557,40 @@ export class OwnershipRegistry {
     return this.token(value);
   }
 
+  async _rebaselineAsyncLocked(input, proveEnded) {
+    const path = this.ownerPath(input.attachmentId), old = await readStateAsync(path, 'ownership');
+    if (!old || old.value.ownerGeneration === this.generation || !proveEnded(old.value)) throw new Error('ownership_exists');
+    const value = { ...old.value, ...input, ownerGeneration: this.generation, ownershipEpoch: old.value.ownershipEpoch + 1,
+      ownerProcessIdentity: this.processIdentity, state: 'ACTIVE', handoverId: null, checkpointVersion: 1, checkpointHash: null };
+    await replaceStateAsync(path, value, 'ownership', old);
+    this.recordOwner(value);
+    await this.bumpAsync();
+    return this.token(value);
+  }
+
   rebaseline(input, proveEnded) {
     return this.withLock(() => this._rebaselineLocked(input, proveEnded));
   }
 
   rebaselineAsync(input, proveEnded, options) {
-    return this.withLockAsync(() => this._rebaselineLocked(input, proveEnded), options);
+    return this.withLockTaskAsync(() => this._rebaselineAsyncLocked(input, proveEnded), options);
   }
 
-  assertOwner(token, states = ['ACTIVE']) {
-    if (this.indeterminate) throw new Error('reconciliation_required');
-    const observed = readState(this.ownerPath(token.attachmentId), 'ownership');
+  _validateObservedOwner(token, observed, states) {
     if (!observed || token.ownerGeneration !== observed.value.ownerGeneration ||
         token.ownershipEpoch !== observed.value.ownershipEpoch ||
         digest(token.ownerProcessIdentity) !== digest(observed.value.ownerProcessIdentity) || !states.includes(observed.value.state)) throw new Error('ownership_fenced');
     return observed;
+  }
+
+  assertOwner(token, states = ['ACTIVE']) {
+    if (this.indeterminate) throw new Error('reconciliation_required');
+    return this._validateObservedOwner(token, readState(this.ownerPath(token.attachmentId), 'ownership'), states);
+  }
+
+  async assertOwnerAsync(token, states = ['ACTIVE']) {
+    if (this.indeterminate) throw new Error('reconciliation_required');
+    return this._validateObservedOwner(token, await readStateAsync(this.ownerPath(token.attachmentId), 'ownership'), states);
   }
 
   updateIdentity(token, presenceSessionId, expectedInstance) {
@@ -445,6 +602,17 @@ export class OwnershipRegistry {
       this.recordOwner(next);
       this.bump();
     });
+  }
+
+  updateIdentityAsync(token, presenceSessionId, expectedInstance, options) {
+    return this.withLockTaskAsync(async () => {
+      const old = await this.assertOwnerAsync(token);
+      if (old.value.presenceSessionId === presenceSessionId && old.value.expectedInstance === expectedInstance) return;
+      const next = { ...old.value, presenceSessionId, expectedInstance };
+      await replaceStateAsync(this.ownerPath(token.attachmentId), next, 'ownership', old);
+      this.recordOwner(next);
+      await this.bumpAsync();
+    }, options);
   }
 
   releasePresence(token, sessionId) {
@@ -519,12 +687,20 @@ export class OwnershipRegistry {
     this.bump();
   }
 
+  async _closeAsyncLocked(token) {
+    const old = await this.assertOwnerAsync(token, ['ACTIVE', 'FROZEN', 'TRANSFERRING']);
+    const next = { ...old.value, state: 'CLOSED' };
+    await replaceStateAsync(this.ownerPath(token.attachmentId), next, 'ownership', old);
+    this.recordOwner(next);
+    await this.bumpAsync();
+  }
+
   close(token) {
     return this.withLock(() => this._closeLocked(token), { bothLocks: true });
   }
 
   closeAsync(token, options) {
-    return this.withLockAsync(() => this._closeLocked(token), { ...options, bothLocks: true });
+    return this.withLockTaskAsync(() => this._closeAsyncLocked(token), { ...options, bothLocks: true });
   }
 
   fence(token, handoverId, checkpointHash) {
@@ -573,13 +749,39 @@ export class OperationLedger {
     this.migrationError = null;
     this._migrationStopped = false;
     this._migrationTimer = null;
+    this._migrationStepPromise = null;
 
     registry.ledger = this;
 
+    if (!options.deferStartupInit) {
+      this._initSync(options);
+    }
+  }
+
+  static async createAsync(registry, options = {}) {
+    const ledger = new OperationLedger(registry, { ...options, deferStartupInit: true });
+    await ledger._initAsync(options);
+    return ledger;
+  }
+
+  _isMigrationCandidateName(name) {
+    return (
+      name.startsWith('operation-') ||
+      name.startsWith('effect-') ||
+      GEN_END_RE.test(name) ||
+      name.startsWith('checkpoint-') ||
+      name.startsWith('ownership-') ||
+      LAUNCH_MEMO_RE.test(name) ||
+      LAUNCH_LOC_RE.test(name) ||
+      name.startsWith('wake-')
+    );
+  }
+
+  _initSync(options = {}) {
     // Startup sequence (L1 r4 §4.2)
     this._loadArchiveIndexesAtStartup();
-    const initialNames = Array.isArray(registry._initialJsonNames)
-      ? registry._initialJsonNames
+    const initialNames = Array.isArray(this.registry._initialJsonNames)
+      ? this.registry._initialJsonNames
       : fs.readdirSync(this.directory).filter(n => n.endsWith('.json'));
 
     if (options.skipAutoMigration) {
@@ -599,16 +801,50 @@ export class OperationLedger {
       this.registry.lastRevisionStamp = tryFileStamp(this.registry.revisionPath);
       this.ledgerMigrationComplete = true;
     } else {
-      const pendingNames = initialNames.filter(n =>
-        n.startsWith('operation-') ||
-        n.startsWith('effect-') ||
-        GEN_END_RE.test(n) ||
-        n.startsWith('checkpoint-') ||
-        n.startsWith('ownership-') ||
-        LAUNCH_MEMO_RE.test(n) ||
-        LAUNCH_LOC_RE.test(n) ||
-        n.startsWith('wake-')
-      );
+      const pendingNames = initialNames.filter(n => this._isMigrationCandidateName(n));
+      this.ledgerMigrationComplete = false;
+      this._scheduleBackgroundMigration(pendingNames);
+    }
+  }
+
+  async _initAsync(options = {}) {
+    await this._loadArchiveIndexesAtStartupAsync();
+    const initialNames = Array.isArray(this.registry._initialJsonNames)
+      ? this.registry._initialJsonNames
+      : (await fs.promises.readdir(this.directory)).filter(n => n.endsWith('.json'));
+
+    if (options.skipAutoMigration) {
+      if (initialNames.length <= SYNC_HYDRATE_FILE_CEILING) {
+        this._hydrateRootLedgerFiles(initialNames);
+      }
+      this.ledgerMigrationComplete = true;
+      try {
+        this.registry.lastRevisionStamp = statStamp(await fs.promises.lstat(this.registry.revisionPath, { bigint: true }));
+      } catch (error) {
+        if (error.code === 'ENOENT') this.registry.lastRevisionStamp = null;
+        else throw error;
+      }
+      return;
+    }
+
+    if (initialNames.length <= SYNC_HYDRATE_FILE_CEILING) {
+      this._hydrateRootLedgerFiles(initialNames);
+      if (!this.registry.readOnly) {
+        this.compactBatch({ reason: 'startup-sync' });
+      }
+      this.registry.lastRevisionStamp = tryFileStamp(this.registry.revisionPath);
+      this.ledgerMigrationComplete = true;
+    } else {
+      const pendingNames = [];
+      let sliceStart = performance.now();
+      for (let i = 0; i < initialNames.length; i++) {
+        const name = initialNames[i];
+        if (this._isMigrationCandidateName(name)) pendingNames.push(name);
+        if ((i & 511) === 511 && performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+          await yieldEventLoop();
+          sliceStart = performance.now();
+        }
+      }
       this.ledgerMigrationComplete = false;
       this._scheduleBackgroundMigration(pendingNames);
     }
@@ -621,6 +857,18 @@ export class OperationLedger {
       else clearImmediate(this._migrationTimer);
       this._migrationTimer = null;
       this._migrationTimerKind = null;
+    }
+    return this._migrationStepPromise ?? Promise.resolve();
+  }
+
+  _ingestArchiveEntry(name, batchDir) {
+    if (name.startsWith('operation-') && name.endsWith('.json')) {
+      this.archivedOperations.set(name, batchDir);
+    } else if (name.startsWith('effect-') && name.endsWith('.json')) {
+      this.archivedEffects.set(name, batchDir);
+    } else {
+      const m = GEN_END_RE.exec(name);
+      if (m) this.archivedGenerationEnds.set(m[1], batchDir);
     }
   }
 
@@ -644,15 +892,37 @@ export class OperationLedger {
         throw error;
       }
       for (const name of files) {
-        if (name.startsWith('operation-') && name.endsWith('.json')) {
-          this.archivedOperations.set(name, batchDir);
-        } else if (name.startsWith('effect-') && name.endsWith('.json')) {
-          this.archivedEffects.set(name, batchDir);
-        } else {
-          const m = GEN_END_RE.exec(name);
-          if (m) this.archivedGenerationEnds.set(m[1], batchDir);
+        this._ingestArchiveEntry(name, batchDir);
+      }
+    }
+  }
+
+  async _loadArchiveIndexesAtStartupAsync() {
+    await this.syncManifestTailAsync();
+    let batches;
+    try {
+      batches = (await fs.promises.readdir(this.archiveDirectory)).filter(d => d.startsWith('batch-')).sort();
+    } catch (error) {
+      if (error.code === 'ENOENT') return;
+      throw error;
+    }
+    for (const batchDir of batches) {
+      let files;
+      try {
+        files = await fs.promises.readdir(join(this.archiveDirectory, batchDir));
+      } catch (error) {
+        if (error.code === 'ENOENT') continue;
+        throw error;
+      }
+      let sliceStart = performance.now();
+      for (let i = 0; i < files.length; i++) {
+        this._ingestArchiveEntry(files[i], batchDir);
+        if ((i & 511) === 511 && performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+          await yieldEventLoop();
+          sliceStart = performance.now();
         }
       }
+      await yieldEventLoop();
     }
   }
 
@@ -722,6 +992,69 @@ export class OperationLedger {
           try {
             this._applyManifestRecord(JSON.parse(line));
           } catch { /* ignore malformed tail */ }
+        }
+        offset += lastNewline + 1;
+      }
+    }
+
+    this.manifestReadOffset = offset;
+    this.manifestDev = stat.dev;
+    this.manifestIno = stat.ino;
+    this.lastManifestStamp = stamp;
+  }
+
+  async syncManifestTailAsync() {
+    let stat;
+    try {
+      stat = await fs.promises.lstat(this.manifestPath, { bigint: true });
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        this.manifestReadOffset = 0;
+        this.lastManifestStamp = null;
+        this.manifestIno = null;
+        this.manifestDev = null;
+        return;
+      }
+      throw error;
+    }
+    const stamp = statStamp(stat);
+    if (stamp === this.lastManifestStamp) return;
+
+    const size = Number(stat.size);
+    const sameFile = this.manifestDev === stat.dev && this.manifestIno === stat.ino && size >= this.manifestReadOffset;
+    let offset = sameFile ? this.manifestReadOffset : 0;
+
+    if (size > offset) {
+      const len = size - offset;
+      const buf = Buffer.allocUnsafe(len);
+      const fh = await fs.promises.open(this.manifestPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      let bytesRead = 0;
+      try {
+        while (bytesRead < len) {
+          const chunk = Math.min(512 * 1024, len - bytesRead);
+          const { bytesRead: n } = await fh.read(buf, bytesRead, chunk, offset + bytesRead);
+          if (n <= 0) break;
+          bytesRead += n;
+        }
+      } finally {
+        await fh.close();
+      }
+      const slice = buf.subarray(0, bytesRead);
+      const lastNewline = slice.lastIndexOf(0x0a);
+      if (lastNewline >= 0) {
+        const lines = slice.subarray(0, lastNewline).toString('utf8').split('\n');
+        let sliceStart = performance.now();
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.trim()) {
+            try {
+              this._applyManifestRecord(JSON.parse(line));
+            } catch { /* ignore malformed tail */ }
+          }
+          if ((i & 63) === 63 && performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+            await yieldEventLoop();
+            sliceStart = performance.now();
+          }
         }
         offset += lastNewline + 1;
       }
@@ -923,17 +1256,20 @@ export class OperationLedger {
     return [...this.activeById.values(), ...this.retainedCompleted.values()];
   }
 
-  _beginLocked(token, operationId, kind) {
-    this.registry.assertOwner(token);
-    const gate = readWriterGate(this.registry.lockDirectory);
+  _validateBegin(token, gate, existing) {
     const parent = currentExecution()?.operation;
     if (gate && gate !== 'OPEN') {
       if (!parent) throw new Error('store_admission_closed');
       this.assertOperation(parent);
     }
+    if (existing) throw new Error('operation_exists');
+  }
+
+  _beginLocked(token, operationId, kind) {
+    this.registry.assertOwner(token);
     const filename = leaf('operation', operationId);
     const path = join(this.directory, filename);
-    if (readState(path, 'admittedOperation')) throw new Error('operation_exists');
+    this._validateBegin(token, readWriterGate(this.registry.lockDirectory), readState(path, 'admittedOperation'));
     const value = { schemaVersion: 1, revision: 1, operationId, attachmentId: token.attachmentId,
       ownerGeneration: token.ownerGeneration, executionOwner: token.ownerProcessIdentity, kind, state: 'pending', result: null };
     publishState(path, value, 'admittedOperation');
@@ -942,12 +1278,35 @@ export class OperationLedger {
     return value;
   }
 
+  async _beginAsyncLocked(token, operationId, kind) {
+    await this.registry.assertOwnerAsync(token);
+    const gate = (await readStateAsync(join(this.registry.lockDirectory, 'control.json'), 'writerControl'))?.value.gate;
+    const filename = leaf('operation', operationId);
+    const path = join(this.directory, filename);
+    this._validateBegin(token, gate, await readStateAsync(path, 'admittedOperation'));
+    const value = { schemaVersion: 1, revision: 1, operationId, attachmentId: token.attachmentId,
+      ownerGeneration: token.ownerGeneration, executionOwner: token.ownerProcessIdentity, kind, state: 'pending', result: null };
+    await publishStateAsync(path, value, 'admittedOperation');
+    this._recordOperationInMemory(filename, value, await this._tryStampAsync(path));
+    await this.registry.bumpAsync();
+    return value;
+  }
+
+  async _tryStampAsync(path) {
+    try {
+      return statStamp(await fs.promises.lstat(path, { bigint: true }));
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
   begin(token, operationId, kind, options) {
     return this.registry.withLock(() => this._beginLocked(token, operationId, kind), options);
   }
 
   beginAsync(token, operationId, kind, options) {
-    return this.registry.withLockAsync(() => this._beginLocked(token, operationId, kind), options);
+    return this.registry.withLockTaskAsync(() => this._beginAsyncLocked(token, operationId, kind), options);
   }
 
   assertOperation(operation) {
@@ -959,10 +1318,7 @@ export class OperationLedger {
     return old;
   }
 
-  _finishLocked(operation, result, unknown = false) {
-    const opFilename = leaf('operation', operation.operationId);
-    const opPath = join(this.directory, opFilename);
-    const old = readState(opPath, 'admittedOperation');
+  _checkFinishPreconditions(operation, result, old) {
     if (!old) {
       const archived = this.getOperation(operation.operationId);
       if (archived && archived.state === 'completed' &&
@@ -980,6 +1336,15 @@ export class OperationLedger {
       if (digest(old.value.result) !== digest(result)) throw new Error('operation_result_conflict');
       return old.value;
     }
+    return null;
+  }
+
+  _finishLocked(operation, result, unknown = false) {
+    const opFilename = leaf('operation', operation.operationId);
+    const opPath = join(this.directory, opFilename);
+    const old = readState(opPath, 'admittedOperation');
+    const settled = this._checkFinishPreconditions(operation, result, old);
+    if (settled) return settled;
     // The event is durable before completion so a crash cannot lose an owner
     // effect after its drain entry has disappeared. Delivery is reconciled.
     const event = { schemaVersion: 1, operationId: operation.operationId, attachmentId: operation.attachmentId, destination: 'current-owner', result };
@@ -998,12 +1363,36 @@ export class OperationLedger {
     return next;
   }
 
+  async _finishAsyncLocked(operation, result, unknown = false) {
+    const opFilename = leaf('operation', operation.operationId);
+    const opPath = join(this.directory, opFilename);
+    const old = await readStateAsync(opPath, 'admittedOperation');
+    const settled = this._checkFinishPreconditions(operation, result, old);
+    if (settled) return settled;
+    // The event is durable before completion so a crash cannot lose an owner
+    // effect after its drain entry has disappeared. Delivery is reconciled.
+    const event = { schemaVersion: 1, operationId: operation.operationId, attachmentId: operation.attachmentId, destination: 'current-owner', result };
+    const effectName = leaf('effect', { operationId: operation.operationId, result });
+    const eventPath = join(this.directory, effectName);
+    const prior = await readStateAsync(eventPath, 'ownerEffect');
+    if (prior && digest(prior.value) !== digest(event)) throw new Error('operation_result_conflict');
+    if (!prior && !this.archivedEffects.has(effectName)) {
+      await publishStateAsync(eventPath, event, 'ownerEffect');
+      this._recordRootEffect(effectName, event, await this._tryStampAsync(eventPath));
+    }
+    const next = { ...old.value, revision: old.value.revision + 1, state: unknown ? 'unknown' : 'completed', result };
+    await replaceStateAsync(opPath, next, 'admittedOperation', old);
+    this._recordOperationInMemory(opFilename, next, await this._tryStampAsync(opPath));
+    await this.registry.bumpAsync();
+    return next;
+  }
+
   finish(operation, result, unknown = false, options) {
     return this.registry.withLock(() => this._finishLocked(operation, result, unknown), options);
   }
 
   finishAsync(operation, result, unknown = false, options) {
-    return this.registry.withLockAsync(() => this._finishLocked(operation, result, unknown), options);
+    return this.registry.withLockTaskAsync(() => this._finishAsyncLocked(operation, result, unknown), options);
   }
 
   operations() {
@@ -1383,7 +1772,8 @@ export class OperationLedger {
     return selected;
   }
 
-  _commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved) {
+  _commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved, options = {}) {
+    const deferDurability = Boolean(options?.deferDurability);
     let movedCount = 0;
     // 1. Sync external state once, revalidate (dev, ino) & eligibility under lock, then renameSync each validated file.
     this.registry.syncIfExternalChange();
@@ -1461,7 +1851,7 @@ export class OperationLedger {
       this.registry._evictRootFile(cand.name);
     }
 
-    if (movedCount === 0) return;
+    if (movedCount === 0 || deferDurability) return movedCount;
 
     // 2. fsyncSync(batchDirFd) then fsyncSync(stateDirFd)
     fsyncDirectory(batchPath);
@@ -1491,6 +1881,7 @@ export class OperationLedger {
 
     // 4. Bump participant-revision.json
     this.registry.bump();
+    return movedCount;
   }
 
   _commitArchiveSubLot(subLot, reason, batchName) {
@@ -1529,7 +1920,9 @@ export class OperationLedger {
     const runBody = () => {
       fs.mkdirSync(this.archiveDirectory, { recursive: true, mode: 0o700 });
       fs.mkdirSync(batchPath, { recursive: true, mode: 0o700 });
-      return this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved);
+      return this._commitArchiveSubLotBody(subLot, reason, batchName, batchPath, moved, {
+        deferDurability: Boolean(options?.deferDurability)
+      });
     };
     const run = typeof wrapSync === 'function' ? () => wrapSync(runBody) : runBody;
     if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
@@ -1581,23 +1974,138 @@ export class OperationLedger {
     return { dryRun: false, archived: counts, totalArchived };
   }
 
+  async _flushMigrationDurabilityAsync(batchName, records, runLockedAsync, onCommitted) {
+    if (records.length === 0 || this._migrationStopped) return;
+    const batchPath = join(this.archiveDirectory, batchName);
+    // 1. Flush renamed archive entries + parent directory entries on libuv threadpool (0 main-thread stall).
+    await fsyncDirectoryAsync(batchPath);
+    if (this._migrationStopped) return;
+    await fsyncDirectoryAsync(this.directory);
+    if (this._migrationStopped) return;
+
+    const serialized = [];
+    let sliceStart = performance.now();
+    for (let i = 0; i < records.length; i++) {
+      serialized.push(canonicalBytes(records[i]), Buffer.from('\n'));
+      if ((i & 31) === 31 && performance.now() - sliceStart >= STARTUP_SLICE_BUDGET_MS) {
+        await yieldEventLoop();
+        if (this._migrationStopped) return;
+        sliceStart = performance.now();
+      }
+    }
+    const manifestChunk = Buffer.concat(serialized);
+    // 2. Stage participant-revision.json bump temp file + fsync off the event loop before locking.
+    const oldRev = await readStateAsync(this.registry.revisionPath, 'participantRevision');
+    let tempRevPath = null;
+    let tempConsumed = false;
+    try {
+      if (oldRev) {
+        const nextRev = { ...oldRev.value, revision: oldRev.value.revision + 1 };
+        validate('participantRevision', nextRev);
+        const { randomUUID } = await import('node:crypto');
+        tempRevPath = join(this.directory, `.${randomUUID()}.tmp`);
+        const fh = await fs.promises.open(tempRevPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+        try {
+          await fh.writeFile(Buffer.concat([canonicalBytes(nextRev), Buffer.from('\n')]));
+          await fh.sync();
+        } finally {
+          await fh.close();
+        }
+        if (this._migrationStopped) return;
+      }
+
+      // 3. Under short sync lock (0 fsyncSync calls): append manifest lines and CAS-rename revision file.
+      let wrote = false;
+      let needBumpAsync = false;
+      await runLockedAsync(() => {
+        if (this._migrationStopped) return;
+        const mfd = fs.openSync(this.manifestPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
+        try {
+          fs.writeFileSync(mfd, manifestChunk);
+        } finally {
+          fs.closeSync(mfd);
+        }
+        const mStat = fs.lstatSync(this.manifestPath, { bigint: true });
+        this.manifestReadOffset = Number(mStat.size);
+        this.manifestDev = mStat.dev;
+        this.manifestIno = mStat.ino;
+        this.lastManifestStamp = statStamp(mStat);
+
+        if (oldRev && tempRevPath) {
+          const prevStamp = tryFileStamp(this.registry.revisionPath);
+          const wasClean = prevStamp !== null && prevStamp === this.registry.lastRevisionStamp;
+          const nowRev = readState(this.registry.revisionPath, 'participantRevision');
+          if (nowRev && nowRev.dev === oldRev.dev && nowRev.ino === oldRev.ino && nowRev.digest === oldRev.digest) {
+            fs.renameSync(tempRevPath, this.registry.revisionPath);
+            tempConsumed = true;
+            if (wasClean) this.registry.lastRevisionStamp = tryFileStamp(this.registry.revisionPath);
+          } else {
+            needBumpAsync = true;
+          }
+        } else {
+          needBumpAsync = true;
+        }
+        wrote = true;
+        onCommitted();
+      });
+      if (!wrote || this._migrationStopped) return;
+      if (needBumpAsync) {
+        if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
+          await Promise.resolve(this.registry.withLock(() => this.registry.bump()));
+        } else {
+          await this.registry.withLockTaskAsync(() => this.registry.bumpAsync());
+        }
+        if (this._migrationStopped) return;
+      }
+
+      // 4. Flush manifest file and state directory entries asynchronously off the event loop.
+      await fsyncFileAsync(this.manifestPath);
+      if (this._migrationStopped) return;
+      await fsyncDirectoryAsync(this.directory);
+    } finally {
+      if (tempRevPath && !tempConsumed) {
+        try { fs.unlinkSync(tempRevPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+    }
+  }
+
   _scheduleBackgroundMigration(pendingNames) {
     let scanIndex = 0;
     const inspected = [];
     let archiveQueue = null;
     let commitIndex = 0;
     let transientRetries = 0;
+    let pendingRecords = [];
+    let pendingFiles = 0;
+    let needFlush = false;
     const batchName = utcBatchDirName();
+    const countMoved = moved =>
+      moved.operations.length + moved.effects.length + moved.generationEnds.length +
+      moved.ownerships.length + moved.launches.length + moved.wakes.length + moved.checkpoints.length;
+    const runLockedAsync = (fn, lockOptions) => {
+      if (this.registry.withLock !== OwnershipRegistry.prototype.withLock) {
+        return Promise.resolve(this.registry.withLock(fn, lockOptions));
+      }
+      return this.registry.withLockAsync(fn, lockOptions);
+    };
+
+    const runStep = () => {
+      const promise = Promise.resolve(step()).finally(() => {
+        if (this._migrationStepPromise === promise) this._migrationStepPromise = null;
+      });
+      this._migrationStepPromise = promise;
+      return promise;
+    };
 
     const scheduleNext = (delayMs = null) => {
       if (this._migrationStopped) return;
       if (delayMs !== null) {
         this._migrationTimerKind = 'timeout';
-        this._migrationTimer = setTimeout(step, delayMs);
+        this._migrationTimer = setTimeout(runStep, delayMs);
         this._migrationTimer.unref?.();
       } else {
         this._migrationTimerKind = 'immediate';
-        this._migrationTimer = setImmediate(step);
+        this._migrationTimer = setImmediate(runStep);
       }
     };
 
@@ -1684,19 +2192,46 @@ export class OperationLedger {
           return;
         }
 
-        // Phase 2: commit archive sub-lots of <= 32 files under async lock, yielding with a 1 ms timer so
-        // foreground HTTP I/O (ping/initialize) and writer lock acquisitions never starve behind migration.
+        // Flush accumulated durability checkpoints (dir/manifest/revision fsyncs) asynchronously off the event loop.
+        if (needFlush && pendingRecords.length > 0) {
+          await this._flushMigrationDurabilityAsync(batchName, pendingRecords, runLockedAsync, () => {
+            pendingRecords = [];
+            pendingFiles = 0;
+            needFlush = false;
+          });
+          if (this._migrationStopped) return;
+          transientRetries = 0;
+          scheduleNext(1);
+          return;
+        }
+
+        // Phase 2: commit archive sub-lots of <= 32 files under short async lock (renameSync only,
+        // durability fsyncs batched off the event loop), yielding so foreground HTTP I/O never starves.
         if (commitIndex < archiveQueue.length) {
           const subLot = archiveQueue.slice(commitIndex, commitIndex + MIGRATION_COMMIT_BATCH_SIZE);
-          await this._commitArchiveSubLotAsync(
+          const moved = await this._commitArchiveSubLotAsync(
             subLot,
             'startup-migration',
             batchName,
-            undefined,
+            { deferDurability: true },
             run => runMeasuredSlice('commit', () => subLot.length, true, run)
           );
           if (this._migrationStopped) return;
+          const movedCount = countMoved(moved);
+          if (movedCount > 0) {
+            pendingRecords.push({
+              archivedAt: new Date().toISOString(),
+              reason: 'startup-migration',
+              generation: this.registry.generation,
+              batchDir: batchName,
+              ...moved
+            });
+            pendingFiles += movedCount;
+          }
           commitIndex += subLot.length;
+          if (pendingRecords.length > 0 && (pendingFiles >= MIGRATION_DURABILITY_CHECKPOINT_FILES || commitIndex >= archiveQueue.length)) {
+            needFlush = true;
+          }
           transientRetries = 0;
           scheduleNext(1);
           return;

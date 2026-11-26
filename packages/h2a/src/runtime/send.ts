@@ -1,13 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  createEnvelope,
-  signEnvelope,
-  verifyEnvelopeSignature,
-  type H2AEnvelope,
-  type H2ARole,
-  type H2ASession
-} from "@sentropic/h2a";
+import { createEnvelope, signEnvelope, verifyEnvelopeSignature } from "../envelope.js";
+import type { H2ASession } from "../session.js";
+import type { H2AEnvelope, H2ARole } from "../types.js";
 
 import {
   assertHostQualifiedAddress,

@@ -12,6 +12,7 @@ import { EvidenceAcceptances, shimAcceptanceRecorded } from './evidence.js';
 import { shimEvidenceOptions } from './shim-evidence.js';
 import { installationForEntry } from './selection.js';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import { join } from 'node:path';
 import { readState } from './state.js';
 import { digest } from './wire.js';
@@ -19,6 +20,9 @@ import { shimBuildInfo } from './shim-build.js';
 import { requestWithRetry, transientFetchError } from './request-retry.js';
 
 const PROTOCOLS = ['2025-06-18', '2024-11-05'];
+const OFFER_POLL_FALLBACK_MS = 60_000;
+const MAX_LEASE_POLL_INTERVAL_MS = 20_000;
+const DEFAULT_LEASE_POLL_INTERVAL_MS = 5_000;
 export const SHIM_HANDSHAKE_TIMEOUT_MS = 1_500;
 const isHandshakeFailoverError = error => {
   if (!error) return false;
@@ -55,6 +59,27 @@ export async function bridgeCentralMcpStdio(options) {
     }
   };
   const controller = new AbortController(), work = new Set();
+  const controlCache = new Map();
+  const hasActiveHandover = owner => {
+    const stateDirectory = owner?.marker?.stateDirectory;
+    if (!stateDirectory) return false;
+    const controlPath = join(stateDirectory, 'component-control.json');
+    try {
+      const info = fs.lstatSync(controlPath, { bigint: true });
+      const cached = controlCache.get(stateDirectory);
+      if (cached && cached.ino === info.ino && cached.mtimeNs === info.mtimeNs) return cached.active;
+      const active = Boolean(readState(controlPath, 'componentControl')?.value?.activeTransaction);
+      controlCache.set(stateDirectory, { ino: info.ino, mtimeNs: info.mtimeNs, active });
+      return active;
+    } catch {
+      return false;
+    }
+  };
+  const recordSessionLease = (owner, response) => {
+    const raw = response?.headers?.get?.('x-h2a-session-lease-ms');
+    const parsed = raw ? Number(raw) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) owner.sessionLeaseMs = parsed;
+  };
   let current, pendingOwner, connecting, initialized, stopped = false, writer = Promise.resolve(), queued = 0;
   let viewOrigin = { generation: null, buildId: buildInfo.buildId, profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` };
   let transportState = 'CONNECTING', buffer = '', discarding = false, eventOwner;
@@ -253,6 +278,7 @@ export async function bridgeCentralMcpStdio(options) {
           resumeAttemptId: current.resumeAttemptId ??= randomUUID(), expectedInstance: options.attachment?.expectedInstance ?? 'identity_disabled',
           lastAcceptedNotificationSequence: current.lastAcceptedNotificationSequence ?? 0 }) });
         if (!response.ok) throw new Error('transport_resume_refused');
+        recordSessionLease(current, response);
         const result = await response.json();
         if (result.attachmentId !== attachmentId || result.generation !== marker.generation || result.transportEpoch !== current.transportEpoch + 1 || !result.sessionId) throw new Error('transport_resume_mismatch');
         current.events?.abort();
@@ -295,6 +321,7 @@ export async function bridgeCentralMcpStdio(options) {
                 attachmentId, expectedGeneration: marker.generation, expectedTransportEpoch: owner.transportEpoch,
                 resumeAttemptId: owner.resumeAttemptId ??= randomUUID(), expectedInstance: options.attachment.expectedInstance ?? 'identity_disabled', lastAcceptedNotificationSequence: 0 }) });
               if (resumed.ok) {
+                recordSessionLease(owner, resumed);
                 const result = await resumed.json();
                 if (result.attachmentId === attachmentId && result.generation === marker.generation && result.transportEpoch === owner.transportEpoch + 1 &&
                     result.sessionId && PROTOCOLS.includes(result.protocolVersion)) {
@@ -370,7 +397,10 @@ export async function bridgeCentralMcpStdio(options) {
           clientQualification: { profileId: `linux-${process.arch}-node${process.versions.node.split('.')[0]}` },
           sourceView: { ...viewOrigin, descriptorDigest: view.served.descriptorDigest, contractDigest: view.served.contractDigest } };
         const registered = await request(current, `/_h2a-central/shim/${attachmentId}/register`, { method: 'POST', headers: headers(current), body: JSON.stringify(advertisement) });
-        if (registered.ok) current.registration = await registered.json();
+        if (registered.ok) {
+          recordSessionLease(current, registered);
+          current.registration = await registered.json();
+        }
       }
       notifications(current); return current;
     })().then(owner => { healthySince ??= Date.now(); unavailableReason = 'central_unavailable'; return owner; }).catch(e => {
@@ -504,9 +534,17 @@ export async function bridgeCentralMcpStdio(options) {
       if (healthySince && Date.now() - healthySince >= 10000) { failures = 0; recoveryStarted = undefined; }
       const observed = readCentralClientMarker(markerPath);
       if (observed.schemaVersion !== 2 || observed.protocol !== 2) { recover(observed); return; }
-      await pollOffer(current);
+      const now = Date.now();
+      if (current.pendingAcceptance || current.lastOfferPoll === undefined ||
+          now - current.lastOfferPoll >= OFFER_POLL_FALLBACK_MS || hasActiveHandover(current)) {
+        await pollOffer(current);
+        current.lastOfferPoll = Date.now();
+      }
       if (observed.generation !== current.marker.generation) { recover(observed); return; }
-      if (Date.now() - (current.lastLease ?? 0) >= 5000) {
+      const leaseIntervalMs = current.sessionLeaseMs
+        ? Math.min(MAX_LEASE_POLL_INTERVAL_MS, Math.max(1_000, Math.floor(current.sessionLeaseMs / 4)))
+        : DEFAULT_LEASE_POLL_INTERVAL_MS;
+      if (current.lastLease === undefined || Date.now() - current.lastLease >= leaseIntervalMs) {
         let response;
         try { response = await request(current, `/_h2a-central/lease/${current.sessionId}`, { headers: headers(current) }); }
         catch (error) {
@@ -518,6 +556,7 @@ export async function bridgeCentralMcpStdio(options) {
           throw error;
         }
         if (!response.ok) throw new Error('lease_unavailable');
+        recordSessionLease(current, response);
         const status = await response.json();
         if (options.attachment && status.state === 'identity_ready' && status.instance) options.attachment.expectedInstance = status.instance;
         current.lastLease = Date.now(); notifications(current);

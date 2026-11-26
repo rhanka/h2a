@@ -2004,3 +2004,104 @@ test('T2.13 (NB-1..NB-4): localQueues timeout cleanup, safeError/consent retryab
     await nb4Holder.release();
   }
 });
+
+test('T2.14: non-blocking async startup, off-loop handover durability, and shared ui-render core incur zero main-thread fsyncSync', { timeout: 20_000 }, async t => {
+  const f = fixture(t);
+  const { OwnershipRegistry, OperationLedger, SYNC_HYDRATE_FILE_CEILING } = await import('../dist/runtime/handover/ownership.js');
+  const { canonicalBytes } = await import('../dist/runtime/handover/wire.js');
+  const { createUiRenderCoreAsync, createUiRenderModule } = await import('../dist/runtime/mcp/ui-render/index.js');
+
+  const tRoot = join(f.dir, 't214-root');
+  const stateDir = join(f.dir, 't214-state');
+  const archiveBatch = join(stateDir, 'archive', 'batch-20261126');
+  fs.mkdirSync(tRoot, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(archiveBatch, { recursive: true, mode: 0o700 });
+  const wdir = writerDirectory(tRoot);
+  establishWriterControl(tRoot, stateDir);
+
+  const identity = currentIdentity();
+  const seedGen = randomUUID();
+  const gen = randomUUID();
+  const genRestart = randomUUID();
+  const seedAtt = randomUUID();
+  const attId = randomUUID();
+  const archOpId = randomUUID();
+  const liveOpId = randomUUID();
+  const opCount = SYNC_HYDRATE_FILE_CEILING + 16;
+  for (let i = 0; i < opCount; i++) {
+    const opId = randomUUID();
+    const opName = `operation-${digest(opId).slice(7)}.json`;
+    const value = {
+      schemaVersion: 1,
+      revision: 2,
+      operationId: opId,
+      attachmentId: seedAtt,
+      ownerGeneration: seedGen,
+      executionOwner: identity,
+      kind: 'call',
+      state: 'completed',
+      result: { ok: true }
+    };
+    fs.writeFileSync(join(stateDir, opName), Buffer.concat([canonicalBytes(value), Buffer.from('\n')]), { mode: 0o600 });
+  }
+  const archName = `operation-${digest(archOpId).slice(7)}.json`;
+  fs.writeFileSync(
+    join(stateDir, 'archive', 'manifest.jsonl'),
+    `${JSON.stringify({ archivedAt: new Date().toISOString(), reason: 'startup-migration', generation: seedGen, batchDir: 'batch-20261126', operations: [archName], effects: [], generationEnds: [] })}\n`,
+    { mode: 0o600 }
+  );
+
+  let fsyncSyncCalls = 0;
+  t.mock.method(fs, 'fsyncSync', () => { fsyncSyncCalls++; });
+  syncBuiltinESMExports();
+
+  const registry = await OwnershipRegistry.createAsync({
+    directory: stateDir,
+    generation: gen,
+    processIdentity: identity,
+    lockDirectory: wdir
+  });
+  const ledger = await OperationLedger.createAsync(registry);
+  try {
+    assert.equal(ledger.ledgerMigrationComplete, false);
+    assert.equal(ledger.archivedOperations.get(archName), 'batch-20261126');
+
+    const tok = await registry.claimAsync({
+      attachmentId: attId,
+      presenceSessionId: `pending:${attId}`,
+      expectedInstance: 'claude:t214'
+    });
+    const op = await ledger.beginAsync(tok, liveOpId, 'call');
+    const presenceOk = await mutationModule.withExecution(
+      { root: tRoot, registry, ledger, token: tok, operation: op },
+      () => mutationModule.withPresenceMutationAsync(tRoot, 'sess-t214', 'claude:t214', () => true)
+    );
+    assert.equal(presenceOk, true);
+    await ledger.finishAsync(op, { completed: true });
+    await registry.closeAsync(tok);
+    assert.equal(fsyncSyncCalls, 0, `expected 0 main-thread fsyncSync calls, saw ${fsyncSyncCalls}`);
+  } finally {
+    await ledger.stopMigration();
+  }
+
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
+  const restarted = new OwnershipRegistry({ directory: stateDir, generation: genRestart, processIdentity: identity, lockDirectory: wdir, readOnly: true, skipSyncInit: false });
+  assert.equal(readState(restarted.ownerPath(attId), 'ownership')?.value.state, 'CLOSED');
+  assert.equal(readState(restarted.ownerPath(attId), 'ownership')?.value.presenceSessionId, 'sess-t214');
+  assert.equal(readState(join(stateDir, `operation-${digest(liveOpId).slice(7)}.json`), 'admittedOperation')?.value.state, 'completed');
+
+  // Shared core caches immutable assets + validator across connections while keeping tool state isolated.
+  const core = await createUiRenderCoreAsync();
+  const modA = createUiRenderModule({ core });
+  const modB = createUiRenderModule({ core });
+  assert.equal(modA.assets, modB.assets);
+  assert.equal(modA.validator, modB.validator);
+  assert.notEqual(modA.tools, modB.tools);
+  const resA = modA.tools.callTool('render', { contract: '1.0', root: core.assets.catalog.components.DecisionDossier['x-sentropic'].example });
+  const resB = modB.tools.callTool('render', { contract: '1.0', root: core.assets.catalog.components.BarChart['x-sentropic'].example });
+  assert.equal(resA.isError, undefined);
+  assert.equal(resB.isError, undefined);
+  assert.equal(modA.tools.callTool('submit_intent', { event: 'intent', name: 'choose-option', target: 'x', context: {} }).isError, undefined);
+  assert.equal(modB.tools.callTool('submit_intent', { event: 'intent', name: 'choose-option', target: 'x', context: {} }).isError, true);
+});

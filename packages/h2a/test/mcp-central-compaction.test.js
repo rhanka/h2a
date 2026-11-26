@@ -1320,3 +1320,104 @@ test('NB-1/NB-2/NB-3: lock revalidation of owner/barrier/tx state, bounded order
     assert.ok(res.archived.operations >= 80);
   }
 });
+
+test('L5B item 3/4: interrupted startup migration resumes after stop with 0 loss, 0 duplicates and real durability', { timeout: 30_000 }, async t => {
+  const dir = makeDir(t, 'mcp-l5b-crash-resume-');
+  const root = join(dir, 'store');
+  const stateDir = join(dir, 'state');
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  establishWriterControl(root, stateDir);
+
+  const TOTAL_OPS = 1_500;
+  const TOTAL_EFF = 1_500;
+  seedHistoricalState(stateDir, { root, operations: TOTAL_OPS, effects: TOTAL_EFF });
+
+  const id = currentIdentity();
+  const gen1 = randomUUID();
+  const lockDir = writerDirectory(root);
+  const reg1 = new OwnershipRegistry({ directory: stateDir, generation: gen1, processIdentity: id, lockDirectory: lockDir });
+  const ledger1 = new OperationLedger(reg1);
+  t.after(() => ledger1.stopMigration());
+  // Create a live pending operation (owned by current live identity `id`) that must remain pending across crash recovery.
+  const liveToken = reg1.claim({ attachmentId: 'live-pending-att', presenceSessionId: 'pending:live-att', expectedInstance: 'identity_disabled' });
+  const livePending = ledger1.begin(liveToken, 'live-pending-op-0', 'call');
+  assert.equal(ledger1.ledgerMigrationComplete, false, '3,001 files must trigger background migration');
+
+  // Interrupt mid-Phase 2 while files have started moving into archive/batch-*
+  // (covering both pre-checkpoint and mid-checkpoint partial states).
+  const interruptDeadline = Date.now() + 15_000;
+  const countArchivedFiles = () => {
+    const archDir = join(stateDir, 'archive');
+    if (!fs.existsSync(archDir)) return 0;
+    let total = 0;
+    for (const batch of fs.readdirSync(archDir)) {
+      if (!batch.startsWith('batch-')) continue;
+      total += fs.readdirSync(join(archDir, batch)).length;
+    }
+    return total;
+  };
+  while (countArchivedFiles() < 128 && !ledger1.ledgerMigrationComplete && Date.now() < interruptDeadline) {
+    await new Promise(r => setTimeout(r, 15));
+  }
+  await ledger1.stopMigration();
+  const movedBeforeInterrupt = countArchivedFiles();
+  assert.ok(movedBeforeInterrupt >= 128 && movedBeforeInterrupt < TOTAL_OPS + TOTAL_EFF,
+    `expected mid-flight interruption (moved=${movedBeforeInterrupt} of ${TOTAL_OPS + TOTAL_EFF})`);
+
+  // Simulate an interrupted trailing partial manifest line without newline before recovery.
+  const manifestPath = join(stateDir, 'archive', 'manifest.jsonl');
+  if (fs.existsSync(manifestPath)) {
+    fs.appendFileSync(manifestPath, '{"partial":"torn-line-without-newline"');
+  }
+
+  // Simulate restart: new OwnershipRegistry + new OperationLedger without fsyncSync mocks.
+  const gen2 = randomUUID();
+  const reg2 = await OwnershipRegistry.createAsync({ directory: stateDir, generation: gen2, processIdentity: id, lockDirectory: lockDir });
+  const ledger2 = new OperationLedger(reg2);
+  t.after(() => ledger2.stopMigration());
+  const resumeDeadline = Date.now() + 20_000;
+  while (!ledger2.ledgerMigrationComplete && Date.now() < resumeDeadline) {
+    await new Promise(r => setTimeout(r, 20));
+  }
+  assert.equal(ledger2.ledgerMigrationComplete, true, 'restarted ledger must complete migration cleanly');
+
+  // Verify 0 lost and 0 duplicate files across root + archive batches.
+  const rootOpFiles = fs.readdirSync(stateDir).filter(n => n.startsWith('operation-'));
+  const rootEffFiles = fs.readdirSync(stateDir).filter(n => n.startsWith('effect-'));
+  const archOpFiles = [];
+  const archEffFiles = [];
+  for (const batch of fs.readdirSync(join(stateDir, 'archive'))) {
+    if (!batch.startsWith('batch-')) continue;
+    for (const f of fs.readdirSync(join(stateDir, 'archive', batch))) {
+      if (f.startsWith('operation-')) archOpFiles.push(f);
+      else if (f.startsWith('effect-')) archEffFiles.push(f);
+    }
+  }
+  const allOps = new Set([...rootOpFiles, ...archOpFiles]);
+  const allEffs = new Set([...rootEffFiles, ...archEffFiles]);
+  assert.equal(rootOpFiles.length + archOpFiles.length, TOTAL_OPS + 1, '0 duplicate or lost operation files');
+  assert.equal(allOps.size, TOTAL_OPS + 1, 'every unique operation preserved');
+  assert.equal(rootEffFiles.length + archEffFiles.length, TOTAL_EFF, '0 duplicate or lost effect files');
+  assert.equal(allEffs.size, TOTAL_EFF, 'every unique effect preserved');
+
+  // Pending operation remains active & readable across restart; finish closes drain cleanly; historical ops & effects remain readable through archive indexes.
+  assert.equal(ledger2.drain().complete, false, 'live pending op still blocks drain until finished');
+  assert.equal(ledger2.getOperation(livePending.operationId)?.state, 'pending', 'live pending op preserved across crash boundary');
+  ledger2.finish(livePending, { completed: true });
+  assert.equal(ledger2.drain().complete, true, 'drain completes once live pending op finishes');
+  assert.equal(ledger2.operations().length >= 1, true);
+  for (const sampleIdx of [0, 31, 511, 512, 1024, TOTAL_OPS - 1]) {
+    const hOp = ledger2.getOperation(`hist-op-${sampleIdx}`);
+    assert.equal(hOp?.state, 'completed', `hist-op-${sampleIdx} readable across crash boundary`);
+    assert.equal(hOp?.result?.idx, sampleIdx);
+  }
+  const effectsAll = new Set();
+  for (let attIdx = 0; attIdx < 4; attIdx++) {
+    for (const eff of ledger2.effects(`hist-att-${attIdx}`)) effectsAll.add(eff.operationId);
+  }
+  const restored = ledger2.restoreArchive();
+  // Exclude livePending (left active/just finished at root beyond archived set if not compacted) and live attachment ownership/effect: verify every seeded op+effect was archived & restored cleanly.
+  assert.ok(restored.restored >= TOTAL_OPS + TOTAL_EFF, `restoreArchive recovers every migrated op and effect (got ${restored.restored})`);
+  assert.equal(restored.conflictCount, 0, '0 conflicts across resumed migration restore');
+});
