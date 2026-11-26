@@ -198,9 +198,12 @@ function activeComposerAfterMatch(capture: string, matchEndIndex: number, profil
   if (after.trim().length === 0) return false;
   const tail = captureTailLines(after, 12);
   if (profile === "agy") {
-    return hasBottomComposerWithoutModalFooter(tail, /^\s*(?:│\s*)?>/, {
-      requireChrome: /\?\s*for\s+shortcuts/i,
-    });
+    return (
+      hasBottomComposerWithoutModalFooter(tail, /^\s*(?:│\s*)?>/, {
+        requireChrome: /\?\s*for\s+shortcuts/i,
+      }) ||
+      hasBottomComposerWithoutModalFooter(tail, /^\s*❯\s*Ready\s*$/)
+    );
   }
   if (profile === "codex") {
     return hasBottomComposerWithoutModalFooter(tail, /^\s*›(?:\s+(?!\d+\.)|\s*$)/, {
@@ -278,7 +281,7 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
   {
     profiles: ["agy"],
     match:
-      /(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI[\s\S]{0,240}Choose\s+(?:your\s+)?color\s+(?:scheme|theme)[\s\S]{0,900}(?:\[Next\]|enter\s+(?:Confirm|to\s+continue))|Terms\s+of\s+Service\s*&\s*Data\s+Use[\s\S]{0,900}(?:\[Done\]|enter\s+Confirm))/i,
+      /(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI[\s\S]{0,240}Choose\s+(?:a\s+|your\s+)?color\s+(?:scheme|theme)[\s\S]{0,900}(?:\[Next\]|enter\s+(?:Confirm|to\s+continue))|Terms\s+of\s+Service\s*&\s*Data\s+Use[\s\S]{0,900}(?:\[Done\]|enter\s+Confirm))/i,
     modal: {
       code: "cli-first-run-wizard",
       reason: "AGY is waiting on its first-run onboarding wizard",
@@ -292,17 +295,17 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     modal: {
       code: "cli-workspace-not-trusted",
       reason: "Muse is waiting on its workspace-trust prompt (directory-trust)",
-      hint: "trust this workspace in an interactive Muse session, then relaunch",
+      hint: "approve this directory once in an interactive Muse session, then relaunch",
     },
   },
   {
     profiles: ["codex"],
     match:
-      /(?:Folder\s+access[\s\S]{0,300}(?:Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}Trust\s+and\s+continue|You\s+are\s+running\s+Codex[\s\S]{0,200}1\.\s+Yes,\s*continue)[\s\S]{0,200}(?:enter\s+(?:to\s+)?(?:continue|confirm)|Back\s+to\s+Agent\s+Command\s+Center)|Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}(?:›\s*1\.|1\.)?\s*Trust\s+and\s+continue[\s\S]{0,200}(?:enter\s+continue|Back\s+to\s+Agent\s+Command\s+Center))/i,
+      /(?:Folder\s+access[\s\S]{0,300}(?:Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}Trust\s+and\s+continue|You\s+are\s+running\s+Codex[\s\S]{0,200}1\.\s+Yes,\s*continue)[\s\S]{0,200}(?:enter\s+(?:to\s+)?(?:continue|confirm)|Back\s+to\s+Agent\s+Command\s+Center)|Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}(?:›\s*1\.|1\.)?\s*Trust\s+and\s+continue[\s\S]{0,200}(?:enter\s+continue|Back\s+to\s+Agent\s+Command\s+Center)|Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?[\s\S]{0,200}(?:[›>❯]?\s*1\.\s*Yes,\s*continue)[\s\S]{0,160}Press\s+(?:enter|return)\s+to\s+continue)/i,
     modal: {
       code: "cli-workspace-not-trusted",
-      reason: "Codex is waiting on its folder-trust prompt (directory-trust)",
-      hint: "trust this directory once in an interactive Codex session, then relaunch",
+      reason: "Codex is waiting on its directory-trust prompt",
+      hint: "approve this directory once in an interactive Codex session, then relaunch",
     },
   },
   {
@@ -312,7 +315,7 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     modal: {
       code: "cli-workspace-not-trusted",
       reason: "Claude Code is waiting on its directory-trust prompt",
-      hint: "trust this workspace once in an interactive Claude Code session, then relaunch",
+      hint: "approve this directory once in an interactive Claude Code session, then relaunch",
     },
   },
   {
@@ -328,7 +331,7 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
   {
     profiles: ["claude", "codex", "gemini", "muse"],
     match:
-      /(?:hooks?\s+(?:need\s+review|are\s+new\s+or\s+changed|require\s+review)|hook\s+is\s+new\s+or\s+changed|new\s+or\s+changed\s+hooks?|Review\s+(?:plugin|project)\s+hooks?)[\s\S]{0,360}(?:[›>❯]?\s*1\.\s+\S|Review\s+hooks|Trust\s+and\s+continue|Continue\s+without\s+trusting)[\s\S]{0,200}(?:(?:press\s+)?(?:enter|return)|esc\s+to\s+(?:cancel|back)|\[y\/N\])/i,
+      /(?:hooks?\s+(?:need\s+review|are\s+new\s+or\s+changed|require\s+review)|hook\s+is\s+new\s+or\s+changed|new\s+or\s+changed\s+hooks?|Review\s+(?:plugin|project)\s+hooks?)[\s\S]{0,360}(?:[›>❯]?\s*1\.\s*(?:Review\s+hooks|Approve|Trust)|Continue\s+without\s+trusting)/i,
     modal: {
       code: "cli-hooks-review-required",
       reason: "the host is waiting on its hook-review prompt",
@@ -456,6 +459,16 @@ export function paneHasBlockingActivity(capture: string): boolean {
   return false;
 }
 
+function isRecognizableHostBanner(capture: string): "agy" | "codex" | undefined {
+  if (/(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI|Antigravity\s+CLI\s+1\.\d|Accessing\s+workspace:)/i.test(capture)) {
+    return "agy";
+  }
+  if (/(?:OpenAI\s+Codex|model:\s*loading)/i.test(capture)) {
+    return "codex";
+  }
+  return undefined;
+}
+
 export function paneIsReady(capture: string, profile?: string): boolean {
   if (paneHasBlockingActivity(capture)) return false;
   if (detectHostModal(capture, profile) !== undefined) return false;
@@ -470,10 +483,9 @@ export function paneIsReady(capture: string, profile?: string): boolean {
     return /❯/.test(capture) && /·\s*(?:~|\/)/.test(capture);
   }
   if (profile === undefined) {
-    if (/(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI|Antigravity\s+CLI\s+1\.\d|Accessing\s+workspace:)/i.test(capture)) {
-      return agyPaneHasComposer(capture);
-    }
-    if (/(?:OpenAI\s+Codex|model:\s*loading)/i.test(capture)) {
+    const banner = isRecognizableHostBanner(capture);
+    if (banner === "agy") return agyPaneHasComposer(capture);
+    if (banner === "codex") {
       return /›/.test(capture) && /·\s*(?:~|\/)/.test(capture) && !/model:\s*loading/i.test(capture);
     }
   }
@@ -512,7 +524,9 @@ export function guardPaneBeforeAutomatedInput(
       modal,
     };
   }
-  if (mode === "cli-input" && (profile === "agy" || profile === undefined) && !paneIsReady(capture, profile)) {
+  const recognizedUnlabeled =
+    profile === undefined && isRecognizableHostBanner(capture) !== undefined;
+  if (mode === "cli-input" && (profile === "agy" || recognizedUnlabeled) && !paneIsReady(capture, profile)) {
     return {
       ok: false,
       outcome: "deferred",
