@@ -1,9 +1,24 @@
-import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type { FocusAnchorEntry } from "@sentropic/focus/artifact";
+import { validateThemeCss, validateThemeId } from "@sentropic/focus";
 import { isOsTemporaryPath } from "../path-safety.js";
-import type { DiagramViewRefusal } from "../../focus-build.js";
+import { extractFocusRefusals } from "../../focus-build.js";
+import {
+  createFocusBuildManager,
+  FOCUS_BUILD_RESULT_MAX_WAIT_MS,
+  isValidFocusJobId,
+  type FocusBuildJobResultResponse,
+  type FocusBuildManager,
+  type FocusBuildSubmitResult,
+  type FocusBuildWorkerOptions,
+  type FocusPublishRequestSpec,
+  type FocusRefusal
+} from "./focus-jobs.js";
+
+export type { FocusRefusal } from "./focus-jobs.js";
 
 export const FOCUS_TEMPLATE_KINDS = ["dossier", "evidence", "all"] as const;
 export type FocusTemplateKind = (typeof FOCUS_TEMPLATE_KINDS)[number];
@@ -13,21 +28,21 @@ export interface FocusBuildRequest {
   readonly output: string;
 }
 
+export interface FocusSubmitBuildRequest {
+  readonly input: string;
+  readonly output?: string;
+  readonly publish?: FocusPublishRequestSpec;
+  readonly options: FocusBuildWorkerOptions;
+}
+
+export interface FocusBuildResultQuery {
+  readonly jobId: string;
+  readonly waitMs?: number;
+}
+
 export interface FocusCheckRequest {
   readonly input: string;
   readonly previousManifest?: string;
-}
-
-export interface FocusRefusal {
-  readonly code: string;
-  readonly message: string;
-  readonly path?: string;
-  readonly sectionId?: string;
-  readonly slot?: string;
-  readonly entityId?: string;
-  readonly neededPx?: number;
-  readonly allocatedPx?: number;
-  readonly text?: string;
 }
 
 export type FocusBuildResult =
@@ -36,6 +51,14 @@ export type FocusBuildResult =
       readonly output: string;
       readonly bytes: number;
       readonly warnings: readonly string[];
+      [key: string]: unknown;
+    }
+  | {
+      readonly ok: true;
+      readonly pending: true;
+      readonly jobId: string;
+      readonly state: "queued" | "running";
+      readonly output: string;
       [key: string]: unknown;
     }
   | {
@@ -93,9 +116,35 @@ export type FocusTemplateResult =
     };
 
 const ALLOWED_BUILD_KEYS = new Set(["input", "output"]);
+const ALLOWED_SUBMIT_BUILD_KEYS = new Set([
+  "input",
+  "output",
+  "publish",
+  "mode",
+  "target",
+  "renderer",
+  "themeCss",
+  "themeId"
+]);
+const ALLOWED_PUBLISH_KEYS = new Set([
+  "enabled",
+  "federation",
+  "workspaceRef",
+  "artifactId",
+  "previousManifest",
+  "expectedCurrentReleaseId",
+  "title",
+  "description",
+  "icon",
+  "idempotencyKey"
+]);
+const ALLOWED_BUILD_RESULT_KEYS = new Set(["jobId", "waitMs"]);
 const ALLOWED_CHECK_KEYS = new Set(["input", "previousManifest"]);
 const ALLOWED_TEMPLATE_KEYS = new Set(["kind"]);
 const KIT_DIR = new URL("../../../focus-kit/", import.meta.url);
+const MAX_THEME_CSS_BYTES = 262_144;
+const PUBLISH_WORKSPACE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+const PUBLISH_FEDERATION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 
 class FocusGuardError extends Error {
   readonly code: string;
@@ -300,6 +349,80 @@ export function validateFocusCheckRequest(
     : { input: canonicalInput };
 }
 
+function resolveWritableHtmlOutput(
+  rawOutput: string,
+  canonicalInput: string,
+  rawRoot: string,
+  canonicalRoot: string,
+  toolName: string
+): string {
+  assertSymlinksStayWithin(canonicalRoot, rawRoot, resolve(rawOutput), "output", false, toolName);
+  const lexicalOutput = resolve(rawOutput);
+  const lexicalOutputParent = dirname(lexicalOutput);
+  let canonicalOutputParent: string;
+  try {
+    canonicalOutputParent = realpathSync(lexicalOutputParent);
+  } catch {
+    throw new FocusGuardError("path_policy", `${toolName}: 'output' parent directory must exist`);
+  }
+  if (!statSync(canonicalOutputParent).isDirectory()) {
+    throw new FocusGuardError("path_policy", `${toolName}: 'output' parent must be a directory`);
+  }
+  if (!isWithin(canonicalRoot, canonicalOutputParent)) {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: 'output' must stay within the MCP startup workspace`
+    );
+  }
+  if (isTemporaryLocation(canonicalOutputParent)) {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: 'output' may not be under the OS temporary directory (/tmp is refused)`
+    );
+  }
+
+  const outputName = basename(lexicalOutput);
+  if (extname(outputName).toLowerCase() !== ".html") {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: 'output' must be a .html file path (non-.html files are never overwritten)`
+    );
+  }
+  const canonicalOutput = join(canonicalOutputParent, outputName);
+  try {
+    const outputStat = lstatSync(canonicalOutput);
+    if (outputStat.isSymbolicLink()) {
+      throw new FocusGuardError("path_policy", `${toolName}: 'output' must not be a symbolic link`);
+    }
+    if (!outputStat.isFile()) {
+      throw new FocusGuardError("path_policy", `${toolName}: 'output' must be a regular .html file`);
+    }
+  } catch (error) {
+    if (error instanceof FocusGuardError) throw error;
+    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+      throw new FocusGuardError(
+        "path_policy",
+        `${toolName}: cannot inspect 'output': ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  if (canonicalOutput === canonicalInput) {
+    throw new FocusGuardError("path_policy", "Output must differ from the input dossier");
+  }
+
+  return canonicalOutput;
+}
+
+function assertHtmlExtension(rawOutput: string, toolName: string): void {
+  if (rawOutput.endsWith("/") || rawOutput.endsWith("\\") || extname(rawOutput).toLowerCase() !== ".html") {
+    throw new FocusGuardError(
+      "path_policy",
+      `${toolName}: 'output' must be a .html file path (non-.html files are never overwritten)`
+    );
+  }
+}
+
 export function validateFocusBuildRequest(
   args: Record<string, unknown> | undefined,
   workspaceRoot: string
@@ -315,189 +438,301 @@ export function validateFocusBuildRequest(
     );
   }
 
-  const rawInput = requiredPathString(args, "input");
-  const rawOutput = requiredPathString(args, "output");
+  const rawInput = requiredPathString(args, "input", "h2a_focus_build");
+  const rawOutput = requiredPathString(args, "output", "h2a_focus_build");
+  assertHtmlExtension(rawOutput, "h2a_focus_build");
 
-  if (rawOutput.endsWith("/") || rawOutput.endsWith("\\") || extname(rawOutput).toLowerCase() !== ".html") {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'output' must be a .html file path (non-.html files are never overwritten)"
-    );
-  }
-
-  const rawRoot = resolve(workspaceRoot);
-  let canonicalRoot: string;
-  try {
-    canonicalRoot = realpathSync(rawRoot);
-  } catch {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: MCP workspace root must exist"
-    );
-  }
-  if (!statSync(canonicalRoot).isDirectory()) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: MCP workspace root must be a directory"
-    );
-  }
-  if (isTemporaryLocation(canonicalRoot)) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: Focus dossier paths may not be under the OS temporary directory (/tmp is refused)"
-    );
-  }
-
-  const lexicalInput = resolve(rawInput);
-  const lexicalOutput = resolve(rawOutput);
-
-  assertSymlinksStayWithin(canonicalRoot, rawRoot, lexicalInput, "input", true);
-  let canonicalInput: string;
-  try {
-    canonicalInput = realpathSync(lexicalInput);
-  } catch {
-    throw new FocusGuardError("path_policy", "h2a_focus_build: 'input' file must exist");
-  }
-  if (!isWithin(canonicalRoot, canonicalInput)) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'input' must stay within the MCP startup workspace"
-    );
-  }
-  if (isTemporaryLocation(canonicalInput)) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'input' may not be under the OS temporary directory (/tmp is refused)"
-    );
-  }
-  if (!statSync(canonicalInput).isFile()) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'input' must be a regular JSON file"
-    );
-  }
-
-  assertSymlinksStayWithin(canonicalRoot, rawRoot, lexicalOutput, "output", false);
-  const lexicalOutputParent = dirname(lexicalOutput);
-  let canonicalOutputParent: string;
-  try {
-    canonicalOutputParent = realpathSync(lexicalOutputParent);
-  } catch {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'output' parent directory must exist"
-    );
-  }
-  if (!statSync(canonicalOutputParent).isDirectory()) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'output' parent must be a directory"
-    );
-  }
-  if (!isWithin(canonicalRoot, canonicalOutputParent)) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'output' must stay within the MCP startup workspace"
-    );
-  }
-  if (isTemporaryLocation(canonicalOutputParent)) {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'output' may not be under the OS temporary directory (/tmp is refused)"
-    );
-  }
-
-  const outputName = basename(lexicalOutput);
-  if (extname(outputName).toLowerCase() !== ".html") {
-    throw new FocusGuardError(
-      "path_policy",
-      "h2a_focus_build: 'output' must be a .html file path (non-.html files are never overwritten)"
-    );
-  }
-  const canonicalOutput = join(canonicalOutputParent, outputName);
-  try {
-    const outputStat = lstatSync(canonicalOutput);
-    if (outputStat.isSymbolicLink()) {
-      throw new FocusGuardError(
-        "path_policy",
-        "h2a_focus_build: 'output' must not be a symbolic link"
-      );
-    }
-    if (!outputStat.isFile()) {
-      throw new FocusGuardError(
-        "path_policy",
-        "h2a_focus_build: 'output' must be a regular .html file"
-      );
-    }
-  } catch (error) {
-    if (error instanceof FocusGuardError) throw error;
-    if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
-      throw new FocusGuardError(
-        "path_policy",
-        `h2a_focus_build: cannot inspect 'output': ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
-  if (canonicalOutput === canonicalInput) {
-    throw new FocusGuardError(
-      "path_policy",
-      "Output must differ from the input dossier"
-    );
-  }
+  const { rawRoot, canonicalRoot } = resolveWorkspaceRoot(workspaceRoot, "h2a_focus_build");
+  const canonicalInput = resolveExistingInputFile(rawInput, "input", rawRoot, canonicalRoot, "h2a_focus_build");
+  const canonicalOutput = resolveWritableHtmlOutput(rawOutput, canonicalInput, rawRoot, canonicalRoot, "h2a_focus_build");
 
   return { input: canonicalInput, output: canonicalOutput };
 }
 
-interface StructuralValidationIssue {
-  readonly path?: unknown;
-  readonly code?: unknown;
-  readonly message?: unknown;
+function validateOptionalShortString(
+  obj: Record<string, unknown>,
+  field: string,
+  toolName: string,
+  maxLength: number
+): string | undefined {
+  const value = obj[field];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > maxLength || /[\u0000-\u001f]/u.test(value)) {
+    throw new FocusGuardError(
+      "invalid_arguments",
+      `${toolName}: '${field}' must be a non-empty string (max ${maxLength} chars, no control chars)`
+    );
+  }
+  return value;
+}
+
+function parsePublishSpec(
+  rawPublish: unknown,
+  rawRoot: string,
+  canonicalRoot: string
+): FocusPublishRequestSpec | undefined {
+  const toolName = "h2a_focus_submit_build";
+  if (rawPublish === undefined) return undefined;
+  if (typeof rawPublish === "boolean") {
+    return rawPublish ? {} : undefined;
+  }
+  if (typeof rawPublish !== "object" || rawPublish === null || Array.isArray(rawPublish)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'publish' must be an object or boolean`);
+  }
+  const obj = rawPublish as Record<string, unknown>;
+  const unknown = Object.keys(obj).filter((key) => !ALLOWED_PUBLISH_KEYS.has(key));
+  if (unknown.length > 0) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: unknown publish field(s): ${unknown.join(", ")}`);
+  }
+  if (obj.enabled !== undefined && typeof obj.enabled !== "boolean") {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'publish.enabled' must be a boolean`);
+  }
+  if (obj.enabled === false) {
+    if (Object.keys(obj).some((k) => k !== "enabled")) {
+      throw new FocusGuardError(
+        "invalid_arguments",
+        `${toolName}: 'publish.enabled = false' cannot be combined with other publish fields`
+      );
+    }
+    return undefined;
+  }
+
+  const federation = validateOptionalShortString(obj, "federation", toolName, 64);
+  if (federation !== undefined && !PUBLISH_FEDERATION_PATTERN.test(federation)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'publish.federation' has an invalid identifier`);
+  }
+  const workspaceRef = validateOptionalShortString(obj, "workspaceRef", toolName, 128);
+  if (workspaceRef !== undefined && !PUBLISH_WORKSPACE_ID_PATTERN.test(workspaceRef)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'publish.workspaceRef' has an invalid identifier`);
+  }
+  const artifactId = validateOptionalShortString(obj, "artifactId", toolName, 128);
+  const title = validateOptionalShortString(obj, "title", toolName, 160);
+  const icon = validateOptionalShortString(obj, "icon", toolName, 32);
+  const idempotencyKey = validateOptionalShortString(obj, "idempotencyKey", toolName, 256);
+
+  let description: string | undefined;
+  if (obj.description !== undefined) {
+    if (typeof obj.description !== "string" || obj.description.length > 2000) {
+      throw new FocusGuardError("invalid_arguments", `${toolName}: 'publish.description' must be a string <= 2000 chars`);
+    }
+    description = obj.description;
+  }
+
+  let expectedCurrentReleaseId: string | null | undefined;
+  if (obj.expectedCurrentReleaseId !== undefined) {
+    if (obj.expectedCurrentReleaseId === null) {
+      expectedCurrentReleaseId = null;
+    } else if (typeof obj.expectedCurrentReleaseId === "string" && obj.expectedCurrentReleaseId.trim().length > 0 && obj.expectedCurrentReleaseId.length <= 128) {
+      expectedCurrentReleaseId = obj.expectedCurrentReleaseId;
+    } else {
+      throw new FocusGuardError(
+        "invalid_arguments",
+        `${toolName}: 'publish.expectedCurrentReleaseId' must be a non-empty string or null`
+      );
+    }
+  }
+
+  const previousManifest =
+    obj.previousManifest !== undefined
+      ? resolveExistingInputFile(
+          requiredPathString(obj, "previousManifest", toolName),
+          "previousManifest",
+          rawRoot,
+          canonicalRoot,
+          toolName
+        )
+      : undefined;
+
+  return {
+    ...(federation !== undefined ? { federation } : {}),
+    ...(workspaceRef !== undefined ? { workspaceRef } : {}),
+    ...(artifactId !== undefined ? { artifactId } : {}),
+    ...(previousManifest !== undefined ? { previousManifest } : {}),
+    ...(expectedCurrentReleaseId !== undefined ? { expectedCurrentReleaseId } : {}),
+    ...(title !== undefined ? { title } : {}),
+    ...(description !== undefined ? { description } : {}),
+    ...(icon !== undefined ? { icon } : {}),
+    ...(idempotencyKey !== undefined ? { idempotencyKey } : {})
+  };
+}
+
+export function validateFocusSubmitBuildRequest(
+  args: Record<string, unknown> | undefined,
+  workspaceRoot: string
+): FocusSubmitBuildRequest {
+  const toolName = "h2a_focus_submit_build";
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: missing arguments`);
+  }
+  const unknown = Object.keys(args).filter((key) => !ALLOWED_SUBMIT_BUILD_KEYS.has(key));
+  if (unknown.length > 0) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: unknown field(s): ${unknown.join(", ")}`);
+  }
+
+  const rawInput = requiredPathString(args, "input", toolName);
+  const rawOutput = args.output !== undefined ? requiredPathString(args, "output", toolName) : undefined;
+  if (rawOutput !== undefined) {
+    assertHtmlExtension(rawOutput, toolName);
+  }
+
+  const renderer = args.renderer as unknown;
+  if (renderer !== undefined && renderer !== "svelte" && renderer !== "vue") {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'renderer' must be 'svelte' or 'vue'`);
+  }
+  const mode = args.mode as unknown;
+  if (mode !== undefined && mode !== "decision" && mode !== "report") {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'mode' must be 'decision' or 'report'`);
+  }
+  if (mode === "report" && (renderer ?? "svelte") !== "vue") {
+    throw new FocusGuardError(
+      "invalid_arguments",
+      `${toolName}: 'mode' = 'report' requires 'renderer' = 'vue'`
+    );
+  }
+  const target = args.target as unknown;
+  if (target !== undefined && target !== "document" && target !== "artifact") {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'target' must be 'document' or 'artifact'`);
+  }
+
+  let validatedThemeId: string | undefined;
+  if (args.themeId !== undefined) {
+    if (typeof args.themeId !== "string" || args.themeId.length === 0) {
+      throw new FocusGuardError("invalid_arguments", `${toolName}: 'themeId' must be a non-empty string`);
+    }
+    try {
+      validatedThemeId = validateThemeId(args.themeId);
+    } catch (error) {
+      throw new FocusGuardError("invalid_arguments", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  let validatedThemeCss: string | undefined;
+  if (args.themeCss !== undefined) {
+    if (typeof args.themeCss !== "string" || args.themeCss.length === 0) {
+      throw new FocusGuardError("invalid_arguments", `${toolName}: 'themeCss' must be a non-empty string`);
+    }
+    if (Buffer.byteLength(args.themeCss, "utf8") > MAX_THEME_CSS_BYTES) {
+      throw new FocusGuardError(
+        "invalid_arguments",
+        `${toolName}: 'themeCss' exceeds maximum size of ${MAX_THEME_CSS_BYTES} bytes`
+      );
+    }
+    try {
+      validatedThemeCss = validateThemeCss(args.themeCss);
+    } catch (error) {
+      throw new FocusGuardError("invalid_arguments", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const { rawRoot, canonicalRoot } = resolveWorkspaceRoot(workspaceRoot, toolName);
+  const canonicalInput = resolveExistingInputFile(rawInput, "input", rawRoot, canonicalRoot, toolName);
+  const canonicalOutput =
+    rawOutput !== undefined
+      ? resolveWritableHtmlOutput(rawOutput, canonicalInput, rawRoot, canonicalRoot, toolName)
+      : undefined;
+  const publish = parsePublishSpec(args.publish, rawRoot, canonicalRoot);
+
+  if (canonicalOutput === undefined && publish === undefined) {
+    throw new FocusGuardError(
+      "invalid_arguments",
+      `${toolName}: at least one of 'output' or 'publish' must be specified`
+    );
+  }
+
+  const options: FocusBuildWorkerOptions = {
+    ...(renderer !== undefined ? { renderer } : {}),
+    ...(mode !== undefined ? { mode } : {}),
+    ...(target !== undefined ? { target } : {}),
+    ...(validatedThemeCss !== undefined ? { themeCss: validatedThemeCss } : {}),
+    ...(validatedThemeId !== undefined ? { themeId: validatedThemeId } : {})
+  };
+
+  return {
+    input: canonicalInput,
+    ...(canonicalOutput !== undefined ? { output: canonicalOutput } : {}),
+    ...(publish !== undefined ? { publish } : {}),
+    options
+  };
+}
+
+export function validateFocusBuildResultRequest(
+  args: Record<string, unknown> | undefined
+): FocusBuildResultQuery {
+  const toolName = "h2a_focus_build_result";
+  if (!args || typeof args !== "object" || Array.isArray(args)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: missing arguments`);
+  }
+  const unknown = Object.keys(args).filter((key) => !ALLOWED_BUILD_RESULT_KEYS.has(key));
+  if (unknown.length > 0) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: unknown field(s): ${unknown.join(", ")}`);
+  }
+  const jobId = args.jobId;
+  if (!isValidFocusJobId(jobId)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'jobId' must be a valid UUID string`);
+  }
+  let waitMs: number | undefined;
+  if (args.waitMs !== undefined) {
+    if (typeof args.waitMs !== "number" || !Number.isFinite(args.waitMs) || args.waitMs < 0) {
+      throw new FocusGuardError(
+        "invalid_arguments",
+        `${toolName}: 'waitMs' must be a non-negative number (0..${FOCUS_BUILD_RESULT_MAX_WAIT_MS})`
+      );
+    }
+    waitMs = args.waitMs;
+  }
+  return waitMs !== undefined ? { jobId, waitMs } : { jobId };
 }
 
 function extractRefusals(error: unknown): { message: string; refusals: FocusRefusal[] } {
-  const message = error instanceof Error ? error.message : String(error);
   if (error instanceof FocusGuardError) {
-    return { message, refusals: [{ code: error.code, message }] };
+    return { message: error.message, refusals: [{ code: error.code, message: error.message }] };
   }
-  if (error && typeof error === "object") {
-    const maybeIssues = (error as { issues?: unknown }).issues;
-    if (Array.isArray(maybeIssues) && maybeIssues.length > 0) {
-      const refusals: FocusRefusal[] = maybeIssues.map((entry) => {
-        const issue = entry as StructuralValidationIssue;
-        return {
-          ...(typeof issue.path === "string" ? { path: issue.path } : {}),
-          code: typeof issue.code === "string" ? issue.code : "validation_error",
-          message: typeof issue.message === "string" ? issue.message : String(issue.message ?? "")
-        };
-      });
-      return { message, refusals };
-    }
-    const maybeDiagnostics = (error as { diagnostics?: unknown; sectionId?: unknown }).diagnostics;
-    if (Array.isArray(maybeDiagnostics) && maybeDiagnostics.length > 0) {
-      const sectionId =
-        typeof (error as { sectionId?: unknown }).sectionId === "string"
-          ? ((error as { sectionId: string }).sectionId)
-          : undefined;
-      const refusals: FocusRefusal[] = (maybeDiagnostics as readonly DiagramViewRefusal[]).map((d) => ({
-        code: d.code,
-        ...(sectionId !== undefined ? { sectionId } : {}),
-        slot: d.slot,
-        entityId: d.entityId,
-        neededPx: d.neededPx,
-        allocatedPx: d.allocatedPx,
-        ...(d.text !== undefined ? { text: d.text } : {}),
-        message: `${d.code} ${d.slot} ${d.entityId} needed ${d.neededPx}px > ${d.allocatedPx}px${d.text === undefined ? "" : ` « ${d.text} »`}`
-      }));
-      return { message, refusals };
-    }
+  const extracted = extractFocusRefusals(error);
+  return { message: extracted.message, refusals: extracted.refusals };
+}
+
+export async function handleH2aFocusSubmitBuild(
+  args: Record<string, unknown> | undefined,
+  workspaceRoot: string,
+  manager: FocusBuildManager,
+  env?: Readonly<Record<string, string | undefined>>
+): Promise<FocusBuildSubmitResult> {
+  let request: FocusSubmitBuildRequest;
+  try {
+    request = validateFocusSubmitBuildRequest(args, workspaceRoot);
+  } catch (error) {
+    const { message, refusals } = extractRefusals(error);
+    return { ok: false, error: message, refusals };
   }
-  return { message, refusals: [{ code: "build_refused", message }] };
+
+  return manager.submit({
+    workspaceRoot,
+    input: request.input,
+    ...(request.output !== undefined ? { output: request.output } : {}),
+    ...(request.publish !== undefined ? { publish: request.publish } : {}),
+    options: request.options,
+    ...(env !== undefined ? { env } : {})
+  });
+}
+
+export async function handleH2aFocusBuildResult(
+  args: Record<string, unknown> | undefined,
+  manager: FocusBuildManager
+): Promise<FocusBuildJobResultResponse> {
+  let query: FocusBuildResultQuery;
+  try {
+    query = validateFocusBuildResultRequest(args);
+  } catch (error) {
+    const { message, refusals } = extractRefusals(error);
+    return { ok: false, error: message, refusals };
+  }
+  return manager.getResult(query.jobId, query.waitMs);
 }
 
 export async function handleH2aFocusBuild(
   args: Record<string, unknown> | undefined,
-  workspaceRoot: string
+  workspaceRoot: string,
+  manager?: FocusBuildManager
 ): Promise<FocusBuildResult> {
   let request: FocusBuildRequest;
   try {
@@ -507,33 +742,55 @@ export async function handleH2aFocusBuild(
     return { ok: false, error: message, refusals };
   }
 
-  let document: unknown;
-  try {
-    const raw = readFileSync(request.input, "utf8");
-    document = JSON.parse(raw) as unknown;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      error: message,
-      refusals: [{ code: "invalid_json", message }]
-    };
+  let ephemeralRoot: string | undefined;
+  let activeManager = manager;
+  if (!activeManager) {
+    ephemeralRoot = join(dirname(request.output), `.h2a-focus-job-${randomUUID()}`);
+    mkdirSync(ephemeralRoot, { recursive: true, mode: 0o700 });
+    activeManager = createFocusBuildManager({ stateRoot: ephemeralRoot });
   }
 
   try {
-    // Same in-process builder & atomic file writer as `h2a focus build` (no subprocess).
-    const { buildFocusDossierWithDiagnostics, writeFocusArtifactFile } = await import("../../focus-build.js");
-    const outcome = buildFocusDossierWithDiagnostics(document);
-    writeFocusArtifactFile(request.output, outcome.html);
+    const submitted = activeManager.submit({
+      workspaceRoot,
+      input: request.input,
+      output: request.output,
+      options: {}
+    });
+    if (!submitted.ok) {
+      return { ok: false, error: submitted.error, refusals: submitted.refusals };
+    }
+
+    const boundedWait = Math.min(FOCUS_BUILD_RESULT_MAX_WAIT_MS, activeManager.syncBuildWaitMs);
+    const outcome = await activeManager.getResult(submitted.jobId, boundedWait);
+
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        error: outcome.error,
+        refusals: outcome.refusals
+      };
+    }
+    if (outcome.state === "succeeded") {
+      return {
+        ok: true,
+        output: outcome.output ?? request.output,
+        bytes: outcome.bytes,
+        warnings: [...outcome.warnings]
+      };
+    }
     return {
       ok: true,
-      output: request.output,
-      bytes: Buffer.byteLength(outcome.html, "utf8"),
-      warnings: [...outcome.warnings]
+      pending: true,
+      jobId: submitted.jobId,
+      state: outcome.state,
+      output: request.output
     };
-  } catch (error) {
-    const { message, refusals } = extractRefusals(error);
-    return { ok: false, error: message, refusals };
+  } finally {
+    if (ephemeralRoot !== undefined && !manager) {
+      await activeManager.close().catch(() => {});
+      rmSync(ephemeralRoot, { recursive: true, force: true });
+    }
   }
 }
 

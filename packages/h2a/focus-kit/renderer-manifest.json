@@ -27,7 +27,7 @@
     "../../focus/src/validation/evidence.ts": "4ed0466516ff36fa237fefcd93a3d3612b34da512ecd8d0761571991646c69ab",
     "../../focus/src/render/evidence.ts": "c6a7aed19c0f2db66381eb29665f8fbc0492d1b6ab47e02d878395651a541535",
     "../../focus/schemas/report-document.v1.schema.json": "2e7e51ea589ae06c5aa65b1de7a8b889d82e129e88b4106cec8e04af0f5cee36",
-    "../../../scripts/build-focus-dossier.mjs": "325b357a875e026c3230f574cf7729df5fdca7ca3b520ab0496224a7358d8f6d",
+    "../../../scripts/build-focus-dossier.mjs": "f81229470d1c051ecaa09c6846458e03c4fcbc1cc436d36d21b1f887090924fe",
     "../../focus/schemas/decision-dossier-document.v1.schema.json": "3cd38dafe839a71f5f4b2d6e29008d884612580039f032e1e6b56e6d76d3eb60",
     "../../focus/src/validation/index.ts": "82f4cf473ae981bdbf4e7e19eec306b5dc3ded0b380d75fa5a31ec7d6beb7b45",
     "../../focus/src/validation/readability.ts": "87712c140b6c11dcbf113ca7866d9f4ba615a82286e59985558d7445ae69616e",
@@ -53,5 +53,5 @@
   },
   "html": "3ef2e24529af53b0f7d3d0109c18feefedb2c01d319713801bd96f5f79bbc99f",
   "validator": "9c0c27c5f7cb6bbee1d5a3145b2c09eb18a52251b1de898cc4fc3b4c28a7c8d6",
-  "diagramViews": "ba890946de59ad0e331a221559655efd08aea45632fd814d9b77b880c44c964a"
+  "diagramViews": "5ee91fee0c5bf1c0e4970f4d79d63afaab16a0b1a0221548b40e2ee7193f063e"
 }

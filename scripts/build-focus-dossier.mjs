@@ -78,10 +78,111 @@ if (process.argv.includes('--check')) {
     // The build-time DC-1 views ship self-contained: the pure design-system card/zone renderers are
     // bundled from the kit's single DS pin (the one the renderer bundles), so the published CLI
     // installs no frontend package. Any other module in that graph (Svelte, editors) fails the build.
+    const mustReplace = (src, target, replacement, label) => {
+      const next = src.replace(target, replacement);
+      if (next === src) throw new Error(`build-focus-dossier patch mismatch (${label})`);
+      return next;
+    };
+    const optimizeDiagramRouterPlugin = {
+      name: 'h2a-bound-diagram-routing',
+      setup(buildApi) {
+        buildApi.onLoad({ filter: /[\\/]@sentropic[\\/]diagram-core[\\/]dist[\\/]sha256\.js$/ }, (args) => {
+          let src = readFileSync(args.path, 'utf8');
+          src = mustReplace(
+            src,
+            'export function sha256Hex(text) {',
+            'const _nodeCrypto = typeof globalThis.process?.getBuiltinModule === "function" ? globalThis.process.getBuiltinModule("node:crypto") : undefined;\nexport function sha256Hex(text) {\n    if (_nodeCrypto !== undefined) return _nodeCrypto.createHash("sha256").update(text, "utf8").digest("hex");',
+            'sha256Hex'
+          );
+          return { contents: src, loader: 'js' };
+        });
+        buildApi.onLoad({ filter: /[\\/]@sentropic[\\/]diagram-canvas[\\/]dist[\\/]layout[\\/]route\.js$/ }, (args) => {
+          let src = readFileSync(args.path, 'utf8');
+          src = mustReplace(
+            src,
+            '    for (const y of input.ys) {\n        tryRoute([{ x: s.x, y }, { x: t.x, y }]);\n        for (const x of input.xs) {\n            tryRoute([{ x, y: s.y }, { x, y }, { x: t.x, y }]);\n            tryRoute([{ x: s.x, y }, { x, y }, { x, y: t.y }]);\n        }\n    }',
+            '    let detourYs = input.ys;\n    let detourXs = input.xs;\n    if (detourYs.length * detourXs.length > 144) {\n        const midY = (s.y + t.y) / 2;\n        const midX = (s.x + t.x) / 2;\n        if (detourYs.length > 12) detourYs = [...detourYs].sort((a, b) => Math.abs(a - midY) - Math.abs(b - midY)).slice(0, 12);\n        if (detourXs.length > 12) detourXs = [...detourXs].sort((a, b) => Math.abs(a - midX) - Math.abs(b - midX)).slice(0, 12);\n    }\n    let detourAttempts = 0;\n    const detourCap = input.ys.length * input.xs.length > 144 ? 256 : Number.POSITIVE_INFINITY;\n    for (const y of detourYs) {\n        tryRoute([{ x: s.x, y }, { x: t.x, y }]);\n        if (++detourAttempts >= detourCap) break;\n        for (const x of detourXs) {\n            tryRoute([{ x, y: s.y }, { x, y }, { x: t.x, y }]);\n            tryRoute([{ x: s.x, y }, { x, y }, { x, y: t.y }]);\n            detourAttempts += 2;\n            if (detourAttempts >= detourCap) break;\n        }\n        if (detourAttempts >= detourCap) break;\n    }',
+            'labelDetour'
+          );
+          src = mustReplace(
+            src,
+            '                if (isCorridor && span <= 300) {\n                    tracks.push(...subdivideChannelTracks(low, high, routeSpacing));\n                }',
+            '                if (isCorridor && span <= 300) {\n                    const effSpacing = (grown.length > 20 || requests.length > 24) ? Math.max(routeSpacing, span / 4) : routeSpacing;\n                    tracks.push(...subdivideChannelTracks(low, high, effSpacing));\n                }',
+            'withChannels'
+          );
+          src = mustReplace(
+            src,
+            '        const earlier = pairFull.get(request.pairKey) ?? [];\n        const hasSamePair = earlier.length > 0;',
+            '        const earlier = pairFull.get(request.pairKey) ?? [];\n        const hasSamePair = earlier.length > 0;\n        const pairH = [];\n        const pairV = [];\n        if (hasSamePair) {\n            for (const er of earlier) {\n                for (let ej = 1; ej < er.length; ej += 1) {\n                    const p1 = er[ej - 1], p2 = er[ej];\n                    if (p1.y === p2.y && p1.x !== p2.x) pairH.push(p1.y, Math.min(p1.x, p2.x), Math.max(p1.x, p2.x));\n                    else if (p1.x === p2.x && p1.y !== p2.y) pairV.push(p1.x, Math.min(p1.y, p2.y), Math.max(p1.y, p2.y));\n                }\n            }\n        }\n        const fastPairBlocks = (a1, a2) => {\n            if (a1.x === a2.x && a1.y === a2.y) return false;\n            if (a1.y === a2.y) {\n                const y = a1.y, lo = Math.min(a1.x, a2.x), hi = Math.max(a1.x, a2.x);\n                for (let k = 0; k < pairH.length; k += 3) {\n                    if (pairH[k] === y && Math.min(hi, pairH[k + 2]) - Math.max(lo, pairH[k + 1]) > 0) return true;\n                }\n                for (let k = 0; k < pairV.length; k += 3) {\n                    const x = pairV[k];\n                    if (x > lo && x < hi && y > pairV[k + 1] && y < pairV[k + 2]) return true;\n                }\n            } else if (a1.x === a2.x) {\n                const x = a1.x, lo = Math.min(a1.y, a2.y), hi = Math.max(a1.y, a2.y);\n                for (let k = 0; k < pairV.length; k += 3) {\n                    if (pairV[k] === x && Math.min(hi, pairV[k + 2]) - Math.max(lo, pairV[k + 1]) > 0) return true;\n                }\n                for (let k = 0; k < pairH.length; k += 3) {\n                    const y = pairH[k];\n                    if (y > lo && y < hi && x > pairH[k + 1] && x < pairH[k + 2]) return true;\n                }\n            }\n            return false;\n        };',
+            'pairIndex'
+          );
+          src = mustReplace(
+            src,
+            '                if (strictSpacing && ++pops > 24000)\n                    break;',
+            '                const maxPops = strictSpacing ? 24000 : (orderedRequests.length > 20 ? 6000 : 12000);\n                if (++pops > maxPops)\n                    break;',
+            'maxPops'
+          );
+          src = mustReplace(
+            src,
+            '                        if (crossesSamePair(a1, a2, earlier) || sharesSamePair(a1, a2, earlier))\n                            continue;',
+            '                        if (fastPairBlocks(a1, a2))\n                            continue;',
+            'fastPairBlocks'
+          );
+          src = mustReplace(
+            src,
+            '                    if (strictSpacing && nb + hb > 12)\n                        continue;',
+            '                    const maxBends = strictSpacing ? 12 : (orderedRequests.length > 20 ? 14 : 18);\n                    if (nb + hb > maxBends)\n                        continue;',
+            'maxBends'
+          );
+          return { contents: src, loader: 'js' };
+        });
+        buildApi.onLoad({ filter: /[\\/]@sentropic[\\/]diagram-canvas[\\/]dist[\\/]layout[\\/]measured\.js$/ }, (args) => {
+          let src = readFileSync(args.path, 'utf8');
+          src = mustReplace(
+            src,
+            '                const maxStage2Calls = rects.size > 25 ? 6 : 18;',
+            '                const maxStage2Calls = plan === undefined ? (rects.size > 25 ? 4 : 12) : (rects.size > 25 ? 2 : 4);',
+            'maxStage2Calls'
+          );
+          src = mustReplace(
+            src,
+            '        for (const entry of entries) {',
+            '        let redockLabelBudget = drawnEdges.length > 18 ? 6 : Number.POSITIVE_INFINITY;\n        for (const entry of entries) {',
+            'redockBudget'
+          );
+          src = mustReplace(
+            src,
+            '                if (choice === undefined && edge.source.entity !== edge.target.entity && !sharesPort',
+            '                if (choice === undefined && redockLabelBudget > 0 && edge.source.entity !== edge.target.entity && !sharesPort',
+            'redockBudgetGuard'
+          );
+          src = mustReplace(
+            src,
+            '                    for (const [source, target] of facePairs) {',
+            '                    redockLabelBudget -= 1;\n                    const activeFacePairs = drawnEdges.length > 18 ? facePairs.slice(0, 6) : facePairs;\n                    for (const [source, target] of activeFacePairs) {',
+            'activeFacePairs'
+          );
+          src = mustReplace(
+            src,
+            '    for (let round = 0; round < 24 && (outcome.requested.size > 0 || outcome.unused.length > 0); round += 1) {',
+            '    let stagnantRounds = 0;\n    let prevDemand = outcome.requested.size + outcome.unused.length;\n    for (let round = 0; round < 24 && (outcome.requested.size > 0 || outcome.unused.length > 0); round += 1) {',
+            'stagnantInit'
+          );
+          src = mustReplace(
+            src,
+            '        previous = outcome;\n        outcome = runPass({ frozen, widen, external });\n    }',
+            '        previous = outcome;\n        outcome = runPass({ frozen, widen, external });\n        const curDemand = outcome.requested.size + outcome.unused.length;\n        stagnantRounds = curDemand >= prevDemand ? stagnantRounds + 1 : 0;\n        prevDemand = curDemand;\n        if (drawnEdges.length >= 18 && (stagnantRounds >= 2 || round >= 7)) break;\n    }',
+            'stagnantBreak'
+          );
+          return { contents: src, loader: 'js' };
+        });
+      },
+    };
     const views = await bundleWithEsbuild({ entryPoints: [join(kit, 'src/diagram-model.js')], bundle: true,
       minify: true,
       // Preserve `\n` escapes in string constants (e.g. PINNED_ADAPTER_BYTES) so static import scans do not match string contents.
       supported: { 'template-literal': false },
+      plugins: [optimizeDiagramRouterPlugin],
       platform: 'node', target: 'node22', format: 'esm', absWorkingDir: kit, metafile: true, write: false,
       outfile: join(kit, 'diagram-views.mjs') });
     const viewInputs = Object.keys(views.metafile.inputs);

@@ -771,6 +771,38 @@ export function readWorkspaceBinding(rt: PublishRuntime, localWorkspace: string 
 
 // ---- MCP probe --------------------------------------------------------------------------------
 
+export interface PreparedPublishSession {
+  readonly session: McpSession;
+  readonly workspaceRef: string;
+}
+
+/**
+ * Open an authenticated Sentropic MCP session and resolve the workspaceRef to target.
+ * When `workspaceRef` is omitted, uses the local workspace's bound Sentropic workspace
+ * verified against the logged-in account and tenant.
+ */
+export async function preparePublishSession(
+  rt: PublishRuntime,
+  opts: { readonly localWorkspace: string | undefined; readonly workspaceRef?: string | undefined },
+): Promise<PreparedPublishSession> {
+  const token = await ensureFreshToken(rt);
+  if (opts.workspaceRef !== undefined) {
+    const workspaceRef = assertSentropicWorkspaceId(opts.workspaceRef);
+    const session = await sessionFor(rt, token);
+    return { session, workspaceRef };
+  }
+  const binding = readWorkspaceBinding(rt, opts.localWorkspace);
+  if (binding === undefined) {
+    throw new SentropicPublishError(
+      "binding",
+      "this workspace is not bound to a sentropic workspace: run `h2a sentropic workspaces`, then `h2a sentropic bind <workspace-id>`",
+    );
+  }
+  if (!bindingBelongsTo(binding, token, rt.config.federation)) throw boundByAnotherAccount();
+  const session = await sessionFor(rt, token);
+  return { session, workspaceRef: binding.workspaceId };
+}
+
 /**
  * `tools/list` for the workspace bound here (printable names). A binding made by another account
  * or tenant is refused before any call; a bound workspace the server refuses, or lists no publish

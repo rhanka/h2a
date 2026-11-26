@@ -11918,3 +11918,9 @@ export function openStatusWindowForH2a(session: string): boolean {
 export function capturePaneForH2a(name: string, lines = 200): string {
   return capturePane(name, lines);
 }
+
+export {
+  publishFocusRelease,
+  type FocusPublishRequest,
+  type FocusPublishOutcome,
+} from "./sentropic/focus-publish.js";

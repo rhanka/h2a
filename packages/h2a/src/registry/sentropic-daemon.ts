@@ -241,9 +241,17 @@ function buildAdapter(manifest: Manifest, connectorId: string, rawCallTool: Daem
       // `McpErrorResult { error: string }` (no `content`/`isError` envelope):
       // `h2a_send` without a signing identity, `h2a_register_instance`
       // without a registration, `h2a_session_open` without args. Those are
-      // failures, never `ok:true` payloads.
+      // failures, never `ok:true` payloads. Structured Focus refusals carrying
+      // `{ ok: false, error, refusals }` must preserve their full payload.
+      const isStructuredRefusal =
+        raw !== null &&
+        typeof raw === "object" &&
+        "ok" in raw &&
+        (raw as { ok?: unknown }).ok === false &&
+        Array.isArray((raw as { refusals?: unknown }).refusals);
       if (
         raw !== null && typeof raw === "object" && !isMcpTransportResult(raw) &&
+        !isStructuredRefusal &&
         typeof (raw as { error?: unknown }).error === "string"
       ) {
         return {

@@ -83,7 +83,7 @@
           "role": "manifest",
           "path": "registry/manifest.h2a.json",
           "mediaType": "application/json",
-          "sha256": "2785278ab7d2c7c1610e60cdde3549eeee16c1a489ac735249d8de9926a6036d"
+          "sha256": "195acbdc8bf86656461170d902aed01256e54d8bd2046c05a73213e1aab0092d"
         }
       ],
       "mcp": {
@@ -167,6 +167,8 @@
               "h2a_loop_status",
               "h2a_run",
               "h2a_focus_build",
+              "h2a_focus_submit_build",
+              "h2a_focus_build_result",
               "h2a_focus_check",
               "h2a_focus_template",
               "h2a_remote_status",

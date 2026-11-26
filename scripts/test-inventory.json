@@ -671,6 +671,7 @@
   "packages/h2a/test/mcp-central.test.js": [],
   "packages/h2a/test/mcp-discovery-budget.test.js": [],
   "packages/h2a/test/mcp-discovery-pagination.test.js": [],
+  "packages/h2a/test/mcp-focus-async.test.js": [],
   "packages/h2a/test/mcp-frame-budget.test.js": [],
   "packages/h2a/test/mcp-identity-burst.test.js": [],
   "packages/h2a/test/mcp-identity-readiness.test.js": [],

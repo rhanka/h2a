@@ -145,14 +145,18 @@ Use **MCP tools only** for every Focus, artifact, review, and coordination step.
 - Fix every structured refusal at its reported field path and re-run `h2a_focus_check` until `ok: true`.
 - Never deduce document validity from HTML rendering alone, never drop evidence to bypass a refusal, and never fabricate or alter `ownerRequestQuote`.
 
-### 3. Preview offline or publish to the bound surface
+### 3. Build off-loop asynchronously and deliver (`output` and/or `publish`)
 
-- **Offline standalone export:** call `h2a_focus_build` (`{ input, output }` with an absolute `.html` path in the workspace) for offline reading, local preview without a bound surface, or reproducible CI artifacts. Check the returned `warnings` array: if `linear_chain_as_architecture_cards` appears on a sequential workflow, set `"diagramType": "workflow"`.
-- **Central / bound publication (`h2a_focus_publish`):**
+- **Preferred async workflow (`h2a_focus_submit_build` → `h2a_focus_build_result`):**
+  1. Call `h2a_focus_submit_build` (`{ input, output?, publish?, mode?, target?, renderer?, themeCss?, themeId? }`) — `output` writes the standalone `.html` file inside the workspace, `publish` (`{}` or `{ federation?, workspaceRef?, previousManifest?, expectedCurrentReleaseId?, title? }`) publishes the immutable `focus-dossier/1` release (`dossier.json`, `focus.manifest.json`, and derived `views.json`) via the `h2a_focus_publish` / Sentropic artifacts release flow, or pass **both** in one job. Validation runs immediately and returns `{ ok: true, jobId, state: "queued" }` right away; heavy diagram routing and rendering run in a dedicated child worker off the central event loop and survive client reconnects.
+  2. Retrieve the result with `h2a_focus_build_result` (`{ jobId, waitMs? }`, bounded up to `20000` ms, default `15000` ms). If `state` is `"queued"` or `"running"`, call `h2a_focus_build_result` again with the same `jobId` until `state` is `"succeeded"` (`output`, `bytes`, `warnings`, `publish`) or `"failed"` (`error`, structured `refusals`).
+- **Offline standalone export & compatibility fallback:**
+  - `h2a_focus_submit_build({ input, output })` + `h2a_focus_build_result({ jobId })` (or bounded compatibility wrapper `h2a_focus_build({ input, output })`, which uses the same off-loop worker and returns `{ ok: true, pending: true, jobId, state, output }` instead of dropping or aborting if its bounded wait expires) builds portable offline HTML. Check the returned `warnings` array: if `linear_chain_as_architecture_cards` appears on a sequential workflow, set `"diagramType": "workflow"`.
+- **Central / bound publication rules (`publish` / `h2a_focus_publish`):**
   - **Announce federation and space first:** before the first publication of a dossier, explicitly tell the owner which federation and space/workspace will receive it. Never publish without an explicit session and space binding.
   - **Keep access `restricted`:** preserve `restricted` access on every publication; never widen artifact access automatically.
   - **No automatic send on a simple time-series render:** a simple temporal / time-series render never triggers an automatic publication or external send; publish only when persistence or sharing as an artifact is explicitly intended.
-  - Call `h2a_focus_publish` to create the immutable release (`dossier.json`, `focus.manifest.json`, and derived `views.json` when present) and report the stable URL, version URL, release id, and canonical `documentDigest`.
+  - Report the stable URL, version URL, release id, and canonical `documentDigest` returned on publication (or via `h2a_focus_publish`).
   - Use `h2a_focus_status` and `h2a_focus_get` to inspect release state and retrieve canonical sources. Use surface `artifacts_*` tools (`artifacts_list_versions`, `artifacts_revert`, `artifacts_delete` with human confirmation) for common artifact operations.
 
 ### 4. Follow review threads and republish
