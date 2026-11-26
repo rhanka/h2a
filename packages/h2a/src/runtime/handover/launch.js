@@ -15,7 +15,7 @@ import {
 import { acquirePreclaim } from './authority.js';
 import { classifyDurableProcFrame } from './proc-identity.js';
 import { starterPlan } from './selection.js';
-import { readState, publishState, replaceState } from './state.js';
+import { readState, readStateAsync, publishState, replaceState, replaceStateAsync } from './state.js';
 import { reserveSuccessorAttempt, recordSuccessor, failSuccessor, markSuccessorFailed } from './successor.js';
 
 /** @param {*} options */
@@ -132,4 +132,9 @@ export function markStartupReady(directory, identity) {
   const path = join(directory, 'startup-reservation.json'), slot = readState(path, 'startupReservation');
   if (slot?.value.candidateIdentity && digest(slot.value.candidateIdentity) === digest(identity))
     replaceState(path, { ...slot.value, revision: slot.value.revision + 1, state: 'READY' }, 'startupReservation', slot);
+}
+export async function markStartupReadyAsync(directory, identity) {
+  const path = join(directory, 'startup-reservation.json'), slot = await readStateAsync(path, 'startupReservation');
+  if (slot?.value.candidateIdentity && digest(slot.value.candidateIdentity) === digest(identity))
+    await replaceStateAsync(path, { ...slot.value, revision: slot.value.revision + 1, state: 'READY' }, 'startupReservation', slot);
 }

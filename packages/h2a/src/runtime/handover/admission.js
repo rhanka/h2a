@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { dirname, join, basename, resolve } from 'node:path';
 import { digest } from './wire.js';
 import { validate } from './formats.js';
-import { privateDirectory, readState, publishState, replaceState } from './state.js';
+import { privateDirectory, readState, publishState, replaceState, publishStateAsync, replaceStateAsync } from './state.js';
 import { acquirePreclaim, establishDomain } from './authority.js';
 import { readProcessFrame, classifyDurableProcFrame } from './proc-identity.js';
 import { readWriterGate, writerDirectory } from './mutation.js';
@@ -463,11 +463,12 @@ export async function admitGeneration(authority, ready, afterPublish = (_publica
     const previous = readState(epochsPath, 'epochs');
     const epochs = { schemaVersion: 1, revision: (previous?.value.revision ?? 0) + 1,
       bootId: authority.frame.bootId, counter: previous?.value.bootId === authority.frame.bootId ? previous.value.counter + 1 : 1 };
-    if (previous) replaceState(epochsPath, epochs, 'epochs', previous); else publishState(epochsPath, epochs, 'epochs');
+    if (previous) await replaceStateAsync(epochsPath, epochs, 'epochs', previous);
+    else await publishStateAsync(epochsPath, epochs, 'epochs');
     const value = await ready({ bootId: epochs.bootId, counter: epochs.counter });
     if (value.prefixId !== authority.domain.prefixId || value.namespaceId !== authority.domain.namespaceId ||
       value.root !== authority.domain.canonicalRoot) throw new Error('authority_publication_mismatch');
-    const publication = publishState(path, value, 'marker');
+    const publication = await publishStateAsync(path, value, 'marker');
     await afterPublish(publication);
     return publication;
   } finally { await lock.release(); }

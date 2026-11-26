@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { digest } from './wire.js';
 import { validate } from './formats.js';
-import { privateDirectory, publishState, readState, replaceState } from './state.js';
+import { privateDirectory, publishState, publishStateAsync, readState, readStateAsync, replaceState } from './state.js';
 
 const irrevocable = new Set(['PUBLISHED', 'RETIRED', 'STOP_COMMITTED', 'STOPPED', 'STARTING', 'READY', 'SUCCESSOR_FAILED']);
 const blocked = new Set(['BARRIER', 'FROZEN', 'DRAINING', 'DRAIN_BLOCKED', 'RECOVERY_BLOCKED', ...irrevocable]);
@@ -22,10 +22,22 @@ export class ColdAdministration {
     this.closeRequested = false;
     this._cache = new Map();
     this._dirStamp = null;
-    const control = readState(this.controlPath, 'componentControl');
-    if (!control) publishState(this.controlPath, { schemaVersion: 1, revision: 1, activeTransaction: null,
-      sourceGeneration: this.marker.generation, ownerIdentity: this.marker.processIdentity, ownerState: 'ACTIVE',
-      transactionEpoch: 0, operatorStopCommitted: false, operatorStopped: false }, 'componentControl');
+    if (!options.skipControlInit) {
+      const control = readState(this.controlPath, 'componentControl');
+      if (!control) publishState(this.controlPath, { schemaVersion: 1, revision: 1, activeTransaction: null,
+        sourceGeneration: this.marker.generation, ownerIdentity: this.marker.processIdentity, ownerState: 'ACTIVE',
+        transactionEpoch: 0, operatorStopCommitted: false, operatorStopped: false }, 'componentControl');
+    }
+  }
+  static async createAsync(options) {
+    const admin = new ColdAdministration({ ...options, skipControlInit: true });
+    const control = await readStateAsync(admin.controlPath, 'componentControl');
+    if (!control) {
+      await publishStateAsync(admin.controlPath, { schemaVersion: 1, revision: 1, activeTransaction: null,
+        sourceGeneration: admin.marker.generation, ownerIdentity: admin.marker.processIdentity, ownerState: 'ACTIVE',
+        transactionEpoch: 0, operatorStopCommitted: false, operatorStopped: false }, 'componentControl');
+    }
+    return admin;
   }
   _readCached(path, schema, fresh = false) {
     if (fresh) {

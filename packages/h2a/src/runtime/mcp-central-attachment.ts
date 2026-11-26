@@ -11,7 +11,7 @@ import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 import { runMcpServe } from "./mcp/serve.js";
 import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpCallContext, type McpServer } from "./mcp/server.js";
-import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
+import { createUiRenderModule, type UiRenderCore, type UiRenderModule } from "./mcp/ui-render/index.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
 import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
 import type { AttachmentParticipant } from "./handover/participants.js";
@@ -63,7 +63,11 @@ export function openCentralAttachment(
   runExecutor?: H2aRunExecutor,
   participant?: AttachmentParticipant,
   registry?: Pick<ComposeDaemonOptions, "lock" | "memory">,
-  attachmentOptions?: { env?: Readonly<Record<string, string | undefined>> }
+  attachmentOptions?: {
+    env?: Readonly<Record<string, string | undefined>>;
+    uiRenderCore?: UiRenderCore;
+    uiRenderError?: string;
+  }
 ): CentralAttachmentHandle {
   if (!context) {
     // Direct HTTP sessions serve the ui:// resource surface from the vendored
@@ -72,13 +76,18 @@ export function openCentralAttachment(
     // only). The central environment (theme, locale, watermark gate) comes
     // from the server options, defaulting to the live process environment.
     let uiRender: UiRenderModule | undefined;
-    try {
-      uiRender = createUiRenderModule(attachmentOptions?.env !== undefined
-        ? { env: { ...attachmentOptions.env } }
-        : undefined);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`h2a central attachment: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+    if (attachmentOptions?.uiRenderError !== undefined) {
+      process.stderr.write(`h2a central attachment: ui-render assets unavailable (ui:// resources disabled): ${attachmentOptions.uiRenderError}\n`);
+    } else {
+      try {
+        uiRender = createUiRenderModule({
+          ...(attachmentOptions?.uiRenderCore !== undefined ? { core: attachmentOptions.uiRenderCore } : {}),
+          ...(attachmentOptions?.env !== undefined ? { env: { ...attachmentOptions.env } } : {})
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`h2a central attachment: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+      }
     }
     const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}), ...(uiRender ? { uiRender } : {}) });
     participant?.bind(mcp);
@@ -122,6 +131,8 @@ export function openCentralAttachment(
     sharedStore: store,
     ...(participant ? { participant } : {}),
     centralAttachment: true,
+    ...(attachmentOptions?.uiRenderCore !== undefined ? { uiRenderCore: attachmentOptions.uiRenderCore } : {}),
+    ...(attachmentOptions?.uiRenderError !== undefined ? { uiRenderError: attachmentOptions.uiRenderError } : {}),
     // Enforce reclaim-only once an identity was actually established on a prior
     // generation. If the previous central died before identity_ready landed,
     // participants.attach() still rebaselines ownership via context.resume while

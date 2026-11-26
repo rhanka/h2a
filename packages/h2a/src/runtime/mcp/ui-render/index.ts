@@ -10,8 +10,12 @@
  * tool surface rather than failing whole (§7.2).
  */
 
-import { loadUiRenderAssetsSync, type UiRenderAssets } from "./assets.js";
-import { createUiRenderValidator, type UiRenderValidator } from "./validation.js";
+import { loadUiRenderAssets, loadUiRenderAssetsSync, type UiRenderAssets } from "./assets.js";
+import {
+  createUiRenderValidator,
+  createUiRenderValidatorAsync,
+  type UiRenderValidator
+} from "./validation.js";
 import {
   createUiRenderResources,
   type CreateUiRenderResourcesOptions,
@@ -23,6 +27,12 @@ import {
   type UiRenderTools
 } from "./tools.js";
 
+/** Shared immutable verified assets + compiled validator reusable across attachments. */
+export interface UiRenderCore {
+  readonly assets: UiRenderAssets;
+  readonly validator: UiRenderValidator;
+}
+
 /** Options of `createUiRenderModule`. */
 export interface CreateUiRenderModuleOptions {
   /**
@@ -30,6 +40,11 @@ export interface CreateUiRenderModuleOptions {
    * vendored snapshot itself (`loadUiRenderAssetsSync`).
    */
   readonly assets?: UiRenderAssets;
+  /**
+   * Pre-verified assets + validator core (`createUiRenderCoreAsync`), avoiding
+   * re-hashing vendored files and reloading Ajv/Focus per central attachment.
+   */
+  readonly core?: UiRenderCore;
   /**
    * The environment the resource builder reads (theme, locale, watermark
    * gate); defaults to `process.env` (live reference).
@@ -55,15 +70,23 @@ export interface UiRenderModule {
   readonly tools: UiRenderTools;
 }
 
+/** Asynchronously verifies vendored assets and prepares a reusable validator core. */
+export async function createUiRenderCoreAsync(): Promise<UiRenderCore> {
+  const assets = await loadUiRenderAssets();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  const validator = await createUiRenderValidatorAsync({ assets });
+  return { assets, validator };
+}
+
 /**
- * Loads and verifies the vendored DS elements build (unless `assets` is
- * supplied) and binds the validator, resource handlers and tools to it.
+ * Loads and verifies the vendored DS elements build (unless `core` or `assets`
+ * is supplied) and binds the validator, resource handlers and per-connection tools.
  */
 export function createUiRenderModule(
   options?: CreateUiRenderModuleOptions
 ): UiRenderModule {
-  const assets = options?.assets ?? loadUiRenderAssetsSync();
-  const validator = createUiRenderValidator({ assets });
+  const assets = options?.core?.assets ?? options?.assets ?? loadUiRenderAssetsSync();
+  const validator = options?.core?.validator ?? createUiRenderValidator({ assets });
   const resourceOptions: CreateUiRenderResourcesOptions =
     options?.env !== undefined ? { assets, env: options.env } : { assets };
   return {

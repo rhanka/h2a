@@ -16,8 +16,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, promises as fsPromises } from "node:fs";
 import { basename, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
@@ -143,21 +144,47 @@ function listTreeFiles(root: string): string[] {
   return files;
 }
 
+/** Async equivalent of `listTreeFiles` avoiding synchronous directory blocking. */
+async function listTreeFilesAsync(root: string): Promise<string[]> {
+  const files: string[] = [];
+  async function walk(dir: string, prefix: string): Promise<void> {
+    const entries = await fsPromises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isFile()) files.push(rel);
+      else if (entry.isDirectory()) await walk(join(dir, entry.name), rel);
+    }
+  }
+  await walk(root, "");
+  files.sort();
+  return files;
+}
+
 /** SHA-256 of one file's bytes. */
 function sha256OfFile(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-/** Reads and parses the pinned manifest of a vendor tree. */
-function readVendorManifest(vendorDir: URL): UiRenderVendorManifest {
-  let text: string;
-  try {
-    text = readFileSync(join(fileURLToPath(vendorDir), "manifest.json"), "utf8");
-  } catch {
-    throw integrityMismatch(
-      `the vendored snapshot has no readable manifest.json under ${fileURLToPath(vendorDir)}`
-    );
-  }
+async function sha256OfFileAsync(path: string): Promise<string> {
+  return createHash("sha256").update(await fsPromises.readFile(path)).digest("hex");
+}
+
+function resolveAssetLocations(options?: LoadUiRenderAssetsOptions): {
+  workspaceDir: URL | undefined;
+  vendorDir: URL;
+  sourceDir: URL;
+  sourcePath: string;
+} {
+  const workspaceOption =
+    options?.workspaceDir ?? process.env["H2A_DS_ELEMENTS_WORKSPACE_DIR"];
+  const workspaceDir =
+    workspaceOption !== undefined && workspaceOption !== "" ? toDirUrl(workspaceOption) : undefined;
+  const vendorDir = toDirUrl(options?.vendorDir ?? DEFAULT_VENDOR_DIR);
+  const sourceDir = workspaceDir ?? vendorDir;
+  return { workspaceDir, vendorDir, sourceDir, sourcePath: fileURLToPath(sourceDir) };
+}
+
+function parseVendorManifest(text: string, vendorDir: URL): UiRenderVendorManifest {
   let manifest: UiRenderVendorManifest;
   try {
     manifest = JSON.parse(text) as UiRenderVendorManifest;
@@ -177,33 +204,37 @@ function readVendorManifest(vendorDir: URL): UiRenderVendorManifest {
   return manifest;
 }
 
-/**
- * Loads and verifies the vendored asset set, synchronously: the stdio
- * transport composes the module inside its own synchronous boot (the
- * readiness ACK must be on disk before `runMcpStdio` returns), and the
- * `resources/read` handlers are synchronous.
- */
-export function loadUiRenderAssetsSync(
-  options?: LoadUiRenderAssetsOptions
-): UiRenderAssets {
-  const workspaceOption =
-    options?.workspaceDir ?? process.env["H2A_DS_ELEMENTS_WORKSPACE_DIR"];
-  const workspaceDir =
-    workspaceOption !== undefined && workspaceOption !== "" ? toDirUrl(workspaceOption) : undefined;
-  const vendorDir = toDirUrl(options?.vendorDir ?? DEFAULT_VENDOR_DIR);
+/** Reads and parses the pinned manifest of a vendor tree. */
+function readVendorManifest(vendorDir: URL): UiRenderVendorManifest {
+  let text: string;
+  try {
+    text = readFileSync(join(fileURLToPath(vendorDir), "manifest.json"), "utf8");
+  } catch {
+    throw integrityMismatch(
+      `the vendored snapshot has no readable manifest.json under ${fileURLToPath(vendorDir)}`
+    );
+  }
+  return parseVendorManifest(text, vendorDir);
+}
 
-  // The pinned digests always come from a vendor manifest: the given vendor
-  // tree, or the default snapshot when a workspace overlay is admitted.
-  const manifest = readVendorManifest(workspaceDir === undefined ? vendorDir : DEFAULT_VENDOR_DIR);
+async function readVendorManifestAsync(vendorDir: URL): Promise<UiRenderVendorManifest> {
+  let text: string;
+  try {
+    text = await fsPromises.readFile(join(fileURLToPath(vendorDir), "manifest.json"), "utf8");
+  } catch {
+    throw integrityMismatch(
+      `the vendored snapshot has no readable manifest.json under ${fileURLToPath(vendorDir)}`
+    );
+  }
+  return parseVendorManifest(text, vendorDir);
+}
 
-  // The artifacts come from the vendor tree, or from the workspace overlay.
-  // The vendor tree's own `manifest.json` is the pinning record, not a
-  // vendored artifact: it is excluded from the verified file set.
-  const sourceDir = workspaceDir ?? vendorDir;
-  const sourcePath = fileURLToPath(sourceDir);
-  const actualFiles = listTreeFiles(sourcePath).filter((file) => file !== "manifest.json");
+function validateManifestCoverage(
+  actualFiles: readonly string[],
+  manifest: UiRenderVendorManifest,
+  workspaceDir: URL | undefined
+): void {
   const pinnedFiles = Object.keys(manifest.files);
-
   if (workspaceDir === undefined) {
     // The vendored snapshot is the exact pinned file set: nothing else may
     // be vendored, and nothing may be missing.
@@ -234,8 +265,74 @@ export function loadUiRenderAssetsSync(
       );
     }
   }
+}
 
-  // Verify every present file against its pinned SHA-256.
+function parseValidatedCatalog(catalogText: string): UiRenderCatalogDocument {
+  let catalog: UiRenderCatalogDocument;
+  try {
+    catalog = JSON.parse(catalogText) as UiRenderCatalogDocument;
+  } catch (error) {
+    throw integrityMismatch(
+      `catalog.json is not parseable JSON: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (typeof catalog.catalogId !== "string" || catalog.catalogId.length === 0) {
+    throw integrityMismatch("catalog.json carries no catalogId (DS §5.2: $id = catalogId)");
+  }
+  const dossier = (catalog as { components?: { DecisionDossier?: unknown } }).components
+    ?.DecisionDossier;
+  const semantic = (
+    dossier as { readonly "x-sentropic"?: { readonly semantic?: { readonly sha256?: unknown } } } | undefined
+  )?.["x-sentropic"]?.semantic;
+  if (semantic?.sha256 !== FOCUS_DECISION_DOSSIER_V1_SHA256) {
+    throw integrityMismatch(
+      `the catalogued DecisionDossier semantic digest is ${JSON.stringify(
+        semantic?.sha256
+      )}, not the pinned @sentropic/focus v1 schema digest ${FOCUS_DECISION_DOSSIER_V1_SHA256}`
+    );
+  }
+  return catalog;
+}
+
+function parseEnvelopeAndSri(
+  envelopeText: string,
+  sriText: string
+): { envelopeSchema: Record<string, unknown>; sri: UiRenderSriDocument } {
+  let envelopeSchema: Record<string, unknown>;
+  try {
+    envelopeSchema = JSON.parse(envelopeText) as Record<string, unknown>;
+  } catch (error) {
+    throw integrityMismatch(
+      `envelope.json is not parseable JSON: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  let sri: UiRenderSriDocument;
+  try {
+    sri = JSON.parse(sriText) as UiRenderSriDocument;
+  } catch (error) {
+    throw integrityMismatch(
+      `dist/browser/sri.json is not readable or not parseable JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+  return { envelopeSchema, sri };
+}
+
+/**
+ * Loads and verifies the vendored asset set, synchronously: the stdio
+ * transport composes the module inside its own synchronous boot (the
+ * readiness ACK must be on disk before `runMcpStdio` returns), and the
+ * `resources/read` handlers are synchronous.
+ */
+export function loadUiRenderAssetsSync(
+  options?: LoadUiRenderAssetsOptions
+): UiRenderAssets {
+  const { workspaceDir, vendorDir, sourceDir, sourcePath } = resolveAssetLocations(options);
+  const manifest = readVendorManifest(workspaceDir === undefined ? vendorDir : DEFAULT_VENDOR_DIR);
+  const actualFiles = listTreeFiles(sourcePath).filter((file) => file !== "manifest.json");
+  validateManifestCoverage(actualFiles, manifest, workspaceDir);
+
   for (const file of actualFiles) {
     const pinned = manifest.files[file];
     if (pinned === undefined || typeof pinned.sha256 !== "string") {
@@ -250,46 +347,11 @@ export function loadUiRenderAssetsSync(
   }
 
   const catalogText = readFileSync(join(sourcePath, "catalog.json"), "utf8");
-  let catalog: UiRenderCatalogDocument;
-  try {
-    catalog = JSON.parse(catalogText) as UiRenderCatalogDocument;
-  } catch (error) {
-    throw integrityMismatch(
-      `catalog.json is not parseable JSON: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-  if (typeof catalog.catalogId !== "string" || catalog.catalogId.length === 0) {
-    throw integrityMismatch("catalog.json carries no catalogId (DS §5.2: $id = catalogId)");
-  }
-
-  // The catalogued focus semantic digest must equal the pinned @sentropic/focus
-  // v1 schema digest: the wired focus port validates exactly that schema.
-  const dossier = (catalog as { components?: { DecisionDossier?: unknown } }).components
-    ?.DecisionDossier;
-  const semantic = (
-    dossier as { readonly "x-sentropic"?: { readonly semantic?: { readonly sha256?: unknown } } } | undefined
-  )?.["x-sentropic"]?.semantic;
-  if (semantic?.sha256 !== FOCUS_DECISION_DOSSIER_V1_SHA256) {
-    throw integrityMismatch(
-      `the catalogued DecisionDossier semantic digest is ${JSON.stringify(
-        semantic?.sha256
-      )}, not the pinned @sentropic/focus v1 schema digest ${FOCUS_DECISION_DOSSIER_V1_SHA256}`
-    );
-  }
-
+  const catalog = parseValidatedCatalog(catalogText);
   const envelopeText = readFileSync(join(sourcePath, "envelope.json"), "utf8");
-  let envelopeSchema: Record<string, unknown>;
+  let sriText: string;
   try {
-    envelopeSchema = JSON.parse(envelopeText) as Record<string, unknown>;
-  } catch (error) {
-    throw integrityMismatch(
-      `envelope.json is not parseable JSON: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-
-  let sri: UiRenderSriDocument;
-  try {
-    sri = JSON.parse(readFileSync(join(sourcePath, "dist/browser/sri.json"), "utf8")) as UiRenderSriDocument;
+    sriText = readFileSync(join(sourcePath, "dist/browser/sri.json"), "utf8");
   } catch (error) {
     throw integrityMismatch(
       `dist/browser/sri.json is not readable or not parseable JSON: ${
@@ -297,9 +359,8 @@ export function loadUiRenderAssetsSync(
       }`
     );
   }
+  const { envelopeSchema, sri } = parseEnvelopeAndSri(envelopeText, sriText);
 
-  // The standalone per-component schemas: pinned when vendored, optional in
-  // a workspace build, verified by digest above when present.
   const schemas: Record<string, Record<string, unknown>> = {};
   for (const file of actualFiles) {
     if (!file.startsWith("schemas/") || !file.endsWith(".v1.json")) continue;
@@ -330,12 +391,81 @@ export function loadUiRenderAssetsSync(
 }
 
 /**
- * The async public loader: the same verified load, exposed as a Promise for
- * external consumers (the transports use the synchronous core during their
- * own synchronous boot).
+ * The async public loader: performs the same integrity verification using
+ * `fs.promises` and event-loop yields between slices so central startup and
+ * attachment avoid blocking event-loop turns.
  */
 export async function loadUiRenderAssets(
   options?: LoadUiRenderAssetsOptions
 ): Promise<UiRenderAssets> {
-  return loadUiRenderAssetsSync(options);
+  const { workspaceDir, vendorDir, sourceDir, sourcePath } = resolveAssetLocations(options);
+  const manifest = await readVendorManifestAsync(workspaceDir === undefined ? vendorDir : DEFAULT_VENDOR_DIR);
+  const actualFiles = (await listTreeFilesAsync(sourcePath)).filter((file) => file !== "manifest.json");
+  validateManifestCoverage(actualFiles, manifest, workspaceDir);
+
+  let sliceStart = performance.now();
+  for (const file of actualFiles) {
+    const pinned = manifest.files[file];
+    if (pinned === undefined || typeof pinned.sha256 !== "string") {
+      throw integrityMismatch(`file ${JSON.stringify(file)} has no pinned sha256`);
+    }
+    const actual = await sha256OfFileAsync(join(sourcePath, file));
+    if (actual !== pinned.sha256) {
+      throw integrityMismatch(
+        `file ${JSON.stringify(file)} does not match the pinned sha256 (expected ${pinned.sha256}, got ${actual})`
+      );
+    }
+    if (performance.now() - sliceStart >= 4) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      sliceStart = performance.now();
+    }
+  }
+
+  const catalogText = await fsPromises.readFile(join(sourcePath, "catalog.json"), "utf8");
+  const catalog = parseValidatedCatalog(catalogText);
+  const envelopeText = await fsPromises.readFile(join(sourcePath, "envelope.json"), "utf8");
+  let sriText: string;
+  try {
+    sriText = await fsPromises.readFile(join(sourcePath, "dist/browser/sri.json"), "utf8");
+  } catch (error) {
+    throw integrityMismatch(
+      `dist/browser/sri.json is not readable or not parseable JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+  const { envelopeSchema, sri } = parseEnvelopeAndSri(envelopeText, sriText);
+
+  const schemas: Record<string, Record<string, unknown>> = {};
+  sliceStart = performance.now();
+  for (const file of actualFiles) {
+    if (!file.startsWith("schemas/") || !file.endsWith(".v1.json")) continue;
+    const component = basename(file, ".v1.json");
+    try {
+      schemas[component] = JSON.parse(await fsPromises.readFile(join(sourcePath, file), "utf8")) as Record<
+        string,
+        unknown
+      >;
+    } catch (error) {
+      throw integrityMismatch(
+        `${file} is not parseable JSON: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (performance.now() - sliceStart >= 4) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      sliceStart = performance.now();
+    }
+  }
+
+  return {
+    vendorDir: sourceDir,
+    workspace: workspaceDir !== undefined,
+    manifest,
+    catalog,
+    catalogText,
+    envelopeSchema,
+    envelopeText,
+    schemas,
+    sri,
+  };
 }

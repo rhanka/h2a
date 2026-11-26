@@ -19,7 +19,7 @@ import {
   probeOwnerHealth,
   centralMcpPing as handoverCentralMcpPing
 } from "./handover/admission.js";
-import { readState, replaceState, publishState } from "./handover/state.js";
+import { readState, readStateAsync, replaceState, replaceStateAsync, publishState } from "./handover/state.js";
 import { digest } from "./handover/wire.js";
 import { ConnectionAuthentication } from "./handover/authentication.js";
 import { createAuthenticatedServer } from "./handover/authenticated-http.js";
@@ -33,7 +33,8 @@ import { recordGenerationEnd } from "./handover/generation-end.js";
 import { EvidenceAcceptances, recordShimAcceptance } from "./handover/evidence.js";
 import { shimEvidenceOptions } from "./handover/shim-evidence.js";
 import { installationForEntry, physicalPrefixForEntry, starterPlan, resolveSelectedEntry } from "./handover/selection.js";
-import { checkStartupReservation, markStartupReady } from "./handover/launch.js";
+import { checkStartupReservation, markStartupReady, markStartupReadyAsync } from "./handover/launch.js";
+import { createUiRenderCoreAsync, type UiRenderCore } from "./mcp/ui-render/index.js";
 import { recordSuccessor, readySuccessor } from "./handover/successor.js";
 import { verifyTarget, verifyPrecheckEvidence } from "./handover/precheck.js";
 import { captureManagedEntry, checkManagedEntry } from "./handover/entry.js";
@@ -243,7 +244,7 @@ function createCentralApp(
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
   options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; pendingHandshake?: () => boolean; clock?: CentralSweepClock }
-): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
+): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; warmUiRender(): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const clock: CentralSweepClock = options.clock ?? {
     now: () => Date.now(),
     setInterval: (fn, ms) => setInterval(fn, ms),
@@ -252,6 +253,13 @@ function createCentralApp(
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
+  let uiRenderPromise: Promise<{ core?: UiRenderCore; error?: string }> | undefined;
+  const ensureUiRender = (): Promise<{ core?: UiRenderCore; error?: string }> => {
+    uiRenderPromise ??= createUiRenderCoreAsync()
+      .then((core) => ({ core }))
+      .catch((error) => ({ error: error instanceof Error ? error.message : String(error) }));
+    return uiRenderPromise;
+  };
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
   type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean };
   const sessions = new Map<string, Attachment>();
@@ -710,6 +718,7 @@ function createCentralApp(
         throw error;
       }
       participant.initialized = false;
+      const uiRenderState = await ensureUiRender();
       const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
         const logical = created?.logical;
         if (logical) {
@@ -764,7 +773,11 @@ function createCentralApp(
             }
           } finally { callbacks--; drainRevision++; }
         }
-      }, runExecutor, participant, registry, { env: options.env }));
+      }, runExecutor, participant, registry, {
+        env: options.env,
+        ...(uiRenderState.core !== undefined ? { uiRenderCore: uiRenderState.core } : {}),
+        ...(uiRenderState.error !== undefined ? { uiRenderError: uiRenderState.error } : {})
+      }));
       try { await handle.ready; }
       catch (error) { await closeParticipantResilient(participant, () => handle.close()).catch(() => {}); await transport.close().catch(() => {}); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
@@ -813,7 +826,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; }, warmUiRender() { void ensureUiRender(); }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
@@ -1033,11 +1046,13 @@ export async function startCentralMcpServer(
           await updateWriterControlAsync(root, { gate: 'OPEN', handoverId: null });
         }
       }
+      const yieldStartupLoop = () => new Promise<void>(resolve => setImmediate(resolve));
       sharedStore = createLocalStore({
         root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true,
         deferConsentHistoryVerification: true,
         centralEventLoopMaxSyncWaitMs: 25
       });
+      await yieldStartupLoop();
       const catalogServer = createMcpServer({ root, store: sharedStore });
       if (registry) {
         const { configureMcpServerRegistry } = await import("../registry/sentropic-daemon.js");
@@ -1050,12 +1065,13 @@ export async function startCentralMcpServer(
       marker.descriptorDigest = described.descriptorDigest;
       marker.contractDigest = described.contractDigest;
       marker.mcpProtocolVersions = described.protocolVersions;
-      const nowControl = readState(join(stateDirectory, "component-control.json"), "componentControl");
-      if (nowControl) replaceState(join(stateDirectory, "component-control.json"), { ...nowControl.value, revision: nowControl.value.revision + 1,
+      await yieldStartupLoop();
+      const nowControl = await readStateAsync(join(stateDirectory, "component-control.json"), "componentControl");
+      if (nowControl) await replaceStateAsync(join(stateDirectory, "component-control.json"), { ...nowControl.value, revision: nowControl.value.revision + 1,
         sourceGeneration: marker.generation, ownerIdentity: identity, ownerState: "ACTIVE",
         operatorStopCommitted: false, operatorStopped: false }, "componentControl", nowControl);
       const liveSource = installation && participants ? new PassiveLiveSource({ installation, marker, markerPath, rootKey: authority.rootKey, participants }) : undefined;
-      administration = new ColdAdministration({ directory: stateDirectory, marker, inventory: application.inventory, drain: application.drain,
+      administration = await ColdAdministration.createAsync({ directory: stateDirectory, marker, inventory: application.inventory, drain: application.drain,
         ...(liveSource ? { liveSource } : {}),
         ...(installation ? { pinDirectory: join(installation.managedRoot, "state", "pins") } : {}),
         verifyAuthority: (_operation: string, tx: any) => {
@@ -1085,12 +1101,13 @@ export async function startCentralMcpServer(
       await options.beforeExclusiveMarkerPublish?.();
       await options.afterMarkerClaim?.();
       return marker;
-    }, (published: NonNullable<ReturnType<typeof readMarkerObservation>>) => {
+    }, async (published: NonNullable<ReturnType<typeof readMarkerObservation>>) => {
       claim = published;
       if (options.successor && plan.transactionPath) readySuccessor(plan.transactionPath, options.successor, identity);
-      markStartupReady(stateDirectory, identity);
+      await markStartupReadyAsync(stateDirectory, identity);
       application!.ready(selectedCatalogue);
       (authentication as any).ready = true;
+      setImmediate(() => { application?.warmUiRender(); });
     }, {
       evictUnresponsive: true,
       ...(options.probeOptions ? { probeOptions: options.probeOptions } : {}),

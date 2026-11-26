@@ -587,3 +587,34 @@ export function createUiRenderValidator(options: CreateUiRenderValidatorOptions)
     structure,
   });
 }
+
+/**
+ * Async yield-friendly validator construction for central daemon boot: splits
+ * Ajv setup and `@sentropic/focus/validate` module loading across event-loop
+ * turns so neither blocks migration/health latency budgets together.
+ */
+export async function createUiRenderValidatorAsync(
+  options: CreateUiRenderValidatorOptions
+): Promise<UiRenderValidator> {
+  const structure = createAjvStructure({
+    catalog: options.assets.catalog,
+    envelopeSchema: options.assets.envelopeSchema,
+    commonTypes: a2uiCommonTypes,
+  });
+  let ports = options.ports;
+  if (ports === undefined) {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const { validateDecisionDossierDocument } = createRequire(import.meta.url)(
+      fileURLToPath(import.meta.resolve("@sentropic/focus/validate"))
+    ) as typeof import("@sentropic/focus/validate");
+    ports = {
+      focus: createFocusPort({ validate: validateDecisionDossierDocument }),
+      "bpmn-canvas": bpmnCanvasPort as SemanticPort
+    };
+  }
+  return createEnvelopeValidatorCore({
+    assets: options.assets,
+    ports,
+    structure,
+  });
+}

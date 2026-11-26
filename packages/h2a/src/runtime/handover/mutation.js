@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { privateDirectory, readState, publishState, replaceState } from './state.js';
+import { privateDirectory, readState, publishState, replaceState, readStateAsync, publishStateAsync, replaceStateAsync } from './state.js';
 
 const lockOwnership = new AsyncLocalStorage();
 const execution = new AsyncLocalStorage();
@@ -208,8 +208,16 @@ async function acquireFlockFdAsync(directory, lockFile, { timeoutMs = 5000, nonB
   }
 }
 
-export async function mutationLockAsync(directory, fn, options = {}) {
+async function runLockAsync(directory, fn, options = {}, allowAsync = false) {
   const { timeoutMs = 5000, nonBlocking = false, lockFile = '.mutation.lock', bothLocks = false } = options;
+  const invoke = async targetFn => {
+    const value = targetFn();
+    if (value?.then) {
+      if (!allowAsync) throw new Error('async_store_critical_section');
+      return await value;
+    }
+    return value;
+  };
   if (bothLocks) {
     const deadline = performance.now() + timeoutMs;
     const h1 = await acquireFlockFdAsync(directory, '.mutation.lock', { timeoutMs, nonBlocking, deadline });
@@ -219,9 +227,7 @@ export async function mutationLockAsync(directory, fn, options = {}) {
         const nextMap = new Map(lockOwnership.getStore() ?? undefined);
         nextMap.set(h1.path, Symbol('.mutation.lock'));
         nextMap.set(h2.path, Symbol('.presence.lock'));
-        const value = lockOwnership.run(nextMap, fn);
-        if (value?.then) throw new Error('async_store_critical_section');
-        return value;
+        return await lockOwnership.run(nextMap, () => invoke(fn));
       } finally {
         h2.release();
       }
@@ -232,18 +238,22 @@ export async function mutationLockAsync(directory, fn, options = {}) {
   const h = await acquireFlockFdAsync(directory, lockFile, { timeoutMs, nonBlocking });
   try {
     if (h.alreadyHeld) {
-      const value = fn();
-      if (value?.then) throw new Error('async_store_critical_section');
-      return value;
+      return await invoke(fn);
     }
     const nextMap = new Map(lockOwnership.getStore() ?? undefined);
     nextMap.set(h.path, Symbol(lockFile));
-    const value = lockOwnership.run(nextMap, fn);
-    if (value?.then) throw new Error('async_store_critical_section');
-    return value;
+    return await lockOwnership.run(nextMap, () => invoke(fn));
   } finally {
     h.release();
   }
+}
+
+export async function mutationLockAsync(directory, fn, options = {}) {
+  return runLockAsync(directory, fn, options, false);
+}
+
+export async function mutationLockTaskAsync(directory, fn, options = {}) {
+  return runLockAsync(directory, fn, options, true);
 }
 
 /**
@@ -345,6 +355,17 @@ function establishWriterControlBody(root, stateDirectory, directory) {
     gate: 'OPEN', handoverId: null, restriction: 'store_writer_set_unknown', closureEvidenceDigest: null }, 'writerControl').value;
 }
 
+async function establishWriterControlBodyAsync(root, stateDirectory, directory) {
+  const path = join(directory, 'control.json');
+  const prior = await readStateAsync(path, 'writerControl');
+  if (prior) {
+    if (prior.value.root !== resolve(root) || prior.value.stateDirectory !== resolve(stateDirectory)) throw new Error('store_authority_mismatch');
+    return prior.value;
+  }
+  return (await publishStateAsync(path, { schemaVersion: 1, revision: 1, root: resolve(root), stateDirectory: resolve(stateDirectory),
+    gate: 'OPEN', handoverId: null, restriction: 'store_writer_set_unknown', closureEvidenceDigest: null }, 'writerControl')).value;
+}
+
 export function establishWriterControl(root, stateDirectory) {
   const directory = writerDirectory(root);
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -353,14 +374,21 @@ export function establishWriterControl(root, stateDirectory) {
 
 export async function establishWriterControlAsync(root, stateDirectory, options = {}) {
   const directory = writerDirectory(root);
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  return mutationLockAsync(directory, () => establishWriterControlBody(root, stateDirectory, directory), options);
+  await fs.promises.mkdir(directory, { recursive: true, mode: 0o700 });
+  return mutationLockTaskAsync(directory, () => establishWriterControlBodyAsync(root, stateDirectory, directory), options);
 }
 
 function updateWriterControlBody(directory, changes) {
   const path = join(directory, 'control.json'), old = readState(path, 'writerControl');
   if (!old) throw new Error('store_writer_set_unknown');
   return replaceState(path, { ...old.value, ...changes, revision: old.value.revision + 1 }, 'writerControl', old).value;
+}
+
+async function updateWriterControlBodyAsync(directory, changes) {
+  const path = join(directory, 'control.json');
+  const old = await readStateAsync(path, 'writerControl');
+  if (!old) throw new Error('store_writer_set_unknown');
+  return (await replaceStateAsync(path, { ...old.value, ...changes, revision: old.value.revision + 1 }, 'writerControl', old)).value;
 }
 
 export function updateWriterControl(root, changes) {
@@ -370,7 +398,7 @@ export function updateWriterControl(root, changes) {
 
 export async function updateWriterControlAsync(root, changes, options = {}) {
   const directory = writerDirectory(root);
-  return mutationLockAsync(directory, () => updateWriterControlBody(directory, changes), { ...options, bothLocks: true });
+  return mutationLockTaskAsync(directory, () => updateWriterControlBodyAsync(directory, changes), { ...options, bothLocks: true });
 }
 
 function assertWriterMutationAccess(root, directory, domain) {
@@ -381,6 +409,20 @@ function assertWriterMutationAccess(root, directory, domain) {
     if (domain !== 'presence' && authority.operation) authority.ledger.assertOperation(authority.operation);
     else {
       authority.registry.assertOwner(authority.token, authority.cleanup ? ['ACTIVE', 'FROZEN'] : ['ACTIVE']);
+      if (control.gate !== 'OPEN' && !authority.cleanup) throw new Error('store_admission_closed');
+    }
+  } else if (control.gate !== 'OPEN') throw new Error('store_admission_closed');
+  return control;
+}
+
+async function assertWriterMutationAccessAsync(root, directory, domain) {
+  const control = (await readStateAsync(join(directory, 'control.json'), 'writerControl'))?.value;
+  if (!control || control.root !== resolve(root)) throw new Error('store_writer_set_unknown');
+  const authority = execution.getStore();
+  if (authority?.root === resolve(root)) {
+    if (domain !== 'presence' && authority.operation) authority.ledger.assertOperation(authority.operation);
+    else {
+      await authority.registry.assertOwnerAsync(authority.token, authority.cleanup ? ['ACTIVE', 'FROZEN'] : ['ACTIVE']);
       if (control.gate !== 'OPEN' && !authority.cleanup) throw new Error('store_admission_closed');
     }
   } else if (control.gate !== 'OPEN') throw new Error('store_admission_closed');
@@ -421,6 +463,16 @@ function presenceNeedsDualLock(root, options = {}) {
   return false;
 }
 
+async function presenceNeedsDualLockAsync(root, options = {}) {
+  if (options.requireMutationLock) return true;
+  const authority = execution.getStore();
+  if (authority?.root === resolve(root)) {
+    const owner = (await readStateAsync(authority.registry.ownerPath(authority.token.attachmentId), 'ownership'))?.value;
+    if (owner?.presenceSessionId?.startsWith('pending:')) return true;
+  }
+  return false;
+}
+
 const NEED_DUAL_RETRY = Symbol('presence_need_dual_retry');
 
 function runPresenceCritical(root, directory, sessionId, instance, fn, holdsMutationLock) {
@@ -439,6 +491,26 @@ function runPresenceCritical(root, directory, sessionId, instance, fn, holdsMuta
     }
   }
   return fn();
+}
+
+async function runPresenceCriticalAsync(root, directory, sessionId, instance, fn, holdsMutationLock) {
+  await assertWriterMutationAccessAsync(root, directory, 'presence');
+  // Existing-row identity must be read after taking the presence lock.
+  const resolvedInstance = typeof instance === 'function' ? instance() : instance;
+  const authority = execution.getStore();
+  if (authority?.root === resolve(root)) {
+    const owner = (await authority.registry.assertOwnerAsync(authority.token, authority.cleanup ? ['ACTIVE', 'FROZEN'] : ['ACTIVE'])).value;
+    if (owner.presenceSessionId.startsWith('pending:') && resolvedInstance) {
+      if (!holdsMutationLock) return NEED_DUAL_RETRY;
+      if (owner.expectedInstance !== 'identity_disabled' && owner.expectedInstance !== resolvedInstance) throw new Error('presence_ownership_mismatch');
+      await authority.registry.updateIdentityAsync(authority.token, sessionId, resolvedInstance);
+    } else if (owner.presenceSessionId !== sessionId || (resolvedInstance && owner.expectedInstance !== resolvedInstance)) {
+      throw new Error('presence_ownership_mismatch');
+    }
+  }
+  const value = fn();
+  if (value?.then) throw new Error('async_store_critical_section');
+  return value;
 }
 
 /** Presence ownership is per target, not merely per process or store root. */
@@ -460,18 +532,23 @@ export function withPresenceMutation(root, sessionId, instance, fn, options = {}
 
 export async function withPresenceMutationAsync(root, sessionId, instance, fn, options = {}) {
   const directory = writerDirectory(root);
-  if (!fs.existsSync(directory)) {
-    const value = fn();
-    if (value?.then) throw new Error('async_store_critical_section');
-    return value;
+  try {
+    await fs.promises.access(directory);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      const value = fn();
+      if (value?.then) throw new Error('async_store_critical_section');
+      return value;
+    }
+    throw error;
   }
-  const dual = presenceNeedsDualLock(root, options);
+  const dual = await presenceNeedsDualLockAsync(root, options);
   const lockOpts = dual
     ? { timeoutMs: options.timeoutMs, nonBlocking: options.nonBlocking, bothLocks: true }
     : { timeoutMs: options.timeoutMs, nonBlocking: options.nonBlocking, lockFile: '.presence.lock' };
-  const result = await mutationLockAsync(directory, () => runPresenceCritical(root, directory, sessionId, instance, fn, dual), lockOpts);
+  const result = await mutationLockTaskAsync(directory, () => runPresenceCriticalAsync(root, directory, sessionId, instance, fn, dual), lockOpts);
   if (result === NEED_DUAL_RETRY) {
-    return mutationLockAsync(directory, () => runPresenceCritical(root, directory, sessionId, instance, fn, true), {
+    return mutationLockTaskAsync(directory, () => runPresenceCriticalAsync(root, directory, sessionId, instance, fn, true), {
       timeoutMs: options.timeoutMs, nonBlocking: options.nonBlocking, bothLocks: true
     });
   }

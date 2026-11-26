@@ -33,6 +33,7 @@ import {
   type ResolvedIdentityMessage,
   type RunMcpStdioOptions
 } from "./index.js";
+import type { UiRenderCore } from "./ui-render/index.js";
 
 /**
  * Resolve the h2a store root, with its provenance.
@@ -124,6 +125,8 @@ export async function runMcpServe(
     reclaimOnly?: boolean;
     expectedInstance?: string;
     centralAttachment?: boolean;
+    uiRenderCore?: UiRenderCore;
+    uiRenderError?: string;
     runExecutor?: H2aRunExecutor;
   } = {
     stdin: process.stdin,
@@ -311,6 +314,8 @@ export async function runMcpServe(
       ...(io.sharedStore ? { store: io.sharedStore } : {}),
       ...(io.participant ? { participant: io.participant } : {}),
       ...(io.centralAttachment ? { centralAttachment: true } : {}),
+      ...(io.uiRenderCore !== undefined ? { uiRenderCore: io.uiRenderCore } : {}),
+      ...(io.uiRenderError !== undefined ? { uiRenderError: io.uiRenderError } : {}),
       ...(io.onServer ? { onServer: io.onServer } : {}),
       ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
         runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)

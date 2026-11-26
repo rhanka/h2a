@@ -55,7 +55,7 @@ import type { PayloadRecoveryRef } from "./payload-store.js";
 import { createUiRenderModule } from "./ui-render/index.js";
 import { negotiateUiExtension, serverUiExtensionCapability } from "./ui-render/negotiation.js";
 import { UnknownResourceError, type UiExtensionCapability } from "./ui-render/types.js";
-import type { UiRenderModule } from "./ui-render/index.js";
+import type { UiRenderCore, UiRenderModule } from "./ui-render/index.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -91,6 +91,10 @@ export interface RunMcpStdioOptions {
   participant?: import('../handover/participants.js').AttachmentParticipant;
   /** True when hosted inside the machine-local central daemon (enforces 0 spawnSync). */
   centralAttachment?: boolean;
+  /** Pre-verified shared assets + validator reused across central attachments. */
+  uiRenderCore?: UiRenderCore;
+  /** Cached central initialization error if ui-render could not be verified. */
+  uiRenderError?: string;
   /** Captured launch environment, never the daemon's environment. */
   sessionEnv?: NodeJS.ProcessEnv;
   /** Internal transport adapter seam; does not change the MCP tool contract. */
@@ -509,11 +513,15 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // load failure) NEVER takes the transport down (§7.2): the server starts
   // without the ui:// resource surface, the refusal noted on stderr only.
   let uiRender: UiRenderModule | undefined;
-  try {
-    uiRender = createUiRenderModule();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+  if (options.uiRenderError !== undefined) {
+    stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${options.uiRenderError}\n`);
+  } else {
+    try {
+      uiRender = createUiRenderModule(options.uiRenderCore !== undefined ? { core: options.uiRenderCore } : undefined);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+    }
   }
   // L2: the live signing identity, set only once identity is really bound. The
   // server reads it on each h2a_send via `getSendContext`, so a signer that only
