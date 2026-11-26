@@ -3,9 +3,8 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import type { FocusAnchorEntry } from "@sentropic/focus/artifact";
-import { validateThemeCss, validateThemeId } from "@sentropic/focus";
 import { isOsTemporaryPath } from "../path-safety.js";
-import { extractFocusRefusals } from "../../focus-build.js";
+import { extractFocusRefusals } from "./focus-refusals.js";
 import {
   createFocusBuildManager,
   FOCUS_BUILD_RESULT_MAX_WAIT_MS,
@@ -556,10 +555,10 @@ function parsePublishSpec(
   };
 }
 
-export function validateFocusSubmitBuildRequest(
+export async function validateFocusSubmitBuildRequest(
   args: Record<string, unknown> | undefined,
   workspaceRoot: string
-): FocusSubmitBuildRequest {
+): Promise<FocusSubmitBuildRequest> {
   const toolName = "h2a_focus_submit_build";
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new FocusGuardError("invalid_arguments", `${toolName}: missing arguments`);
@@ -594,19 +593,9 @@ export function validateFocusSubmitBuildRequest(
     throw new FocusGuardError("invalid_arguments", `${toolName}: 'target' must be 'document' or 'artifact'`);
   }
 
-  let validatedThemeId: string | undefined;
-  if (args.themeId !== undefined) {
-    if (typeof args.themeId !== "string" || args.themeId.length === 0) {
-      throw new FocusGuardError("invalid_arguments", `${toolName}: 'themeId' must be a non-empty string`);
-    }
-    try {
-      validatedThemeId = validateThemeId(args.themeId);
-    } catch (error) {
-      throw new FocusGuardError("invalid_arguments", error instanceof Error ? error.message : String(error));
-    }
+  if (args.themeId !== undefined && (typeof args.themeId !== "string" || args.themeId.length === 0)) {
+    throw new FocusGuardError("invalid_arguments", `${toolName}: 'themeId' must be a non-empty string`);
   }
-
-  let validatedThemeCss: string | undefined;
   if (args.themeCss !== undefined) {
     if (typeof args.themeCss !== "string" || args.themeCss.length === 0) {
       throw new FocusGuardError("invalid_arguments", `${toolName}: 'themeCss' must be a non-empty string`);
@@ -617,10 +606,25 @@ export function validateFocusSubmitBuildRequest(
         `${toolName}: 'themeCss' exceeds maximum size of ${MAX_THEME_CSS_BYTES} bytes`
       );
     }
-    try {
-      validatedThemeCss = validateThemeCss(args.themeCss);
-    } catch (error) {
-      throw new FocusGuardError("invalid_arguments", error instanceof Error ? error.message : String(error));
+  }
+
+  let validatedThemeId: string | undefined;
+  let validatedThemeCss: string | undefined;
+  if (args.themeId !== undefined || args.themeCss !== undefined) {
+    const { validateThemeCss, validateThemeId } = await import("@sentropic/focus");
+    if (typeof args.themeId === "string") {
+      try {
+        validatedThemeId = validateThemeId(args.themeId);
+      } catch (error) {
+        throw new FocusGuardError("invalid_arguments", error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (typeof args.themeCss === "string") {
+      try {
+        validatedThemeCss = validateThemeCss(args.themeCss);
+      } catch (error) {
+        throw new FocusGuardError("invalid_arguments", error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
@@ -699,7 +703,7 @@ export async function handleH2aFocusSubmitBuild(
 ): Promise<FocusBuildSubmitResult> {
   let request: FocusSubmitBuildRequest;
   try {
-    request = validateFocusSubmitBuildRequest(args, workspaceRoot);
+    request = await validateFocusSubmitBuildRequest(args, workspaceRoot);
   } catch (error) {
     const { message, refusals } = extractRefusals(error);
     return { ok: false, error: message, refusals };

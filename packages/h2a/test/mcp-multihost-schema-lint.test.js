@@ -29,7 +29,7 @@ function compileStandalone(schema) {
   return ajv.compile(schema);
 }
 
-test("T4.1: all 73 exported MCP tools and 3 get_schema outputs pass the 6-CLI schema linter with zero cycles and zero bare arrays", () => {
+test("T4.1: all 75 exported MCP tools and 3 get_schema outputs pass the 6-CLI schema linter with zero cycles and zero bare arrays", () => {
   assert.deepEqual(
     Object.keys(MCP_HOST_SCHEMA_PROFILES).sort(),
     [...QUALIFIED_CLIS].sort(),
@@ -41,7 +41,7 @@ test("T4.1: all 73 exported MCP tools and 3 get_schema outputs pass the 6-CLI sc
     const uiRender = createUiRenderModule();
     const server = createMcpServer({ root, storeInitialize: false, uiRender });
     const tools = server.listTools();
-    assert.equal(tools.length, 73, `expected 73 exported MCP tools, got ${tools.length}`);
+    assert.equal(tools.length, 75, `expected 75 exported MCP tools, got ${tools.length}`);
 
     const toolsReport = lintMcpToolSchemas(tools);
     assert.equal(
@@ -365,7 +365,7 @@ test("T4.4: isolated h2a mcp-serve --host muse wire schemas and real muse binary
       .filter((line) => line.startsWith("{"))
       .map((line) => JSON.parse(line));
     const listMsg = wireMessages.find((msg) => msg.id === 2);
-    assert.ok(listMsg?.result?.tools?.length === 73, `expected 73 tools from --host muse, got ${listMsg?.result?.tools?.length}`);
+    assert.ok(listMsg?.result?.tools?.length === 75, `expected 75 tools from --host muse, got ${listMsg?.result?.tools?.length}`);
     const museWireReport = lintMcpToolSchemas(listMsg.result.tools, { profiles: ["muse"] });
     assert.equal(
       museWireReport.ok,
