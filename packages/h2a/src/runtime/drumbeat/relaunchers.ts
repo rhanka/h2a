@@ -204,11 +204,14 @@ export function tmuxSendSubmit(
   text: string,
   options?: { readonly profile?: string; readonly mode?: PaneGuardMode },
 ): boolean {
-  if (typeof runtime.capture !== "function") return false;
-  const capture = runtime.capture("tmux", ["capture-pane", "-p", "-t", target]);
-  const profile = options?.profile ?? resolveTmuxProfileForSubmit(runtime, target);
-  const guard = guardPaneBeforeAutomatedInput(capture, profile, options?.mode ?? "cli-input");
-  if (!guard.ok) return false;
+  if (typeof runtime.capture === "function") {
+    const capture = runtime.capture("tmux", ["capture-pane", "-p", "-t", target]);
+    const profile = options?.profile ?? resolveTmuxProfileForSubmit(runtime, target);
+    const guard = guardPaneBeforeAutomatedInput(capture, profile, options?.mode ?? "cli-input");
+    if (!guard.ok) return false;
+  } else if (options?.profile === "agy") {
+    return false;
+  }
   const sessionName = resolveTmuxSessionNameForSubmit(runtime, target);
   if (sessionName) {
     recordInjectionBestEffort(`tmux:${sessionName}`, text);

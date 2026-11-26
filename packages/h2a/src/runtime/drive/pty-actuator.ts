@@ -410,13 +410,13 @@ export function createH2aPtyActuator(
         if (!command || command.trim().length === 0) {
           return result(input, "deferred");
         }
-        if (classifyCliCommand(command) === "unknown") {
+        const customRelauncher = deps.relaunchers?.[target.kind];
+        if (customRelauncher === undefined && classifyCliCommand(command) === "unknown") {
           return result(input, "failed");
         }
         let acted = false;
         try {
-          const relauncher =
-            deps.relaunchers?.[target.kind] ?? await defaultRelauncher(target);
+          const relauncher = customRelauncher ?? await defaultRelauncher(target);
           acted = await relauncher.relance({
             instance: target.instance,
             reason: "stopped",

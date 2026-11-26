@@ -183,6 +183,10 @@ function socketPathFromEnv(): string {
 // alive: the op prints its error but never exits, and the synchronous caller
 // only learns about it through a 15s ETIMEDOUT.
 const openClients = new Set<NativeTerminalClient>();
+const hostPings = new WeakMap<
+  NativeTerminalClient,
+  Awaited<ReturnType<NativeTerminalClient["ping"]>> & { readonly applicationFacetVersion?: unknown }
+>();
 
 export function closeAllNativeTerminalOpClients(): void {
   for (const client of openClients) client.close();
@@ -200,6 +204,7 @@ async function connectExisting(socketPath: string, tracked = true, signal?: Abor
   try {
     signal?.throwIfAborted();
     const ping = await client.ping();
+    hostPings.set(client, ping);
     if (ping.protocolVersion !== NATIVE_TERMINAL_PROTOCOL_VERSION || !ping.generation?.trim() ||
       !Number.isSafeInteger(ping.hostPid) || ping.hostPid <= 0 ||
       !sameNativeTerminalSocket(identity, await inspectPrivateNativeTerminalSocket(socketPath))) {
@@ -2870,25 +2875,31 @@ export async function runNativeTerminalOp(
           return 0;
         }
         try {
-          let capture: string | undefined;
-          try {
-            const raw = await readAll(client, target.id);
-            capture = (await renderTerminalScreen(raw)).slice(-16384);
-          } catch {
-            capture = undefined;
-          }
-          const guard = guardPaneBeforeAutomatedInput(
-            capture,
-            parsed.flags.get("profile") ?? target.profile,
-            "cli-input",
-          );
-          if (!guard.ok) {
-            emit({
-              outcome: guard.outcome === "blocked" ? "failed" : "deferred",
-              reason: guard.reason,
-              ...(guard.modal?.code ? { code: guard.modal.code } : {}),
-            });
-            return 0;
+          const profile = parsed.flags.get("profile") ?? target.profile;
+          const ping = hostPings.get(client);
+          const hostSupportsReadOutput =
+            ping?.softRespawn === true || ping?.applicationFacetVersion !== undefined;
+          if (hostSupportsReadOutput || profile === "agy") {
+            let capture: string | undefined;
+            try {
+              const raw = await readAll(client, target.id);
+              capture = (await renderTerminalScreen(raw)).slice(-16384);
+            } catch {
+              capture = undefined;
+            }
+            const guard = guardPaneBeforeAutomatedInput(
+              capture,
+              profile,
+              "cli-input",
+            );
+            if (!guard.ok) {
+              emit({
+                outcome: guard.outcome === "blocked" ? "failed" : "deferred",
+                reason: guard.reason,
+                ...(guard.modal?.code ? { code: guard.modal.code } : {}),
+              });
+              return 0;
+            }
           }
           // One validated text line plus one submit CR: no bracketed-paste or
           // embedded controls can turn this into multiple terminal actions.
