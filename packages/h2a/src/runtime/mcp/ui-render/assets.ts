@@ -18,7 +18,6 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, promises as fsPromises } from "node:fs";
 import { basename, join } from "node:path";
-import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
@@ -403,57 +402,50 @@ export async function loadUiRenderAssets(
   const actualFiles = (await listTreeFilesAsync(sourcePath)).filter((file) => file !== "manifest.json");
   validateManifestCoverage(actualFiles, manifest, workspaceDir);
 
-  let sliceStart = performance.now();
   for (const file of actualFiles) {
     const pinned = manifest.files[file];
     if (pinned === undefined || typeof pinned.sha256 !== "string") {
       throw integrityMismatch(`file ${JSON.stringify(file)} has no pinned sha256`);
     }
-    const actual = await sha256OfFileAsync(join(sourcePath, file));
+  }
+  const actualHashes = await Promise.all(actualFiles.map((file) => sha256OfFileAsync(join(sourcePath, file))));
+  for (let i = 0; i < actualFiles.length; i++) {
+    const file = actualFiles[i]!;
+    const pinned = manifest.files[file]!;
+    const actual = actualHashes[i]!;
     if (actual !== pinned.sha256) {
       throw integrityMismatch(
         `file ${JSON.stringify(file)} does not match the pinned sha256 (expected ${pinned.sha256}, got ${actual})`
       );
     }
-    if (performance.now() - sliceStart >= 4) {
-      await new Promise<void>(resolve => setImmediate(resolve));
-      sliceStart = performance.now();
-    }
   }
 
-  const catalogText = await fsPromises.readFile(join(sourcePath, "catalog.json"), "utf8");
+  const [catalogText, envelopeText, sriText] = await Promise.all([
+    fsPromises.readFile(join(sourcePath, "catalog.json"), "utf8"),
+    fsPromises.readFile(join(sourcePath, "envelope.json"), "utf8"),
+    fsPromises.readFile(join(sourcePath, "dist/browser/sri.json"), "utf8").catch((error) => {
+      throw integrityMismatch(
+        `dist/browser/sri.json is not readable or not parseable JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    })
+  ]);
   const catalog = parseValidatedCatalog(catalogText);
-  const envelopeText = await fsPromises.readFile(join(sourcePath, "envelope.json"), "utf8");
-  let sriText: string;
-  try {
-    sriText = await fsPromises.readFile(join(sourcePath, "dist/browser/sri.json"), "utf8");
-  } catch (error) {
-    throw integrityMismatch(
-      `dist/browser/sri.json is not readable or not parseable JSON: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-  }
   const { envelopeSchema, sri } = parseEnvelopeAndSri(envelopeText, sriText);
 
+  const schemaFiles = actualFiles.filter((file) => file.startsWith("schemas/") && file.endsWith(".v1.json"));
+  const schemaTexts = await Promise.all(schemaFiles.map((file) => fsPromises.readFile(join(sourcePath, file), "utf8")));
   const schemas: Record<string, Record<string, unknown>> = {};
-  sliceStart = performance.now();
-  for (const file of actualFiles) {
-    if (!file.startsWith("schemas/") || !file.endsWith(".v1.json")) continue;
+  for (let i = 0; i < schemaFiles.length; i++) {
+    const file = schemaFiles[i]!;
     const component = basename(file, ".v1.json");
     try {
-      schemas[component] = JSON.parse(await fsPromises.readFile(join(sourcePath, file), "utf8")) as Record<
-        string,
-        unknown
-      >;
+      schemas[component] = JSON.parse(schemaTexts[i]!) as Record<string, unknown>;
     } catch (error) {
       throw integrityMismatch(
         `${file} is not parseable JSON: ${error instanceof Error ? error.message : String(error)}`
       );
-    }
-    if (performance.now() - sliceStart >= 4) {
-      await new Promise<void>(resolve => setImmediate(resolve));
-      sliceStart = performance.now();
     }
   }
 

@@ -705,6 +705,29 @@ function createCentralApp(
         if (requestedLock !== bridgeLockDigest(options.registry.lock)) return context.json({ error: "integrity_mismatch: bridge and central registry locks differ" }, 409);
         registry = options.registry;
       }
+      const awaitRequestState = async (): Promise<{ core?: UiRenderCore; error?: string; aborted?: true }> => {
+        const sig = context.req.raw.signal;
+        if (sig.aborted) return { aborted: true };
+        return new Promise((resolve) => {
+          let settled = false;
+          const onAbort = () => {
+            if (settled) return;
+            settled = true;
+            resolve({ aborted: true });
+          };
+          sig.addEventListener("abort", onAbort, { once: true });
+          void ensureUiRender().then((state) => {
+            if (settled) return;
+            settled = true;
+            sig.removeEventListener("abort", onAbort);
+            resolve(state);
+          });
+        });
+      };
+      const uiRenderState = await awaitRequestState();
+      if (uiRenderState.aborted || context.req.raw.signal.aborted) {
+        return context.body(null, 499 as any);
+      }
       let participant: import("./handover/participants.js").AttachmentParticipant;
       try {
         participant = await participants()!.attachAsync(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
@@ -717,8 +740,11 @@ function createCentralApp(
         }
         throw error;
       }
+      if (context.req.raw.signal.aborted) {
+        await closeParticipantResilient(participant, async () => {}).catch(() => {});
+        return context.body(null, 499 as any);
+      }
       participant.initialized = false;
-      const uiRenderState = await ensureUiRender();
       const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
         const logical = created?.logical;
         if (logical) {
