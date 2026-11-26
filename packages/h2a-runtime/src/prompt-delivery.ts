@@ -113,6 +113,12 @@ const NAMED_MODALS: ReadonlyArray<{
  * exact reason so the launch can FAIL LOUDLY instead of waiting forever.
  */
 export function detectHostModal(capture: string, profile?: string): HostModal | undefined {
+  if (isClaudeLongContextConfirm(capture)) {
+    return {
+      reason: CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+      hint: "h2a relaunch may confirm this exact summary-resume choice once before re-injecting the continuation objective",
+    };
+  }
   const named = detectNamedHostModal(capture, profile);
   if (named !== undefined) return named;
 

@@ -144,7 +144,7 @@ export const AGY_LOGIN_MENU =
   /Select login method:\s*>?\s*1\. Google OAuth\s*>?\s*2\. Use a Google Cloud project\s*↑\/↓ Navigate · enter Select\s*$/i;
 
 export const MODAL_CHOICE = /(^|\n)\s*[›>❯]?\s*1\.\s+\S/;
-export const MODAL_CONFIRM = /(?:press\s+)?(?:enter|return)(?:\s+to)?\s+(?:continue|confirm|select)/i;
+export const MODAL_CONFIRM = /(?:press\s+)?(?:enter|return)(?:\s+to\s+(?:continue|confirm|select)|\s+(?:continue|confirm))/i;
 export const BLOCKING_ACTIVITY =
   /\b(?:compacting conversation|summarizing conversation|generating summary)\b|\besc to interrupt\b|\bctrl\+c to cancel\b/i;
 

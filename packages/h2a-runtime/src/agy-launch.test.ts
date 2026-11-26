@@ -40,13 +40,16 @@ const { renderTerminalScreen } = await import("./native-terminal/screen.js");
 const { agyClaudeQuotaError } = await import("./agy-claude.js");
 const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h."}';
 let dir: string;
+let ws: string;
 let stdout: ReturnType<typeof vi.spyOn>;
 let stderr: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   dir=mkdtempSync(join(tmpdir(),"agy-launch-"));
+  ws=join(dir,"workspace");
+  mkdirSync(ws,{recursive:true,mode:0o755});
   for(const key of ["HOME","XDG_RUNTIME_DIR","XDG_STATE_HOME","XDG_CONFIG_HOME","REMOTE_CLI_CONFIG_HOME","H2A_ROOT"]) vi.stubEnv(key,dir);
   mkdirSync(join(dir,".gemini","antigravity-cli"),{recursive:true,mode:0o700});
-  writeFileSync(join(dir,".gemini","antigravity-cli","settings.json"),JSON.stringify({trustedWorkspaces:[realpathSync(dir)]}),{mode:0o600});
+  writeFileSync(join(dir,".gemini","antigravity-cli","settings.json"),JSON.stringify({trustedWorkspaces:[realpathSync(ws)]}),{mode:0o600});
   fake.start.mockReset().mockReturnValue({name:"h2a-agy-review",slug:"agy-review",agentPane:"%1"});
   fake.headless.mockReset().mockReturnValue({name:"h2a-agy-review",slug:"agy-review",agentPane:"%1"});
   fake.pid.mockReset().mockReturnValue(process.pid);
@@ -64,7 +67,7 @@ afterEach(() => {
 });
 async function launch(host: string, headless = false, model = "claude-opus-5-5-high") {
   vi.stubEnv("H2A_SESSION_HOST",host);
-  await main([process.execPath,"h2a","run","agy",dir,"--name","agy-review","--model",model,
+  await main([process.execPath,"h2a","run","agy",ws,"--name","agy-review","--model",model,
     "--prompt-stdin","--background","--no-attach","--no-h2a","--no-gw","--json",...(headless?["--headless"]:[])]);
   return JSON.parse(stdout.mock.calls.map(call=>String(call[0])).join(""));
 }
@@ -103,8 +106,8 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     expect(fake.stop).toHaveBeenCalledTimes(1);
   });
   it("removes the previous result before handing off the new headless launch", async () => {
-    const path=join(dir,".h2a/runs/agy-review/result.json");
-    mkdirSync(join(dir,".h2a/runs/agy-review"),{recursive:true});
+    const path=join(ws,".h2a/runs/agy-review/result.json");
+    mkdirSync(join(ws,".h2a/runs/agy-review"),{recursive:true});
     writeFileSync(path,JSON.stringify({kind:"h2a.run.completion",state:"done"}));
     // Even a recent or future timestamp cannot identify the previous generation.
     fake.headless.mockImplementation(() => {
@@ -117,7 +120,7 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     const completed={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-claude-quota-exhausted",retrySafe:false,
       retryable:false,resetsAt:"2026-10-24T03:27:24Z",model:"claude-opus-5-5-high"};
     fake.pid.mockImplementation(() => {
-      writeFileSync(join(dir,".h2a/runs/agy-review/result.json"),JSON.stringify(completed));
+      writeFileSync(join(ws,".h2a/runs/agy-review/result.json"),JSON.stringify(completed));
       return undefined;
     });
     const result=await launch(host,true);
@@ -129,7 +132,7 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     const completed={kind:"h2a.run.failure",version:1,state:"failed",code:"agy-claude-quota-exhausted",retrySafe:false,
       retryable:false,resetsAt:"2026-10-24T03:27:24Z",model:"claude-opus-5-5-high"};
     fake.headless.mockImplementation(()=>{
-      const path=join(dir,".h2a/runs/agy-review/result.json");
+      const path=join(ws,".h2a/runs/agy-review/result.json");
       writeFileSync(path,JSON.stringify(completed));
       utimesSync(path,new Date(0),new Date(0));
       return {name:"h2a-agy-review",slug:"agy-review",agentPane:"%1"};
@@ -161,7 +164,7 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
   it("refuses h2a run agy --model gemini-4-carbon --effort max on the CLI", async () => {
     vi.stubEnv("H2A_SESSION_HOST", host);
     await main([
-      process.execPath, "h2a", "run", "agy", dir,
+      process.execPath, "h2a", "run", "agy", ws,
       "--name", "agy-review", "--model", "gemini-4-carbon", "--effort", "max",
       "--prompt-stdin", "--background", "--no-attach", "--no-h2a", "--no-gw", "--json",
     ]);

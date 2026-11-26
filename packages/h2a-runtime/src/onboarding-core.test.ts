@@ -346,7 +346,7 @@ describe("command classification, guards, and Q4-A modals", () => {
       reason: "cli-hooks-review-required",
     });
     expect(codexGuard.ok === false && codexGuard.modal?.hint).toContain("Continue without trusting");
-    expect(codexGuard.ok === false && codexGuard.modal?.hint).not.toContain("persiste");
+    expect(codexGuard.ok === false && codexGuard.modal?.hint).toContain("non-persistent");
 
     const museHooks = "Review plugin hooks\n1. Approve\nEnter to confirm";
     expect(guardPaneBeforeAutomatedInput(museHooks, "muse", "cli-input")).toMatchObject({
