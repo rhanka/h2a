@@ -614,7 +614,7 @@ describe("multi-version schema registry & targeted sync (A23)", () => {
       }>;
     };
     const focusEntry = manifest.entries[0]!;
-    expect(focusEntry.publisher.packageVersion).toBe("0.6.0");
+    expect(focusEntry.publisher.packageVersion).toBe("0.6.1");
     expect(focusEntry.skill.documentSchemas.map((s) => s.version)).toEqual([
       "1.0.0",
       "1.2.0",

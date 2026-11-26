@@ -14,7 +14,7 @@
     "evidence-annexes"
   ],
   "rendererVersion": "0.98.11",
-  "validatorVersion": "0.6.0",
+  "validatorVersion": "0.6.1",
   "sources": {
     "vue/package.json": "44b7913e114ccc2cce3f25af86a4e6850abc1b43c7ec69ae60253f0c551d18b6",
     "vue/package-lock.json": "a1cb569bbe7c03e4e473f2262f4fa47adafdb6ba3d2b53558e5ac1ac308370be",
