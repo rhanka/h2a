@@ -1840,6 +1840,12 @@ function collectTrustedPluginUpgradeMetadata(
   return { versions, cachedEntriesById };
 }
 
+const PRIOR_SHIPPED_H2A_ENTRY_DIGESTS: ReadonlyMap<string, string> = new Map([
+  // Exact SHA-256 digests of the previous `@sentropic/h2a` (`sentropic.h2a`) v0.98.11-rc.15 / pre-async-focus descriptor (66 tools).
+  ["9451fa7f46bd00d9b19d54459446442003c8d2304461edff7af6ef2384596c76", "0.98.11-rc.15"],
+  ["38e1244358ff2f46cdb93bb77bec82649fc09c9486783aa1168d1d90fe9b9558", "0.98.11-rc.15"]
+]);
+
 /**
  * Cryptographically verified in-place refresh of a default plugin bridge lock
  * after a global `h2a` package version upgrade (e.g. 0.98.10 → 0.98.11) when
@@ -1856,8 +1862,10 @@ function collectTrustedPluginUpgradeMetadata(
  * - every entry's `configDigest` still matches the normalized configuration;
  * - every drifted entry digest cryptographically matches either the packed
  *   entry with `publisher.packageVersion` set to a trusted on-disk plugin
- *   version (verified plugin cache or plugin install receipt) or a verified
- *   cached `registry/entries.v1.json` entry.
+ *   version (verified plugin cache or plugin install receipt), a verified
+ *   cached `registry/entries.v1.json` entry, or an exact SHA-256 digest in
+ *   `PRIOR_SHIPPED_H2A_ENTRY_DIGESTS` when `sentropic.h2a` has `trustedVersions.size > 0`
+ *   (covers MCP tool additions where the N-1 package descriptor had fewer tools).
  *
  * Any tampered digest (arbitrary hash, modified config, or unknown source)
  * returns `{ refreshed: false }` without modifying a single byte of `lockPath`.
@@ -1974,6 +1982,17 @@ export function refreshUpgradedPluginLock(
         proven = true;
         if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0) {
           matchedPriorVersions.add(declaration.pluginVersion);
+        }
+      }
+      if (!proven && selected.id === "sentropic.h2a" && trustedVersions.size > 0) {
+        const priorRelease = PRIOR_SHIPPED_H2A_ENTRY_DIGESTS.get(record["digest"]);
+        if (priorRelease !== undefined) {
+          proven = true;
+          matchedPriorVersions.add(
+            typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0
+              ? declaration.pluginVersion
+              : priorRelease
+          );
         }
       }
       if (!proven) return { refreshed: false, lockPath };

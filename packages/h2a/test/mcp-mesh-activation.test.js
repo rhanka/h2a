@@ -86,10 +86,10 @@ async function fixture(t, mode = "ok") {
 async function handshake(h) {
   assert.equal((await callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" })).message.result.serverInfo.name, "@sentropic/h2a");
   const tools = (await callRpc(h, { jsonrpc: "2.0", id: 2, method: "tools/list" })).message.result.tools;
-  // L3 adds seven ui-render tools to the sixty-six core tools.
+  // L3 adds seven ui-render tools to the sixty-eight core tools.
   const uiTools = ["list_components", "get_schema", "render", "render_BarChart",
     "render_BpmnCanvas", "render_DecisionDossier", "submit_intent"];
-  assert.equal(tools.length, 73);
+  assert.equal(tools.length, 75);
   assert.deepEqual(tools.filter(tool => uiTools.includes(tool.name)).map(tool => tool.name).sort(), uiTools.sort());
   assert.notEqual(parseToolJson(await callTool(h, "h2a_discover_instances", { limit: 5 }))?.code, "identity_pending");
 }

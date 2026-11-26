@@ -57,7 +57,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Focus artifact gate (Lot FA-H1): adds `h2a focus check` usage line (+110 bytes) and `, h2a_focus_check` in `MCP tools:` (+17 bytes) = +127 bytes.
 // Track owner table (Lot 2): Track facade line gains ` · h2a demand` (+14 bytes).
 // MCP refactor L1: adds `h2a central compact` usage line (+165 bytes).
-const CORE_HELP_SHA256 = "de4c7d2ed908c3690f3048780bd1f420722a6312a641f620593f8dbc6aad41db";
+// Focus async build (track 01M8C3NBFTSVD1W2P3Q9F5X2HA): `MCP tools:` line gains
+// `, h2a_focus_submit_build, h2a_focus_build_result` (+47 bytes).
+const CORE_HELP_SHA256 = "a3dfae5d3315f3950b4ee5dcf0f2daffc44ba6c957b70366363cc4981c25111a";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -167,7 +169,8 @@ function assertCoreHelp(result) {
   // + 127 for `h2a focus check` usage line (+110) and `, h2a_focus_check` in MCP tools (+17) (Lot FA-H1).
   // + 14 for ` · h2a demand` in the Track facade line (Track owner table Lot 2).
   // + 165 for `h2a central compact` usage line (MCP refactor L1).
-  assert.equal(Buffer.byteLength(result.stdout), 15733);
+  // + 48 for `, h2a_focus_submit_build, h2a_focus_build_result` in the wrapped MCP tools line.
+  assert.equal(Buffer.byteLength(result.stdout), 15781);
 }
 
 function assertMissingRuntime(result, firstToken) {

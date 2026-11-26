@@ -123,7 +123,8 @@ test("decision-dossier SKILL.md exists, embeds the Écrire block byte-for-byte, 
     /h2a_focus_template/,
     /h2a_focus_check/,
     /h2a_focus_build/,
-    /h2a_focus_publish/,
+    /h2a_focus_submit_build/,
+    /h2a_focus_build_result/,
     /h2a_focus_get/,
     /h2a_focus_status/,
     /artifact_comments_/,
@@ -131,6 +132,7 @@ test("decision-dossier SKILL.md exists, embeds the Écrire block byte-for-byte, 
   ]) {
     assert.match(afterWriting, requiredTool, `Faire section must reference MCP tool ${requiredTool}`);
   }
+  assert.doesNotMatch(afterWriting, /\bh2a_focus_publish\b/, "Faire section must not reference non-existent h2a_focus_publish tool");
 
   // No shell CLI invocations for h2a focus in Faire.
   assert.doesNotMatch(afterWriting, /\bnode\s+packages\/h2a\/dist\/bin\.js\b/);

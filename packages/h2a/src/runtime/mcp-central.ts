@@ -86,6 +86,7 @@ import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-centr
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 import { parseCentralAttachment } from "./mcp-central-context.js";
 import { executeH2aRun, type H2aRunExecutor } from "./mcp/agent-launch.js";
+import { createFocusBuildManager, type FocusBuildManagerOptions } from "./mcp/focus-jobs.js";
 import { centralPausePath } from "./mcp-central-operator.js";
 
 import { H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpMarkerPath, expectedMode, isLoopbackHostname, markerDirectory, parseCentralMcpEndpoint, runtimeBase, uid, type CentralMcpMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
@@ -242,7 +243,7 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; pendingHandshake?: () => boolean; clock?: CentralSweepClock }
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; focusBuild?: Partial<FocusBuildManagerOptions>; pendingHandshake?: () => boolean; clock?: CentralSweepClock }
 ): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const clock: CentralSweepClock = options.clock ?? {
     now: () => Date.now(),
@@ -281,6 +282,11 @@ function createCentralApp(
   let callbacks = 0;
   let unresolvedEffects = 0;
   const runExecutor = options.runExecutor;
+  const focusBuildManager = createFocusBuildManager({
+    stateRoot: root,
+    ...(options.env ? { env: options.env } : {}),
+    ...(options.focusBuild ?? {})
+  });
   const pendingClosures = new Set<() => Promise<void>>();
   let sweeping = false;
   const closeParticipantResilient = async (
@@ -746,7 +752,7 @@ function createCentralApp(
             }
           } finally { callbacks--; drainRevision++; }
         }
-      }, runExecutor, participant, registry, { env: options.env }));
+      }, runExecutor, participant, registry, { env: options.env, focusBuildManager }));
       try { await handle.ready; }
       catch (error) { await closeParticipantResilient(participant, () => handle.close()).catch(() => {}); await transport.close().catch(() => {}); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
@@ -809,6 +815,7 @@ function createCentralApp(
     closing = true;
     clock.clearInterval(sweep);
     lag.disable();
+    await focusBuildManager.close().catch(() => {});
     await Promise.all([...sessions.entries()].map(([id, attachment]) => closeAttachment(id, attachment)));
   } };
 }
@@ -825,6 +832,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   idleTimeoutMs?: number;
   sessionLeaseMs?: number;
   runExecutor?: H2aRunExecutor;
+  /** Optional overrides for the central off-loop Focus build manager. */
+  focusBuild?: Partial<FocusBuildManagerOptions>;
   /** Trusted host composition; absent means memory remains unconfigured. */
   registry?: Pick<ComposeDaemonOptions, "lock" | "memory">;
   automatic?: boolean;
@@ -985,6 +994,7 @@ export async function startCentralMcpServer(
         idleTimeoutMs: options.idleTimeoutMs ?? 60_000, sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
         maxAttachments: plan.manifest?.maxAttachments ?? 256,
         ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+        ...(options.focusBuild ? { focusBuild: options.focusBuild } : {}),
         ...(registry ? { registry } : {}),
         ...(options.clock ? { clock: options.clock } : {}),
         // Read lazily: authentication is created below, after the app, but the

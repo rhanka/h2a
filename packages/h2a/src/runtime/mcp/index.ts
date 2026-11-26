@@ -42,18 +42,37 @@ export {
 export {
   FOCUS_TEMPLATE_KINDS,
   handleH2aFocusBuild,
+  handleH2aFocusBuildResult,
   handleH2aFocusCheck,
+  handleH2aFocusSubmitBuild,
   handleH2aFocusTemplate,
   validateFocusBuildRequest,
+  validateFocusBuildResultRequest,
   validateFocusCheckRequest,
+  validateFocusSubmitBuildRequest,
   type FocusBuildRequest,
   type FocusBuildResult,
+  type FocusBuildResultQuery,
   type FocusCheckRequest,
   type FocusCheckResult,
   type FocusRefusal,
+  type FocusSubmitBuildRequest,
   type FocusTemplateKind,
   type FocusTemplateResult
 } from "./focus.js";
+
+export {
+  createFocusBuildManager,
+  FocusBuildManager,
+  type FocusBuildJobRecord,
+  type FocusBuildJobResultResponse,
+  type FocusBuildJobState,
+  type FocusBuildManagerOptions,
+  type FocusBuildSubmitResult,
+  type FocusBuildWorkerOptions,
+  type FocusPublishOutcomeSummary,
+  type FocusPublishRequestSpec
+} from "./focus-jobs.js";
 
 export {
   SessionRegistry,

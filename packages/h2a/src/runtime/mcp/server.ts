@@ -80,7 +80,18 @@ import {
   type H2aRunExecutor
 } from "./agent-launch.js";
 import { withoutLockOwnership } from "../handover/mutation.js";
-import { handleH2aFocusBuild, handleH2aFocusCheck, handleH2aFocusTemplate } from "./focus.js";
+import {
+  handleH2aFocusBuild,
+  handleH2aFocusBuildResult,
+  handleH2aFocusCheck,
+  handleH2aFocusSubmitBuild,
+  handleH2aFocusTemplate
+} from "./focus.js";
+import {
+  createFocusBuildManager,
+  type FocusBuildManager,
+  type FocusBuildManagerOptions
+} from "./focus-jobs.js";
 import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
 import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import { createDiscoveryPager, type DiscoveryPager } from "./discovery-pagination.js";
@@ -167,6 +178,12 @@ export interface CreateMcpServerOptions {
    * supplied. Default `true` (unchanged for existing callers).
    */
   storeInitialize?: boolean;
+  /** Shared off-loop Focus build manager (central shares one across reconnects). */
+  focusBuildManager?: FocusBuildManager;
+  /** Optional base env forwarded to off-loop Focus worker child processes. */
+  focusEnv?: Readonly<Record<string, string | undefined>>;
+  /** Optional tuning overrides when creating a server-local Focus build manager. */
+  focusBuildOptions?: Partial<FocusBuildManagerOptions>;
 }
 
 /** Transport context; reuse its identity per connection for UI session state. */
@@ -200,6 +217,8 @@ export interface McpServer {
   readonly frameBudget: FrameBudget;
   /** L3: the composed ui render module, when the asset set verified. */
   readonly uiRender?: UiRenderModule;
+  /** Async off-loop Focus build manager. */
+  readonly focusBuildManager: FocusBuildManager;
 }
 
 /** A tool result already formatted for the MCP transport (used by Track reads). */
@@ -249,6 +268,8 @@ const IDENTITY_INDEPENDENT_TOOLS = new Set<string>([
   "h2a_loop_list",
   "h2a_loop_status",
   "h2a_focus_build",
+  "h2a_focus_submit_build",
+  "h2a_focus_build_result",
   "h2a_focus_check",
   "h2a_focus_template",
   // LH-03: remote-control status is a read; off and kill stay
@@ -346,6 +367,13 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   // restarted server fails `cursor_stale` (never a silent first page).
   const frameBudget = options.frameBudget ?? resolveFrameBudget();
   const payloadStore = createPayloadStore(options.root);
+  const focusBuildManager =
+    options.focusBuildManager ??
+    createFocusBuildManager({
+      stateRoot: options.root,
+      ...(options.focusEnv !== undefined ? { env: options.focusEnv } : {}),
+      ...(options.focusBuildOptions ?? {})
+    });
   const discoveryPager: DiscoveryPager = createDiscoveryPager(store, {
     budget: frameBudget,
     payloadStore
@@ -573,7 +601,16 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
           return result;
         }
       case "h2a_focus_build":
-        return handleH2aFocusBuild(args, options.workspaceRoot ?? process.cwd());
+        return handleH2aFocusBuild(args, options.workspaceRoot ?? process.cwd(), focusBuildManager);
+      case "h2a_focus_submit_build":
+        return handleH2aFocusSubmitBuild(
+          args,
+          options.workspaceRoot ?? process.cwd(),
+          focusBuildManager,
+          options.focusEnv
+        );
+      case "h2a_focus_build_result":
+        return handleH2aFocusBuildResult(args, focusBuildManager);
       case "h2a_focus_check":
         return handleH2aFocusCheck(args, options.workspaceRoot ?? process.cwd());
       case "h2a_focus_template":
@@ -670,6 +707,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     notifications,
     payloadStore,
     frameBudget,
+    focusBuildManager,
     ...(options.uiRender ? { uiRender: options.uiRender } : {})
   };
 }
