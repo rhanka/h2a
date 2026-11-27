@@ -730,13 +730,13 @@ describe("PTY cursor, DSR coordinator, replay filtering, and TTY restoration (fu
       `
         import { spawnSync } from "node:child_process";
         import { withAttachTerminalRecovery } from ${JSON.stringify(new URL(`file://${join(RUNTIME_DIST, "native-terminal/attach-recovery.js")}`).href)};
-        withAttachTerminalRecovery((guardEnv) => {
-          const res = spawnSync(process.execPath, [${JSON.stringify(childFile)}], {
+        const res = withAttachTerminalRecovery((guardEnv) =>
+          spawnSync(process.execPath, [${JSON.stringify(childFile)}], {
             stdio: "inherit",
             env: guardEnv,
-          });
-          process.stdout.write("GUARD_DONE:" + (res.signal ?? res.status) + "\\n");
-        });
+          }),
+        );
+        process.stdout.write("GUARD_DONE:" + (res.signal ?? res.status) + "\\n");
       `,
     );
     mkdirSync(dir, { recursive: true, mode: 0o700 });
