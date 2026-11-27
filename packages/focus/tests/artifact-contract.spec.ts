@@ -86,7 +86,7 @@ const sampleRenderer = (version = "0.3.0"): FocusManifestRenderer => {
 
 const sampleValidator: FocusManifestValidator = {
   name: "@sentropic/focus",
-  version: "0.6.0",
+  version: "0.6.1",
   digest: `sha256:${"d".repeat(64)}`,
 };
 

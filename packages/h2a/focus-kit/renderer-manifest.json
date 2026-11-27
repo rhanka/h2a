@@ -13,7 +13,7 @@
     "evidence-annexes"
   ],
   "rendererVersion": "0.98.11",
-  "validatorVersion": "0.6.0",
+  "validatorVersion": "0.6.1",
   "sources": {
     "package.json": "a4aca50c23e003369f4259a1a43f9e04540135711f8cdb5edf776f57bc24a469",
     "package-lock.json": "ead98e5c507d5cfd3c8fef03982aa5a08ce07d9bf45e83cec7d0dbaee4db4066",

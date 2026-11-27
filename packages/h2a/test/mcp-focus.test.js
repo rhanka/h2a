@@ -537,7 +537,7 @@ test("FA-H1: h2a_focus_check descriptor, identity-independence, R2-R6/bounds, pa
     const manifest1 = buildFocusArtifactManifest({
       document: doc,
       renderer: { name: "@sentropic/design-system-elements", version: "0.3.0", entry: "renderer/dossier.js", digest: `sha256:${"a".repeat(64)}`, files: [], capabilities: [] },
-      validator: { name: "@sentropic/focus", version: "0.6.0", digest: `sha256:${"b".repeat(64)}` },
+      validator: { name: "@sentropic/focus", version: "0.6.1", digest: `sha256:${"b".repeat(64)}` },
       generator: { name: "@sentropic/h2a", version: "0.98.11" },
       createdAt: "2026-11-20T00:00:00Z"
     });
