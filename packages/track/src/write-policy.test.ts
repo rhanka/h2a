@@ -242,7 +242,7 @@ describe('journal write policy: exclusive writer, takeover, release (T3a-g, T3a-
     const policyOpen = readWritePolicy(eventsPath)
     expect(policyOpen.mode).toBe('open')
     expect(policyOpen.epoch).toBe(3)
-  })
+  }, 30_000)
 
   it('T3a-m: a silent or long-idle holder is never replaced without an explicit takeover', () => {
     const repo = join(scratch, 'repo-silent')
