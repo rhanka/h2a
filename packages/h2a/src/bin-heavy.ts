@@ -373,6 +373,20 @@ if (argv[0] === "__operator-break") {
       } catch {
         // Best-effort schedule banner emission never breaks human status exit code.
       }
+      try {
+        const trustPkg: string = "@sentropic/h2a-runtime/trust-alerts";
+        const trustMod = (await import(trustPkg)) as {
+          readTrustOwnerAlerts?: () => readonly unknown[];
+          formatTrustOwnerAlertLines?: (alerts: readonly unknown[]) => readonly string[];
+        };
+        if (trustMod.readTrustOwnerAlerts && trustMod.formatTrustOwnerAlertLines) {
+          for (const line of trustMod.formatTrustOwnerAlertLines(trustMod.readTrustOwnerAlerts())) {
+            process.stderr.write(`h2a status: ${line}\n`);
+          }
+        }
+      } catch {
+        // Best-effort trust alert emission never breaks human status exit code.
+      }
     }
     return rc;
   })());
@@ -416,6 +430,16 @@ if (argv[0] === "__operator-break") {
             if (mod.readArchiveScheduleHealth && mod.formatArchiveScheduleStatusLines) {
               const schedSnapshot = mod.readArchiveScheduleHealth();
               for (const line of mod.formatArchiveScheduleStatusLines(schedSnapshot)) {
+                process.stderr.write(`h2a status: ${line}\n`);
+              }
+            }
+            const trustPkg: string = "@sentropic/h2a-runtime/trust-alerts";
+            const trustMod = (await import(trustPkg)) as {
+              readTrustOwnerAlerts?: () => readonly unknown[];
+              formatTrustOwnerAlertLines?: (alerts: readonly unknown[]) => readonly string[];
+            };
+            if (trustMod.readTrustOwnerAlerts && trustMod.formatTrustOwnerAlertLines) {
+              for (const line of trustMod.formatTrustOwnerAlertLines(trustMod.readTrustOwnerAlerts())) {
                 process.stderr.write(`h2a status: ${line}\n`);
               }
             }

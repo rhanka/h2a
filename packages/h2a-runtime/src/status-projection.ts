@@ -20,6 +20,10 @@ import {
   readClaudeArchiveAlerts,
 } from "./session-archive-alerts.js";
 import {
+  formatTrustOwnerAlertLines,
+  readTrustOwnerAlerts,
+} from "./trust-alerts.js";
+import {
   loadRegistryWithDiagnostics,
   listJobs,
   listLive,
@@ -645,8 +649,11 @@ export async function projectStatusForH2a(
         for (const line of formatArchiveScheduleStatusLines(readArchiveScheduleHealth(options.nowMs !== undefined ? { nowMs: options.nowMs } : {}))) {
           warnings.push(line);
         }
+        for (const line of formatTrustOwnerAlertLines(readTrustOwnerAlerts())) {
+          warnings.push(line);
+        }
       } catch {
-        // Archive alert check stays best-effort and never breaks status projection.
+        // Archive/trust alert checks stay best-effort and never break status projection.
       }
     }
   } catch {

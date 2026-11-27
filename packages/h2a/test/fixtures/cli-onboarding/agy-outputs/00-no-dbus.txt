@@ -1,0 +1,13 @@
+Script started on 2026-11-25 20:52:07-05:00 [COMMAND="<SANDBOX>/run-00-no-dbus.sh" <not executed on terminal>]
+[>q   [>4m    [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+   ▄ ▀ ▀      ▀▀ ▄
+  ▄ ▀ ▀        ▀ ▀ ▄
+ Welcome to the  Antigravity CLI . You are currently not signed in.
+ Select login method:
+ > 1. Google OAuth
+ 2. Use a Google Cloud project
+  ↑/↓  Navigate ·  enter  Select
+Script done on 2026-11-25 20:52:17-05:00 [COMMAND_EXIT_CODE="0"]

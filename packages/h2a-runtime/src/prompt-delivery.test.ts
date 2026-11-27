@@ -787,8 +787,9 @@ describe("ready profile CPU calibration",()=>{
 });
 
 describe("provider rejection after delivery",()=>{
+ const agyReadyScreen = "AGY Claude\n╭──────────────────────────────────────╮\n│ > Review workspace                   │\n╰──────────────────────────────────────╯\n  ? for shortcuts";
  it("should retain the typed quota observation when the capture tail drops the diagnostic",()=>{
-  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec:1000});
+  const {deps,calls}=fakePane({screen:agyReadyScreen,workCpuPerSec:1000});
   const capture=deps.capturePane;
   const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
   const result=deliverInitialPrompt("agy","review witness",{...deps,
@@ -801,7 +802,7 @@ describe("provider rejection after delivery",()=>{
   expect(result.providerError.resetsAt).toBe(new Date(Date.parse(result.providerError.quota.observedAt!)+(156*3600+32*60+24)*1000).toISOString());
  });
  it("should reject the real 160-column quota screen before accepting CPU activity",async()=>{
-  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec:1000});
+  const {deps,calls}=fakePane({screen:agyReadyScreen,workCpuPerSec:1000});
   const capture=deps.capturePane;
   const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 156h32m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true}';
   const screen=await renderTerminalScreen(`AGY Claude\r\n${diagnostic}\r\n❯`);
@@ -812,7 +813,7 @@ describe("provider rejection after delivery",()=>{
   expect(calls.submits).toBe(1);
  });
  it.each([0, 1000])("should report AGY Claude quota before CPU activity (%i ms/s)", workCpuPerSec=>{
-  const {deps,calls}=fakePane({screen:"AGY Claude\nReview workspace\n❯ Ready",workCpuPerSec});
+  const {deps,calls}=fakePane({screen:agyReadyScreen,workCpuPerSec});
   const capture=deps.capturePane;
   const diagnostic='AGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 156h32m24s."}';
   const result=deliverInitialPrompt("agy","review witness",{...deps,

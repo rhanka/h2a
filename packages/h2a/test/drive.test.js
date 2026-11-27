@@ -293,6 +293,9 @@ test("localTmuxDriver sends the signed instruction into the target pane", async 
   const calls = [];
   const driver = localTmuxDriver({
     runtime: {
+      capture() {
+        return "› Ready · ~/work\n";
+      },
       run(file, args) {
         calls.push([file, ...args]);
         return true;
@@ -1015,6 +1018,9 @@ test("localTmuxDriver declines when literal send succeeds but Enter fails", asyn
   const calls = [];
   const driver = localTmuxDriver({
     runtime: {
+      capture() {
+        return "› Ready · ~/work\n";
+      },
       run(file, args) {
         calls.push([file, ...args]);
         return calls.length === 1;
@@ -1067,6 +1073,9 @@ test("localTmuxDriver sends the signed instruction into the target pane (legacy 
   const calls = [];
   const driver = localTmuxDriver({
     runtime: {
+      capture() {
+        return "› Ready · ~/work\n";
+      },
       run(file, args) {
         calls.push([file, ...args]);
         return true;
@@ -1123,14 +1132,19 @@ test("buildHeadlessDriveCommand maps host defaults without a launch command", ()
     }),
     { file: "gemini", args: ["-p", "signed line"], cwd: "/work" }
   );
-  assert.deepEqual(
-    buildHeadlessDriveCommand({
-      host: "agy",
-      instructionLine: "signed line",
-      cwd: "/work"
-    }),
-    { file: "agy", args: ["-p", "signed line"], cwd: "/work" }
-  );
+  const agyCmd = buildHeadlessDriveCommand({
+    host: "agy",
+    instructionLine: "signed line",
+    cwd: "/work"
+  });
+  assert.equal(agyCmd?.file, process.execPath);
+  assert.equal(agyCmd?.cwd, "/work");
+  assert.equal(agyCmd?.input, "signed line");
+  assert.ok(agyCmd?.args.includes("run"));
+  assert.ok(agyCmd?.args.includes("agy"));
+  assert.ok(agyCmd?.args.includes("--headless"));
+  assert.ok(agyCmd?.args.includes("--prompt-stdin"));
+  assert.ok(agyCmd?.args.includes("--json"));
 });
 
 test("headlessDriver uses host defaults without launchContext.command", async () => {
@@ -1174,6 +1188,9 @@ test("chainDriver tries native, then tmux, then headless", async () => {
     }),
     localTmuxDriver({
       runtime: {
+        capture() {
+          return "❯ Ready\n";
+        },
         run() {
           attempts.push("tmux");
           return false;
@@ -1315,6 +1332,9 @@ test("localTmuxDriver issues literal + two Enter send-keys (double-Enter for mod
   const calls = [];
   const driver = localTmuxDriver({
     runtime: {
+      capture() {
+        return "› Ready · ~/work\n";
+      },
       run(file, args) {
         calls.push([file, ...args]);
         return true;
@@ -1348,6 +1368,9 @@ test("localTmuxDriver returns false when second Enter fails (all three must succ
   let callCount = 0;
   const driver = localTmuxDriver({
     runtime: {
+      capture() {
+        return "❯ Ready\n";
+      },
       run(file, args) {
         calls.push([file, ...args]);
         callCount++;

@@ -5,12 +5,14 @@
 // scan in `remote-facade.test.js` enforces it. Consuming the TYPED projection
 // (not parsed CLI stdout) is a double-consensus ruling (2026-07-02).
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EventStore, Track } from "@sentropic/track";
+
+import { MCP_AGY_LAUNCH_BUDGET_MS } from "../../onboarding-core.js";
 
 import type { H2ALaunchContext } from "../../../session.js";
 import type { H2ADriveRequest, H2ADriver } from "../../drive/index.js";
@@ -528,7 +530,8 @@ export function buildLoopLaunchInvocation(
       ...(spec.gateway === "required" ? ["--gw"] : spec.gateway === "off" ? ["--no-gw"] : []),
       "--model",
       spec.model,
-      ...(spec.effort !== undefined ? ["--effort", spec.effort] : [])
+      ...(spec.effort !== undefined ? ["--effort", spec.effort] : []),
+      ...((spec.profile as string) === "agy" ? ["--launch-budget-ms", String(MCP_AGY_LAUNCH_BUDGET_MS)] : [])
     ],
     cwd: spec.workspace,
     input: spec.prompt
@@ -600,26 +603,15 @@ function validateLoopLaunchResult(value: unknown, spec: H2ALoopLaunchSpec): void
   }
 }
 
-export function executeLoopLaunchWithSpawn(
-  value: H2ALoopLaunchSpec,
-  spawn: typeof spawnSync = spawnSync
+function interpretLoopLaunchOutput(
+  spec: H2ALoopLaunchSpec,
+  result: { status: number | null; stdout?: string; stderr?: string; error?: unknown },
 ): LoopLaunchResult {
-  const spec = validateLoopLaunchSpec(value);
-  const invocation = buildLoopLaunchInvocation(spec);
-  const result = spawn(invocation.command, [...invocation.args], {
-    cwd: invocation.cwd,
-    input: invocation.input,
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-    shell: false,
-    timeout: 30_000,
-    maxBuffer: 1_048_576
-  });
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
     return {
       ok: false,
-      detail: code === "ETIMEDOUT" ? "launch status unknown after runtime timeout" : result.error.message,
+      detail: code === "ETIMEDOUT" ? "launch status unknown after runtime timeout" : String((result.error as Error).message ?? result.error),
       retrySafe: false
     };
   }
@@ -641,9 +633,78 @@ export function executeLoopLaunchWithSpawn(
   return { ok: true, detail: `started ${spec.profile} session ${spec.name}` };
 }
 
+export async function executeLoopLaunchAsyncWithSpawn(
+  value: H2ALoopLaunchSpec,
+  spawnRuntime: typeof spawn = spawn,
+  timeoutMs = (value.profile as string) === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 30_000,
+): Promise<LoopLaunchResult> {
+  const spec = validateLoopLaunchSpec(value);
+  const invocation = buildLoopLaunchInvocation(spec);
+  return new Promise((resolve) => {
+    const child = spawnRuntime(invocation.command, [...invocation.args], {
+      cwd: invocation.cwd,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let settled = false;
+    let killEscalation: NodeJS.Timeout | undefined;
+    const finish = (res: LoopLaunchResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(killEscalation);
+      resolve(res);
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      killEscalation = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    }, timeoutMs);
+    child.stdout?.setEncoding("utf8").on("data", (d: string) => {
+      stdout = (stdout + d).slice(-1_048_576);
+    });
+    child.stderr?.setEncoding("utf8").on("data", (d: string) => {
+      stderr = (stderr + d).slice(-1_048_576);
+    });
+    child.stdin?.on("error", () => {});
+    child.on("error", (err) => finish(interpretLoopLaunchOutput(spec, { status: null, stdout, stderr, error: err })));
+    child.on("close", (status) => {
+      if (timedOut) {
+        finish({ ok: false, detail: "launch status unknown after runtime timeout", retrySafe: false });
+        return;
+      }
+      finish(interpretLoopLaunchOutput(spec, { status, stdout, stderr }));
+    });
+    child.stdin?.end(invocation.input);
+  });
+}
+
+export function executeLoopLaunchWithSpawn(
+  value: H2ALoopLaunchSpec,
+  spawnSyncFn: typeof spawnSync = spawnSync
+): LoopLaunchResult {
+  const spec = validateLoopLaunchSpec(value);
+  const invocation = buildLoopLaunchInvocation(spec);
+  const result = spawnSyncFn(invocation.command, [...invocation.args], {
+    cwd: invocation.cwd,
+    input: invocation.input,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    shell: false,
+    timeout: (spec.profile as string) === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 30_000,
+    maxBuffer: 1_048_576
+  });
+  return interpretLoopLaunchOutput(spec, result);
+}
+
 const defaultLoopLauncher: LoopLauncher = {
   launch(spec) {
-    return executeLoopLaunchWithSpawn(spec);
+    return (spec.profile as string) === "agy"
+      ? executeLoopLaunchAsyncWithSpawn(spec)
+      : executeLoopLaunchWithSpawn(spec);
   }
 };
 
@@ -671,7 +732,10 @@ export function localTmuxLoopWakeDriver(options: {
         options.log?.(`loop-wake[local-tmux]: ${request.to} -> ${target} deferred-human`);
         return "deferred-human";
       }
-      const ok = tmuxSendSubmit(runtime, target, request.instructionLine);
+      const ok = tmuxSendSubmit(runtime, target, request.instructionLine, {
+        ...(request.host ? { profile: request.host } : {}),
+        mode: "cli-input",
+      });
       options.log?.(`loop-wake[local-tmux]: ${request.to} -> ${target} ${ok ? "done" : "failed"}`);
       return ok ? "done" : "failed";
     }

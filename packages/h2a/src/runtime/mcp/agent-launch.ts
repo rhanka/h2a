@@ -16,6 +16,39 @@ import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
 import { assertAgyClaudeBuildAllowed, isAgyClaudeModel, normalizeAgyEffort, resolveAgyModel, resolveLaunchModelAlias } from "../agy-claude.js";
+import { MCP_AGY_LAUNCH_BUDGET_MS } from "../onboarding-core.js";
+
+const PRECREATE_ONBOARDING_CODES = new Set([
+  "cli-workspace-not-trusted",
+  "cli-first-run-wizard",
+  "cli-hooks-review-required",
+  "cli-trust-config-unreadable",
+  "cli-trust-audit-mismatch",
+  "cli-trust-unsupported-cwd",
+  "cli-trust-refused",
+  "agy-auth-required",
+  "cli-auth-required",
+  "cli-permission-prompt-required",
+  "cli-update-modal-blocking",
+  "cli-start-lock-unavailable",
+  "cli-start-lock-timeout",
+  "cli-start-lock-invalid-config",
+  "cli-memory-scope-unavailable",
+  "cli-memory-slice-missing",
+  "cli-memory-slice-insufficient",
+  "cli-memory-slice-unbounded",
+  "cli-memory-slice-unreadable",
+]);
+
+const HOST_MODAL_CODES = new Set([
+  "agy-auth-required",
+  "cli-auth-required",
+  "cli-workspace-not-trusted",
+  "cli-first-run-wizard",
+  "cli-hooks-review-required",
+  "cli-permission-prompt-required",
+  "cli-update-modal-blocking",
+]);
 
 export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
@@ -117,8 +150,12 @@ function isPreCreateNativeFailure(
     Array.isArray(failure.hosts) && failure.hosts.length > 0 &&
     failure.hosts.every(value => value && typeof value.socketPath === "string" && isAbsolute(value.socketPath)) &&
     failure.hosts.some(value => typeof value.reason === "string" && value.reason.length > 0);
+  const preCreateOnboarding =
+    (failure.phase === "onboarding" || failure.phase === "start-queue" || failure.phase === "memory-slice") &&
+    typeof failure.code === "string" &&
+    PRECREATE_ONBOARDING_CODES.has(failure.code);
   if (!(failure.kind === "h2a.run.failure" && failure.version === 1 &&
-    failure.state === "not-started" && (capability || collision || unknownInventory) &&
+    failure.state === "not-started" && (capability || collision || unknownInventory || preCreateOnboarding) &&
     failure.launchId === launchId &&
     failure.creationAttempted === false && failure.retrySafe === true &&
     prompt?.delivered !== true)) return false;
@@ -347,6 +384,7 @@ export function buildH2aRunInvocation(
       ...(request.role ? ["--role", request.role] : []),
       ...(request.allowClaudeBuild ? ["--allow-claude-build"] : []),
       ...(request.outputFile ? ["--output-file", request.outputFile] : []),
+      ...(request.profile === "agy" ? ["--launch-budget-ms", String(MCP_AGY_LAUNCH_BUDGET_MS)] : []),
     ],
     cwd: request.workspace,
     input: request.prompt,
@@ -532,9 +570,8 @@ export function executeH2aRunWithSpawn(
     stdio: ["pipe", "pipe", "pipe"],
     shell: false,
     env: { ...spawnEnv, H2A_RUN_LAUNCH_TOKEN: launchToken },
-    // Readiness + paste + activity + native RPCs + cleanup. The previous 30s
-    // deadline killed the owner inside the runtime's 90s readiness budget.
-    timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+    // Readiness + paste + activity + native RPCs + cleanup (agy includes start serialization queue).
+    timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : request.profile === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 180_000,
     maxBuffer: 1_048_576,
   });
   if (result.error) {
@@ -577,6 +614,11 @@ export function executeH2aRunWithSpawn(
           failure.code === "agy-auth-required" && failure.launchId === request.name && failure.retrySafe === false &&
           (request.headless ? failure.state === "failed" : failure.state === "host-modal" &&
             typeof failure.stopped === "boolean" && (failure.prompt as { delivered?: unknown })?.delivered === false)) return failure;
+      if (failure.kind === "h2a.run.failure" && failure.version === 1 &&
+          failure.state === "host-modal" && typeof failure.code === "string" &&
+          HOST_MODAL_CODES.has(failure.code) && failure.launchId === request.name &&
+          failure.retrySafe === false && typeof failure.stopped === "boolean" &&
+          (failure.prompt as { delivered?: unknown })?.delivered === false) return failure;
       if (failure.kind === "h2a.run.failure" && request.profile === "agy" &&
           failure.retrySafe === false && typeof failure.code === "string" &&
           ["agy-effort-unsupported", "agy-claude-build-requires-opt-in", "agy-claude-quota-exhausted", "agy-output-missing", "agy-model-mismatch", "agy-process-failed"].includes(failure.code)) return failure;
@@ -603,7 +645,7 @@ export function executeH2aRunWithSpawn(
 export async function executeH2aRunWithAsyncSpawn(
   request: H2aRunRequest,
   spawnRuntime: typeof spawn = spawn,
-  runtimeBudgetMs = request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+  runtimeBudgetMs = request.profile === "codex" || request.profile === "muse" ? 270_000 : request.profile === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 180_000,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);

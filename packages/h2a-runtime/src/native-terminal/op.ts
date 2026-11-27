@@ -44,6 +44,14 @@ import {
   type ChildProcess,
   type ExecFileOptionsWithStringEncoding,
 } from "node:child_process";
+import {
+  classifyCliCommand,
+  guardPaneBeforeAutomatedInput,
+  MCP_AGY_LAUNCH_BUDGET_MS,
+  verifyNativeHostScopeFromProc,
+  type NativeMemoryPolicy,
+  type NativeSessionClass,
+} from "../onboarding-core.js";
 import { NativeTerminalClient, NativeTerminalRequestTimeoutError } from "./client.js";
 import { coreSpawnTarget } from "../identity-operator-break.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
@@ -175,6 +183,10 @@ function socketPathFromEnv(): string {
 // alive: the op prints its error but never exits, and the synchronous caller
 // only learns about it through a 15s ETIMEDOUT.
 const openClients = new Set<NativeTerminalClient>();
+const hostPings = new WeakMap<
+  NativeTerminalClient,
+  Awaited<ReturnType<NativeTerminalClient["ping"]>> & { readonly applicationFacetVersion?: unknown }
+>();
 
 export function closeAllNativeTerminalOpClients(): void {
   for (const client of openClients) client.close();
@@ -192,6 +204,7 @@ async function connectExisting(socketPath: string, tracked = true, signal?: Abor
   try {
     signal?.throwIfAborted();
     const ping = await client.ping();
+    hostPings.set(client, ping);
     if (ping.protocolVersion !== NATIVE_TERMINAL_PROTOCOL_VERSION || !ping.generation?.trim() ||
       !Number.isSafeInteger(ping.hostPid) || ping.hostPid <= 0 ||
       !sameNativeTerminalSocket(identity, await inspectPrivateNativeTerminalSocket(socketPath))) {
@@ -355,7 +368,7 @@ function nativeDriveActivityWindowMs(): number {
  * guessing a h2a-<slug> name here could inject into a homonymous session.
  */
 type NativeDriveSessionResolution =
-  | { readonly state: "found"; readonly id: string }
+  | { readonly state: "found"; readonly id: string; readonly profile?: string }
   | { readonly state: "unresolved" }
   | { readonly state: "unknown" };
 
@@ -368,6 +381,7 @@ function nativeDriveSessionId(target: string): NativeDriveSessionResolution {
     labels.push(target.slice(hostSeparator + 1));
   }
   const sessions = new Set<string>();
+  const profiles = new Set<string>();
   let matches = 0;
   let hasUnknownSessionId = false;
   for (const label of labels) {
@@ -375,11 +389,13 @@ function nativeDriveSessionId(target: string): NativeDriveSessionResolution {
       matches += 1;
       if (entry.tmuxSession === undefined) hasUnknownSessionId = true;
       else sessions.add(entry.tmuxSession);
+      if (entry.tool) profiles.add(entry.tool);
     }
   }
   if (matches === 0) return { state: "unresolved" };
   if (hasUnknownSessionId || sessions.size !== 1) return { state: "unknown" };
-  return { state: "found", id: [...sessions][0]! };
+  const profile = profiles.size === 1 ? [...profiles][0] : undefined;
+  return { state: "found", id: [...sessions][0]!, ...(profile ? { profile } : {}) };
 }
 
 function nativeDriveInstruction(text: string): string | undefined {
@@ -465,6 +481,13 @@ function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
  * path (20 s + 20 s). It is not a criterion: the oracle is the issue.
  */
 export const STATION_CLI_TIMEOUT_MS = 60_000;
+export const STATION_AGY_CLI_TIMEOUT_MS = MCP_AGY_LAUNCH_BUDGET_MS;
+
+function stationExecTimeoutMs(args: ReadonlyArray<string>): number {
+  return classifyCliCommand(["h2a", ...args]) === "agy"
+    ? STATION_AGY_CLI_TIMEOUT_MS
+    : STATION_CLI_TIMEOUT_MS;
+}
 
 /**
  * S2 relaunch effect (plan 09-S2): async `execFile` without a shell, tokens
@@ -474,6 +497,7 @@ export const STATION_CLI_TIMEOUT_MS = 60_000;
  */
 function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
   const target = coreSpawnTarget(process.env);
+  const timeoutMs = stationExecTimeoutMs(request.args);
   return new Promise((resolve) => {
     let settled = false;
     let killedByTimeout = false;
@@ -492,7 +516,7 @@ function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
         /* already gone: the callback settles below */
       }
       done({ ok: false, code: "timeout", stdout: "", stderr: "" });
-    }, STATION_CLI_TIMEOUT_MS);
+    }, timeoutMs);
     // The timer never holds the station open on its own: the child carries
     // the relaunch, and closing the station never cuts a relaunch in flight.
     timer.unref?.();
@@ -2564,6 +2588,7 @@ export async function runNativeTerminalOp(
         socketPath: selected.socketPath,
         launchFence: ping.launchFence === true,
         softRespawn: ping.softRespawn === true,
+        hostIsolated: ping.hostIsolated === true,
       });
       return 0;
     }
@@ -2607,8 +2632,27 @@ export async function runNativeTerminalOp(
     case "create": {
       const client = parsed.flags.has("socket") ? await connectExisting(socketPath) : await ensureClient(socketPath);
       const id = required(parsed, "id");
+      const rawMemoryPolicy = parsed.flags.get("memory-policy");
+      const rawSessionClass = parsed.flags.get("session-class");
+      const memoryPolicy: NativeMemoryPolicy | undefined =
+        rawMemoryPolicy === "agy" ? "agy" : rawMemoryPolicy === "default" ? "default" : undefined;
+      const sessionClass: NativeSessionClass | undefined =
+        rawSessionClass === "human" ? "human" : rawSessionClass === "background" ? "background" : undefined;
+      const ping = await client.ping();
+      if (memoryPolicy === "agy" && !verifyNativeHostScopeFromProc(ping.hostPid, ping.hostIsolated === true)) {
+        client.close();
+        emit({
+          code: "cli-memory-scope-unavailable",
+          phase: "memory-slice",
+          error: "native terminal host is not isolated inside app.slice",
+          hint: "ensure systemd user scope isolation works before launching agy on the native host",
+          hostPid: ping.hostPid,
+          generation: ping.generation,
+        });
+        return 1;
+      }
       if (parsed.flags.has("incarnation") || socketPath.endsWith("/native-terminal.lf1.sock")) {
-        if (parsed.flags.has("incarnation") && (await client.ping()).launchFence !== true) throw new Error("selected native host does not provide launchFence");
+        if (parsed.flags.has("incarnation") && ping.launchFence !== true) throw new Error("selected native host does not provide launchFence");
         const inventory = await inventoryFor({ ...parsed, flags: new Map() });
         const ids = [id, ...(parsed.flags.has("sidecar") ? [required(parsed, "sidecar")]
           : !id.endsWith(".h2a") ? [`${id}.h2a`] : [])];
@@ -2629,21 +2673,40 @@ export async function runNativeTerminalOp(
             ),
           );
       if (parsed.command.length === 0) throw new Error("create requires -- command");
-      const state = await client.create({
-        ...(parsed.flags.has("incarnation") ? { launchFence: {
-          generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
-        } } : {}),
-        id,
-        command: parsed.command[0]!,
-        args: parsed.command.slice(1),
-        cwd,
-        env,
-        cols,
-        rows,
-      });
-      client.close();
-      emit(state);
-      return 0;
+      try {
+        const state = await client.create({
+          ...(parsed.flags.has("incarnation") ? { launchFence: {
+            generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
+          } } : {}),
+          id,
+          command: parsed.command[0]!,
+          args: parsed.command.slice(1),
+          cwd,
+          env,
+          cols,
+          rows,
+          ...(memoryPolicy !== undefined ? { memoryPolicy } : {}),
+          ...(sessionClass !== undefined ? { sessionClass } : {}),
+        });
+        client.close();
+        emit(state);
+        return 0;
+      } catch (error) {
+        client.close();
+        const msg = error instanceof Error ? error.message : String(error);
+        const prefix = "[h2a-onboarding-error:";
+        const startIdx = msg.indexOf(prefix);
+        const endIdx = startIdx >= 0 ? msg.indexOf("]", startIdx) : -1;
+        if (startIdx >= 0 && endIdx > startIdx) {
+          try {
+            emit(JSON.parse(msg.slice(startIdx + prefix.length, endIdx)));
+            return 1;
+          } catch {
+            /* fall through */
+          }
+        }
+        throw error;
+      }
     }
     case "launch": {
       // R3 P1 single-fork fast path: ensure-host + admit + probe + create
@@ -2653,6 +2716,12 @@ export async function runNativeTerminalOp(
       // atomically like "create" does. Emits the host identity together
       // with the session state so callers skip their pid re-probes.
       const fenced = parsed.flags.has("incarnation") || parsed.flags.has("fenced");
+      const rawMemoryPolicy = parsed.flags.get("memory-policy");
+      const rawSessionClass = parsed.flags.get("session-class");
+      const memoryPolicy: NativeMemoryPolicy | undefined =
+        rawMemoryPolicy === "agy" ? "agy" : rawMemoryPolicy === "default" ? "default" : undefined;
+      const sessionClass: NativeSessionClass | undefined =
+        rawSessionClass === "human" ? "human" : rawSessionClass === "background" ? "background" : undefined;
       const selected = parsed.flags.has("socket")
         ? { client: await connectExisting(socketPath), socketPath }
         : await selectLaunchClient(fenced);
@@ -2664,6 +2733,19 @@ export async function runNativeTerminalOp(
         if (fenced && ping.launchFence !== true) {
           emit({ code: "native-host-capability-mismatch", socketPath: launchSocket,
             hostPid: ping.hostPid, generation: ping.generation, launchFence: false });
+          return 0;
+        }
+        if (memoryPolicy === "agy" && !verifyNativeHostScopeFromProc(ping.hostPid, ping.hostIsolated === true)) {
+          emit({
+            code: "cli-memory-scope-unavailable",
+            phase: "memory-slice",
+            error: "native terminal host is not isolated inside app.slice",
+            hint: "ensure systemd user scope isolation works before launching agy on the native host",
+            socketPath: launchSocket,
+            hostPid: ping.hostPid,
+            generation: ping.generation,
+            launchFence: ping.launchFence === true,
+          });
           return 0;
         }
         const inventory = await inventoryFor({ ...parsed, flags: new Map() });
@@ -2709,18 +2791,39 @@ export async function runNativeTerminalOp(
             );
         if (parsed.command.length === 0) throw new Error("launch requires -- command");
         checkDeadline();
-        const state = await client.create({
-          ...(parsed.flags.has("incarnation") ? { launchFence: {
-            generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
-          } } : {}),
-          id,
-          command: parsed.command[0]!,
-          args: parsed.command.slice(1),
-          cwd,
-          env,
-          cols,
-          rows,
-        });
+        let state: Awaited<ReturnType<typeof client.create>>;
+        try {
+          state = await client.create({
+            ...(parsed.flags.has("incarnation") ? { launchFence: {
+              generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
+            } } : {}),
+            id,
+            command: parsed.command[0]!,
+            args: parsed.command.slice(1),
+            cwd,
+            env,
+            cols,
+            rows,
+            ...(memoryPolicy !== undefined ? { memoryPolicy } : {}),
+            ...(sessionClass !== undefined ? { sessionClass } : {}),
+          });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          const prefix = "[h2a-onboarding-error:";
+          const startIdx = msg.indexOf(prefix);
+          const endIdx = startIdx >= 0 ? msg.indexOf("]", startIdx) : -1;
+          if (startIdx >= 0 && endIdx > startIdx) {
+            try {
+              const parsedErr = JSON.parse(msg.slice(startIdx + prefix.length, endIdx)) as Record<string, unknown>;
+              emit({ ...parsedErr, socketPath: launchSocket, hostPid: ping.hostPid, generation: ping.generation,
+                launchFence: ping.launchFence === true });
+              return 0;
+            } catch {
+              /* fall through */
+            }
+          }
+          throw error;
+        }
         const { socketPath: _droppedStateSocket, generation: _droppedStateGeneration, ...stateRest } = state as Record<string, unknown>;
         emit({ ...stateRest, hostPid: ping.hostPid, socketPath: launchSocket, generation: ping.generation,
           launchFence: ping.launchFence === true });
@@ -2730,8 +2833,14 @@ export async function runNativeTerminalOp(
       }
     }
     case "drive": {
+      const explicitProfile = parsed.flags.get("profile");
       const target: NativeDriveSessionResolution = parsed.flags.has("id")
-        ? { state: "found", id: required(parsed, "id") } : nativeDriveSessionId(required(parsed, "target"));
+        ? {
+            state: "found",
+            id: required(parsed, "id"),
+            ...(explicitProfile !== undefined ? { profile: explicitProfile } : {}),
+          }
+        : nativeDriveSessionId(required(parsed, "target"));
       if (target.state === "unresolved") {
         emit({ outcome: "unresolved" });
         return 0;
@@ -2766,6 +2875,32 @@ export async function runNativeTerminalOp(
           return 0;
         }
         try {
+          const profile = parsed.flags.get("profile") ?? target.profile;
+          const ping = hostPings.get(client);
+          const hostSupportsReadOutput =
+            ping?.softRespawn === true || ping?.applicationFacetVersion !== undefined;
+          if (hostSupportsReadOutput || profile === "agy") {
+            let capture: string | undefined;
+            try {
+              const raw = await readAll(client, target.id);
+              capture = (await renderTerminalScreen(raw)).slice(-16384);
+            } catch {
+              capture = undefined;
+            }
+            const guard = guardPaneBeforeAutomatedInput(
+              capture,
+              profile,
+              "cli-input",
+            );
+            if (!guard.ok) {
+              emit({
+                outcome: guard.outcome === "blocked" ? "failed" : "deferred",
+                reason: guard.reason,
+                ...(guard.modal?.code ? { code: guard.modal.code } : {}),
+              });
+              return 0;
+            }
+          }
           // One validated text line plus one submit CR: no bracketed-paste or
           // embedded controls can turn this into multiple terminal actions.
           await client.write(lease, `${text}\r`);

@@ -1,12 +1,16 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { withAgyStartQueueSync } from '../dist/runtime/onboarding-core.js';
 // The spec verifies these discovery/import commands, but no bounded model
 // invocation or hook equivalent for Muse/agy. Never substitute Gemini for agy.
-export function qualifyPollHost({ host, env, cwd, evidence, run = spawnSync }) {
+export function qualifyPollHost({ host, env, cwd, evidence, run = spawnSync, startLockOptions }) {
   const commands = host === 'muse' ? [['muse', 'skills', 'list']] : [['agy', 'plugin', 'import', 'gemini'], ['agy', 'plugin', 'enable', 'h2a']];
   const checks = [];
   for (const [command, ...args] of commands) {
-    const result = run(command, args, { env, cwd, encoding: 'utf8', timeout: 15_000, maxBuffer: 1_048_576 });
+    const execCmd = () => run(command, args, { env, cwd, encoding: 'utf8', timeout: 15_000, maxBuffer: 1_048_576 });
+    const result = command === 'agy'
+      ? withAgyStartQueueSync(() => ({ result: execCmd() }), { env, ...(startLockOptions ?? {}) })
+      : execCmd();
     const ok = result.status === 0;
     checks.push({ command: [command, ...args], ok });
     evidence.push({ method: 'qualification/native-discovery', command: [command, ...args], ok,

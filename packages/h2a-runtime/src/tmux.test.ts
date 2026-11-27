@@ -928,7 +928,11 @@ describe("existingLocalSessionSlugs", () => {
 describe("sendKeysLiteral", () => {
   it("feeds literal content through tmux stdin and never process argv", () => {
     const prompt = "--dangerously-skip-permissions; $(touch /tmp/nope)";
-    spawnSyncMock.mockReturnValue({ status: 0 });
+    spawnSyncMock.mockImplementation((_cmd, args) =>
+      Array.isArray(args) && args[0] === "capture-pane"
+        ? { status: 0, stdout: "❯ Ready\n" }
+        : { status: 0 },
+    );
 
     expect(sendKeysLiteral("%1", prompt)).toBe(true);
 
@@ -948,15 +952,44 @@ describe("sendKeysLiteral", () => {
   });
 
   it("does not paste or submit when loading the private buffer fails", () => {
-    spawnSyncMock.mockReturnValueOnce({ status: 1 });
+    spawnSyncMock.mockImplementation((_cmd, args) => {
+      if (Array.isArray(args) && args[0] === "capture-pane") {
+        return { status: 0, stdout: "❯ Ready\n" };
+      }
+      if (Array.isArray(args) && args[0] === "load-buffer") {
+        return { status: 1 };
+      }
+      return { status: 0 };
+    });
 
     expect(sendKeysLiteral("%1", "prompt")).toBe(false);
     expect(tmuxCalls("paste-buffer")).toHaveLength(0);
     expect(tmuxCalls("send-keys")).toHaveLength(0);
   });
 
+  it("refuses with zero keystrokes when capture is unavailable or shows a host modal", () => {
+    spawnSyncMock.mockReturnValue({ status: 1, stdout: undefined });
+    expect(sendKeysLiteral("%1", "prompt")).toBe(false);
+    expect(tmuxCalls("load-buffer")).toHaveLength(0);
+    expect(tmuxCalls("send-keys")).toHaveLength(0);
+
+    spawnSyncMock.mockReset();
+    spawnSyncMock.mockImplementation((_cmd, args) =>
+      Array.isArray(args) && args[0] === "capture-pane"
+        ? { status: 0, stdout: "Hooks need review\n1. Review hooks\n" }
+        : { status: 0 },
+    );
+    expect(sendKeysLiteral("%1", "prompt")).toBe(false);
+    expect(tmuxCalls("load-buffer")).toHaveLength(0);
+    expect(tmuxCalls("send-keys")).toHaveLength(0);
+  });
+
   it("keeps the throttle-nudge path UNbracketed (single lines, unchanged)", () => {
-    spawnSyncMock.mockReturnValue({ status: 0 });
+    spawnSyncMock.mockImplementation((_cmd, args) =>
+      Array.isArray(args) && args[0] === "capture-pane"
+        ? { status: 0, stdout: "❯ Ready\n" }
+        : { status: 0 },
+    );
     sendKeysLiteral("%1", "nudge");
     expect(tmuxCalls("paste-buffer")[0]?.[1]).not.toContain("-p");
   });

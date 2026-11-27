@@ -144,6 +144,7 @@ export type NativeTerminalPing = Readonly<{
   applicationFacetVersion?: typeof APPLICATION_FACET_VERSION;
   launchFence?: boolean;
   softRespawn?: boolean;
+  hostIsolated?: boolean;
   generation: string;
   hostPid: number;
   protocolVersion: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;

@@ -183,6 +183,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       // is the same kind of work: local tmux naming and status-surface setup
       // on this host, not a provider route or a session lifecycle action.
       "tmux",
+      "trust",
     ],
   },
   {

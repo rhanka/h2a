@@ -1,0 +1,39 @@
+Script started on 2026-11-25 20:54:51-05:00 [COMMAND="<SANDBOX>/run-H2b-settings-other-keys.sh" <not executed on terminal>]
+[>q   [>4m    [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+   ▄ ▀ ▀      ▀▀ ▄
+  ▄ ▀ ▀        ▀ ▀ ▄
+ Welcome to the  Antigravity CLI . You are currently not signed in.
+ ⣷  Signing in...[>4m[<1u [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+  ▄ ▀ ▀      ▀▀ ▄
+   ▄ ▀ ▀        ▀ ▀ ▄
+   Antigravity CLI 1.5.17
+  [<REDACTED_EMAIL>
+   <SANDBOX>/untrusted
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts
+       Gemini 3.8 Flash (Low)
+   <SANDBOX>/untrusted
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts    Gemini 3.8 Flash · low
+      Auto mode: edits & safe commands auto-approved (shift+tab to cycle)
+   auto  ·
+M
+  ┃   Introducing Gemini 4 Neon
+  ┃  Our best balance of intelligence, cost, and latency. Get building today with Neon.
+  ┃   esc to dismiss
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ >   Auto mode: edits & safe commands auto-approved (shift+tab to cycle)
+ ────────────────────────────────────────────────────────────────────────────────────────────────────
+ ? for shortcuts    auto  · Gemini 3.8 Flash · low
+         (Google AI Ultra)
+Script done on 2026-11-25 20:55:02-05:00 [COMMAND_EXIT_CODE="0"]
