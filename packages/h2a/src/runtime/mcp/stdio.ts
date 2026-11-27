@@ -32,6 +32,7 @@ import {
   type ResolvedIdentityMessage
 } from "./identity-state.js";
 import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
+import type { FocusBuildManager } from "./focus-jobs.js";
 import type { H2ASendSigner, H2AMessageBackend } from "../send.js";
 import type { H2aClusterMeshMessaging } from "../cluster-mesh-messaging.js";
 import {
@@ -91,6 +92,8 @@ export interface RunMcpStdioOptions {
   workspaceRoot?: string;
   /** Test seam for h2a_run; production uses the argv-only subprocess bridge. */
   runExecutor?: H2aRunExecutor;
+  /** Shared central Focus build manager (when hosted behind mcp-central). */
+  focusBuildManager?: FocusBuildManager;
   /** Trusted signer resolved by mcp-serve, never from JSON-RPC arguments. */
   sendContext?: H2ASendSigner;
   messageBackend?: H2AMessageBackend;
@@ -544,6 +547,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+    ...(options.focusBuildManager ? { focusBuildManager: options.focusBuildManager } : {}),
+    focusEnv: sessionEnv,
     ...(options.sendContext ? { sendContext: options.sendContext } : {}),
     messageBackend: options.messageBackend,
     getClusterMesh: () => liveClusterMesh ?? options.clusterMesh,
@@ -749,6 +754,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   function shutdownAsync(reason: "transport_closed" | "signal" = "transport_closed"): Promise<void> {
     if (!options.centralAttachment) {
       shutdown(reason);
+      if (!options.focusBuildManager) {
+        return server.focusBuildManager.close().catch(() => {});
+      }
       return Promise.resolve();
     }
     shutdownPromise ??= (async () => {
@@ -765,6 +773,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         server.notifications.stop();
         if (options.participant?.transferred()) server.sessions.suspend();
         else await server.sessions.closeAllAsync("closed");
+        if (!options.focusBuildManager) {
+          await server.focusBuildManager.close();
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);

@@ -13,6 +13,7 @@ import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpCallContext, type McpServer } from "./mcp/server.js";
 import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
+import type { FocusBuildManager } from "./mcp/focus-jobs.js";
 import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
 import type { AttachmentParticipant } from "./handover/participants.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
@@ -63,7 +64,10 @@ export function openCentralAttachment(
   runExecutor?: H2aRunExecutor,
   participant?: AttachmentParticipant,
   registry?: Pick<ComposeDaemonOptions, "lock" | "memory">,
-  attachmentOptions?: { env?: Readonly<Record<string, string | undefined>> }
+  attachmentOptions?: {
+    env?: Readonly<Record<string, string | undefined>>;
+    focusBuildManager?: FocusBuildManager;
+  }
 ): CentralAttachmentHandle {
   if (!context) {
     // Direct HTTP sessions serve the ui:// resource surface from the vendored
@@ -80,7 +84,16 @@ export function openCentralAttachment(
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`h2a central attachment: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
     }
-    const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}), ...(uiRender ? { uiRender } : {}) });
+    const mcp = createMcpServer({
+      root,
+      workspaceRoot: workspace,
+      store,
+      ...(participant ? { participant } : {}),
+      ...(runExecutor ? { runExecutor } : {}),
+      ...(uiRender ? { uiRender } : {}),
+      ...(attachmentOptions?.env !== undefined ? { focusEnv: attachmentOptions.env } : {}),
+      ...(attachmentOptions?.focusBuildManager ? { focusBuildManager: attachmentOptions.focusBuildManager } : {})
+    });
     participant?.bind(mcp);
     const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;
     if (!registry) installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
@@ -130,7 +143,8 @@ export function openCentralAttachment(
     expectedInstance: context.expectedInstance,
     signal: controller.signal,
     onServer(server) { mcp = server; participant?.bind(server); },
-    ...(runExecutor ? { runExecutor } : {})
+    ...(runExecutor ? { runExecutor } : {}),
+    ...(attachmentOptions?.focusBuildManager ? { focusBuildManager: attachmentOptions.focusBuildManager } : {})
   });
   if (!mcp) { controller.abort(); input.end(); throw new Error("central attachment activation failed"); }
   const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;

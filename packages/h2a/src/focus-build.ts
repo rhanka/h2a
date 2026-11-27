@@ -9,7 +9,22 @@ import {
   validateThemeId,
 } from '@sentropic/focus';
 import type { FocusDocument } from '@sentropic/focus';
-import { assertFocusArtifact, checkFocusArtifact } from '@sentropic/focus/artifact';
+import {
+  assertFocusArtifact,
+  buildDerivedFileEntry,
+  buildFocusArtifactManifest,
+  buildFocusViewsDocument,
+  canonicalJsonString,
+  checkFocusArtifact,
+  rendererManifestDigest,
+  validateFocusArtifactManifest,
+  validateFocusViewsDocument,
+  type FocusArtifactManifest,
+  type FocusDiagramDerivedEntry,
+  type FocusManifestFileEntry,
+  type FocusManifestRenderer,
+  type FocusManifestValidator,
+} from '@sentropic/focus/artifact';
 
 // Generated directly from @sentropic/focus/validate; no second validation implementation.
 const { assertFocusForPresentation, assertFocusDocument } =
@@ -134,7 +149,49 @@ export interface FocusBuildOutcome {
   readonly warnings: readonly string[];
 }
 
-export function buildFocusDossierWithDiagnostics(input: unknown, options: FocusBuildOptions = {}): FocusBuildOutcome {
+export interface FocusReleaseBundleOptions extends FocusBuildOptions {
+  /** Whether to emit the standalone/fragment HTML output (`true` when writing local `.html`). */
+  readonly includeHtml?: boolean;
+  /** Whether to assemble the `focus-dossier/1` release JSONs (`dossier.json`, `focus.manifest.json`, `views.json`). */
+  readonly includeArtifact?: boolean;
+  /** Optional prior `focus.manifest.json` object for R3/R4 revision verification. */
+  readonly previousManifest?: unknown;
+  /** Optional ISO-8601 timestamp override for manifest revision metadata (tests). */
+  readonly createdAt?: string;
+}
+
+export interface FocusReleaseArtifactBundle {
+  readonly bindingName: string;
+  readonly documentDigest: string;
+  readonly documentJson: string;
+  readonly manifestJson: string;
+  readonly viewsJson?: string;
+}
+
+export interface FocusReleaseBundleOutcome {
+  readonly html?: string;
+  readonly warnings: readonly string[];
+  readonly artifact?: FocusReleaseArtifactBundle;
+}
+
+import { extractFocusRefusals, type FocusExtractedRefusal } from './runtime/mcp/focus-refusals.js';
+export { extractFocusRefusals, type FocusExtractedRefusal } from './runtime/mcp/focus-refusals.js';
+
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: unknown };
+    return typeof pkg.version === 'string' && pkg.version.length > 0 ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+export function buildFocusReleaseBundle(
+  input: unknown,
+  options: FocusReleaseBundleOptions = {}
+): FocusReleaseBundleOutcome {
+  const includeHtml = options.includeHtml !== false;
+  const includeArtifact = options.includeArtifact === true;
   const backend = options.renderer ?? 'svelte';
   if (!['svelte', 'vue'].includes(backend)) throw new Error('Unknown Focus renderer');
   if (options.mode !== undefined && !['decision', 'report'].includes(options.mode)) throw new Error('Unknown Focus presentation mode');
@@ -143,16 +200,41 @@ export function buildFocusDossierWithDiagnostics(input: unknown, options: FocusB
   if (!['document', 'artifact'].includes(target)) throw new Error('Unknown Focus build target');
   const themeId = options.themeId !== undefined ? validateThemeId(options.themeId) : undefined;
   const themeCss = options.themeCss !== undefined ? validateThemeCss(options.themeCss) : undefined;
-  // Refuse closed-schema, R2/R5/R6 anchor, doc.ref and bindingName violations before interpreting
-  // diagram references, and compute the canonical documentDigest BEFORE any section enrichment.
-  // BLOCKED(FA-H1 step 4): enforcing the 1 048 576-byte ceiling inside buildFocusDossier contradicts
-  // frozen CI tests in .github/workflows/focus-dossier.yml:
-  //   - packages/h2a/focus-kit/test/evidence-browser.test.mjs:122 (8 122 984 bytes via evidence-harness.mjs:13)
-  //   - packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs:19-32 (> 30 MB large corpus & 1 596 479-byte doubled corpus, SHA-256 frozen in fixtures/evidence-performance-policy.v1.json)
-  // Stopped here without deciding the design; checkFocusArtifact / h2a focus check / h2a_focus_check enforce 1 048 576 bytes by default.
-  const artifactChecked = assertFocusArtifact(input, { maxDocumentBytes: null, skipReadability: true });
-  const inputDocument = artifactChecked.document;
-  const canonicalDocumentDigest = artifactChecked.documentDigest;
+
+  let inputDocument: FocusDocument;
+  let canonicalDocumentDigest: string;
+  let canonicalDocumentJson = '';
+  let checkedBindingName = '';
+  if (includeArtifact) {
+    const checked = checkFocusArtifact(
+      input,
+      options.previousManifest !== undefined
+        ? { previousManifest: options.previousManifest as FocusArtifactManifest }
+        : undefined
+    );
+    if (!checked.ok) {
+      const summary = checked.issues.map((i) => `${i.path} ${i.code}: ${i.message}`).join('; ');
+      const err = new Error(`invalid DecisionDossierDocument: ${summary}`);
+      (err as unknown as { issues: unknown }).issues = checked.issues;
+      throw err;
+    }
+    inputDocument = checked.document;
+    canonicalDocumentDigest = checked.documentDigest;
+    canonicalDocumentJson = checked.canonicalJson;
+    checkedBindingName = checked.bindingName;
+  } else {
+    // Refuse closed-schema, R2/R5/R6 anchor, doc.ref and bindingName violations before interpreting
+    // diagram references, and compute the canonical documentDigest BEFORE any section enrichment.
+    // BLOCKED(FA-H1 step 4): enforcing the 1 048 576-byte ceiling inside buildFocusDossier contradicts
+    // frozen CI tests in .github/workflows/focus-dossier.yml:
+    //   - packages/h2a/focus-kit/test/evidence-browser.test.mjs:122 (8 122 984 bytes via evidence-harness.mjs:13)
+    //   - packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs:19-32 (> 30 MB large corpus & 1 596 479-byte doubled corpus, SHA-256 frozen in fixtures/evidence-performance-policy.v1.json)
+    // Stopped here without deciding the design; checkFocusArtifact / h2a focus check / h2a_focus_check enforce 1 048 576 bytes by default.
+    const artifactChecked = assertFocusArtifact(input, { maxDocumentBytes: null, skipReadability: true });
+    inputDocument = artifactChecked.document;
+    canonicalDocumentDigest = artifactChecked.documentDigest;
+  }
+
   const catalog = JSON.parse(readAsset('ecosystem.json'));
   const diagramDirections = new Map<string, 'LR' | 'TB' | 'TD'>();
   const diagramEnrichments = new Map<string, { title?: string; description?: string; ecosystemIcons?: boolean }>();
@@ -181,8 +263,8 @@ export function buildFocusDossierWithDiagnostics(input: unknown, options: FocusB
     const warning = findLinearChainArchitectureWarning(section.id, section.scene as Record<string, unknown>);
     if (warning !== undefined) warnings.push(warning);
   }
-  // Static DS inline SVGs (wide + narrow + optional phone) are rendered here and embedded by default (no flag):
-  // offline, CSP-safe, zero network fetch, deterministic, with build-time geometry linting.
+  // Static DS inline SVGs (wide + narrow + optional phone) are rendered here once and reused
+  // across both portable HTML emission and derived views.json creation.
   const diagrams: Record<string, R7RenderedDiagram> = Object.create(null);
   for (const section of validated.sections) {
     if (backend === 'vue') break;
@@ -205,57 +287,171 @@ export function buildFocusDossierWithDiagnostics(input: unknown, options: FocusB
       ...(outcome.processTable ? { processTable: outcome.processTable } : {}),
     };
   }
-  let renderer: string, manifest: Record<string, any>;
+
+  let renderer = '';
+  let manifest: Record<string, any> = {};
+  const validatorText = readAsset('validator.mjs');
   if (backend === 'vue') {
     try { renderer = readAsset('renderer-vue.html'); manifest = JSON.parse(readAsset('renderer-vue-manifest.json')); }
     catch { throw new Error('Vue renderer unavailable: the qualified DS dependency closure and portable assets must be supplied before activation'); }
-    if (manifest.backend !== 'vue' || manifest.html !== digest(renderer) || manifest.validator !== digest(readAsset('validator.mjs'))) {
+    if (manifest.backend !== 'vue' || manifest.html !== digest(renderer) || manifest.validator !== digest(validatorText)) {
       throw new Error('Vue renderer integrity mismatch');
     }
-  } else {
-    renderer = readAsset('renderer.html'); manifest = JSON.parse(readAsset('renderer-manifest.json'));
+  } else if (includeHtml || includeArtifact) {
+    manifest = JSON.parse(readAsset('renderer-manifest.json'));
+    if (includeHtml) renderer = readAsset('renderer.html');
   }
-  if (!renderer.includes('<!--FOCUS_PAYLOAD-->') || !renderer.includes('<!--FOCUS_TITLE-->')) throw new Error('Invalid Focus renderer asset; rebuild the kit');
-  const build = { increment: manifest.increment, formats: manifest.formats, capabilities: manifest.capabilities,
-    rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
-    documentDigest: canonicalDocumentDigest,
-    envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
-  let html = renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
-    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, diagrams, build, target,
-      ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
-  if (themeId !== undefined && !html.includes('<html lang="fr">')) {
-    throw new Error('Invalid Focus renderer asset: missing root <html> element');
-  }
-  let themeStyleBlocks = '';
-  if (themeCss !== undefined) {
-    const rootProps = extractRootThemeCustomProperties(themeCss, themeId);
-    const bridgeSelector = themeId !== undefined ? `[data-theme="${themeId}"] [data-st-theme]` : ':root [data-st-theme]';
-    const bridgeStyle = rootProps.length > 0
-      ? `<style data-focus-theme-bridge>${bridgeSelector}{${rootProps.map(prop => `${prop}:inherit`).join(';')}}</style>`
-      : '';
-    themeStyleBlocks = `${bridgeStyle}<style data-focus-theme>${themeCss}</style>`;
-  }
-  // Slice the artifact fragment from the un-themed renderer HTML before inserting theme blocks
-  // so comments or rules inside themeCss (e.g. `/* <body> */`) can never alter the boundary.
-  let finalHtml: string;
-  if (target === 'artifact') {
-    finalHtml = toArtifactFragment(html, themeId, themeStyleBlocks);
-  } else {
-    if (themeId !== undefined) {
-      html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
+
+  let finalHtml: string | undefined;
+  if (includeHtml) {
+    if (!renderer.includes('<!--FOCUS_PAYLOAD-->') || !renderer.includes('<!--FOCUS_TITLE-->')) throw new Error('Invalid Focus renderer asset; rebuild the kit');
+    const build = {
+      increment: manifest.increment,
+      formats: manifest.formats,
+      capabilities: manifest.capabilities,
+      rendererVersion: manifest.rendererVersion,
+      validatorVersion: manifest.validatorVersion,
+      documentDigest: canonicalDocumentDigest,
+      envelopeSha256: digest(JSON.stringify(validated)),
+      rendererSha256: digest(renderer),
+      validatorSha256: digest(validatorText),
+    };
+    let html = renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
+      .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, diagrams, build, target,
+        ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
+    if (themeId !== undefined && !html.includes('<html lang="fr">')) {
+      throw new Error('Invalid Focus renderer asset: missing root <html> element');
     }
-    if (themeStyleBlocks !== '') {
-      const headCloseIndex = html.indexOf('</head>');
-      if (headCloseIndex < 0) {
-        throw new Error('Invalid Focus renderer asset: missing </head>');
+    let themeStyleBlocks = '';
+    if (themeCss !== undefined) {
+      const rootProps = extractRootThemeCustomProperties(themeCss, themeId);
+      const bridgeSelector = themeId !== undefined ? `[data-theme="${themeId}"] [data-st-theme]` : ':root [data-st-theme]';
+      const bridgeStyle = rootProps.length > 0
+        ? `<style data-focus-theme-bridge>${bridgeSelector}{${rootProps.map(prop => `${prop}:inherit`).join(';')}}</style>`
+        : '';
+      themeStyleBlocks = `${bridgeStyle}<style data-focus-theme>${themeCss}</style>`;
+    }
+    if (target === 'artifact') {
+      finalHtml = toArtifactFragment(html, themeId, themeStyleBlocks);
+    } else {
+      if (themeId !== undefined) {
+        html = html.replace('<html lang="fr">', () => `<html lang="fr" data-theme="${escapeHtml(themeId)}">`);
       }
-      html = `${html.slice(0, headCloseIndex)}${themeStyleBlocks}${html.slice(headCloseIndex)}`;
+      if (themeStyleBlocks !== '') {
+        const headCloseIndex = html.indexOf('</head>');
+        if (headCloseIndex < 0) {
+          throw new Error('Invalid Focus renderer asset: missing </head>');
+        }
+        html = `${html.slice(0, headCloseIndex)}${themeStyleBlocks}${html.slice(headCloseIndex)}`;
+      }
+      finalHtml = html;
     }
-    finalHtml = html;
   }
+
+  let artifact: FocusReleaseArtifactBundle | undefined;
+  if (includeArtifact) {
+    const htmlAssetName = backend === 'vue' ? 'renderer-vue.html' : 'renderer.html';
+    const htmlAssetText = includeHtml ? renderer : readAsset(htmlAssetName);
+    const diagramViewsText = backend === 'vue' ? undefined : readAsset('diagram-views.mjs');
+    const rendererFiles: FocusManifestFileEntry[] = [
+      { path: htmlAssetName, digest: `sha256:${digest(htmlAssetText)}`, bytes: Buffer.byteLength(htmlAssetText, 'utf8') },
+      { path: 'validator.mjs', digest: `sha256:${digest(validatorText)}`, bytes: Buffer.byteLength(validatorText, 'utf8') },
+      ...(diagramViewsText !== undefined
+        ? [{ path: 'diagram-views.mjs', digest: `sha256:${digest(diagramViewsText)}`, bytes: Buffer.byteLength(diagramViewsText, 'utf8') }]
+        : []),
+    ];
+    const staticDigest = rendererManifestDigest(manifest as Readonly<Record<string, unknown>>);
+    const rendererSpec: FocusManifestRenderer = {
+      name: backend === 'vue' ? '@sentropic/h2a-focus-kit-vue' : '@sentropic/h2a-focus-kit',
+      version: typeof manifest.rendererVersion === 'string' && manifest.rendererVersion.length > 0 ? manifest.rendererVersion : readPackageVersion(),
+      entry: htmlAssetName,
+      digest: staticDigest,
+      files: rendererFiles,
+      capabilities: Array.isArray(manifest.capabilities)
+        ? manifest.capabilities.filter((cap): cap is string => typeof cap === 'string')
+        : [],
+    };
+    const validatorSpec: FocusManifestValidator = {
+      name: '@sentropic/focus',
+      version: typeof manifest.validatorVersion === 'string' && manifest.validatorVersion.length > 0 ? manifest.validatorVersion : '0.6.0',
+      digest: `sha256:${digest(validatorText)}`,
+    };
+    const generatorSpec = {
+      name: '@sentropic/h2a',
+      version: readPackageVersion(),
+    };
+
+    const viewDiagrams: Record<string, FocusDiagramDerivedEntry> = Object.create(null);
+    for (const section of validated.sections) {
+      if (section.kind !== 'diagram' || section.scene === undefined) continue;
+      const rendered = diagrams[section.id];
+      if (!rendered) continue;
+      viewDiagrams[section.id] = JSON.parse(
+        JSON.stringify({
+          scene: section.scene,
+          views: rendered,
+        })
+      ) as FocusDiagramDerivedEntry;
+    }
+
+    let viewsJson: string | undefined;
+    const derived = [] as ReturnType<typeof buildDerivedFileEntry>[];
+    if (Object.keys(viewDiagrams).length > 0) {
+      const viewsDoc = buildFocusViewsDocument({
+        documentDigest: canonicalDocumentDigest,
+        rendererDigest: staticDigest,
+        diagrams: viewDiagrams,
+      });
+      const viewsCheck = validateFocusViewsDocument(viewsDoc, {
+        documentDigest: canonicalDocumentDigest,
+        rendererDigest: staticDigest,
+      });
+      if (!viewsCheck.ok) {
+        const err = new Error(`invalid derived views.json: ${viewsCheck.issues.map((i) => `${i.path} ${i.code}: ${i.message}`).join('; ')}`);
+        (err as unknown as { issues: unknown }).issues = viewsCheck.issues;
+        throw err;
+      }
+      viewsJson = canonicalJsonString(viewsDoc);
+      derived.push(buildDerivedFileEntry('views.json', viewsDoc, 'application/json'));
+    }
+
+    const manifestDoc = buildFocusArtifactManifest({
+      document: inputDocument,
+      renderer: rendererSpec,
+      validator: validatorSpec,
+      generator: generatorSpec,
+      derived,
+      ...(options.previousManifest !== undefined ? { previousManifest: options.previousManifest as FocusArtifactManifest } : {}),
+      createdAt: options.createdAt ?? new Date().toISOString(),
+    });
+    const manifestCheck = validateFocusArtifactManifest(manifestDoc);
+    if (!manifestCheck.ok) {
+      const err = new Error(`invalid focus.manifest.json: ${manifestCheck.issues.map((i) => `${i.path} ${i.code}: ${i.message}`).join('; ')}`);
+      (err as unknown as { issues: unknown }).issues = manifestCheck.issues;
+      throw err;
+    }
+
+    artifact = {
+      bindingName: checkedBindingName,
+      documentDigest: canonicalDocumentDigest,
+      documentJson: canonicalDocumentJson,
+      manifestJson: canonicalJsonString(manifestDoc),
+      ...(viewsJson !== undefined ? { viewsJson } : {}),
+    };
+  }
+
   return {
-    html: finalHtml,
+    ...(finalHtml !== undefined ? { html: finalHtml } : {}),
     warnings,
+    ...(artifact !== undefined ? { artifact } : {}),
+  };
+}
+
+export function buildFocusDossierWithDiagnostics(input: unknown, options: FocusBuildOptions = {}): FocusBuildOutcome {
+  const outcome = buildFocusReleaseBundle(input, { ...options, includeHtml: true, includeArtifact: false });
+  return {
+    html: outcome.html!,
+    warnings: outcome.warnings,
   };
 }
 

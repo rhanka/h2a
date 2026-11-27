@@ -986,8 +986,10 @@
                   "low",
                   "medium",
                   "high",
-                  "xhigh"
-                ]
+                  "xhigh",
+                  "max"
+                ],
+                "description": "Only Codex accepts max."
               },
               "gateway": {
                 "type": "string",
@@ -1063,8 +1065,10 @@
                   "low",
                   "medium",
                   "high",
-                  "xhigh"
-                ]
+                  "xhigh",
+                  "max"
+                ],
+                "description": "Only Codex accepts max."
               },
               "gateway": {
                 "type": "string",
@@ -1257,7 +1261,7 @@
               "xhigh",
               "max"
             ],
-            "description": "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Muse additionally accepts max and maps effort to its native --reasoning-effort."
+            "description": "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Codex also accepts max for models that support it. Muse accepts max and maps effort to its native --reasoning-effort."
           },
           "role": {
             "type": "string",
@@ -1293,7 +1297,7 @@
     },
     {
       "name": "h2a_focus_build",
-      "description": "Validate a Focus DecisionDossierDocument (or ReportDocument) JSON file and build a single portable offline HTML dossier in-process, running the same focus-kit validator, diagram renderer and atomic file writer as `h2a focus build` without shelling out to the CLI. Both input and output must be absolute paths within the MCP server startup workspace (/tmp and OS temp directories are refused, symlinks escaping the workspace are refused, output must end with .html and never overwrites non-.html files or symlinks, and output must differ from input). Returns { ok: true, output, bytes, warnings } on success, or { ok: false, error, refusals } carrying all builder refusal messages verbatim.",
+      "description": "Validate a Focus DecisionDossierDocument (or ReportDocument) JSON file and build a single portable offline HTML dossier in a bounded off-loop worker process, running the same focus-kit validator, diagram renderer and atomic file writer as `h2a focus build` without shelling out to the CLI or blocking the central event loop. Both input and output must be absolute paths within the MCP server startup workspace (/tmp and OS temp directories are refused, symlinks escaping the workspace are refused, output must end with .html and never overwrites non-.html files or symlinks, and output must differ from input). Returns { ok: true, output, bytes, warnings } on completion, { ok: true, pending: true, jobId, state, output } if the bounded wait is exceeded so the caller can fetch completion with h2a_focus_build_result, or { ok: false, error, refusals } carrying all builder refusal messages verbatim.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1311,6 +1315,146 @@
         "required": [
           "input",
           "output"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "h2a_focus_submit_build",
+      "description": "Validate inputs immediately and enqueue an asynchronous off-loop Focus dossier build job returning { ok: true, jobId, state: 'queued' } without blocking the central event loop. Supports local portable HTML emission (output) and/or publication to the bound Sentropic artifact surface via the artifacts_ensure + artifacts_publish release flow keeping access restricted (publish), or both together. Poll or await completion with h2a_focus_build_result({ jobId, waitMs? }).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Absolute path to an existing DecisionDossierDocument or ReportDocument JSON file within the MCP server startup workspace; /tmp is refused."
+          },
+          "output": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional absolute path to the portable .html file to write within the MCP server startup workspace; must end with .html, differ from input, and avoid /tmp. Required unless publish is enabled."
+          },
+          "publish": {
+            "type": "object",
+            "description": "Optional artifact publication target keeping restricted access ({} uses the workspace binding and bound Sentropic federation).",
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Explicit enable toggle (defaults to true when publish object is passed)."
+              },
+              "federation": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional declared OAuth/MCP federation name."
+              },
+              "workspaceRef": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional explicit Sentropic workspaceRef override."
+              },
+              "artifactId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional existing artifactId to publish a new release into."
+              },
+              "previousManifest": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional absolute workspace path to previous focus.manifest.json for R3/R4 revision checks."
+              },
+              "expectedCurrentReleaseId": {
+                "type": "string",
+                "description": "Optional optimistic concurrency release id expected as current before publishing."
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "description": "Optional artifact display title."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 2000,
+                "description": "Optional short artifact description."
+              },
+              "icon": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "description": "Optional short lowercase icon name."
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional caller idempotency key for artifacts_ensure/artifacts_publish."
+              }
+            },
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "report"
+            ],
+            "description": "Optional Focus presentation mode ('decision' default, or 'report' with renderer 'vue')."
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "document",
+              "artifact"
+            ],
+            "description": "Optional HTML shell target ('document' standalone offline default, or 'artifact' shell fragment)."
+          },
+          "renderer": {
+            "type": "string",
+            "enum": [
+              "svelte",
+              "vue"
+            ],
+            "description": "Optional Focus renderer backend ('svelte' default, or opt-in 'vue')."
+          },
+          "themeCss": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 262144,
+            "description": "Optional validated theme CSS text embedded after base styles."
+          },
+          "themeId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional theme identifier set on the root attribute."
+          }
+        },
+        "required": [
+          "input"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "h2a_focus_build_result",
+      "description": "Retrieve the status or completed output of an asynchronous Focus dossier build submitted with h2a_focus_submit_build (or timed out from h2a_focus_build), waiting up to waitMs (bounded at 20000 ms, default 15000 ms). Survives MCP client reconnects via durable central job journaling.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "UUID returned by h2a_focus_submit_build or a timed-out h2a_focus_build call."
+          },
+          "waitMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 20000,
+            "default": 15000,
+            "description": "Bounded maximum time in milliseconds to wait for completion before returning current job state (0..20000)."
+          }
+        },
+        "required": [
+          "jobId"
         ],
         "additionalProperties": false
       }

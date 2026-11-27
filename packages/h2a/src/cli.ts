@@ -2412,6 +2412,7 @@ export async function runMcpServe(
     expectedInstance?: string;
     centralAttachment?: boolean;
     runExecutor?: H2aRunExecutor;
+    focusBuildManager?: import("./runtime/mcp/focus-jobs.js").FocusBuildManager;
   } = {
     stdin: process.stdin,
     stdout: process.stdout,
@@ -2632,6 +2633,7 @@ export async function runMcpServe(
       ...(io.runExecutor ? { runExecutor: io.runExecutor } : io.centralAttachment ? {
         runExecutor: request => executeH2aRunWithAsyncSpawn(request, spawn, undefined, readinessEnv)
       } : {}),
+      ...(io.focusBuildManager ? { focusBuildManager: io.focusBuildManager } : {}),
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,

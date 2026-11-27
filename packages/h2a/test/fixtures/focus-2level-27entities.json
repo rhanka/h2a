@@ -1,0 +1,1645 @@
+{
+  "documentId": "document:two-level-27entities-45links",
+  "schemaVersion": {
+    "major": 1,
+    "minor": 1
+  },
+  "revision": 0,
+  "profileRefs": [
+    "generic@1"
+  ],
+  "typeDefinitions": {},
+  "ports": {},
+  "resources": {},
+  "extensions": [],
+  "entities": {
+    "entity:dom-0": {
+      "id": "entity:dom-0",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Domain 1"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Domain"
+        }
+      }
+    },
+    "entity:dom-1": {
+      "id": "entity:dom-1",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Domain 2"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Domain"
+        }
+      }
+    },
+    "entity:dom-2": {
+      "id": "entity:dom-2",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Domain 3"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Domain"
+        }
+      }
+    },
+    "entity:sub-0-0": {
+      "id": "entity:sub-0-0",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Subsystem 1.1"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Layer"
+        }
+      }
+    },
+    "entity:sub-0-1": {
+      "id": "entity:sub-0-1",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Subsystem 1.2"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Layer"
+        }
+      }
+    },
+    "entity:sub-1-0": {
+      "id": "entity:sub-1-0",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Subsystem 2.1"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Layer"
+        }
+      }
+    },
+    "entity:sub-1-1": {
+      "id": "entity:sub-1-1",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Subsystem 2.2"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Layer"
+        }
+      }
+    },
+    "entity:sub-2-0": {
+      "id": "entity:sub-2-0",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Subsystem 3.1"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Layer"
+        }
+      }
+    },
+    "entity:sub-2-1": {
+      "id": "entity:sub-2-1",
+      "profile": "generic@1",
+      "type": "container",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Subsystem 3.2"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Layer"
+        }
+      }
+    },
+    "entity:n-0": {
+      "id": "entity:n-0",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 1"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 1.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 1 across zones."
+        }
+      }
+    },
+    "entity:n-1": {
+      "id": "entity:n-1",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 2"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 1.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 2 across zones."
+        }
+      }
+    },
+    "entity:n-2": {
+      "id": "entity:n-2",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 3"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 1.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 3 across zones."
+        }
+      }
+    },
+    "entity:n-3": {
+      "id": "entity:n-3",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 4"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 1.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 4 across zones."
+        }
+      }
+    },
+    "entity:n-4": {
+      "id": "entity:n-4",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 5"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 1.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 5 across zones."
+        }
+      }
+    },
+    "entity:n-5": {
+      "id": "entity:n-5",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 6"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 1.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 6 across zones."
+        }
+      }
+    },
+    "entity:n-6": {
+      "id": "entity:n-6",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 7"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 2.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 7 across zones."
+        }
+      }
+    },
+    "entity:n-7": {
+      "id": "entity:n-7",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 8"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 2.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 8 across zones."
+        }
+      }
+    },
+    "entity:n-8": {
+      "id": "entity:n-8",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 9"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 2.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 9 across zones."
+        }
+      }
+    },
+    "entity:n-9": {
+      "id": "entity:n-9",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 10"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 2.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 10 across zones."
+        }
+      }
+    },
+    "entity:n-10": {
+      "id": "entity:n-10",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 11"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 2.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 11 across zones."
+        }
+      }
+    },
+    "entity:n-11": {
+      "id": "entity:n-11",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 12"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 2.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 12 across zones."
+        }
+      }
+    },
+    "entity:n-12": {
+      "id": "entity:n-12",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 13"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 3.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 13 across zones."
+        }
+      }
+    },
+    "entity:n-13": {
+      "id": "entity:n-13",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 14"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 3.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 14 across zones."
+        }
+      }
+    },
+    "entity:n-14": {
+      "id": "entity:n-14",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 15"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 3.1"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 15 across zones."
+        }
+      }
+    },
+    "entity:n-15": {
+      "id": "entity:n-15",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 16"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 3.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 16 across zones."
+        }
+      }
+    },
+    "entity:n-16": {
+      "id": "entity:n-16",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 17"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 3.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 17 across zones."
+        }
+      }
+    },
+    "entity:n-17": {
+      "id": "entity:n-17",
+      "profile": "generic@1",
+      "type": "node",
+      "attributes": {
+        "name": {
+          "kind": "text",
+          "value": "Service 18"
+        },
+        "kicker": {
+          "kind": "text",
+          "value": "Tier 3.2"
+        },
+        "description": {
+          "kind": "text",
+          "value": "Handles workload unit 18 across zones."
+        }
+      }
+    }
+  },
+  "relations": {
+    "relation:contains-dom-0-sub-0": {
+      "id": "relation:contains-dom-0-sub-0",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:dom-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:sub-0-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-dom-0-sub-1": {
+      "id": "relation:contains-dom-0-sub-1",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:dom-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:sub-0-1"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-dom-1-sub-0": {
+      "id": "relation:contains-dom-1-sub-0",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:dom-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:sub-1-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-dom-1-sub-1": {
+      "id": "relation:contains-dom-1-sub-1",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:dom-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:sub-1-1"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-dom-2-sub-0": {
+      "id": "relation:contains-dom-2-sub-0",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:dom-2"
+        },
+        {
+          "role": "child",
+          "target": "entity:sub-2-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-dom-2-sub-1": {
+      "id": "relation:contains-dom-2-sub-1",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:dom-2"
+        },
+        {
+          "role": "child",
+          "target": "entity:sub-2-1"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-0-0-n-0": {
+      "id": "relation:contains-sub-0-0-n-0",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-0-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-0-0-n-1": {
+      "id": "relation:contains-sub-0-0-n-1",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-0-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-1"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-0-0-n-2": {
+      "id": "relation:contains-sub-0-0-n-2",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-0-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-2"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-0-1-n-3": {
+      "id": "relation:contains-sub-0-1-n-3",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-0-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-3"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-0-1-n-4": {
+      "id": "relation:contains-sub-0-1-n-4",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-0-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-4"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-0-1-n-5": {
+      "id": "relation:contains-sub-0-1-n-5",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-0-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-5"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-1-0-n-6": {
+      "id": "relation:contains-sub-1-0-n-6",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-1-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-6"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-1-0-n-7": {
+      "id": "relation:contains-sub-1-0-n-7",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-1-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-7"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-1-0-n-8": {
+      "id": "relation:contains-sub-1-0-n-8",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-1-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-8"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-1-1-n-9": {
+      "id": "relation:contains-sub-1-1-n-9",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-1-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-9"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-1-1-n-10": {
+      "id": "relation:contains-sub-1-1-n-10",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-1-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-10"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-1-1-n-11": {
+      "id": "relation:contains-sub-1-1-n-11",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-1-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-11"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-2-0-n-12": {
+      "id": "relation:contains-sub-2-0-n-12",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-2-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-12"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-2-0-n-13": {
+      "id": "relation:contains-sub-2-0-n-13",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-2-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-13"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-2-0-n-14": {
+      "id": "relation:contains-sub-2-0-n-14",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-2-0"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-14"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-2-1-n-15": {
+      "id": "relation:contains-sub-2-1-n-15",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-2-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-15"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-2-1-n-16": {
+      "id": "relation:contains-sub-2-1-n-16",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-2-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-16"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:contains-sub-2-1-n-17": {
+      "id": "relation:contains-sub-2-1-n-17",
+      "profile": "generic@1",
+      "type": "contains",
+      "endpoints": [
+        {
+          "role": "parent",
+          "target": "entity:sub-2-1"
+        },
+        {
+          "role": "child",
+          "target": "entity:n-17"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-0": {
+      "id": "relation:link-0",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-0"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-5"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 1 channel sync"
+        }
+      }
+    },
+    "relation:link-1": {
+      "id": "relation:link-1",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-1"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-6"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-2": {
+      "id": "relation:link-2",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-2"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-7"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-3": {
+      "id": "relation:link-3",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-3"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-8"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-4": {
+      "id": "relation:link-4",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-4"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-9"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-5": {
+      "id": "relation:link-5",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-5"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-10"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 6 channel sync"
+        }
+      }
+    },
+    "relation:link-6": {
+      "id": "relation:link-6",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-6"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-11"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-7": {
+      "id": "relation:link-7",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-7"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-12"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-8": {
+      "id": "relation:link-8",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-8"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-13"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-9": {
+      "id": "relation:link-9",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-9"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-14"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-10": {
+      "id": "relation:link-10",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-10"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-15"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 11 channel sync"
+        }
+      }
+    },
+    "relation:link-11": {
+      "id": "relation:link-11",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-11"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-16"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-12": {
+      "id": "relation:link-12",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-12"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-17"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-13": {
+      "id": "relation:link-13",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-13"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-14": {
+      "id": "relation:link-14",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-14"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-1"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-15": {
+      "id": "relation:link-15",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-15"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-2"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 16 channel sync"
+        }
+      }
+    },
+    "relation:link-16": {
+      "id": "relation:link-16",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-16"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-3"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-17": {
+      "id": "relation:link-17",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-17"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-4"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-18": {
+      "id": "relation:link-18",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-0"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-10"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-19": {
+      "id": "relation:link-19",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-1"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-11"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-20": {
+      "id": "relation:link-20",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-2"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-12"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 21 channel sync"
+        }
+      }
+    },
+    "relation:link-21": {
+      "id": "relation:link-21",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-3"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-13"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-22": {
+      "id": "relation:link-22",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-4"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-14"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-23": {
+      "id": "relation:link-23",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-5"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-15"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-24": {
+      "id": "relation:link-24",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-6"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-16"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-25": {
+      "id": "relation:link-25",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-7"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-17"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 26 channel sync"
+        }
+      }
+    },
+    "relation:link-26": {
+      "id": "relation:link-26",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-8"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-27": {
+      "id": "relation:link-27",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-9"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-1"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-28": {
+      "id": "relation:link-28",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-10"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-2"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-29": {
+      "id": "relation:link-29",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-11"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-3"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-30": {
+      "id": "relation:link-30",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-12"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-4"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 31 channel sync"
+        }
+      }
+    },
+    "relation:link-31": {
+      "id": "relation:link-31",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-13"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-5"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-32": {
+      "id": "relation:link-32",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-14"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-6"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-33": {
+      "id": "relation:link-33",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-15"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-7"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-34": {
+      "id": "relation:link-34",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-16"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-8"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-35": {
+      "id": "relation:link-35",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-17"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-9"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 36 channel sync"
+        }
+      }
+    },
+    "relation:link-36": {
+      "id": "relation:link-36",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-0"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-15"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-37": {
+      "id": "relation:link-37",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-1"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-16"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-38": {
+      "id": "relation:link-38",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-2"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-17"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-39": {
+      "id": "relation:link-39",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-3"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-0"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-40": {
+      "id": "relation:link-40",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-4"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-1"
+        }
+      ],
+      "attributes": {
+        "label": {
+          "kind": "text",
+          "value": "flow 41 channel sync"
+        }
+      }
+    },
+    "relation:link-41": {
+      "id": "relation:link-41",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-5"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-2"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-42": {
+      "id": "relation:link-42",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-6"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-3"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-43": {
+      "id": "relation:link-43",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-7"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-4"
+        }
+      ],
+      "attributes": {}
+    },
+    "relation:link-44": {
+      "id": "relation:link-44",
+      "profile": "generic@1",
+      "type": "link",
+      "endpoints": [
+        {
+          "role": "source",
+          "target": "entity:n-8"
+        },
+        {
+          "role": "target",
+          "target": "entity:n-5"
+        }
+      ],
+      "attributes": {}
+    }
+  }
+}

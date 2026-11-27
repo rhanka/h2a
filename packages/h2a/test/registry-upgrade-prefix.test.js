@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { defaultPluginBridgeLockPath, provisionBridgeLock } from "../dist/registry/bridge-lock.js";
+import { validateRegistryEntry } from "../dist/registry/descriptors.js";
 import { registryPackageManifest } from "../dist/registry/manifest.js";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { sharedPackCandidates } from "./helpers/shared-pack-candidates.mjs";
@@ -143,6 +144,15 @@ test("B-6 upgrade: N-1 (next tag) upgrades to built package (host+bridge+central
     const r = spawnSync(bin, ["registry", "bootstrap", "install", "--mechanism", "plugin", "--host", host, "--profile", "default", "--config", cfg, "--plugin-dir", plug], { encoding: "utf8", timeout: 60_000, env });
     assert.equal(r.status, 0, `N-1 bootstrap install ${host} must succeed: ${(r.stderr ?? "").slice(0, 1500)} ${(r.stdout ?? "").slice(0, 500)}`);
   }
+  const n1EntriesPath = join(iso.prefix, "lib", "node_modules", "@sentropic", "h2a", "registry", "entries.v1.json");
+  const n1Entry = JSON.parse(readFileSync(n1EntriesPath, "utf8")).entries[0];
+  const n1Digest = validateRegistryEntry(n1Entry).digest;
+  const candidateDigest = validateRegistryEntry(registryPackageManifest.entries[0]).digest;
+  // Note (NB-2): when a PR adds MCP tools relative to `dist-tags.next` (e.g.
+  // 66 -> 68 tools), `nextEntriesUnchanged` is `false` until the next release
+  // publishes the updated descriptor, so step 5a exercises the drifted-N-1 path.
+  const nextEntriesUnchanged = n1Digest === candidateDigest;
+
   // 3. Reuse the once-per-run candidate, upgrade the prefix.
   // Cause (run 45379165388 job 138401159720): the private
   // `scripts/package-release.mjs` spawnSync (300 s timeout) was killed with
@@ -198,22 +208,36 @@ test("B-6 upgrade: N-1 (next tag) upgrades to built package (host+bridge+central
   const codexPackaged = JSON.parse(readFileSync(join(REPO, "packages", "h2a", ".codex-plugin", "registry.mcp.json"), "utf8"));
   const codexArgs = codexPackaged?.mcpServers?.h2a?.args;
   assert.ok(Array.isArray(codexArgs) && !codexArgs.includes("--instance"), "packaged codex serve carries no --instance");
-  // 5a. Valid next-locks survive the upgrade: no false integrity_mismatch,
-  // admission-stage refusal only (central disabled here; delegation is L5B).
+  // 5a. N-1 (next) lock check after upgrade:
+  // If N-1 and candidate share the same descriptor digest, both survive untouched
+  // to central admission (`central_unavailable`); if candidate added/changed MCP
+  // descriptors (e.g. new tools), Claude auto-heals via `--auto-upgrade` while
+  // Codex refuses closed with `integrity_mismatch` (B-2).
   const claudeValidPrior = readFileSync(claudeLock, "utf8");
   const claudeValidServe = spawnSync(bin, ["registry-bridge", "serve", "--host", "claude", "--profile", "default", "--wake", "auto", "--auto-open", "--auto-upgrade", "--root", iso.root, "--runtime-base", iso.runtime], { encoding: "utf8", timeout: 60_000, env: noCentralEnv });
   const claudeValidOut = `${claudeValidServe.stdout ?? ""}\n${claudeValidServe.stderr ?? ""}`;
   assert.equal(claudeValidServe.status, 2, `valid claude lock refuses at admission (got ${claudeValidServe.status}: ${claudeValidOut.slice(0, 600)})`);
-  assert.match(claudeValidOut, /central_unavailable/, "valid lock passes the lock check, refuses only at central admission");
-  assert.doesNotMatch(claudeValidOut, /integrity_mismatch/, "no false integrity_mismatch on valid next-lock");
-  assert.equal(readFileSync(claudeLock, "utf8"), claudeValidPrior, "valid claude lock untouched");
-  assert.equal(readdirSync(lockDir("claude")).filter((n) => n.startsWith("default.lock.json.quarantine-")).length, 0, "no quarantine for valid lock");
+  assert.match(claudeValidOut, /central_unavailable/, "claude passes the lock check and refuses only at central admission");
+  assert.doesNotMatch(claudeValidOut, /integrity_mismatch/, "claude upgrade path must not stall at integrity_mismatch");
+  const claudeValidQuarantines = readdirSync(lockDir("claude")).filter((n) => n.startsWith("default.lock.json.quarantine-"));
+  if (nextEntriesUnchanged) {
+    assert.equal(readFileSync(claudeLock, "utf8"), claudeValidPrior, "valid claude lock untouched");
+    assert.equal(claudeValidQuarantines.length, 0, "no quarantine for valid lock");
+  } else {
+    assert.match(claudeValidOut, /refreshed plugin lock .* for version upgrade/, "claude auto-heals N-1 lock when MCP descriptor evolved");
+    assert.notEqual(readFileSync(claudeLock, "utf8"), claudeValidPrior, "claude lock re-provisioned to candidate digest");
+    assert.ok(claudeValidQuarantines.some((n) => readFileSync(join(lockDir("claude"), n), "utf8") === claudeValidPrior), "claude N-1 lock quarantined intact");
+  }
   const codexValidPrior = readFileSync(codexLock, "utf8");
   const codexValidServe = spawnSync(bin, [...codexArgs, "--root", iso.root, "--runtime-base", iso.runtime], { encoding: "utf8", timeout: 60_000, env: noCentralEnv });
   const codexValidOut = `${codexValidServe.stdout ?? ""}\n${codexValidServe.stderr ?? ""}`;
-  assert.equal(codexValidServe.status, 2, `valid codex lock refuses at admission (got ${codexValidServe.status}: ${codexValidOut.slice(0, 600)})`);
-  assert.match(codexValidOut, /central_unavailable/, "valid codex lock refuses at R5-CA admission (host!=claude)");
-  assert.equal(readFileSync(codexLock, "utf8"), codexValidPrior, "valid codex lock untouched");
+  assert.equal(codexValidServe.status, 2, `codex lock refuses at preflight/admission (got ${codexValidServe.status}: ${codexValidOut.slice(0, 600)})`);
+  if (nextEntriesUnchanged) {
+    assert.match(codexValidOut, /central_unavailable/, "valid codex lock refuses at R5-CA admission (host!=claude)");
+  } else {
+    assert.match(codexValidOut, /integrity_mismatch/, "drifted N-1 codex lock refuses closed with integrity_mismatch (B-2)");
+  }
+  assert.equal(readFileSync(codexLock, "utf8"), codexValidPrior, "codex lock untouched");
   // 5b. Drifted 0.98.10-digest locks (production upgrade case) with the real
   // prefix binary: claude heals via --auto-upgrade, codex refuses closed
   // (B-2) then doctor --repair converges it. 0.98.10 caches are added AFTER
@@ -251,7 +275,7 @@ test("B-6 upgrade: N-1 (next tag) upgrades to built package (host+bridge+central
   assert.notEqual(readFileSync(claudeLock, "utf8"), claudePrior, "claude lock re-provisioned to candidate digests");
   const claudeQ = readdirSync(lockDir("claude")).filter((n) => n.startsWith("default.lock.json.quarantine-"));
   assert.ok(claudeQ.length >= 1, "drifted claude lock quarantined");
-  assert.equal(readFileSync(join(lockDir("claude"), claudeQ[0]), "utf8"), claudePrior, "claude quarantine holds exact prior bytes");
+  assert.ok(claudeQ.some((name) => readFileSync(join(lockDir("claude"), name), "utf8") === claudePrior), "claude quarantine holds exact prior bytes");
   const codexServe = spawnSync(bin, [...codexArgs, "--root", iso.root, "--runtime-base", iso.runtime], { encoding: "utf8", timeout: 60_000, env: noCentralEnv });
   const codexOut = `${codexServe.stdout ?? ""}\n${codexServe.stderr ?? ""}`;
   assert.equal(codexServe.status, 2, `drifted codex serve refuses closed (got ${codexServe.status}: ${codexOut.slice(0, 800)})`);
