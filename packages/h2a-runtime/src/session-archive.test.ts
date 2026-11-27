@@ -486,7 +486,7 @@ describe("session-archive engine (Claude Lot 1, keep-only)", () => {
 
     // On-the-fly status projection warning also surfaces the <14d unarchived alert.
     vi.stubEnv("CLAUDE_CONFIG_DIR", box.claudeDir);
-    const statusProj = await projectStatusForH2a({ includeManagedInventory: true, includeDelegations: false });
+    const statusProj = await projectStatusForH2a({ includeManagedInventory: true, includeDelegations: false, nowMs: FIXED_NOW_MS });
     expect(statusProj.warnings.some((w) => w.includes(UUID_1) && w.includes("not yet archived"))).toBe(true);
     vi.unstubAllEnvs();
 
@@ -1329,12 +1329,16 @@ describe("session-archive engine (Claude Lot 1, keep-only)", () => {
     );
 
     let capturedNotice = "";
-    emitResumeArchiveNotices(auto, {
-      write: (chunk: string) => {
-        capturedNotice += chunk;
-        return true;
-      },
-    } as unknown as NodeJS.WritableStream);
+    emitResumeArchiveNotices(
+      auto,
+      {
+        write: (chunk: string) => {
+          capturedNotice += chunk;
+          return true;
+        },
+      } as unknown as NodeJS.WritableStream,
+      { scheduleHealthOptions: { env: box.env, nowMs: FIXED_NOW_MS } },
+    );
     expect(capturedNotice).toContain("intermediate-symlink");
     expect(capturedNotice).toContain("non-directory-ancestor");
   });

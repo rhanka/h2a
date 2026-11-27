@@ -639,10 +639,10 @@ export async function projectStatusForH2a(
         projectRemoteAgents({ jobs: listJobs(), localRows: rows }).agents,
       );
       try {
-        for (const alert of readClaudeArchiveAlerts()) {
+        for (const alert of readClaudeArchiveAlerts(options.nowMs !== undefined ? { nowMs: options.nowMs } : {})) {
           warnings.push(formatArchiveAlertLine(alert));
         }
-        for (const line of formatArchiveScheduleStatusLines(readArchiveScheduleHealth())) {
+        for (const line of formatArchiveScheduleStatusLines(readArchiveScheduleHealth(options.nowMs !== undefined ? { nowMs: options.nowMs } : {}))) {
           warnings.push(line);
         }
       } catch {
