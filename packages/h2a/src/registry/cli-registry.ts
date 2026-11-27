@@ -43,6 +43,7 @@ import {
   defaultPluginBridgeLockPath,
   isBridgeLockLive,
   isPublishedPackageVersion,
+  isStrictlyNewerSemver,
   quarantineBridgeLock,
   readBridgeLock,
   rotateBridgeLock,
@@ -414,12 +415,22 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
           trackEntry,
           dryRun: flags["dry-run"] === "true",
           actor: "h2a registry bootstrap rotate",
-          reason: "operator-repair"
+          reason: "operator-repair",
+          requireInstalledVersion: true
         });
-        if (rotated.rotated && rotated.backupPath) {
+        const targetSummary = rotated.rotatedEntries
+          .map((entry) => `${entry.id}@${entry.newVersion} (${entry.newDigest})`)
+          .join(", ");
+        if (rotated.action === "would-rotate") {
+          streams.stderr.write(
+            `h2a registry bootstrap rotate: dry-run would rotate bridge lock at ${lockPath}` +
+            `${targetSummary ? ` -> ${targetSummary}` : ""}\n`
+          );
+        } else if (rotated.rotated && rotated.backupPath) {
           streams.stderr.write(
             `h2a registry bootstrap rotate: ${rotated.action} bridge lock at ${lockPath} ` +
-            `(backup: ${rotated.backupPath}; journal: ${rotated.journalPath ?? bridgeLockJournalPath(lockPath)})\n`
+            `${targetSummary ? `(pinned: ${targetSummary}; ` : "("}` +
+            `backup: ${rotated.backupPath}; journal: ${rotated.journalPath ?? bridgeLockJournalPath(lockPath)})\n`
           );
         }
         streams.stdout.write(`${JSON.stringify({
@@ -607,8 +618,9 @@ export async function cmdRegistryBridge(
     }
   }
   const refuse = (code: string, message: string): number => {
-    streams.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: `${code}: ${message}` } })}\n`);
-    streams.stderr.write(`h2a registry-bridge serve: ${code}: ${message}\n`);
+    const clean = message.startsWith(`${code}: `) ? message.slice(code.length + 2) : message;
+    streams.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32000, message: `${code}: ${clean}` } })}\n`);
+    streams.stderr.write(`h2a registry-bridge serve: ${code}: ${clean}\n`);
     return 2;
   };
   const host = flags["host"];
@@ -708,6 +720,8 @@ export async function cmdRegistryBridge(
               activeError = rereadError;
               errorCode = (activeError as { code?: string }).code ?? "missing_lock";
             }
+          } else if (refreshed.reason) {
+            healRefusedCause = refreshed.reason;
           }
         } catch (refreshError) {
           /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal, with cause */
@@ -727,13 +741,14 @@ export async function cmdRegistryBridge(
           ...(deps.memory?.entry ? { memory: { entry: deps.memory.entry, config: {} } } : {}),
           actor: "h2a registry-bridge serve --auto-upgrade",
           reason: "verified-published-upgrade",
-          verifyPriorDigest: ({ priorDigest, packed }) => {
+          verifyPriorDigest: ({ id, priorDigest, expectedPackageName, installedVersion }) => {
             const shipped = PRIOR_SHIPPED_ENTRY_DIGESTS.get(priorDigest);
             if (
               shipped &&
-              shipped.id === packed.id &&
-              shipped.packageName === packed.publisher.packageName &&
-              isPublishedPackageVersion(shipped.packageVersion)
+              shipped.id === id &&
+              shipped.packageName === expectedPackageName &&
+              isPublishedPackageVersion(shipped.packageVersion) &&
+              isStrictlyNewerSemver(installedVersion, shipped.packageVersion)
             ) {
               return { priorVersion: shipped.packageVersion, reason: "prior-shipped-published-release" };
             }
@@ -998,12 +1013,16 @@ export async function cmdRegistryBridge(
     try {
       const markerPaths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
       const centralMarker = readCentralMcpMarker(markerPaths);
-      if (centralMarker?.packageVersion) {
-        const alignment = comparePluginAndCentralVersions(pluginVersion, centralMarker.packageVersion);
+      if (centralMarker) {
+        const alignment = comparePluginAndCentralVersions(
+          pluginVersion,
+          centralMarker.packageVersion ?? "",
+          { centralMarker, supportedProtocols: ["2025-06-18", "2024-11-05"] }
+        );
         if (alignment.status === "refuse") {
           return refuse(alignment.code ?? "incompatible_version", alignment.message ?? "incompatible plugin and central versions");
         }
-        if (alignment.status === "warn" && alignment.message) {
+        if (alignment.status === "warn" && alignment.message && centralMarker.packageVersion) {
           warnedVersionPair = `${pluginVersion}=>${centralMarker.packageVersion}`;
           streams.stderr.write(`${alignment.message}\n`);
         }

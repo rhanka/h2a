@@ -38,6 +38,7 @@ import {
   findVerifiedPluginVersionDir,
   isBridgeLockLive,
   isPublishedPackageVersion,
+  isStrictlyNewerSemver,
   pluginBridgeConfigBase,
   provisionBridgeLock,
   quarantineBridgeLock,
@@ -48,6 +49,7 @@ import {
   rotateBridgeLock,
   type BridgeLock
 } from "./bridge-lock.js";
+import { currentCliVersion } from "../runtime/upgrade/index.js";
 import {
   isBridgeServer as isCodexBridgeServer,
   isH2aServerName as isCodexH2aServerName,
@@ -1901,6 +1903,7 @@ export function refreshUpgradedPluginLock(
     }
   }
 
+  const installedVersion = currentCliVersion();
   const { versions: trustedVersions, cachedEntriesById } = collectTrustedPluginUpgradeMetadata(
     options.host,
     profile,
@@ -1919,12 +1922,16 @@ export function refreshUpgradedPluginLock(
       ...(options.memoryEntry ? { memory: { entry: options.memoryEntry, config: {} } } : {}),
       actor: `refreshUpgradedPluginLock(${options.host})`,
       reason: "verified-plugin-upgrade",
-      verifyPriorDigest: ({ id, priorDigest, packed }) => {
+      verifyPriorDigest: ({ id, priorDigest, packed, expectedPackageName, installedVersion: targetVersion }) => {
+        const expectedPublisher = expectedPackageName;
         for (const candidateVersion of trustedVersions) {
+          if (!isPublishedPackageVersion(candidateVersion) || !isStrictlyNewerSemver(targetVersion, candidateVersion)) {
+            continue;
+          }
           try {
             const candidateDigest = digestDescriptor({
               ...packed,
-              publisher: { ...packed.publisher, packageVersion: candidateVersion }
+              publisher: { ...packed.publisher, packageName: expectedPublisher, packageVersion: candidateVersion }
             });
             if (priorDigest === candidateDigest) {
               matchedPriorVersions.add(candidateVersion);
@@ -1937,30 +1944,27 @@ export function refreshUpgradedPluginLock(
         const cached = cachedEntriesById.get(id)?.get(priorDigest);
         if (
           cached &&
-          cached.packageName === packed.publisher.packageName &&
-          isPublishedPackageVersion(cached.packageVersion)
+          cached.packageName === expectedPublisher &&
+          isPublishedPackageVersion(cached.packageVersion) &&
+          isStrictlyNewerSemver(targetVersion, cached.packageVersion)
         ) {
-          const priorVersion = typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0
-            ? declaration.pluginVersion
-            : cached.packageVersion;
-          matchedPriorVersions.add(priorVersion);
-          return { priorVersion, reason: "cached-same-publisher-descriptor" };
+          matchedPriorVersions.add(cached.packageVersion);
+          return { priorVersion: cached.packageVersion, reason: "cached-same-publisher-descriptor" };
         }
         if (trustedVersions.size > 0) {
           const shipped = PRIOR_SHIPPED_ENTRY_DIGESTS.get(priorDigest);
           if (
             shipped &&
-            shipped.id === packed.id &&
-            shipped.packageName === packed.publisher.packageName &&
-            isPublishedPackageVersion(shipped.packageVersion)
+            shipped.id === id &&
+            shipped.packageName === expectedPublisher &&
+            isPublishedPackageVersion(shipped.packageVersion) &&
+            isStrictlyNewerSemver(targetVersion, shipped.packageVersion)
           ) {
-            const priorVersion = typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0
-              ? declaration.pluginVersion
-              : shipped.packageVersion;
-            matchedPriorVersions.add(priorVersion);
-            return { priorVersion, reason: "prior-shipped-published-release" };
+            matchedPriorVersions.add(shipped.packageVersion);
+            return { priorVersion: shipped.packageVersion, reason: "prior-shipped-published-release" };
           }
         }
+        void installedVersion;
         return null;
       }
     });

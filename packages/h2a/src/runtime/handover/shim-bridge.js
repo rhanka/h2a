@@ -54,8 +54,11 @@ export async function bridgeCentralMcpStdio(options) {
   };
   const checkCentralPluginAlignment = (marker) => {
     const pluginVer = effectivePluginVersion();
-    if (!pluginVer || !marker?.packageVersion) return;
-    const versionCheck = comparePluginAndCentralVersions(pluginVer, marker.packageVersion);
+    if (!pluginVer && !marker) return;
+    const versionCheck = comparePluginAndCentralVersions(pluginVer ?? '', marker?.packageVersion ?? '', {
+      centralMarker: marker,
+      supportedProtocols: PROTOCOLS
+    });
     if (versionCheck.status === 'refuse') {
       try {
         (options.stderr ?? process.stderr).write(`${versionCheck.message}\n`);

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import { digest } from './wire.js';
@@ -20,7 +21,7 @@ import { reserveSuccessorAttempt, recordSuccessor, failSuccessor, markSuccessorF
 import { isolateCentralSystemdScope } from './central-scope.js';
 
 /** @param {*} options */
-export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath, probeOptions, evictionOptions, stderr }) {
+export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath, probeOptions, evictionOptions, scopeOptions, stderr }) {
   const identity = currentIdentity();
   const authority = await prepareAuthority({ directory, root, physicalPrefix: installation?.canonicalPrefix ?? physicalPrefix, frame: identity });
   let plan, child, ticket;
@@ -84,7 +85,12 @@ export async function launchCentral({ directory, root, installation, physicalPre
           '--transaction-epoch', String(ticket.transactionEpoch), '--successor-attempt', String(ticket.attempt)] : [])],
         { detached: true, cwd: environment.HOME, env: environment, stdio: ['ignore', log, log] });
       await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
-      scopeResult = await isolateCentralSystemdScope(child.pid, { environment });
+      const generationToken = `${ticket ? `t${ticket.transactionEpoch}-a${ticket.attempt}-` : ''}${child.pid}-${randomUUID().slice(0, 8)}`;
+      scopeResult = await isolateCentralSystemdScope(child.pid, {
+        environment,
+        generation: generationToken,
+        ...(scopeOptions ?? {})
+      });
       try {
         fs.writeSync(log, `${scopeResult.message}\n`);
       } catch {

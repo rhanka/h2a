@@ -11,13 +11,16 @@
  * format string keeps them distinct so no reader confuses the two.
  */
 import { randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { canonicalJson, normalizeConfiguration, sha256Hex, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { registryPackageManifest } from "./manifest.js";
 import { MEMORY_PROVIDER_ID, missingMemoryBuiltin } from "./memory-provider.js";
 import { RegistryError } from "./descriptors.js";
+import { CURRENT_SHIPPED_ENTRY_DIGESTS } from "./shipped-entry-digests.js";
+export { CURRENT_SHIPPED_ENTRY_DIGESTS, type ShippedEntryDigestRecord } from "./shipped-entry-digests.js";
+import { currentCliVersion } from "../runtime/upgrade/index.js";
 
 export const BRIDGE_LOCK_FORMAT = "h2a.registry-bridge-lock/v1";
 
@@ -187,10 +190,16 @@ export function bridgeLockJournalPath(lockPath: string): string {
   return `${lockPath}.rotations.jsonl`;
 }
 
-const PUBLISHED_SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/;
+const PUBLISHED_SEMVER_RE =
+  /^(?:0\.(?:0\.[1-9]\d*|[1-9]\d*\.(?:0|[1-9]\d*))|[1-9]\d*\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?:-[0-9A-Za-z.-]+)?$/;
 
 export function isPublishedPackageVersion(version: unknown): version is string {
   return typeof version === "string" && PUBLISHED_SEMVER_RE.test(version);
+}
+
+export function isStrictlyNewerSemver(nextVersion: unknown, priorVersion: unknown): boolean {
+  if (!isPublishedPackageVersion(nextVersion) || !isPublishedPackageVersion(priorVersion)) return false;
+  return compareSemverDesc(nextVersion, priorVersion) < 0;
 }
 
 export interface PriorShippedEntryDescriptor {
@@ -201,16 +210,14 @@ export interface PriorShippedEntryDescriptor {
 
 /**
  * Cryptographic SHA-256 digests of prior published `@sentropic/h2a` and
- * `@sentropic/track` descriptor releases where tool lists or assets evolved
- * across upgrades. Used only when verifying a same-publisher upgrade.
+ * `@sentropic/track` descriptor releases BEFORE the current installation
+ * version. Never includes the current version's digest. Used only alongside
+ * compiled `CURRENT_SHIPPED_ENTRY_DIGESTS` verification.
  */
 export const PRIOR_SHIPPED_ENTRY_DIGESTS: ReadonlyMap<string, PriorShippedEntryDescriptor> = new Map([
-  // sentropic.h2a (@sentropic/h2a) historical published digests
-  ["19ef6ae787924a4965e7fdaf2180fdb174861076cb98c51ae38c30760d12ea92", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.11" }],
+  // sentropic.h2a (@sentropic/h2a) historical published digests (< 0.98.11)
   ["9451fa7f46bd00d9b19d54459446442003c8d2304461edff7af6ef2384596c76", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.11-rc.15" }],
   ["38e1244358ff2f46cdb93bb77bec82649fc09c9486783aa1168d1d90fe9b9558", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.11-rc.15" }],
-  ["2d0e8908c2f04db1b9ea650dde4cdb213fd6b556b94069db4cc7dd0340f8ff0b", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.11" }],
-  ["cff260bcc91f35adb6ce000cfceee2f1901b5492faace84f6d5e714d6f35912d", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.11" }],
   ["696e69bd40ef48b031945567fe08619aee93bcaf40d797ec6d68ac5c618aa370", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.11-rc.1" }],
   ["a9c5ce69927ced6c122ef6701ef95203b31e5fb4f0e79a22c8319f3546311bfb", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.10" }],
   ["05dbec96687a7591592de3deec3f859cede5aefa9b7b2b6c10cec8b42b94dcc8", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.9" }],
@@ -218,8 +225,7 @@ export const PRIOR_SHIPPED_ENTRY_DIGESTS: ReadonlyMap<string, PriorShippedEntryD
   ["55cd0be7e976bb892ad6f9c9ae2e5c35372d2e7cd96f60719914100a3ee85db8", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.8" }],
   ["7cb7fc68b8fa984c4a8022d25ed1932337dc100aa72f6fc27380868bb093226f", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.7" }],
   ["ba7f91bf40ef991c00478a264c90fbba508d93823948634305fb5873cb9843a9", { id: "sentropic.h2a", packageName: "@sentropic/h2a", packageVersion: "0.98.7" }],
-  // sentropic.track (@sentropic/track) historical published digests
-  ["32acd594c83516f9bbcf994d6743ae59a484c1c33f2c2f188e888fd1434ab630", { id: "sentropic.track", packageName: "@sentropic/track", packageVersion: "0.98.11" }],
+  // sentropic.track (@sentropic/track) historical published digests (< 0.98.11)
   ["582318b1c07ef35ce52d6f0091e279e1af5e7eee999f6417936852c82149ba8c", { id: "sentropic.track", packageName: "@sentropic/track", packageVersion: "0.98.10" }],
   ["cc4c77e4670fd73211cfccc24134507c190109732278ff15ee24b3f53017eaa1", { id: "sentropic.track", packageName: "@sentropic/track", packageVersion: "0.98.9" }],
   ["46743d065e189b8be17d260ea0daa2dadc819e01755026e279723d6cdaa34955", { id: "sentropic.track", packageName: "@sentropic/track", packageVersion: "0.98.8" }],
@@ -232,6 +238,8 @@ export interface RotateBridgeLockVerificationInput {
   priorDigest: string;
   packed: RegistryEntry;
   lock: BridgeLock;
+  expectedPackageName: string;
+  installedVersion: string;
 }
 
 export interface RotateBridgeLockOptions {
@@ -246,6 +254,7 @@ export interface RotateBridgeLockOptions {
   actor?: string;
   reason?: string;
   journalPath?: string;
+  requireInstalledVersion?: boolean;
   verifyPriorDigest?: (input: RotateBridgeLockVerificationInput) => { priorVersion: string; reason: string } | null;
 }
 
@@ -297,14 +306,85 @@ function buildKnownEntriesMap(
   return known;
 }
 
-function writeAndFsyncFile(path: string, content: string | Buffer, mode: number, flag: "wx" | "w" = "wx"): void {
-  const fd = openSync(path, flag === "wx" ? "wx" : "w", mode);
+function writeAndFsyncFile(path: string, content: string | Buffer, mode: number, flag: "wx" | "w" | "a" = "wx"): void {
+  const fd = openSync(path, flag, mode);
   try {
     writeFileSync(fd, content);
     fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
+}
+
+function fsyncDirectory(dirPath: string): void {
+  try {
+    const fd = openSync(dirPath, "r");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === "EINVAL" || code === "ENOTSUP" || code === "EBADF" || code === "EISDIR") {
+      return;
+    }
+    throw error;
+  }
+}
+
+function verifyNewDescriptorTarget(
+  id: string,
+  packed: RegistryEntry,
+  currentDigest: string,
+  installedVersion: string,
+  requireCompiledDigest: boolean
+): string {
+  if (id === MEMORY_PROVIDER_ID) {
+    const expectedPublisher = "@sentropic/engram";
+    if (packed.publisher.packageName !== expectedPublisher || !isPublishedPackageVersion(packed.publisher.packageVersion)) {
+      throw new RegistryError(
+        "integrity_mismatch",
+        `step=bridge-lock-new-descriptor-verification: target descriptor ${id} has invalid publisher metadata`
+      );
+    }
+    return expectedPublisher;
+  }
+  const compiled = CURRENT_SHIPPED_ENTRY_DIGESTS.get(id);
+  if (!compiled) {
+    throw new RegistryError(
+      "integrity_mismatch",
+      `step=bridge-lock-new-descriptor-verification: ${id} is not in the compiled shipped descriptor allowlist`
+    );
+  }
+  const expectedPublisher = compiled.packageName;
+  if (!isPublishedPackageVersion(installedVersion)) {
+    throw new RegistryError(
+      "integrity_mismatch",
+      `step=bridge-lock-new-descriptor-verification: installed CLI version ${JSON.stringify(installedVersion)} is not a valid published version`
+    );
+  }
+  if (packed.publisher.packageName !== expectedPublisher) {
+    throw new RegistryError(
+      "integrity_mismatch",
+      `step=bridge-lock-new-descriptor-verification: publisher for ${id} (${packed.publisher.packageName}) does not match compiled shipped publisher ${expectedPublisher}`
+    );
+  }
+  if (packed.publisher.packageVersion !== installedVersion) {
+    throw new RegistryError(
+      "integrity_mismatch",
+      `step=bridge-lock-new-descriptor-verification: new descriptor for ${id} carries version ${packed.publisher.packageVersion}, expected installed version ${installedVersion}`
+    );
+  }
+  if (requireCompiledDigest) {
+    if (compiled.packageVersion !== installedVersion || currentDigest !== compiled.digest) {
+      throw new RegistryError(
+        "integrity_mismatch",
+        `step=bridge-lock-new-descriptor-verification: new descriptor digest for ${id} (${expectedPublisher}@${packed.publisher.packageVersion}) does not match compiled shipped digest for ${compiled.packageVersion} (expected=${compiled.digest}, actual=${currentDigest})`
+      );
+    }
+  }
+  return expectedPublisher;
 }
 
 /** Reused by daemon composition: no unchecked selection bypasses the lock. */
@@ -418,6 +498,9 @@ export function rotateBridgeLock(options: RotateBridgeLockOptions): RotateBridge
   const rotatedEntries: RotatedEntryRecord[] = [];
   const nextEntries: BridgeLock["entries"] = {};
 
+  const installedVersion = currentCliVersion();
+  const enforceCompiledTarget = Boolean(options.verifyPriorDigest) || options.requireInstalledVersion !== false;
+
   for (const selected of existing.selection) {
     if (!isRecord(selected) || typeof selected.id !== "string") {
       throw new RegistryError("invalid_entry", "step=bridge-lock-selection-verification: malformed selection entry");
@@ -452,6 +535,9 @@ export function rotateBridgeLock(options: RotateBridgeLockOptions): RotateBridge
     const { digest: currentDigest } = validateRegistryEntry(packed, {
       stage: "bridge-lock-packed-descriptor-verification"
     });
+    const expectedPackageName = enforceCompiledTarget
+      ? verifyNewDescriptorTarget(selected.id, packed, currentDigest, installedVersion, true)
+      : packed.publisher.packageName;
     const normalized = normalizeConfiguration(packed, record["config"]);
     const expectedConfigDigest = sha256Hex(canonicalJson(normalized));
     if (record["configDigest"] !== expectedConfigDigest) {
@@ -468,26 +554,37 @@ export function rotateBridgeLock(options: RotateBridgeLockOptions): RotateBridge
           id: selected.id,
           priorDigest,
           packed,
-          lock: existing
+          lock: existing,
+          expectedPackageName,
+          installedVersion
         });
         if (!verification) {
           throw new RegistryError(
             "integrity_mismatch",
-            `step=bridge-lock-descriptor-verification: prior descriptor digest for ${selected.id} (${packed.publisher.packageName}@${packed.publisher.packageVersion}) does not match any verified published version (pinned=${priorDigest}, actual=${currentDigest})`
+            `step=bridge-lock-descriptor-verification: prior descriptor digest for ${selected.id} (${expectedPackageName}@${packed.publisher.packageVersion}) does not match any verified published version (pinned=${priorDigest}, actual=${currentDigest})`
+          );
+        }
+        if (
+          !isPublishedPackageVersion(verification.priorVersion) ||
+          !isStrictlyNewerSemver(installedVersion, verification.priorVersion)
+        ) {
+          throw new RegistryError(
+            "integrity_mismatch",
+            `step=bridge-lock-version-verification: auto-upgrade for ${selected.id} requires installed published version (${installedVersion}) to be strictly newer than prior version (${verification.priorVersion})`
           );
         }
       } else {
         const knownPrior = PRIOR_SHIPPED_ENTRY_DIGESTS.get(priorDigest);
         verification =
           knownPrior &&
-          knownPrior.id === packed.id &&
-          knownPrior.packageName === packed.publisher.packageName
+          knownPrior.id === selected.id &&
+          knownPrior.packageName === expectedPackageName
             ? { priorVersion: knownPrior.packageVersion, reason: "shipped-descriptor-history" }
             : { priorVersion: "unknown", reason: "operator-explicit-rotation" };
       }
       rotatedEntries.push({
         id: selected.id,
-        packageName: packed.publisher.packageName,
+        packageName: expectedPackageName,
         priorDigest,
         newDigest: currentDigest,
         priorVersion: verification.priorVersion,
@@ -539,6 +636,8 @@ export function rotateBridgeLock(options: RotateBridgeLockOptions): RotateBridge
     };
   }
 
+  const lockDir = dirname(lockPath);
+  mkdirSync(lockDir, { recursive: true });
   const backupPath = `${lockPath}.quarantine-${Date.now()}-${randomUUID().slice(0, 8)}`;
   try {
     writeAndFsyncFile(backupPath, originalBytes, 0o600, "wx");
@@ -553,11 +652,11 @@ export function rotateBridgeLock(options: RotateBridgeLockOptions): RotateBridge
     );
   }
 
-  mkdirSync(dirname(lockPath), { recursive: true });
   const tmpPath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
   writeAndFsyncFile(tmpPath, `${JSON.stringify(nextLock, null, 2)}\n`, 0o600, "wx");
   try {
     renameSync(tmpPath, lockPath);
+    fsyncDirectory(lockDir);
   } catch (err) {
     try {
       unlinkSync(tmpPath);
@@ -581,8 +680,10 @@ export function rotateBridgeLock(options: RotateBridgeLockOptions): RotateBridge
     newLockDigest,
     entries: rotatedEntries
   };
-  mkdirSync(dirname(journalPath), { recursive: true });
-  appendFileSync(journalPath, `${JSON.stringify(journalRecord)}\n`, { mode: 0o600 });
+  const journalDir = dirname(journalPath);
+  mkdirSync(journalDir, { recursive: true });
+  writeAndFsyncFile(journalPath, `${JSON.stringify(journalRecord)}\n`, 0o600, "a");
+  fsyncDirectory(journalDir);
 
   return {
     rotated: true,
@@ -654,7 +755,7 @@ export function compareSemverDesc(a: string, b: string): number {
     if (typeof va === "number" && typeof vb === "number") return vb - va;
     return String(vb).localeCompare(String(va));
   }
-  if (pa.pre === null && pb.pre === null) return b.localeCompare(a);
+  if (pa.pre === null && pb.pre === null) return 0;
   if (pa.pre === null) return -1;
   if (pb.pre === null) return 1;
   const maxPre = Math.max(pa.pre.length, pb.pre.length);
@@ -669,7 +770,7 @@ export function compareSemverDesc(a: string, b: string): number {
     if (typeof vb === "number") return -1;
     return String(vb).localeCompare(String(va));
   }
-  return b.localeCompare(a);
+  return 0;
 }
 
 export function findVerifiedPluginVersionDir(

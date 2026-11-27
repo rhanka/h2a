@@ -111,9 +111,12 @@ Le pont MCP (`registry-bridge serve`) épingle les empreintes SHA-256 des
 descripteurs dans `<XDG_CONFIG_HOME|~/.config>/sentropic/h2a/registry-bridge/<host>/<profile>.lock.json`
 (ou `--lock <chemin>` pour une configuration par fichier). Lors d'une mise à
 jour vérifiée du même éditeur (`--auto-upgrade` ou `h2a doctor --repair`), le
-verrou est re-épinglé atomiquement après sauvegarde de l'ancien verrou en
-`*.quarantine-<horodatage>-<id>` et écriture d'une trace dans
-`*.rotations.jsonl`.
+verrou n'est re-épinglé atomiquement que si le **nouveau** descripteur porte la
+version exacte de l'installation (`currentCliVersion()`), correspond au
+descripteur publié compilé dans `dist` pour le même éditeur, et est strictement
+plus récent que l'ancienne version vérifiée ; une sauvegarde exacte est écrite
+et synchronisée (`fsync`) en `*.quarantine-<horodatage>-<id>` avec trace
+synchronisée dans `*.rotations.jsonl`.
 
 Si un verrou reste périmé ou refuse de démarrer à l'étape de vérification des
 descripteurs (`integrity_mismatch: step=bridge-lock-descriptor-verification`),
@@ -128,6 +131,7 @@ h2a registry bootstrap rotate --host codex --profile default --mechanism plugin
 h2a registry bootstrap rotate --host claude --config <chemin-config> [--lock <chemin-verrou>]
 ```
 
-La rotation refuse tout descripteur inconnu (`invalid_entry`) et toute
-configuration dont l'empreinte a été altérée (`integrity_mismatch` à l'étape
-`bridge-lock-config-verification`).
+La rotation opérateur affiche la version et l'empreinte cibles, exige la
+version de l'installation courante, et refuse tout fournisseur inconnu
+(`invalid_entry`) ainsi que toute configuration dont l'empreinte a été altérée
+(`integrity_mismatch` à l'étape `bridge-lock-config-verification`).

@@ -352,8 +352,154 @@ test("Point 1c: genuinely unknown descriptors and unproven tampered digests fail
       );
       assert.equal(tamperCode, 2);
       assert.match(serveTamperIo.text().stdout, /integrity_mismatch: step=bridge-lock-descriptor-verification/);
+      assert.equal(serveTamperIo.text().stdout.includes("integrity_mismatch: integrity_mismatch:"), false);
       assert.match(serveTamperIo.text().stdout, /h2a registry bootstrap rotate --host claude --profile default --mechanism plugin/);
       assert.equal(readFileSync(lockPath, "utf8"), tamperedBytes);
+    }
+  );
+});
+
+test("Point 1d (B1 PoC non-regression): modified descriptor with 0.0.0-evil or uncompiled digest fails closed on both --lock --auto-upgrade and default plugin paths", async (t) => {
+  const { CURRENT_SHIPPED_ENTRY_DIGESTS, PRIOR_SHIPPED_ENTRY_DIGESTS, isPublishedPackageVersion, isStrictlyNewerSemver } = await import("../dist/registry/bridge-lock.js");
+  assert.equal(isPublishedPackageVersion("0.0.0-evil"), false);
+  assert.equal(isPublishedPackageVersion("0.0.0"), false);
+  assert.equal(isPublishedPackageVersion("0.98.11"), true);
+  assert.equal(isStrictlyNewerSemver("0.98.11", "0.98.11"), false);
+  assert.equal(isStrictlyNewerSemver("0.98.11", "0.98.11-rc.15"), true);
+  for (const [, desc] of PRIOR_SHIPPED_ENTRY_DIGESTS) {
+    assert.notEqual(desc.packageVersion, currentCliVersion(), "current CLI version digest must never be in PRIOR_SHIPPED_ENTRY_DIGESTS");
+  }
+
+  const iso = makeIsoLab("mcp-robust-b1-poc-");
+  t.after(() => rmSync(iso.dir, { recursive: true, force: true }));
+
+  const installedVer = currentCliVersion();
+  const { pluginDir } = setupClaudePluginInstall(iso, installedVer);
+
+  // Unit-level tamper check via refreshUpgradedPluginLock on healthy lock
+  const evilH2a = structuredClone(registryPackageManifest.entries[0]);
+  evilH2a.description = "tampered evil description";
+  evilH2a.publisher.packageVersion = "0.0.0-evil";
+  const realTrack = structuredClone(trackRegistryPackageManifest.entries[0]);
+
+  await withEnv(
+    { HOME: iso.home, XDG_CONFIG_HOME: iso.xdgConfig, XDG_RUNTIME_DIR: iso.xdgRuntime, H2A_MCP_CENTRAL: "0" },
+    async () => {
+      const pluginLockPath = defaultPluginBridgeLockPath("claude", "default");
+      provisionBridgeLock({ lockPath: pluginLockPath, host: "claude", profile: "default" });
+      const pluginLockBefore = readFileSync(pluginLockPath, "utf8");
+
+      const refreshEvil = refreshUpgradedPluginLock({
+        host: "claude", configPath: "", profile: "default", pluginDir,
+        h2aEntry: evilH2a, trackEntry: realTrack
+      });
+      assert.equal(refreshEvil.refreshed, false);
+      assert.equal(readFileSync(pluginLockPath, "utf8"), pluginLockBefore);
+
+      // Even if a tampered descriptor claims installedVer, compiled digest check rejects it
+      const subtleEvil = structuredClone(registryPackageManifest.entries[0]);
+      subtleEvil.description = "subtle uncompiled tamper";
+      assert.equal(
+        refreshUpgradedPluginLock({
+          host: "claude", configPath: "", profile: "default", pluginDir,
+          h2aEntry: subtleEvil, trackEntry: realTrack
+        }).refreshed,
+        false
+      );
+      assert.equal(readFileSync(pluginLockPath, "utf8"), pluginLockBefore);
+      assert.equal(existsSync(bridgeLockJournalPath(pluginLockPath)), false);
+      assert.ok(CURRENT_SHIPPED_ENTRY_DIGESTS.get("sentropic.h2a"));
+
+      // End-to-end Opus review PoC: copy built packages into temp workspace with tampered entries.v1.json (description + 0.0.0-evil)
+      const pocRepo = join(iso.dir, "poc-repo");
+      const pocH2a = join(pocRepo, "packages", "h2a");
+      const pocTrack = join(pocRepo, "packages", "track");
+      mkdirSync(pocH2a, { recursive: true });
+      mkdirSync(pocTrack, { recursive: true });
+      for (const rel of ["package.json", "dist", "registry", "fixtures", "vendor", "scripts", "schema"]) {
+        if (existsSync(join(REPO_ROOT, "packages/h2a", rel))) {
+          cpSync(join(REPO_ROOT, "packages/h2a", rel), join(pocH2a, rel), { recursive: true });
+        }
+      }
+      for (const rel of ["package.json", "dist", "registry"]) {
+        if (existsSync(join(REPO_ROOT, "packages/track", rel))) {
+          cpSync(join(REPO_ROOT, "packages/track", rel), join(pocTrack, rel), { recursive: true });
+        }
+      }
+      mkdirSync(join(pocRepo, "node_modules/@sentropic"), { recursive: true });
+      // Resolve external deps from repo root node_modules + @sentropic/track to our pocTrack
+      execFileSync("ln", ["-s", pocTrack, join(pocRepo, "node_modules/@sentropic/track")]);
+      for (const entry of readdirSync(join(REPO_ROOT, "node_modules"))) {
+        if (entry === ".bin") continue;
+        if (entry === "@sentropic") {
+          for (const sub of readdirSync(join(REPO_ROOT, "node_modules/@sentropic"))) {
+            if (sub === "track") continue;
+            execFileSync("ln", ["-s", join(REPO_ROOT, "node_modules/@sentropic", sub), join(pocRepo, "node_modules/@sentropic", sub)]);
+          }
+          continue;
+        }
+        execFileSync("ln", ["-s", join(REPO_ROOT, "node_modules", entry), join(pocRepo, "node_modules", entry)]);
+      }
+
+      const pocEntriesPath = join(pocH2a, "registry/entries.v1.json");
+      const tamperedManifest = JSON.parse(readFileSync(pocEntriesPath, "utf8"));
+      tamperedManifest.entries[0].description = "tampered PoC description";
+      tamperedManifest.entries[0].publisher.packageVersion = "0.0.0-evil";
+      writeFileSync(pocEntriesPath, JSON.stringify(tamperedManifest, null, 2) + "\n");
+
+      const explicitLockPath = join(iso.dir, "explicit-healthy.lock.json");
+      provisionBridgeLock({ lockPath: explicitLockPath, host: "claude", profile: "default" });
+      const explicitBefore = readFileSync(explicitLockPath, "utf8");
+      const pocBin = join(pocH2a, "dist/bin.js");
+
+      // 1) Explicit --lock --auto-upgrade MUST refuse closed
+      const explicitPocRun = spawnSync(
+        process.execPath,
+        [pocBin, "registry-bridge", "serve", "--host", "claude", "--profile", "default", "--lock", explicitLockPath, "--auto-upgrade", "--instance", "claude:poc-lock"],
+        {
+          cwd: pocRepo,
+          encoding: "utf8",
+          env: {
+            PATH: process.env.PATH,
+            HOME: iso.home,
+            XDG_CONFIG_HOME: iso.xdgConfig,
+            XDG_RUNTIME_DIR: iso.xdgRuntime,
+            H2A_ROOT: iso.root,
+            H2A_MCP_CENTRAL: "0",
+            TMPDIR: tempBase()
+          }
+        }
+      );
+      assert.equal(explicitPocRun.status, 2, explicitPocRun.stdout + explicitPocRun.stderr);
+      assert.match(explicitPocRun.stdout + explicitPocRun.stderr, /integrity_mismatch/);
+      assert.match(explicitPocRun.stdout + explicitPocRun.stderr, /bridge-lock-new-descriptor-verification/);
+      assert.equal(explicitPocRun.stdout.includes("0.0.0-evil") && readFileSync(explicitLockPath, "utf8") !== explicitBefore, false);
+      assert.equal(readFileSync(explicitLockPath, "utf8"), explicitBefore);
+      assert.equal(existsSync(bridgeLockJournalPath(explicitLockPath)), false);
+
+      // 2) Default plugin path (--auto-upgrade with cached 0.98.11 plugin) MUST refuse closed
+      const pluginPocRun = spawnSync(
+        process.execPath,
+        [pocBin, "registry-bridge", "serve", "--host", "claude", "--profile", "default", "--auto-upgrade", "--instance", "claude:poc-plugin"],
+        {
+          cwd: pocRepo,
+          encoding: "utf8",
+          env: {
+            PATH: process.env.PATH,
+            HOME: iso.home,
+            XDG_CONFIG_HOME: iso.xdgConfig,
+            XDG_RUNTIME_DIR: iso.xdgRuntime,
+            H2A_ROOT: iso.root,
+            H2A_MCP_CENTRAL: "0",
+            TMPDIR: tempBase()
+          }
+        }
+      );
+      assert.equal(pluginPocRun.status, 2, pluginPocRun.stdout + pluginPocRun.stderr);
+      assert.match(pluginPocRun.stdout + pluginPocRun.stderr, /integrity_mismatch/);
+      assert.match(pluginPocRun.stdout + pluginPocRun.stderr, /bridge-lock-new-descriptor-verification/);
+      assert.equal(readFileSync(pluginLockPath, "utf8"), pluginLockBefore);
+      assert.equal(existsSync(bridgeLockJournalPath(pluginLockPath)), false);
     }
   );
 });
@@ -363,48 +509,107 @@ test("Point 1c: genuinely unknown descriptors and unproven tampered digests fail
 // (MemoryHigh=3G, MemoryMax=4G) + clean fallback with message when absent.
 // ---------------------------------------------------------------------------
 
-test("Point 2a: isolateCentralSystemdScope passes MemoryHigh=3G and MemoryMax=4G, handles UnitExists handover overlap, and falls back cleanly", async (t) => {
+test("Point 2a: isolateCentralSystemdScope generates unique per-generation scopes, handles real busctl errors, and verifies /proc/<pid>/cgroup", async (t) => {
   const iso = makeIsoLab("mcp-robust-scope-unit-");
   t.after(() => rmSync(iso.dir, { recursive: true, force: true }));
 
   const busPath = join(iso.xdgRuntime, "bus");
   writeFileSync(busPath, "");
-  const busCalls = [];
-  const res = await isolateCentralSystemdScope(4242, {
+
+  // 1. Default calls generate distinct unique scope names per generation
+  const seenUnits = [];
+  for (let gen = 0; gen < 2; gen++) {
+    const busCalls = [];
+    const res = await isolateCentralSystemdScope(4242, {
+      platform: "linux",
+      environment: { XDG_RUNTIME_DIR: iso.xdgRuntime },
+      cgroupVerifyTimeoutMs: 50,
+      cgroupPollIntervalMs: 5,
+      runBusctl: async (args) => {
+        busCalls.push(args);
+        return { stdout: "", stderr: "" };
+      },
+      readCgroup: () => {
+        const unitArg = busCalls[0]?.find((arg) => typeof arg === "string" && arg.endsWith(".scope"));
+        return `0::/user.slice/user-1000.slice/user@1000.service/app.slice/${unitArg}\n`;
+      }
+    });
+    assert.equal(res.isolated, true);
+    assert.match(res.unit, /^h2a-mcp-central-.*\.scope$/);
+    assert.equal(res.memoryHighBytes, 3 * 1024 ** 3);
+    assert.equal(res.memoryMaxBytes, 4 * 1024 ** 3);
+    assert.ok(busCalls[0].includes("StartTransientUnit"));
+    assert.ok(busCalls[0].includes(String(CENTRAL_MEMORY_HIGH_BYTES)));
+    assert.ok(busCalls[0].includes(String(CENTRAL_MEMORY_MAX_BYTES)));
+    seenUnits.push(res.unit);
+  }
+  assert.notEqual(seenUnits[0], seenUnits[1], "each central generation must receive a unique scope name");
+
+  // 2. Handover collision recognizes real busctl message ("was already loaded or has a fragment file")
+  let realErrAttempt = 0;
+  const busArgsSeen = [];
+  const realOverlapRes = await isolateCentralSystemdScope(9876, {
     platform: "linux",
-    environment: { XDG_RUNTIME_DIR: iso.xdgRuntime },
+    generation: "handover-gen-2",
+    environment: {
+      XDG_RUNTIME_DIR: iso.xdgRuntime,
+      H2A_MCP_CENTRAL_SYSTEMD_UNIT: "h2a-mcp-central.scope"
+    },
+    cgroupVerifyTimeoutMs: 50,
+    cgroupPollIntervalMs: 5,
     runBusctl: async (args) => {
-      busCalls.push(args);
+      busArgsSeen.push(args);
+      realErrAttempt++;
+      if (realErrAttempt === 1) {
+        throw Object.assign(new Error("Command failed: busctl --user call ..."), {
+          stderr: "Call failed: Unit h2a-mcp-central.scope was already loaded or has a fragment file.\n"
+        });
+      }
       return { stdout: "", stderr: "" };
     },
-    readCgroup: () => "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-mcp-central.scope\n"
+    readCgroup: () => "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-mcp-central-handover-gen-2.scope\n"
   });
-  assert.equal(res.isolated, true);
-  assert.equal(res.unit, "h2a-mcp-central.scope");
-  assert.equal(res.memoryHighBytes, 3 * 1024 ** 3);
-  assert.equal(res.memoryMaxBytes, 4 * 1024 ** 3);
-  assert.equal(busCalls.length, 1);
-  assert.ok(busCalls[0].includes("StartTransientUnit"));
-  assert.ok(busCalls[0].includes("h2a-mcp-central.scope"));
-  assert.ok(busCalls[0].includes(String(CENTRAL_MEMORY_HIGH_BYTES)));
-  assert.ok(busCalls[0].includes(String(CENTRAL_MEMORY_MAX_BYTES)));
+  assert.equal(realErrAttempt, 2);
+  assert.equal(realOverlapRes.isolated, true);
+  assert.equal(realOverlapRes.unit, "h2a-mcp-central-handover-gen-2.scope");
 
-  // Handover collision (`UnitExists`) retries cleanly with per-pid unit
-  let attempt = 0;
-  const overlapRes = await isolateCentralSystemdScope(9876, {
+  // 3. Delayed async move into target scope (polls /proc/<pid>/cgroup until confirmed)
+  let cgroupReads = 0;
+  const asyncMoveRes = await isolateCentralSystemdScope(7777, {
     platform: "linux",
+    generation: "async-move-gen",
     environment: { XDG_RUNTIME_DIR: iso.xdgRuntime },
-    runBusctl: async (args) => {
-      attempt++;
-      if (attempt === 1) throw Object.assign(new Error("Unit h2a-mcp-central.scope already exists"), { stderr: "org.freedesktop.systemd1.UnitExists" });
-      return { stdout: "", stderr: "" };
-    },
-    readCgroup: () => "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-mcp-central-9876.scope\n"
+    cgroupVerifyTimeoutMs: 250,
+    cgroupPollIntervalMs: 10,
+    runBusctl: async () => ({ stdout: "", stderr: "" }),
+    readCgroup: () => {
+      cgroupReads++;
+      if (cgroupReads < 3) {
+        return "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-session-caller.scope\n";
+      }
+      return "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-mcp-central-async-move-gen.scope\n";
+    }
   });
-  assert.equal(overlapRes.isolated, true);
-  assert.equal(overlapRes.unit, "h2a-mcp-central-9876.scope");
+  assert.equal(asyncMoveRes.isolated, true);
+  assert.ok(cgroupReads >= 3);
+  assert.match(asyncMoveRes.cgroupPath, /h2a-mcp-central-async-move-gen\.scope$/);
 
-  // Absent systemd --user falls back cleanly with message
+  // 4. PID remaining in caller scope sets isolated:false (never lies about scope ownership)
+  const unconfirmedRes = await isolateCentralSystemdScope(8888, {
+    platform: "linux",
+    generation: "unmoved-gen",
+    environment: { XDG_RUNTIME_DIR: iso.xdgRuntime },
+    cgroupVerifyTimeoutMs: 40,
+    cgroupPollIntervalMs: 10,
+    runBusctl: async () => ({ stdout: "", stderr: "" }),
+    readCgroup: () => "0::/user.slice/user-1000.slice/user@1000.service/app.slice/h2a-session-123.scope\n"
+  });
+  assert.equal(unconfirmedRes.isolated, false);
+  assert.equal(unconfirmedRes.reason, "scope_verification_failed");
+  assert.match(unconfirmedRes.cgroupPath, /h2a-session-123\.scope$/);
+  assert.match(unconfirmedRes.message, /isolated=false/);
+
+  // 5. Absent systemd --user falls back cleanly with message
   const absentRes = await isolateCentralSystemdScope(4242, {
     platform: "linux",
     environment: { XDG_RUNTIME_DIR: join(iso.dir, "empty-run") }
@@ -414,7 +619,7 @@ test("Point 2a: isolateCentralSystemdScope passes MemoryHigh=3G and MemoryMax=4G
   assert.match(absentRes.message, /systemd --user unavailable/);
 });
 
-test("Point 2b: launchCentral isolates via busctl when systemd --user is reachable and falls back cleanly when absent", async (t) => {
+test("Point 2b: launchCentral requests unique generation scope and verifies /proc/<pid>/cgroup before setting isolated=true", async (t) => {
   const iso = makeIsoLab("mcp-robust-launch-");
   t.after(() => rmSync(iso.dir, { recursive: true, force: true }));
 
@@ -450,7 +655,7 @@ test("Point 2b: launchCentral isolates via busctl when systemd --user is reachab
   assert.match(readFileSync(join(dirNoSystemd, "mcp-central.log"), "utf8"), /systemd --user unavailable.*falling back/);
   try { process.kill(launched1.marker.pid, "SIGTERM"); } catch {}
 
-  // 2. Stubbed busctl + bus socket simulating systemd --user under .tmp/ (never touching host systemd)
+  // 2. Stubbed busctl where kernel cgroup did NOT actually move -> isolated MUST be false (scope_verification_failed)
   const binDir = join(iso.dir, "stub-bin");
   mkdirSync(binDir, { recursive: true, mode: 0o700 });
   writeFileSync(join(binDir, "package.json"), JSON.stringify({ type: "module" }) + "\n");
@@ -470,13 +675,14 @@ test("Point 2b: launchCentral isolates via busctl when systemd --user is reachab
   const root2 = join(iso.dir, "root2");
   mkdirSync(root2, { recursive: true, mode: 0o700 });
 
-  const scopeEvents = [];
+  const scopeEventsUnmoved = [];
   const launched2 = await launchCentral({
     directory: dirWithSystemd,
     root: root2,
     installation: installationForEntry(BIN_PATH),
     physicalPrefix: physicalPrefixForEntry(BIN_PATH) ?? join(REPO_ROOT, "packages/h2a"),
     fallbackEntry: BIN_PATH,
+    scopeOptions: { cgroupVerifyTimeoutMs: 40, cgroupPollIntervalMs: 10 },
     environment: {
       PATH: `${binDir}:${process.env.PATH}`,
       HOME: iso.home,
@@ -486,36 +692,99 @@ test("Point 2b: launchCentral isolates via busctl when systemd --user is reachab
       H2A_MCP_CENTRAL_ENDPOINT: await freeEndpoint(),
       TMPDIR: tempBase()
     },
-    onSpawn: (_child, scope) => { if (scope) scopeEvents.push(scope); },
+    onSpawn: (_child, scope) => { if (scope) scopeEventsUnmoved.push(scope); },
     stderr: { write: () => true }
   });
   t.after(() => { try { process.kill(launched2.marker.pid, "SIGTERM"); } catch {} });
-  assert.equal(scopeEvents.length, 1);
-  assert.equal(scopeEvents[0].isolated, true);
-  assert.equal(scopeEvents[0].unit, "h2a-mcp-central.scope");
+  assert.equal(scopeEventsUnmoved.length, 1);
+  assert.equal(scopeEventsUnmoved[0].isolated, false, "real /proc/<pid>/cgroup was not moved by stub busctl so isolated must be false");
+  assert.equal(scopeEventsUnmoved[0].reason, "scope_verification_failed");
   const recordedCall = JSON.parse(readFileSync(busctlLog, "utf8").trim().split("\n")[0]);
   assert.ok(recordedCall.includes("StartTransientUnit"));
-  assert.ok(recordedCall.includes("h2a-mcp-central.scope"));
-  assert.ok(recordedCall.includes(String(CENTRAL_MEMORY_HIGH_BYTES)));
-  assert.ok(recordedCall.includes(String(CENTRAL_MEMORY_MAX_BYTES)));
-  assert.match(readFileSync(join(dirWithSystemd, "mcp-central.log"), "utf8"), /own systemd --user scope h2a-mcp-central\.scope \(MemoryHigh=3G, MemoryMax=4G/);
+  const requestedUnit = recordedCall.find((arg) => typeof arg === "string" && arg.endsWith(".scope"));
+  assert.match(requestedUnit, /^h2a-mcp-central-.*\.scope$/);
   try { process.kill(launched2.marker.pid, "SIGTERM"); } catch {}
+
+  // 3. Confirmed cgroup move sets isolated:true with the generation-unique unit
+  const runConfirmed = join(iso.dir, "run-confirmed");
+  mkdirSync(runConfirmed, { recursive: true, mode: 0o700 });
+  writeFileSync(join(runConfirmed, "bus"), "");
+  const dirConfirmed = join(runConfirmed, "h2a-mcp-central");
+  const root3 = join(iso.dir, "root3");
+  mkdirSync(root3, { recursive: true, mode: 0o700 });
+  const scopeEventsConfirmed = [];
+  const launched3 = await launchCentral({
+    directory: dirConfirmed,
+    root: root3,
+    installation: installationForEntry(BIN_PATH),
+    physicalPrefix: physicalPrefixForEntry(BIN_PATH) ?? join(REPO_ROOT, "packages/h2a"),
+    fallbackEntry: BIN_PATH,
+    scopeOptions: {
+      cgroupVerifyTimeoutMs: 50,
+      cgroupPollIntervalMs: 10,
+      readCgroup: () => {
+        const lines = readFileSync(busctlLog, "utf8").trim().split("\n");
+        const args = JSON.parse(lines[lines.length - 1]);
+        const unitArg = args.find((arg) => typeof arg === "string" && arg.endsWith(".scope"));
+        return `0::/user.slice/user-1000.slice/user@1000.service/app.slice/${unitArg}\n`;
+      }
+    },
+    environment: {
+      PATH: `${binDir}:${process.env.PATH}`,
+      HOME: iso.home,
+      XDG_RUNTIME_DIR: runConfirmed,
+      XDG_CONFIG_HOME: iso.xdgConfig,
+      H2A_MCP_CENTRAL: "1",
+      H2A_MCP_CENTRAL_ENDPOINT: await freeEndpoint(),
+      TMPDIR: tempBase()
+    },
+    onSpawn: (_child, scope) => { if (scope) scopeEventsConfirmed.push(scope); },
+    stderr: { write: () => true }
+  });
+  t.after(() => { try { process.kill(launched3.marker.pid, "SIGTERM"); } catch {} });
+  assert.equal(scopeEventsConfirmed.length, 1);
+  assert.equal(scopeEventsConfirmed[0].isolated, true);
+  assert.match(scopeEventsConfirmed[0].unit, /^h2a-mcp-central-.*\.scope$/);
+  assert.notEqual(scopeEventsConfirmed[0].unit, requestedUnit, "new generation uses a distinct scope name");
+  assert.match(readFileSync(join(dirConfirmed, "mcp-central.log"), "utf8"), /own systemd --user scope h2a-mcp-central-.*\.scope \(MemoryHigh=3G, MemoryMax=4G/);
+  try { process.kill(launched3.marker.pid, "SIGTERM"); } catch {}
 });
 
 // ---------------------------------------------------------------------------
 // Point 3 (01M8C7HMMBMCTWR01YZMWAT07F & 01M8C72THY2J7Y58TCF0FRXATA):
-// Shim/central version skew detection, plugin.json RC bump, release content gate.
+// Shim/central version skew warning (protocol-only refusal), git RC plugin.json
+// bump flow, and strict release content gate (shallow fail + RC->stable promotion).
 // ---------------------------------------------------------------------------
 
-test("Point 3a: shim detects plugin vs central version skew (warns on patch/RC skew, refuses incompatible major/minor)", async (t) => {
+test("Point 3a (B4): shim warns on plugin/central SemVer skew (incl. 0.x minor) and refuses only on explicit protocol mismatch", async (t) => {
   assert.equal(comparePluginAndCentralVersions("0.98.11", "0.98.11").status, "aligned");
-  const warnRes = comparePluginAndCentralVersions("0.98.11", "0.98.11-rc.15");
-  assert.equal(warnRes.status, "warn");
-  assert.match(warnRes.message, /0\.98\.11.*0\.98\.11-rc\.15/);
-  const refuseRes = comparePluginAndCentralVersions("0.97.0", "0.98.11");
-  assert.equal(refuseRes.status, "refuse");
-  assert.equal(refuseRes.code, "incompatible_version");
-  assert.match(refuseRes.message, /step=plugin-central-version-check/);
+  for (const [pluginVer, centralVer] of [
+    ["0.98.11", "0.98.11-rc.15"],
+    ["0.97.0", "0.98.11"],
+    ["0.98.11", "0.99.0-rc.1"],
+    ["0.99.0-rc.1", "0.98.11"],
+    ["1.0.0", "0.98.11"]
+  ]) {
+    const warnRes = comparePluginAndCentralVersions(pluginVer, centralVer);
+    assert.equal(warnRes.status, "warn", `expected warn for ${pluginVer} vs ${centralVer}`);
+    assert.equal(warnRes.code, "version_skew");
+    assert.match(warnRes.message, new RegExp(pluginVer.replaceAll(".", "\\.")));
+  }
+
+  for (const badMarker of [
+    { protocol: 1, schemaVersion: 2, handoverProtocol: 1, mcpProtocolVersions: ["2025-06-18"] },
+    { protocol: 2, schemaVersion: 1, handoverProtocol: 1, mcpProtocolVersions: ["2025-06-18"] },
+    { protocol: 2, schemaVersion: 2, handoverProtocol: 2, mcpProtocolVersions: ["2025-06-18"] },
+    { protocol: 2, schemaVersion: 2, handoverProtocol: 1, mcpProtocolVersions: ["2020-01-01"] }
+  ]) {
+    const refuseRes = comparePluginAndCentralVersions("0.98.11", "0.98.11", {
+      centralMarker: badMarker,
+      supportedProtocols: ["2025-06-18", "2024-11-05"]
+    });
+    assert.equal(refuseRes.status, "refuse", JSON.stringify(badMarker));
+    assert.equal(refuseRes.code, "incompatible_version");
+    assert.match(refuseRes.message, /step=plugin-central-version-check/);
+  }
 
   const iso = makeIsoLab("mcp-robust-version-skew-");
   const central = await startCentralMcpServer({
@@ -545,27 +814,19 @@ test("Point 3a: shim detects plugin vs central version skew (warns on patch/RC s
       const lockPath = defaultPluginBridgeLockPath("claude", "default");
       provisionBridgeLock({ lockPath, host: "claude", profile: "default" });
 
-      // Patch/RC skew emits clear warning and delegates
-      const warnIo = makeStreams(iso.root);
-      const warnCode = await cmdRegistryBridge(
-        ["serve", "--host", "claude", "--profile", "default", "--plugin-version", "0.98.10", "--root", iso.root, "--runtime-base", iso.xdgRuntime],
-        warnIo,
-        { delegateServe: async () => 0 }
-      );
-      assert.equal(warnCode, 0, warnIo.text().stderr);
-      assert.match(warnIo.text().stderr, /WARNING.*0\.98\.10.*differs from central MCP version/);
+      // Patch/RC skew AND 0.x minor skew (e.g. 0.97.0 / 0.99.0-rc.1) warn clearly and stay connected
+      for (const skewedVersion of ["0.98.10", "0.97.0", "0.99.0-rc.1"]) {
+        const warnIo = makeStreams(iso.root);
+        const warnCode = await cmdRegistryBridge(
+          ["serve", "--host", "claude", "--profile", "default", "--plugin-version", skewedVersion, "--root", iso.root, "--runtime-base", iso.xdgRuntime],
+          warnIo,
+          { delegateServe: async () => 0 }
+        );
+        assert.equal(warnCode, 0, warnIo.text().stderr);
+        assert.match(warnIo.text().stderr, new RegExp(`WARNING.*${skewedVersion.replaceAll(".", "\\.")}.*differs from central MCP version`));
+      }
 
-      // Incompatible 0.x minor skew refuses closed with incompatible_version
-      const refuseIo = makeStreams(iso.root);
-      const refuseCode = await cmdRegistryBridge(
-        ["serve", "--host", "claude", "--profile", "default", "--plugin-version", "0.97.0", "--root", iso.root, "--runtime-base", iso.xdgRuntime],
-        refuseIo,
-        { delegateServe: async () => 0 }
-      );
-      assert.equal(refuseCode, 2);
-      assert.match(refuseIo.text().stdout, /incompatible_version.*plugin version 0\.97\.0/);
-
-      // Also verify h2a-bridge-shim.mjs reads plugin.json version from CLAUDE_PLUGIN_ROOT
+      // Also verify h2a-bridge-shim.mjs with plugin.json at 0.97.0 warns cleanly and stays alive (not exit 2)
       writeFileSync(
         join(pluginDir, ".claude-plugin", "plugin.json"),
         JSON.stringify({ name: "h2a", version: "0.97.0", mcpServers: "./.claude-plugin/registry.mcp.json" }, null, 2)
@@ -583,6 +844,7 @@ test("Point 3a: shim detects plugin vs central version skew (warns on patch/RC s
         [join(pluginDir, "scripts", "h2a-bridge-shim.mjs"), "registry-bridge", "serve", "--host", "claude", "--profile", "default", "--root", iso.root, "--runtime-base", iso.xdgRuntime],
         {
           encoding: "utf8",
+          input: "",
           env: {
             PATH: `${binDir}:${process.env.PATH}`,
             HOME: iso.home,
@@ -594,45 +856,60 @@ test("Point 3a: shim detects plugin vs central version skew (warns on patch/RC s
           }
         }
       );
-      assert.equal(shimRun.status, 2);
-      assert.match(`${shimRun.stdout}\n${shimRun.stderr}`, /incompatible_version.*plugin version 0\.97\.0/);
+      assert.equal(shimRun.status, 0, shimRun.stdout + shimRun.stderr);
+      assert.match(shimRun.stderr, /WARNING.*0\.97\.0.*differs from central MCP version/);
     }
   );
 });
 
-test("Point 3b: release-candidate updates plugin.json manifests and release content check fails if plugin changes without version bump", async (t) => {
+test("Point 3b (NB-a & NB-b): git plugin.json RC bumps, shallow failure, RC->stable same-tree promotion, and live repo sync", async (t) => {
+  // Verify live repository manifests & compiled shipped digests match cleanly
+  assert.ok(checkPluginManifestSync(REPO_ROOT));
+  const liveGenCheck = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/generate-registry-entries.mjs"), "--check"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8"
+  });
+  assert.equal(liveGenCheck.status, 0, liveGenCheck.stdout + liveGenCheck.stderr);
+
   const lab = mkdtempSync(join(tempBase(), "mcp-robust-release-plugin-"));
-  t.after(() => rmSync(lab, { recursive: true, force: true }));
+  const shallow = mkdtempSync(join(tempBase(), "mcp-robust-release-shallow-"));
+  t.after(() => {
+    rmSync(lab, { recursive: true, force: true });
+    rmSync(shallow, { recursive: true, force: true });
+  });
 
   const packages = ["track", "h2a-runtime", "h2a", "h2a-cli", "focus"];
-  const baseVersion = "0.98.11";
-  for (const pkgName of packages) {
-    mkdirSync(join(lab, "packages", pkgName), { recursive: true });
-    const ver = pkgName === "focus" ? "0.6.1" : baseVersion;
-    writeFileSync(
-      join(lab, "packages", pkgName, "package.json"),
-      JSON.stringify({
-        name: `@sentropic/${pkgName}`,
-        version: ver,
-        ...(pkgName === "h2a" ? { dependencies: { "@sentropic/track": baseVersion, "@sentropic/h2a-runtime": baseVersion, "@sentropic/focus": "0.6.1" } } : {}),
-        ...(pkgName === "h2a-cli" ? { dependencies: { "@sentropic/h2a": baseVersion } } : {})
-      }, null, 2) + "\n"
-    );
-  }
+  const initVer = "0.98.11";
+  const writeRepoVersions = (ver) => {
+    writeFileSync(join(lab, "package.json"), JSON.stringify({ name: "h2a-root", version: ver, private: true }, null, 2) + "\n");
+    for (const pkgName of packages) {
+      mkdirSync(join(lab, "packages", pkgName), { recursive: true });
+      const effectiveVer = pkgName === "focus" ? "0.6.1" : ver;
+      writeFileSync(
+        join(lab, "packages", pkgName, "package.json"),
+        JSON.stringify({
+          name: `@sentropic/${pkgName}`,
+          version: effectiveVer,
+          ...(pkgName === "h2a" ? { dependencies: { "@sentropic/track": ver, "@sentropic/h2a-runtime": ver, "@sentropic/focus": "0.6.1" } } : {}),
+          ...(pkgName === "h2a-cli" ? { dependencies: { "@sentropic/h2a": ver } } : {})
+        }, null, 2) + "\n"
+      );
+    }
+    writeFileSync(join(lab, "packages/h2a/.claude-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: ver }, null, 2) + "\n");
+    writeFileSync(join(lab, "packages/h2a/.codex-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: ver }, null, 2) + "\n");
+    writeFileSync(join(lab, "scripts/smoke-artifact.mjs"), `const PINNED_RUNTIME_VERSION = '${ver}'\nconst PINNED_FOCUS_VERSION = '0.6.1'\n`);
+  };
+
   mkdirSync(join(lab, "packages/h2a/.claude-plugin"), { recursive: true });
   mkdirSync(join(lab, "packages/h2a/.codex-plugin"), { recursive: true });
   mkdirSync(join(lab, "packages/h2a/skills/h2a"), { recursive: true });
   mkdirSync(join(lab, "scripts"), { recursive: true });
-
-  writeFileSync(join(lab, "packages/h2a/.claude-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: baseVersion }, null, 2) + "\n");
-  writeFileSync(join(lab, "packages/h2a/.codex-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: baseVersion }, null, 2) + "\n");
+  writeRepoVersions(initVer);
   writeFileSync(join(lab, "packages/h2a/skills/h2a/SKILL.md"), "# initial skill\n");
-  writeFileSync(join(lab, "scripts/smoke-artifact.mjs"), `const PINNED_RUNTIME_VERSION = '${baseVersion}'\nconst PINNED_FOCUS_VERSION = '0.6.1'\n`);
   for (const rel of ["scripts/check-lockstep-versions.mjs", "scripts/check-plugin-version.mjs", "scripts/release-candidate.mjs"]) {
     cpSync(join(REPO_ROOT, rel), join(lab, rel));
   }
 
-  // Initialize git repo + baseline tag v0.98.11
   const gitEnv = {
     ...process.env,
     GIT_AUTHOR_NAME: "Fabien Antoine",
@@ -641,42 +918,77 @@ test("Point 3b: release-candidate updates plugin.json manifests and release cont
     GIT_COMMITTER_EMAIL: "fabien.antoine@m4x.org",
     TMPDIR: tempBase()
   };
-  const git = (...args) => execFileSync("git", args, { cwd: lab, env: gitEnv, encoding: "utf8" });
-  git("init", "-q");
-  git("add", ".");
-  git("commit", "-q", "-m", "release: v0.98.11");
-  git("tag", "-a", "v0.98.11", "-m", "v0.98.11");
+  const git = (cwd, ...args) => execFileSync("git", args, { cwd, env: gitEnv, encoding: "utf8" });
+  git(lab, "init", "-q");
+  git(lab, "add", ".");
+  git(lab, "commit", "-q", "-m", "release: v0.98.11");
+  git(lab, "tag", "-a", "v0.98.11", "-m", "v0.98.11");
 
-  // 1. Modify plugin skill content WITHOUT changing plugin.json version -> MUST fail
-  writeFileSync(join(lab, "packages/h2a/skills/h2a/SKILL.md"), "# updated skill content\n");
-  git("add", "packages/h2a/skills/h2a/SKILL.md");
-  git("commit", "-q", "-m", "feat: update skill");
+  // 1. Shallow clone MUST fail closed (`plugin_version_check_incomplete`), never skip
+  execFileSync("git", ["clone", "--depth=1", `file://${lab}`, shallow], { env: gitEnv, encoding: "utf8" });
+  assert.throws(
+    () => checkPluginContentVersionBump(shallow),
+    /plugin_version_check_incomplete: shallow git checkout/
+  );
+
+  // 2. Modifying plugin skill without git bump in plugin.json fails BOTH checkPluginContentVersionBump AND RC `prepare`
+  writeFileSync(join(lab, "packages/h2a/skills/h2a/SKILL.md"), "# updated skill v1\n");
+  git(lab, "add", "packages/h2a/skills/h2a/SKILL.md");
+  git(lab, "commit", "-q", "-m", "feat: update skill");
   assert.throws(
     () => checkPluginContentVersionBump(lab),
     /plugin_version_stale: plugin content changed since v0\.98\.11/
   );
-
-  // 2. Drift check in checkLockstepVersions when plugin.json != package.json
-  writeFileSync(join(lab, "packages/h2a/.claude-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: "0.98.10" }, null, 2) + "\n");
-  assert.throws(() => checkLockstepVersions(lab), /Plugin manifest packages\/h2a\/\.claude-plugin\/plugin\.json version/);
-  assert.throws(() => checkPluginManifestSync(lab), /plugin_version_sync_failed/);
-  // Restore matching version before prepare
-  writeFileSync(join(lab, "packages/h2a/.claude-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: baseVersion }, null, 2) + "\n");
-
-  // 3. Running `release-candidate.mjs prepare` on v0.98.11-rc.3 stamps both plugin.json files AND passes checks
-  const rcPrep = spawnSync(process.execPath, [join(lab, "scripts/release-candidate.mjs"), "prepare"], {
+  const staleRcPrep = spawnSync(process.execPath, [join(lab, "scripts/release-candidate.mjs"), "prepare"], {
     cwd: lab,
     encoding: "utf8",
     env: {
       ...gitEnv,
       GITHUB_ACTIONS: "true",
-      GITHUB_REF: "refs/tags/v0.98.11-rc.3",
-      GITHUB_ENV: join(lab, "github-env")
+      GITHUB_REF: "refs/tags/v0.98.11-rc.2",
+      GITHUB_ENV: join(lab, "github-env-stale")
     }
   });
-  assert.equal(rcPrep.status, 0, rcPrep.stderr);
-  assert.equal(JSON.parse(readFileSync(join(lab, "packages/h2a/.claude-plugin/plugin.json"), "utf8")).version, "0.98.11-rc.3");
-  assert.equal(JSON.parse(readFileSync(join(lab, "packages/h2a/.codex-plugin/plugin.json"), "utf8")).version, "0.98.11-rc.3");
-  assert.equal(checkLockstepVersions(lab), "0.98.11-rc.3");
-  assert.equal(checkPluginContentVersionBump(lab).currentVersion, "0.98.11-rc.3");
+  assert.notEqual(staleRcPrep.status, 0, "unbumped git plugin.json must fail even on an RC tag");
+  assert.match(staleRcPrep.stderr, /plugin_version_stale/);
+
+  // 3. Committing the RC bump on git (`0.99.0-rc.1`) makes plugin.json change in the git marketplace and passes check + prepare
+  writeRepoVersions("0.99.0-rc.1");
+  git(lab, "add", ".");
+  git(lab, "commit", "-q", "-m", "release: v0.99.0-rc.1");
+  git(lab, "tag", "-a", "v0.99.0-rc.1", "-m", "v0.99.0-rc.1");
+  assert.equal(checkPluginContentVersionBump(lab).baseRef, "v0.98.11");
+
+  // Next RC (`v0.99.0-rc.2`) changes skill AND bumps git plugin.json -> 0.99.0-rc.2
+  writeFileSync(join(lab, "packages/h2a/skills/h2a/SKILL.md"), "# updated skill v2\n");
+  writeRepoVersions("0.99.0-rc.2");
+  git(lab, "add", ".");
+  git(lab, "commit", "-q", "-m", "release: v0.99.0-rc.2");
+  git(lab, "tag", "-a", "v0.99.0-rc.2", "-m", "v0.99.0-rc.2");
+  const rc2Prep = spawnSync(process.execPath, [join(lab, "scripts/release-candidate.mjs"), "prepare"], {
+    cwd: lab,
+    encoding: "utf8",
+    env: {
+      ...gitEnv,
+      GITHUB_ACTIONS: "true",
+      GITHUB_REF: "refs/tags/v0.99.0-rc.2",
+      GITHUB_ENV: join(lab, "github-env-rc2")
+    }
+  });
+  assert.equal(rc2Prep.status, 0, rc2Prep.stderr);
+  assert.equal(checkLockstepVersions(lab), "0.99.0-rc.2");
+
+  // 4. Promoting stable (`v0.99.0`) on the EXACT same tree/commit as `v0.99.0-rc.2` MUST pass checkPluginContentVersionBump
+  git(lab, "tag", "-a", "v0.99.0", "-m", "v0.99.0");
+  await withEnv({ GITHUB_REF: "refs/tags/v0.99.0" }, async () => {
+    const promo = checkPluginContentVersionBump(lab);
+    assert.equal(promo.checked, true);
+    assert.equal(promo.baseRef, "v0.99.0-rc.2");
+    assert.deepEqual(promo.changedFiles, []);
+  });
+
+  // 5. Drift check in checkLockstepVersions & checkPluginManifestSync when plugin.json != package.json
+  writeFileSync(join(lab, "packages/h2a/.claude-plugin/plugin.json"), JSON.stringify({ name: "h2a", version: "0.98.10" }, null, 2) + "\n");
+  assert.throws(() => checkLockstepVersions(lab), /Plugin manifest packages\/h2a\/\.claude-plugin\/plugin\.json version/);
+  assert.throws(() => checkPluginManifestSync(lab), /plugin_version_sync_failed/);
 });
