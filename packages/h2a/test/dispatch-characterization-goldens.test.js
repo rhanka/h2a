@@ -59,7 +59,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // MCP refactor L1: adds `h2a central compact` usage line (+165 bytes).
 // Focus async build (track 01M8C3NBFTSVD1W2P3Q9F5X2HA): `MCP tools:` line gains
 // `, h2a_focus_submit_build, h2a_focus_build_result` (+47 bytes).
-const CORE_HELP_SHA256 = "a3dfae5d3315f3950b4ee5dcf0f2daffc44ba6c957b70366363cc4981c25111a";
+// MCP robustness (01M89T9VJ6SWG9B8DSD6RKQJJ0): `h2a registry bootstrap` usage line
+// adds `|rotate`, `[--mechanism file|plugin]`, optional `--config`, and lock rotation (+53 bytes).
+const CORE_HELP_SHA256 = "dfafa614585360d1309edf6cbffec73b6d70d753565ec54dbbd37c2ab25b92df";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -170,7 +172,8 @@ function assertCoreHelp(result) {
   // + 14 for ` · h2a demand` in the Track facade line (Track owner table Lot 2).
   // + 165 for `h2a central compact` usage line (MCP refactor L1).
   // + 48 for `, h2a_focus_submit_build, h2a_focus_build_result` in the wrapped MCP tools line.
-  assert.equal(Buffer.byteLength(result.stdout), 15781);
+  // + 53 for `h2a registry bootstrap ... rotate` + `[--mechanism file|plugin]`.
+  assert.equal(Buffer.byteLength(result.stdout), 15834);
 }
 
 function assertMissingRuntime(result, firstToken) {
