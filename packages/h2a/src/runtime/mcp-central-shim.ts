@@ -7,7 +7,7 @@ import { isSupportedCentralHost } from "./mcp-central-qualification.js";
 import type { BridgeLock } from "../registry/bridge-lock.js";
 
 export async function runCentralShim(flags: Record<string, string>, root: string,
-  registry?: { lock?: BridgeLock; tools: ReadonlyArray<unknown> }): Promise<number> {
+  registry?: { lock?: BridgeLock; tools: ReadonlyArray<unknown>; pluginVersion?: string; warnedVersionPair?: string }): Promise<number> {
   if (flags["runtime-base"] && !isAbsolute(flags["runtime-base"])) throw new Error("--runtime-base must be an absolute path");
   const controller = new AbortController();
   const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
@@ -24,10 +24,13 @@ export async function runCentralShim(flags: Record<string, string>, root: string
       (flags.host !== "claude" || Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()));
     const registryDigest = registry?.lock
       ? (await import("../registry/bridge-lock.js")).bridgeLockDigest(registry.lock) : undefined;
+    const pluginVersion = registry?.pluginVersion ?? flags["plugin-version"] ?? process.env.H2A_PLUGIN_VERSION?.trim() ?? undefined;
     await bridgeCentralMcpStdio({
       ...paths, stdin: process.stdin, stdout: process.stdout, signal: controller.signal,
       workspaceRoot: process.cwd(),
       ...(registry ? { registryTools: registry.tools } : {}),
+      ...(pluginVersion ? { pluginVersion } : {}),
+      ...(registry?.warnedVersionPair ? { warnedVersionPair: registry.warnedVersionPair } : {}),
       ...(qualified ? {
         attachment: captureCentralAttachment(root, process.cwd(), {
           ...flags, ...(registryDigest ? { "registry-lock-digest": registryDigest } : {})

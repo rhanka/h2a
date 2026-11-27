@@ -2,11 +2,12 @@
 // CI-only release preparation and promotion proof. No registry writes here.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { checkLockstepVersions } from './check-lockstep-versions.mjs'
+import { checkPluginContentVersionBump } from './check-plugin-version.mjs'
 
 const names = ['track', 'h2a-runtime', 'h2a', 'h2a-cli']
 const triple = '(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)'
@@ -39,6 +40,8 @@ function prepare() {
   const focusPin = `const PINNED_FOCUS_VERSION = '${focusBase}'`
   if (smoke.split(focusPin).length !== 2) throw new Error('smoke focus pin must match the focus train exactly once')
   if (focus.version !== focusBase) throw new Error('focus must keep its stable version in the source checkout')
+  const pluginManifestRels = ['packages/h2a/.claude-plugin/plugin.json', 'packages/h2a/.codex-plugin/plugin.json']
+  const hasPluginManifests = pluginManifestRels.some((rel) => existsSync(rel))
   if (rc) {
     for (const name of [...names, 'focus']) {
       const path = join('packages', name, 'package.json'), manifest = JSON.parse(readFileSync(path, 'utf8'))
@@ -48,8 +51,17 @@ function prepare() {
       }
       writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n')
     }
+    if (hasPluginManifests) {
+      for (const pluginRel of pluginManifestRels) {
+        if (!existsSync(pluginRel)) throw new Error(`missing plugin manifest: ${pluginRel}`)
+        const pluginManifest = JSON.parse(readFileSync(pluginRel, 'utf8'))
+        pluginManifest.version = packages['@sentropic/h2a']
+        writeFileSync(pluginRel, JSON.stringify(pluginManifest, null, 2) + '\n')
+      }
+    }
     writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`).replace(focusPin, `const PINNED_FOCUS_VERSION = '${packages['@sentropic/focus']}'`))
   }
+  if (hasPluginManifests) checkPluginContentVersionBump(process.cwd())
   appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${version}\nRELEASE_TAG=${tag}\nFOCUS_RELEASE_VERSION=${packages['@sentropic/focus']}\n`)
   console.log(`Prepared ${version}; registry tag: ${rc ? 'next' : 'latest/backfill'}`)
 }

@@ -17,6 +17,7 @@ import { readState } from './state.js';
 import { digest } from './wire.js';
 import { shimBuildInfo } from './shim-build.js';
 import { requestWithRetry, transientFetchError } from './request-retry.js';
+import { comparePluginAndCentralVersions } from '../mcp-version-alignment.js';
 
 const PROTOCOLS = ['2025-06-18', '2024-11-05'];
 export const SHIM_HANDSHAKE_TIMEOUT_MS = 1_500;
@@ -46,6 +47,35 @@ function messages(text, type) {
 export async function bridgeCentralMcpStdio(options) {
   const markerPath = centralMcpMarkerPath(options), attachmentId = options.attachment?.id ?? randomUUID();
   const mappings = new RequestMappings(), view = new CatalogueView(describeCatalogue(options.registryTools ?? embeddedTools));
+  const warnedVersionPairs = new Set(options.warnedVersionPair ? [options.warnedVersionPair] : []);
+  const effectivePluginVersion = () => {
+    const raw = options.pluginVersion ?? process.env.H2A_PLUGIN_VERSION;
+    return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
+  };
+  const checkCentralPluginAlignment = (marker) => {
+    const pluginVer = effectivePluginVersion();
+    if (!pluginVer || !marker?.packageVersion) return;
+    const versionCheck = comparePluginAndCentralVersions(pluginVer, marker.packageVersion);
+    if (versionCheck.status === 'refuse') {
+      try {
+        (options.stderr ?? process.stderr).write(`${versionCheck.message}\n`);
+      } catch {
+        /* ignore */
+      }
+      throw Object.assign(new Error(versionCheck.message), { code: versionCheck.code ?? 'incompatible_version' });
+    }
+    if (versionCheck.status === 'warn') {
+      const pairKey = `${pluginVer}=>${marker.packageVersion}`;
+      if (!warnedVersionPairs.has(pairKey)) {
+        warnedVersionPairs.add(pairKey);
+        try {
+          (options.stderr ?? process.stderr).write(`${versionCheck.message}\n`);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
   let registryAdmitted = !options.registryTools;
   const buildInfo = shimBuildInfo();
   const acceptances = new EvidenceAcceptances(), owners = new Set();
@@ -209,6 +239,7 @@ export async function bridgeCentralMcpStdio(options) {
       try { marker = readCentralClientMarker(markerPath); }
       catch (e) { if (e.code !== 'ENOENT') throw e; await options.ensure?.(); marker = readCentralClientMarker(markerPath); }
       if (marker.schemaVersion !== 2 || marker.protocol !== 2) throw new Error('legacy_requires_cold_upgrade');
+      checkCentralPluginAlignment(marker);
       if (options.endpoint && !current && marker.endpoint !== parseCentralMcpEndpoint(options.endpoint)) throw new Error('central MCP marker does not match requested endpoint');
       if (current?.pendingAcceptance) await finishAcceptance(current);
       if (!current && pendingOwner && pendingOwner.generation !== marker.generation && ownerLiveness(pendingOwner.marker, currentIdentity()) !== 'dead' &&
@@ -330,6 +361,7 @@ export async function bridgeCentralMcpStdio(options) {
             await options.ensure();
             marker = readCentralClientMarker(markerPath);
             if (marker.schemaVersion !== 2 || marker.protocol !== 2) throw new Error('legacy_requires_cold_upgrade');
+      checkCentralPluginAlignment(marker);
             owner = {
               marker,
               generation: marker.generation,
@@ -451,7 +483,7 @@ export async function bridgeCentralMcpStdio(options) {
         track(connect().then(() => {
           if (view.state !== 'CURRENT') throw new Error('catalogue_unavailable');
           registryAdmitted = true; reply();
-        }).catch(e => { error(message.id, 'central_unavailable', e.message); }));
+        }).catch(e => { error(message.id, e?.code ?? 'central_unavailable', e.message); }));
       } else { reply(); track(connect().catch(() => {})); }
       return;
     }

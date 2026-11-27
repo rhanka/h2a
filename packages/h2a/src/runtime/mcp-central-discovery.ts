@@ -27,6 +27,7 @@ export type CentralMcpMarker = Readonly<{
   root?: string;
   protocol?: number;
   schemaVersion?: number;
+  packageVersion?: string;
   state?: string;
   endpointMode?: "fixed" | "discovered";
 }>;

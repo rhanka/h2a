@@ -6,6 +6,9 @@ export interface CentralMcpStdioBridgeOptions extends CentralMcpPathsOptions {
   endpoint?: string; stdin: Readable; stdout: Writable; signal?: AbortSignal;
   workspaceRoot?: string; attachment?: CentralMcpAttachment; ensure?: () => Promise<void>;
   registryTools?: ReadonlyArray<unknown>;
+  pluginVersion?: string;
+  warnedVersionPair?: string;
+  stderr?: { write: (chunk: string) => unknown };
 }
 import { bridgeCentralMcpStdio as runBridge } from "./handover/shim-bridge.js";
 export function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOptions): Promise<void> { return runBridge(options); }

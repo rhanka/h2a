@@ -49,6 +49,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
+import { checkPluginContentVersionBump } from "./check-plugin-version.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -536,6 +537,9 @@ async function main(argv) {
 
   process.stdout.write("\n→ Bump package.json files\n");
   bumpAllPackages(newVersion, { dryRun });
+  if (!dryRun) {
+    checkPluginContentVersionBump(REPO_ROOT);
+  }
 
   for (const step of plan.steps) {
     if (step.args[0] === "commit" && !dryRun && currentBranchName() === MAIN_BRANCH) {

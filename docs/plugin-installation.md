@@ -104,3 +104,30 @@ codex plugin add h2a@sentropic
 `h2a` converge automatiquement les entrées MCP H2A/Track **configurées dans les
 fichiers hôte** lors de l'installation et du démarrage. Il ne désinstalle jamais
 silencieusement un plugin Claude : Claude Code conserve cette autorité.
+
+## Rotation et réparation du verrou de pont (`bridge lock`)
+
+Le pont MCP (`registry-bridge serve`) épingle les empreintes SHA-256 des
+descripteurs dans `<XDG_CONFIG_HOME|~/.config>/sentropic/h2a/registry-bridge/<host>/<profile>.lock.json`
+(ou `--lock <chemin>` pour une configuration par fichier). Lors d'une mise à
+jour vérifiée du même éditeur (`--auto-upgrade` ou `h2a doctor --repair`), le
+verrou est re-épinglé atomiquement après sauvegarde de l'ancien verrou en
+`*.quarantine-<horodatage>-<id>` et écriture d'une trace dans
+`*.rotations.jsonl`.
+
+Si un verrou reste périmé ou refuse de démarrer à l'étape de vérification des
+descripteurs (`integrity_mismatch: step=bridge-lock-descriptor-verification`),
+utiliser la commande de réparation explicite :
+
+```bash
+# Verrou plugin par défaut (Claude ou Codex)
+h2a registry bootstrap rotate --host claude --profile default --mechanism plugin
+h2a registry bootstrap rotate --host codex --profile default --mechanism plugin
+
+# Verrou explicite ou associé à un fichier de configuration
+h2a registry bootstrap rotate --host claude --config <chemin-config> [--lock <chemin-verrou>]
+```
+
+La rotation refuse tout descripteur inconnu (`invalid_entry`) et toute
+configuration dont l'empreinte a été altérée (`integrity_mismatch` à l'étape
+`bridge-lock-config-verification`).

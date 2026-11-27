@@ -289,6 +289,20 @@ const isMainModule = Boolean(process.argv[1]) && (() => {
   }
 })();
 
+function readShimPluginMetadata(shimRoot) {
+  for (const rel of [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"]) {
+    try {
+      const parsed = JSON.parse(readFileSync(join(shimRoot, rel), "utf8"));
+      if (parsed && typeof parsed === "object" && typeof parsed.version === "string" && parsed.version.trim().length > 0) {
+        return { pluginVersion: parsed.version.trim(), pluginRoot: shimRoot };
+      }
+    } catch {
+      /* try next manifest path */
+    }
+  }
+  return { pluginVersion: null, pluginRoot: shimRoot };
+}
+
 if (isMainModule) {
   const rawArgs = process.argv.slice(2);
   const forwardedArgs = rawArgs[0] === "registry-bridge"
@@ -313,10 +327,16 @@ if (isMainModule) {
     .map((d) => d.trim())
     .filter((d) => Boolean(d) && isAbsolute(d));
   const nextPath = (safePathDirs.includes(binDir) ? safePathDirs : [binDir, ...safePathDirs]).join(":");
+  const pluginMeta = readShimPluginMetadata(resolve(dirname(SELF_PATH), ".."));
 
   const child = spawn(executable, forwardedArgs, {
     stdio: "inherit",
-    env: { ...process.env, PATH: nextPath }
+    env: {
+      ...process.env,
+      PATH: nextPath,
+      H2A_PLUGIN_ROOT: pluginMeta.pluginRoot,
+      ...(pluginMeta.pluginVersion ? { H2A_PLUGIN_VERSION: pluginMeta.pluginVersion } : {})
+    }
   });
 
   const forwardedSignals = ["SIGTERM", "SIGINT", "SIGHUP"];

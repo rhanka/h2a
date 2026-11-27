@@ -314,7 +314,7 @@ function assertAssetRef(asset: unknown, field: string): asserts asset is Registr
  */
 export function validateRegistryEntry(
   raw: unknown,
-  options: { expectedDigest?: string } = {}
+  options: { expectedDigest?: string; stage?: string } = {}
 ): { entry: RegistryEntry; digest: string } {
   if (!isRecord(raw)) fail("invalid_entry", "entry must be an object");
   for (const key of Object.keys(raw)) {
@@ -396,7 +396,11 @@ export function validateRegistryEntry(
   }
   const digest = digestDescriptor(entry);
   if (options.expectedDigest !== undefined && options.expectedDigest !== digest) {
-    fail("integrity_mismatch", "descriptor digest does not match the pinned digest");
+    const step = options.stage ?? "descriptor-digest-verification";
+    fail(
+      "integrity_mismatch",
+      `step=${step}: descriptor digest for ${entry.id} (${entry.publisher.packageName}@${entry.publisher.packageVersion}) does not match the pinned digest (pinned=${options.expectedDigest}, actual=${digest})`
+    );
   }
   return { entry, digest };
 }

@@ -11,7 +11,13 @@ import { canonicalCentralRoot, centralRoutingEnabled, centralSettings } from "./
 
 export function centralDaemonEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const filtered: NodeJS.ProcessEnv = {};
-  for (const key of ["PATH", "HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR", "LANG", "LC_ALL", "H2A_MCP_AUTHORITY"]) if (env[key] !== undefined) filtered[key] = env[key];
+  for (const key of [
+    "PATH", "HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+    "XDG_STATE_HOME", "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR",
+    "LANG", "LC_ALL", "H2A_MCP_AUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
+    "H2A_MCP_CENTRAL_SYSTEMD_SCOPE", "H2A_MCP_CENTRAL_SYSTEMD_UNIT",
+    "H2A_MCP_CENTRAL_QUIET_SCOPE_FALLBACK"
+  ]) if (env[key] !== undefined) filtered[key] = env[key];
   return filtered;
 }
 export async function ensureCentralForRoot(root: string, paths: CentralMcpPathsOptions & {

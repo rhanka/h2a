@@ -29,16 +29,30 @@ import {
   installBridgeEntry,
   previewInstall,
   readInstallReceipt,
+  readPluginDeclaration,
   rebootstrapMissingPluginLock,
   refreshUpgradedPluginLock,
   resolveHostPluginContext,
   uninstallBridgeEntry,
   verifyPluginInstall
 } from "./host-bootstrap.js";
-import { defaultBridgeLockPath, defaultPluginBridgeLockPath, isBridgeLockLive, quarantineBridgeLock, readBridgeLock, type BridgeLock } from "./bridge-lock.js";
+import {
+  PRIOR_SHIPPED_ENTRY_DIGESTS,
+  bridgeLockJournalPath,
+  defaultBridgeLockPath,
+  defaultPluginBridgeLockPath,
+  isBridgeLockLive,
+  isPublishedPackageVersion,
+  quarantineBridgeLock,
+  readBridgeLock,
+  rotateBridgeLock,
+  type BridgeLock
+} from "./bridge-lock.js";
 import { normalizeConfiguration, RegistryError, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
+import { readCentralMcpMarker } from "../runtime/mcp-central-discovery.js";
+import { comparePluginAndCentralVersions } from "../runtime/mcp-version-alignment.js";
 import { canonicalCentralRoot, diagnoseBridgeCentralAttachment } from "../runtime/mcp-central-policy.js";
 import { listPresence } from "../runtime/local-files/presence.js";
 import { MEMORY_PROVIDER_ID, resolveHostMemoryRegistration, type MemoryProviderRegistration } from "./memory-provider.js";
@@ -344,26 +358,26 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
   if (sub === "bootstrap") {
     const host = flags["host"];
     const config = flags["config"];
-    if (!host) return usageError(streams, "h2a registry bootstrap: --host <claude|codex|agy|muse|vibe> is required");
-    if (!config && action !== "preview") {
-      // Preview may also run against an absent config (action install).
-      if (action === "install" || action === "uninstall") {
-        return usageError(streams, "h2a registry bootstrap: --config <path> is required");
-      }
-    }
-    if (!config) return usageError(streams, "h2a registry bootstrap: --config <path> is required");
-    const profile = flags["profile"] ?? "default";
-    const lockPath = flags["lock"] ?? defaultBridgeLockPath(config);
     const mechanism = flags["mechanism"] ?? "file";
+    if (!host) return usageError(streams, "h2a registry bootstrap: --host <claude|codex|agy|muse|vibe> is required");
     if (mechanism !== "file" && mechanism !== "plugin") {
       return usageError(streams, "h2a registry bootstrap: --mechanism must be file|plugin");
     }
-    if (mechanism === "plugin" && action !== "install" && action !== "uninstall") {
-      return usageError(streams, "h2a registry bootstrap: --mechanism plugin is only supported for install|uninstall");
+    const allowConfigOmitted = action === "rotate" && (mechanism === "plugin" || Boolean(flags["lock"]));
+    if (!config && !allowConfigOmitted) {
+      return usageError(streams, "h2a registry bootstrap: --config <path> is required");
+    }
+    const profile = flags["profile"] ?? "default";
+    const lockPath = flags["lock"]
+      ?? (mechanism === "plugin"
+        ? defaultPluginBridgeLockPath(host, profile)
+        : defaultBridgeLockPath(config as string));
+    if (mechanism === "plugin" && action !== "install" && action !== "uninstall" && action !== "rotate") {
+      return usageError(streams, "h2a registry bootstrap: --mechanism plugin is only supported for install|uninstall|rotate");
     }
     try {
       if (action === "preview") {
-        const preview = previewInstall({ host, configPath: config, profile });
+        const preview = previewInstall({ host, configPath: config as string, profile });
         streams.stdout.write(`${JSON.stringify({ ok: true, ...preview, host, profile, config, lock: lockPath }, null, 2)}\n`);
         return 0;
       }
@@ -377,24 +391,55 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
           // never edited.
           const pluginDir = flags["plugin-dir"];
           if (!pluginDir) return usageError(streams, "h2a registry bootstrap: --plugin-dir <path> is required with --mechanism plugin");
-          const installed = verifyPluginInstall({ host, configPath: config, profile, pluginDir, h2aEntry, trackEntry, stderr: streams.stderr });
+          const installed = verifyPluginInstall({ host, configPath: config as string, profile, pluginDir, h2aEntry, trackEntry, stderr: streams.stderr });
           streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: defaultPluginBridgeLockPath(host, profile), ...installed }, null, 2)}\n`);
           return 0;
         }
         // The whole config+receipt+lock sequence runs in the one install
         // transaction (host-bootstrap.ts); nothing is provisioned here after
         // the installer returns.
-        const installed = installBridgeEntry({ host, configPath: config, profile, lockPath, dryRun: flags["dry-run"] === "true", h2aEntry, trackEntry });
+        const installed = installBridgeEntry({ host, configPath: config as string, profile, lockPath, dryRun: flags["dry-run"] === "true", h2aEntry, trackEntry });
         streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: lockPath, ...installed }, null, 2)}\n`);
+        return 0;
+      }
+      if (action === "rotate") {
+        assertRegistryHost(host);
+        const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const rotated = rotateBridgeLock({
+          lockPath,
+          host,
+          profile,
+          h2aEntry,
+          trackEntry,
+          dryRun: flags["dry-run"] === "true",
+          actor: "h2a registry bootstrap rotate",
+          reason: "operator-repair"
+        });
+        if (rotated.rotated && rotated.backupPath) {
+          streams.stderr.write(
+            `h2a registry bootstrap rotate: ${rotated.action} bridge lock at ${lockPath} ` +
+            `(backup: ${rotated.backupPath}; journal: ${rotated.journalPath ?? bridgeLockJournalPath(lockPath)})\n`
+          );
+        }
+        streams.stdout.write(`${JSON.stringify({
+          ok: true,
+          host,
+          profile,
+          mechanism,
+          ...(config ? { config } : {}),
+          lock: lockPath,
+          ...rotated
+        }, null, 2)}\n`);
         return 0;
       }
       if (action === "uninstall") {
         const checkPresence = buildPresenceChecker();
-        const existingReceipt = readInstallReceipt(config);
+        const existingReceipt = readInstallReceipt(config as string);
         const receiptLockPath = typeof existingReceipt?.["lockPath"] === "string" ? existingReceipt["lockPath"] : undefined;
         const targetLockPath = flags["lock"]
           ?? receiptLockPath
-          ?? (mechanism === "plugin" ? defaultPluginBridgeLockPath(host, profile) : defaultBridgeLockPath(config));
+          ?? (mechanism === "plugin" ? defaultPluginBridgeLockPath(host, profile) : defaultBridgeLockPath(config as string));
         let isDefaultPluginLock = false;
         try {
           if (host === "claude" || host === "codex") {
@@ -404,20 +449,20 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
           isDefaultPluginLock = false;
         }
         const effectivePresenceCheck =
-          mechanism === "plugin" || isDefaultPluginLock || configDeclaresRegistryBridge(config)
+          mechanism === "plugin" || isDefaultPluginLock || configDeclaresRegistryBridge(config as string)
             ? checkPresence
             : undefined;
         if (mechanism !== "plugin") {
           const preCheck = isBridgeLockLive(targetLockPath, {
             home: process.env.HOME?.trim(),
-            ignoreConfigPath: config,
+            ignoreConfigPath: config as string,
             checkPresence: effectivePresenceCheck
           });
           if (preCheck.live) {
             throw new RegistryError("invalid_entry", `not uninstalling: ${preCheck.reason ?? `target lock ${targetLockPath} is live`}`);
           }
         }
-        const removed = uninstallBridgeEntry({ host, configPath: config, mechanism, profile, checkPresence: effectivePresenceCheck });
+        const removed = uninstallBridgeEntry({ host, configPath: config as string, mechanism, profile, checkPresence: effectivePresenceCheck });
         const quarantined = quarantineBridgeLock(targetLockPath, {
           home: process.env.HOME?.trim(),
           configPath: config,
@@ -451,7 +496,7 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
         }, null, 2)}\n`);
         return 0;
       }
-      return usageError(streams, "h2a registry bootstrap: use preview|install|uninstall");
+      return usageError(streams, "h2a registry bootstrap: use preview|install|uninstall|rotate");
     } catch (error) {
       return registryError(streams, "h2a registry bootstrap", error);
     }
@@ -519,7 +564,14 @@ export function cmdHostedLock(argv: readonly string[], streams: CliStreams): num
 export interface BridgeServeDeps {
   memory?: MemoryProviderRegistration;
   ensureCentral?: (paths: { runtimeBase?: string }) => Promise<unknown>;
-  delegateServe: (flags: Record<string, string>, registry?: Pick<ComposeDaemonOptions, "lock" | "memory"> & { tools: ReturnType<McpServer["listTools"]> }) => Promise<number>;
+  delegateServe: (
+    flags: Record<string, string>,
+    registry?: Pick<ComposeDaemonOptions, "lock" | "memory"> & {
+      tools: ReturnType<McpServer["listTools"]>;
+      pluginVersion?: string;
+      warnedVersionPair?: string;
+    }
+  ) => Promise<number>;
 }
 
 /**
@@ -645,8 +697,9 @@ export async function cmdRegistryBridge(
           if (refreshed.refreshed) {
             const priorLabel = refreshed.priorVersions?.join(", ") || "previous";
             const quarantineSuffix = refreshed.quarantinePath ? `; prior lock quarantined at ${refreshed.quarantinePath}` : "";
+            const journalSuffix = refreshed.journalPath ? `; journal at ${refreshed.journalPath}` : "";
             streams.stderr.write(
-              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})${quarantineSuffix}\n`
+              `h2a registry-bridge serve: refreshed plugin lock at ${lockPath} for version upgrade (${priorLabel} -> ${h2aEntry.publisher.packageVersion})${quarantineSuffix}${journalSuffix}\n`
             );
             try {
               lock = readBridgeLock(lockPath, deps.memory?.entry);
@@ -660,6 +713,43 @@ export async function cmdRegistryBridge(
           /* Fail closed on conflict or tamper: keep original integrity_mismatch refusal, with cause */
           healRefusedCause = (refreshError as Error).message;
         }
+      }
+    } else if (!defaulted && flags["auto-upgrade"] === "true" && errorCode === "integrity_mismatch") {
+      try {
+        const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const rotated = rotateBridgeLock({
+          lockPath,
+          host,
+          profile,
+          h2aEntry,
+          trackEntry,
+          ...(deps.memory?.entry ? { memory: { entry: deps.memory.entry, config: {} } } : {}),
+          actor: "h2a registry-bridge serve --auto-upgrade",
+          reason: "verified-published-upgrade",
+          verifyPriorDigest: ({ priorDigest, packed }) => {
+            const shipped = PRIOR_SHIPPED_ENTRY_DIGESTS.get(priorDigest);
+            if (
+              shipped &&
+              shipped.id === packed.id &&
+              shipped.packageName === packed.publisher.packageName &&
+              isPublishedPackageVersion(shipped.packageVersion)
+            ) {
+              return { priorVersion: shipped.packageVersion, reason: "prior-shipped-published-release" };
+            }
+            return null;
+          }
+        });
+        if (rotated.rotated) {
+          streams.stderr.write(
+            `h2a registry-bridge serve: rotated bridge lock at ${lockPath} for verified upgrade ` +
+            `(backup: ${rotated.backupPath}; journal: ${rotated.journalPath})\n`
+          );
+          lock = readBridgeLock(lockPath, deps.memory?.entry);
+          activeError = undefined;
+        }
+      } catch (rotateError) {
+        healRefusedCause = (rotateError as Error).message;
       }
     }
     if (!lock) {
@@ -702,11 +792,17 @@ export async function cmdRegistryBridge(
       const quotedConfig = effectiveConfigPath ? quoteShellPath(effectiveConfigPath) : "<host-config>";
       const quotedPluginDir = context.pluginDir ? quoteShellPath(context.pluginDir) : "<plugin-dir>";
       const installCmd = `h2a registry bootstrap install --mechanism plugin --host ${host} --profile ${profile} --config ${quotedConfig} --plugin-dir ${quotedPluginDir}`;
+      const rotateCmd = `h2a registry bootstrap rotate --host ${host} --profile ${profile} --mechanism plugin`;
       const cause = healRefusedCause ? `auto-heal refused: ${healRefusedCause}; ` : "";
       return refuse(
         errorCode,
-        `${(activeError as Error).message}; ${cause}run ${installCmd}`
+        `${(activeError as Error).message}; ${cause}run ${rotateCmd} or ${installCmd}`
       );
+    }
+    if (errorCode === "integrity_mismatch") {
+      const rotateCmd = `h2a registry bootstrap rotate --host ${host} --profile ${profile} --lock ${quoteShellPath(lockPath)}`;
+      const cause = healRefusedCause ? `auto-heal refused: ${healRefusedCause}; ` : "";
+      return refuse(errorCode, `${(activeError as Error).message}; ${cause}run ${rotateCmd}`);
     }
     return refuse(errorCode, (activeError as Error).message);
     }
@@ -883,12 +979,52 @@ export async function cmdRegistryBridge(
   } catch (error) {
     return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
   }
+  let pluginVersion = (flags["plugin-version"] ?? process.env.H2A_PLUGIN_VERSION ?? "").trim() || undefined;
+  if (!pluginVersion && (host === "claude" || host === "codex")) {
+    try {
+      const context = resolveHostPluginContext(host, profile, flags);
+      if (!context.error && context.pluginDir && existsSync(context.pluginDir)) {
+        const declaration = readPluginDeclaration(host, context.pluginDir, profile);
+        if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.trim().length > 0) {
+          pluginVersion = declaration.pluginVersion.trim();
+        }
+      }
+    } catch {
+      /* ignore plugin lookup failures here */
+    }
+  }
+  let warnedVersionPair: string | undefined;
+  if (pluginVersion && modes.includes("shared-central") && flags["instance"] === undefined) {
+    try {
+      const markerPaths = flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {};
+      const centralMarker = readCentralMcpMarker(markerPaths);
+      if (centralMarker?.packageVersion) {
+        const alignment = comparePluginAndCentralVersions(pluginVersion, centralMarker.packageVersion);
+        if (alignment.status === "refuse") {
+          return refuse(alignment.code ?? "incompatible_version", alignment.message ?? "incompatible plugin and central versions");
+        }
+        if (alignment.status === "warn" && alignment.message) {
+          warnedVersionPair = `${pluginVersion}=>${centralMarker.packageVersion}`;
+          streams.stderr.write(`${alignment.message}\n`);
+        }
+      }
+    } catch {
+      /* central marker optional until connect */
+    }
+  }
   const passthrough: Record<string, string> = { ...flags, host };
   delete passthrough["lock"];
   delete passthrough["profile"];
   delete passthrough["config"];
   delete passthrough["plugin-dir"];
-  return deps.delegateServe(passthrough, { lock, memory: deps.memory, tools: selectedTools! });
+  delete passthrough["plugin-version"];
+  return deps.delegateServe(passthrough, {
+    lock,
+    memory: deps.memory,
+    tools: selectedTools!,
+    ...(pluginVersion ? { pluginVersion } : {}),
+    ...(warnedVersionPair ? { warnedVersionPair } : {})
+  });
 }
 
 
