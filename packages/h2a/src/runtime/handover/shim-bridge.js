@@ -56,8 +56,7 @@ export async function bridgeCentralMcpStdio(options) {
     const pluginVer = effectivePluginVersion();
     if (!pluginVer && !marker) return;
     const versionCheck = comparePluginAndCentralVersions(pluginVer ?? '', marker?.packageVersion ?? '', {
-      centralMarker: marker,
-      supportedProtocols: PROTOCOLS
+      centralMarker: marker
     });
     if (versionCheck.status === 'refuse') {
       try {

@@ -1017,7 +1017,7 @@ export async function cmdRegistryBridge(
         const alignment = comparePluginAndCentralVersions(
           pluginVersion,
           centralMarker.packageVersion ?? "",
-          { centralMarker, supportedProtocols: ["2025-06-18", "2024-11-05"] }
+          { centralMarker }
         );
         if (alignment.status === "refuse") {
           return refuse(alignment.code ?? "incompatible_version", alignment.message ?? "incompatible plugin and central versions");

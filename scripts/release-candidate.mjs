@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { checkLockstepVersions } from './check-lockstep-versions.mjs'
-import { checkPluginContentVersionBump } from './check-plugin-version.mjs'
+import { checkPluginContentVersionBump, checkPluginManifestSync } from './check-plugin-version.mjs'
 
 const names = ['track', 'h2a-runtime', 'h2a', 'h2a-cli']
 const triple = '(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)'
@@ -139,7 +139,11 @@ function prepare() {
   const pluginManifestRels = ['packages/h2a/.claude-plugin/plugin.json', 'packages/h2a/.codex-plugin/plugin.json']
   const hasPluginManifests = pluginManifestRels.some((rel) => existsSync(rel))
   // Check plugin content bump BEFORE CI workspace stamps manifests so unbumped RC tags cannot mask stale git plugin.json.
-  if (hasPluginManifests) checkPluginContentVersionBump(process.cwd())
+  // Unpacked L0 lab copies (cleanse-artifact.mjs) strip `.git` and omit GITHUB_RUN_ID; enforce manifest sync there.
+  if (hasPluginManifests) {
+    if (existsSync('.git') || process.env.GITHUB_RUN_ID) checkPluginContentVersionBump(process.cwd())
+    else checkPluginManifestSync(process.cwd())
+  }
   if (rc) {
     for (const name of [...names, 'focus']) {
       const path = join('packages', name, 'package.json'), manifest = JSON.parse(readFileSync(path, 'utf8'))
