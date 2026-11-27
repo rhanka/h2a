@@ -48,7 +48,7 @@ function fixtureCleanup(t, f, children) {
   return run;
 }
 
-test("should bound cross-process publication lock contention at 5 seconds and release only its own resources", { timeout: 15_000 }, async (t) => {
+test("should bound cross-process publication lock contention at 5 seconds and release only its own resources", { timeout: 9_000 }, async (t) => {
   const f = fixture(), secret = randomUUID();
   const children = [], cleanup = fixtureCleanup(t, f, children);
   const identity = join(f.root, ".h2a-native-terminal.lock-id");
@@ -67,7 +67,7 @@ test("should bound cross-process publication lock contention at 5 seconds and re
     assert.equal(status, 3, contender.output().stderr);
     assert.match(contender.output().stderr, /H2A_SOCKET_PUBLICATION_TIMEOUT/);
     assert.match(contender.output().stderr, /terminal host socket publication timed out/);
-    assert.ok(Date.now() - begun >= 4_900 && Date.now() - begun < 10_000);
+    assert.ok(Date.now() - begun >= 4_900 && Date.now() - begun < 6_200);
     assert.equal(holder.process.exitCode, null);
     assert.equal(readFileSync(identity, "utf8").trim(), secret);
     assert.equal(existsSync(f.path), false);
