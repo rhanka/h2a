@@ -2,7 +2,7 @@ import {
   shippedSceneBindings,
   shippedSceneRegistry,
   validateSceneDocument,
-} from '@sentropic/diagram-canvas/diagramSceneModel';
+} from '@sentropic/diagram-canvas/focus-bridge';
 import {
   DIAGRAM_PRESENTATION_CONTRACT_PIN,
   localIdOf,

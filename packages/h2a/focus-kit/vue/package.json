@@ -8,7 +8,7 @@
     "@sentropic/design-system-themes": "0.16.1",
     "@sentropic/design-system-tokens": "0.16.1",
     "vue": "3.6.0-rc.15",
-    "@sentropic/diagram-canvas": "0.6.0",
+    "@sentropic/diagram-canvas": "0.8.0",
     "@sentropic/diagram-core": "0.6.1"
   },
   "devDependencies": {

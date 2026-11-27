@@ -172,7 +172,7 @@ test('ships diagram-views.mjs self-contained: it renders where no design-system 
   assert.deepEqual(imports, [], 'no run-time import: the pure DS renderers are bundled')
   assert.doesNotMatch(source, /svelte\/internal|@tiptap|prosemirror/, 'no Svelte runtime or editor code in the bundle')
   const banner = source.slice(0, source.indexOf('*/'))
-  assert.match(banner, /@sentropic\/diagram-canvas@0\.6\.0\nMIT License/, 'the bundled DS canvas licence travels with the module')
+  assert.match(banner, /@sentropic\/diagram-canvas@0\.8\.0\nMIT License/, 'the bundled DS canvas licence travels with the module')
   assert.match(banner, /@sentropic\/diagram-core@0\.6\.1\nMIT License/, 'the bundled DS core licence travels with the module')
   const { dependencies } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(dependencies['@sentropic/design-system-svelte'], undefined, 'the published CLI installs no frontend package')

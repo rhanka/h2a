@@ -10,7 +10,7 @@
     "@sentropic/design-system-svelte": "0.46.0",
     "@sentropic/design-system-themes": "0.16.1",
     "@sentropic/design-system-tokens": "0.16.1",
-    "@sentropic/diagram-canvas": "0.6.0",
+    "@sentropic/diagram-canvas": "0.8.0",
     "@sentropic/diagram-core": "0.6.1",
     "svelte": "5.56.4"
   },
