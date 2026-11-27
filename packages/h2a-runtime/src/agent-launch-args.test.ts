@@ -9,6 +9,7 @@ import {
   isAgentLaunchEffort,
   isAgentLaunchProfile,
 } from "./agent-launch-args.js";
+import { codexSupportsNoDaemon } from "./session-auth.js";
 
 describe("buildAgentLaunchArgs", () => {
   it("keeps a flag-like Claude prompt entirely out of argv", () => {
@@ -65,6 +66,26 @@ describe("buildAgentLaunchArgs", () => {
         profile: "codex",
         resumeId: "conv-123",
         prompt: "continue from the evidence",
+      }),
+    ).toEqual(
+      codexSupportsNoDaemon("codex")
+        ? ["resume", "--no-daemon", "conv-123"]
+        : ["resume", "conv-123"],
+    );
+    expect(
+      buildAgentLaunchArgs({
+        profile: "codex",
+        resumeId: "conv-123",
+        prompt: "continue from the evidence",
+        noDaemon: true,
+      }),
+    ).toEqual(["resume", "--no-daemon", "conv-123"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "codex",
+        resumeId: "conv-123",
+        prompt: "continue from the evidence",
+        noDaemon: false,
       }),
     ).toEqual(["resume", "conv-123"]);
   });

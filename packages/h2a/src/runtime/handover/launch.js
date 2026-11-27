@@ -19,6 +19,7 @@ import { starterPlan } from './selection.js';
 import { readState, publishState, replaceState } from './state.js';
 import { reserveSuccessorAttempt, recordSuccessor, failSuccessor, markSuccessorFailed } from './successor.js';
 import { isolateCentralSystemdScope } from './central-scope.js';
+import { scrubSessionIdentityEnv } from '../identity/session-auth-keys.js';
 
 /** @param {*} options */
 export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath, probeOptions, evictionOptions, scopeOptions, stderr }) {
@@ -77,13 +78,14 @@ export async function launchCentral({ directory, root, installation, physicalPre
     const slot = { schemaVersion: 1, revision: (old?.value.revision ?? 0) + 1, starterIdentity: identity,
       candidateIdentity: null, entrypoint: plan.entrypoint, createdAt: Date.now(), state: 'RESERVED' };
     const reserved = old ? replaceState(slotPath, slot, 'startupReservation', old) : publishState(slotPath, slot, 'startupReservation');
+    const childEnv = scrubSessionIdentityEnv(environment);
     const log = fs.openSync(logPath?.() ?? join(directory, 'mcp-central.log'), 'a', 0o600);
     let scopeResult;
     try {
       child = spawn(process.execPath, ['--max-old-space-size=384', plan.entrypoint, 'mcp-central-serve', '--root', root,
         '--runtime-base', dirname(directory), '--auto-start', ...(ticket ? ['--handover-id', ticket.handoverId,
           '--transaction-epoch', String(ticket.transactionEpoch), '--successor-attempt', String(ticket.attempt)] : [])],
-        { detached: true, cwd: environment.HOME, env: environment, stdio: ['ignore', log, log] });
+        { detached: true, cwd: childEnv.HOME ?? environment.HOME, env: childEnv, stdio: ['ignore', log, log] });
       await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
       const generationToken = `${ticket ? `t${ticket.transactionEpoch}-a${ticket.attempt}-` : ''}${child.pid}-${randomUUID().slice(0, 8)}`;
       scopeResult = await isolateCentralSystemdScope(child.pid, {

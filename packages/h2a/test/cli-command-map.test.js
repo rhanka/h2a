@@ -779,3 +779,95 @@ test("h2a explain rejects argv it does not implement", () => {
   assert.deepEqual([...contract.optionalFlags], ["help"], "contract must declare --help as the only flag");
   assert.deepEqual([...contract.requiredFlags], []);
 });
+
+test("agent-policy completeness: every frozen contract, track facade, and runtime verb is classified safely", () => {
+  const distUrl = pathToFileURL(join(ROOT, "packages/h2a/dist/agent-policy.js")).href;
+  return import(distUrl).then((policyMod) => {
+    const {
+      H2A_CONTRACT_VERB_POLICIES,
+      H2A_TRACK_VERB_POLICIES,
+      H2A_RUNTIME_AGENT_POLICIES,
+      H2A_ISOLATED_ROOT_SAFE_VERBS,
+      resolveVerbAgentPolicy,
+    } = policyMod;
+
+    // 1. Every frozen contract verb must be explicitly classified.
+    for (const entry of H2A_CLI_VERB_CONTRACTS) {
+      assert.ok(
+        Object.hasOwn(H2A_CONTRACT_VERB_POLICIES, entry.verb),
+        `missing agent-policy entry for frozen verb "${entry.verb}"`
+      );
+      const pol = H2A_CONTRACT_VERB_POLICIES[entry.verb];
+      assert.ok(
+        ["allow", "own-only", "owner-authorized", "owner-only", "internal"].includes(pol.agentPolicy),
+        `invalid agentPolicy for "${entry.verb}"`
+      );
+    }
+
+    // 2. Every Track facade verb must be classified (`focus` excluded from isolatedRootSafe).
+    for (const verb of TRACK_FACADE_VERBS) {
+      assert.ok(
+        Object.hasOwn(H2A_TRACK_VERB_POLICIES, verb),
+        `missing track agent-policy entry for "${verb}"`
+      );
+      const pol = H2A_TRACK_VERB_POLICIES[verb];
+      assert.equal(pol.isolatedRootSafe, verb !== "focus", `track verb "${verb}" isolatedRootSafe mismatch`);
+    }
+
+    // 3. Closed isolatedRootSafe invariant: never bypasses owner-only, owner-authorized, Q2-1, or privateKeyFlags.
+    for (const verb of H2A_ISOLATED_ROOT_SAFE_VERBS) {
+      const pol =
+        H2A_CONTRACT_VERB_POLICIES[verb] ??
+        H2A_TRACK_VERB_POLICIES[verb] ??
+        H2A_RUNTIME_AGENT_POLICIES[verb];
+      assert.ok(pol, `isolatedRootSafe verb "${verb}" missing from policy tables`);
+      assert.notEqual(pol.agentPolicy, "owner-only", `${verb} cannot be isolatedRootSafe`);
+      assert.notEqual(pol.agentPolicy, "owner-authorized", `${verb} cannot be isolatedRootSafe`);
+      assert.ok(!["stop", "restart", "relaunch", "resume"].includes(verb), `${verb} cannot be isolatedRootSafe`);
+      assert.equal((pol.privateKeyFlags ?? []).length, 0, `${verb} with privateKeyFlags cannot be isolatedRootSafe`);
+    }
+
+    // 4. Every runtime verb is classified, and critical runtime verbs / unknown verbs fail closed.
+    for (const verb of H2A_COMMAND_MAP_RUNTIME_VERBS) {
+      assert.ok(
+        Object.hasOwn(H2A_RUNTIME_AGENT_POLICIES, verb),
+        `missing runtime agent-policy entry for "${verb}"`,
+      );
+    }
+    for (const v of ["trust", "authorize", "config", "auth", "install", "claude", "codex"]) {
+      assert.equal(resolveVerbAgentPolicy([v]).agentPolicy, "owner-only", `runtime verb "${v}" must be owner-only`);
+    }
+    assert.equal(resolveVerbAgentPolicy(["enroll", "--install-hooks"]).agentPolicy, "owner-only");
+    assert.equal(resolveVerbAgentPolicy(["run", "shell"]).agentPolicy, "owner-only");
+    assert.equal(resolveVerbAgentPolicy(["run", "codex"]).agentPolicy, "allow");
+    assert.equal(resolveVerbAgentPolicy(["central", "stop"]).agentPolicy, "owner-authorized");
+    assert.equal(resolveVerbAgentPolicy(["central", "compact"]).agentPolicy, "owner-authorized");
+    for (const v of ["stop", "restart", "relaunch", "resume"]) {
+      const r = resolveVerbAgentPolicy([v]);
+      assert.equal(r.agentPolicy, "own-only", `runtime verb "${v}" must be own-only`);
+      assert.equal(r.ownOnlyKind, "target-session");
+    }
+    assert.equal(resolveVerbAgentPolicy(["totally-unknown-verb"]).agentPolicy, "unclassified");
+    // Leading global flags resolve underlying command policy rather than falling into unclassified.
+    const rootStatus = resolveVerbAgentPolicy(["--root", "/isolated", "status"]);
+    assert.equal(rootStatus.agentPolicy, "allow");
+    assert.equal(rootStatus.scriptServiceAllowed, true);
+    assert.equal(resolveVerbAgentPolicy(["--root", "/tmp/x", "trust"]).agentPolicy, "owner-only");
+  });
+});
+
+test("session-auth-keys.js pure JS leaf stays parity-synced with session-auth.ts", async () => {
+  const [{ SESSION_IDENTITY_SCRUB_KEYS }, { SESSION_IDENTITY_SCRUB_KEYS: jsKeys }] = await Promise.all([
+    import("../dist/runtime/identity/session-auth.js"),
+    import("../src/runtime/identity/session-auth-keys.js"),
+  ]);
+  assert.deepEqual([...jsKeys], [...SESSION_IDENTITY_SCRUB_KEYS]);
+});
+
+test("byte-identical mirror check: session-auth.ts and owner-grants.ts stay in sync between h2a and h2a-runtime", () => {
+  for (const name of ["session-auth.ts", "owner-grants.ts"]) {
+    const coreBytes = readFileSync(join(ROOT, "packages/h2a/src/runtime/identity", name), "utf8");
+    const runtimeBytes = readFileSync(join(ROOT, "packages/h2a-runtime/src", name), "utf8");
+    assert.equal(runtimeBytes, coreBytes, `${name} mirror between h2a and h2a-runtime drifted`);
+  }
+});

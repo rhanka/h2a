@@ -22,8 +22,23 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
-const launch = (onCreateAttempt = vi.fn()) => startNativeSessionSingleShot("codex", "codex", root, [], "async-target",
-  { terminateOnAgentExit: true, onCreateAttempt });
+const launch = (onCreateAttempt = vi.fn()) => {
+  const sessionRuntimeDir = join(root, "rt");
+  mkdirSync(sessionRuntimeDir, { recursive: true, mode: 0o700 });
+  return startNativeSessionSingleShot("codex", "codex", root, [], "async-target", {
+    identity: {
+      kind: "reuse",
+      host: "codex",
+      actorId: "codex:async-target:000000000001",
+      agentUuid: "11111111-1111-4111-8111-111111111111",
+      sessionClass: "human",
+      invocationMode: "interactive",
+    },
+    sessionRuntimeDir,
+    terminateOnAgentExit: true,
+    onCreateAttempt,
+  });
+};
 
 it("should return the direct operation's session identity without a launch helper", async () => {
   let capturedEnv: Record<string, string> = {};

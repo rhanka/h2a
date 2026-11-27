@@ -135,6 +135,7 @@ export function openCentralAttachment(
     sharedStore: store,
     ...(participant ? { participant } : {}),
     centralAttachment: true,
+    ...(context.shimProcessIdentity?.pid ? { shimPid: context.shimProcessIdentity.pid } : {}),
     // Enforce reclaim-only once an identity was actually established on a prior
     // generation. If the previous central died before identity_ready landed,
     // participants.attach() still rebaselines ownership via context.resume while

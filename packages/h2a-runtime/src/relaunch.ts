@@ -28,11 +28,13 @@ import { tmpdir } from "node:os";
 
 import { resolveConfigPath } from "./config.js";
 import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
+import { scrubSessionIdentityEnv, SESSION_IDENTITY_SCRUB_KEYS } from "./session-auth.js";
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
 import {
   cpuRateMsPerSecond,
   DEFAULT_WORKING_CPU_MS_PER_SECOND,
 } from "./session-lease.js";
+import { applyCodexNoDaemon, codexSupportsNoDaemon } from "./session-auth.js";
 import {
   CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
   isClaudeLongContextConfirm,
@@ -470,11 +472,18 @@ export function wakeRelaunchedSession(
 export function resumeLaunchFor(
   profile: string,
   convId: string,
+  options: { readonly noDaemon?: boolean | undefined } = {},
 ): ResumeLaunch | undefined {
   if (!isCliProfile(profile)) return undefined;
   const cfg = resolveProfile(profile);
-  const args = resumeArgsFor(cfg, convId);
-  if (args.length === 0) return undefined;
+  const rawArgs = resumeArgsFor(cfg, convId);
+  if (rawArgs.length === 0) return undefined;
+  const args =
+    cfg.profile === "codex"
+      ? applyCodexNoDaemon(rawArgs, {
+          enabled: options.noDaemon ?? codexSupportsNoDaemon(cfg.command),
+        })
+      : rawArgs;
   return {
     command: cfg.command,
     args,
@@ -487,8 +496,9 @@ export function resumeLaunchFor(
 export function resumeCommandFor(
   profile: string,
   convId: string,
+  options: { readonly noDaemon?: boolean | undefined } = {},
 ): string | undefined {
-  return resumeLaunchFor(profile, convId)?.display;
+  return resumeLaunchFor(profile, convId, options)?.display;
 }
 
 /**
@@ -521,6 +531,7 @@ export function prepareGatewayRetypeCommand(cmd: string, route: {
       'try { route = JSON.parse(fs.readFileSync(file, "utf8")); }',
       'finally { fs.rmSync(require("node:path").dirname(file), { recursive: true, force: true }); }',
       'const env = { ...process.env, ...route }; delete env.ANTHROPIC_API_KEY;',
+      `for (const k of ${JSON.stringify(SESSION_IDENTITY_SCRUB_KEYS)}) delete env[k];`,
       'const child = require("node:child_process").spawnSync("/bin/sh", ["-c", cmd], { env, stdio: "inherit" });',
       'if (child.error) throw child.error; process.exit(child.status ?? 1);',
     ].join(" ");

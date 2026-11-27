@@ -1205,3 +1205,14 @@ export const H2A_CLI_ADAPTER = {
 } as const;
 
 export { ensureCentralForRoot } from "./runtime/mcp-central-start.js";
+export {
+  H2A_CONTRACT_VERB_POLICIES,
+  H2A_ISOLATED_ROOT_SAFE_VERBS,
+  H2A_RUNTIME_AGENT_POLICIES,
+  H2A_TRACK_VERB_POLICIES,
+  resolveVerbAgentPolicy,
+  type AgentPolicyClass,
+  type H2AAgentVerbPolicy,
+  type OwnerGrantActId,
+  type ResolvedAgentVerbPolicy
+} from "./agent-policy.js";

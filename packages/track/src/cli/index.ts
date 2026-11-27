@@ -27,7 +27,7 @@ import type { Bucket } from '../report/buckets.js'
 import type { ItemReportStatus } from '../model/report-status.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
 import { Track } from '../track.js'
-import type { ActorId, Provenance } from '../events/types.js'
+import type { ActorId, EventCore, Provenance } from '../events/types.js'
 import {
   BLOCKER_KINDS,
   BLOCKER_SCOPES,
@@ -57,6 +57,12 @@ import { VERSION } from '../version.js'
 import { durableWorkspaceId } from '../workspace-id.js'
 import { desyncFindings, evaluateDesync } from './desync.js'
 
+export interface CliActorOverride {
+  readonly by: ActorId
+  readonly prov?: Provenance
+  readonly signProvenance?: (core: Omit<EventCore, 'prov'>) => Provenance
+}
+
 export interface CliIO {
   cwd: string
   out: (s: string) => void
@@ -65,6 +71,8 @@ export interface CliIO {
   env?: NodeJS.ProcessEnv
   /** Optional stdin content injection for `--stdin` commands in tests. */
   stdin?: string
+  /** Verified actor & provenance override injected by h2a CLI guard (M3). */
+  actorOverride?: CliActorOverride
 }
 
 /**
@@ -388,9 +396,14 @@ function cliActor(cwd: string): ActorId {
   return user ? `human:${user}` : 'cli:unknown'
 }
 
-/** A writer Track for CLI commands — attributed to the local user with `cli` provenance (D3). */
+/** A writer Track for CLI commands — attributed to verified actorOverride or local user (D3/M3). */
 function writeTrack(ctx: Ctx): Track {
-  return new Track(store(ctx), { by: cliActor(ctx.io.cwd), prov: CLI_PROV })
+  const ov = ctx.io.actorOverride
+  return new Track(store(ctx), {
+    by: ov?.by ?? cliActor(ctx.io.cwd),
+    prov: ov?.prov ?? CLI_PROV,
+    ...(ov?.signProvenance !== undefined ? { signProvenance: ov.signProvenance } : {}),
+  })
 }
 
 function parseFlags(args: string[]): { positional: string[]; flags: Flags } {
@@ -2268,9 +2281,9 @@ function cmdIngest(args: string[], cliCtx: Ctx): number {
     }
   })
   const ctx: IngestContext = {
-    by: cliActor(io.cwd),
+    by: cliCtx.io.actorOverride?.by ?? cliActor(io.cwd),
     workspace,
-    prov: { transport: 'import', proposed: false, auth: 'local-user' },
+    prov: cliCtx.io.actorOverride?.prov ?? { transport: 'import', proposed: false, auth: 'local-user' },
   }
   const s = store(cliCtx)
   // `ingest().count` is the INPUT length, not the persisted count (a dedup'd WorkEvent is skipped, not

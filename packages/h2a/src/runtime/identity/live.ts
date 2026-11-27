@@ -34,6 +34,9 @@ import { durableWorkspaceId } from "./workspace-id.js";
 import { syncFile, ensureDurableDirectory, redactIdentityStorageError } from './durable.js';
 import type { IdentityBlockerInfo } from '../local-files/identity-fence.js';
 import { performance } from 'node:perf_hooks';
+import { recordMcpIdentitySecurityEvent, type McpSessionAnchor } from "./caller-guard.js";
+
+export type SessionIdentityAnchor = McpSessionAnchor;
 
 /**
  * The CLOSED vocabulary an agent may DECLARE at registration.
@@ -103,6 +106,7 @@ export interface ResolveLiveIdentityInput {
   readonly explicitInstance?: string;
   readonly reclaimOnly?: boolean;
   readonly expectedInstance?: string;
+  readonly sessionAnchor?: SessionIdentityAnchor;
   readonly name?: string;
   readonly scopes?: readonly string[];
   /**
@@ -142,6 +146,104 @@ export interface ResolvedLiveIdentity {
 
 function safeKeyName(instance: string): string {
   return instance.replace(/[:/]/g, "-");
+}
+
+function assertExplicitSessionAnchorAgreement(
+  input: ResolveLiveIdentityInput,
+  host: string,
+): void {
+  const anchor = input.sessionAnchor;
+  if (!anchor) return;
+  if (input.explicitInstance !== undefined && input.explicitInstance !== anchor.actorId) {
+    const message =
+      `mcp-identity-mismatch: explicit --instance "${input.explicitInstance}" does not match ` +
+      `verified session anchor "${anchor.actorId}"`;
+    recordMcpIdentitySecurityEvent({
+      outcome: "denied",
+      reasonCode: "mcp-identity-mismatch",
+      host,
+      claimedLogin: input.explicitInstance,
+      verifiedLogin: anchor.actorId,
+      sessionKey: anchor.sessionKey,
+      message,
+      alert: true,
+    });
+    throw new Error(message);
+  }
+  if (input.expectedInstance !== undefined && input.expectedInstance !== anchor.actorId) {
+    const message =
+      `mcp-identity-mismatch: expected instance "${input.expectedInstance}" does not match ` +
+      `verified session anchor "${anchor.actorId}"`;
+    recordMcpIdentitySecurityEvent({
+      outcome: "denied",
+      reasonCode: "mcp-identity-mismatch",
+      host,
+      claimedLogin: input.expectedInstance,
+      verifiedLogin: anchor.actorId,
+      sessionKey: anchor.sessionKey,
+      message,
+      alert: true,
+    });
+    throw new Error(message);
+  }
+}
+
+function evaluateSessionAnchorBinding(input: {
+  readonly root: string;
+  readonly host: string;
+  readonly sessionAnchor: SessionIdentityAnchor;
+  readonly explicitInstance?: string;
+  readonly expectedInstance?: string;
+  readonly existingBindingInstance?: string;
+  readonly anchorProved: boolean;
+}): { readonly useAnchor: boolean } {
+  const { root: _root, host, sessionAnchor, explicitInstance, expectedInstance, existingBindingInstance, anchorProved } = input;
+  const strict =
+    host === "claude" ||
+    host === "codex" ||
+    explicitInstance !== undefined ||
+    expectedInstance !== undefined;
+
+  if (!anchorProved) {
+    const message =
+      `mcp-identity-mismatch: verified session anchor "${sessionAnchor.actorId}" failed ` +
+      `local keypair proof on host "${host}"`;
+    recordMcpIdentitySecurityEvent({
+      outcome: strict ? "denied" : "audit-only",
+      reasonCode: "mcp-identity-mismatch",
+      host,
+      claimedLogin: existingBindingInstance ?? sessionAnchor.actorId,
+      verifiedLogin: sessionAnchor.actorId,
+      sessionKey: sessionAnchor.sessionKey,
+      message,
+      alert: strict,
+    });
+    if (strict) {
+      throw new Error(message);
+    }
+    return { useAnchor: false };
+  }
+
+  if (existingBindingInstance !== undefined && existingBindingInstance !== sessionAnchor.actorId) {
+    const message =
+      `mcp-identity-mismatch: provider conversation binding "${existingBindingInstance}" ` +
+      `disagrees with verified session anchor "${sessionAnchor.actorId}"`;
+    recordMcpIdentitySecurityEvent({
+      outcome: strict ? "denied" : "audit-only",
+      reasonCode: "mcp-identity-mismatch",
+      host,
+      claimedLogin: existingBindingInstance,
+      verifiedLogin: sessionAnchor.actorId,
+      sessionKey: sessionAnchor.sessionKey,
+      message,
+      alert: strict,
+    });
+    if (strict) {
+      throw new Error(message);
+    }
+  }
+
+  return { useAnchor: true };
 }
 
 export function identityKeyPaths(root: string, instance: string): { privateKeyPath: string; publicKeyPath: string } {
@@ -354,7 +456,8 @@ function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedL
   const step = <T>(name: string, fn: () => T): T => (trace ? trace.span(name, fn) : fn());
   const host = input.host || "agent";
   const label = labelFromCwd(input.cwd);
-  if (input.explicitInstance) {
+  assertExplicitSessionAnchorAgreement(input, host);
+  if (input.explicitInstance && !input.sessionAnchor) {
     return { instance: input.explicitInstance, host, action: "override" };
   }
 
@@ -406,11 +509,15 @@ function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedL
 
   // Re-anchor: the conversation UUID is the identity unit. When no provider
   // session id is readable, fall back to a per-workspace-STABLE id (no
-  // timestamp) so that degenerate case keeps the old per-workspace reclaim
-  // behavior instead of minting a fresh id on every connect.
+  // timestamp) unless anchored by verified sessionAnchor (never fallback:*).
   const providerSessionId =
-    provider.providerSessionId ?? `fallback:${host}:${workspace.id}`;
-  const key = { host, providerSessionId, workspaceId: workspace.id };
+    provider.providerSessionId ??
+    (input.sessionAnchor ? undefined : `fallback:${host}:${workspace.id}`);
+  const key = {
+    host,
+    providerSessionId: providerSessionId ?? `anchored:${input.sessionAnchor!.actorId}`,
+    workspaceId: workspace.id,
+  };
   const legacyDecision = decideLegacyAdoption({
     legacyAlreadyAdopted: legacyAliasAlreadyAdopted(input.root, legacyInstance),
     provedLegacyPossession: provesLocalKey(input.root, legacyInstance)
@@ -459,7 +566,44 @@ function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedL
 
   let keypair: { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string };
   let result: { action: "reclaim" | "mint"; instance: string; agentUuid: string };
-  if (host === "remote") {
+  let anchorDecision: { readonly useAnchor: boolean } | undefined;
+  if (input.sessionAnchor) {
+    const anchorProved = step("identity_proof", () =>
+      provesLocalKey(input.root, input.sessionAnchor!.actorId),
+    );
+    const existingProviderBinding = provider.providerSessionId
+      ? findBinding(input.root, {
+          host,
+          providerSessionId: provider.providerSessionId,
+          workspaceId: workspace.id,
+        })
+      : undefined;
+    anchorDecision = evaluateSessionAnchorBinding({
+      root: input.root,
+      host,
+      sessionAnchor: input.sessionAnchor,
+      ...(input.explicitInstance !== undefined ? { explicitInstance: input.explicitInstance } : {}),
+      ...(input.expectedInstance !== undefined ? { expectedInstance: input.expectedInstance } : {}),
+      ...(existingProviderBinding !== undefined
+        ? { existingBindingInstance: existingProviderBinding.instance }
+        : {}),
+      anchorProved,
+    });
+    if (anchorDecision.useAnchor && input.explicitInstance) {
+      return { instance: input.explicitInstance, host, action: "override" };
+    }
+  } else if (input.explicitInstance) {
+    return { instance: input.explicitInstance, host, action: "override" };
+  }
+
+  if (anchorDecision?.useAnchor && input.sessionAnchor) {
+    result = {
+      action: "reclaim",
+      instance: input.sessionAnchor.actorId,
+      agentUuid: input.sessionAnchor.agentUuid,
+    };
+    keypair = publishIdentity(result.instance, result.agentUuid, "reclaim");
+  } else if (host === "remote") {
     result = { action: "mint" as const, ...mintRemote() };
     keypair = publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
   } else {
@@ -617,7 +761,8 @@ async function resolveLiveIdentityAsyncInternal(
   const mintMemo: NonNullable<ResolveLiveIdentityAsyncOptions["mintMemo"]> = options.mintMemo ?? {};
   const started=performance.now();
   const host = input.host || "agent";
-  if (input.explicitInstance) {
+  assertExplicitSessionAnchorAgreement(input, host);
+  if (input.explicitInstance && !input.sessionAnchor) {
     return { instance: input.explicitInstance, host, action: "override" };
   }
   const now = input.now ?? Date.now;
@@ -652,11 +797,17 @@ async function resolveLiveIdentityAsyncInternal(
         ? readHostSessionName({ host, cwd: input.cwd, sessionId: provider.providerSessionId })
         : undefined;
     const name = input.name ?? hostName ?? label;
-    const providerSessionId = provider.providerSessionId ?? `fallback:${host}:${workspace.id}`;
-    const key = { host, providerSessionId, workspaceId: workspace.id };
+    const providerSessionId =
+      provider.providerSessionId ??
+      (input.sessionAnchor ? undefined : `fallback:${host}:${workspace.id}`);
+    const key = {
+      host,
+      providerSessionId: providerSessionId ?? `anchored:${input.sessionAnchor!.actorId}`,
+      workspaceId: workspace.id,
+    };
     // The binding read (small file) + its proof-of-possession (keypair read +
-    // registry keyring parse + ed25519 sign) done OUTSIDE the lock.
-    const preBinding = findBinding(input.root, key);
+    // registry keyring parse + ed2559 sign) done OUTSIDE the lock.
+    const preBinding = providerSessionId ? findBinding(input.root, key) : undefined;
     const preProof = preBinding
       ? step("identity_proof", () => provesLocalKey(input.root, preBinding.instance))
       : false;
@@ -752,8 +903,44 @@ async function resolveLiveIdentityAsyncInternal(
 
   let keypair: { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string };
   let result: { action: "reclaim" | "mint"; instance: string; agentUuid: string };
+  let anchorDecisionAsync: { readonly useAnchor: boolean } | undefined;
+  if (input.sessionAnchor) {
+    const anchorProved = step("identity_proof", () =>
+      provesLocalKey(input.root, input.sessionAnchor!.actorId),
+    );
+    const existingProviderBinding = P.provider.providerSessionId
+      ? findBinding(input.root, {
+          host,
+          providerSessionId: P.provider.providerSessionId,
+          workspaceId: P.workspace.id,
+        })
+      : undefined;
+    anchorDecisionAsync = evaluateSessionAnchorBinding({
+      root: input.root,
+      host,
+      sessionAnchor: input.sessionAnchor,
+      ...(input.explicitInstance !== undefined ? { explicitInstance: input.explicitInstance } : {}),
+      ...(input.expectedInstance !== undefined ? { expectedInstance: input.expectedInstance } : {}),
+      ...(existingProviderBinding !== undefined
+        ? { existingBindingInstance: existingProviderBinding.instance }
+        : {}),
+      anchorProved,
+    });
+    if (anchorDecisionAsync.useAnchor && input.explicitInstance) {
+      return { instance: input.explicitInstance, host, action: "override" };
+    }
+  } else if (input.explicitInstance) {
+    return { instance: input.explicitInstance, host, action: "override" };
+  }
 
-  if (host === "remote") {
+  if (anchorDecisionAsync?.useAnchor && input.sessionAnchor) {
+    result = {
+      action: "reclaim",
+      instance: input.sessionAnchor.actorId,
+      agentUuid: input.sessionAnchor.agentUuid,
+    };
+    keypair = publishIdentity(result.instance, result.agentUuid, "reclaim");
+  } else if (host === "remote") {
     result = { action: "mint" as const, ...mintRemote() };
     keypair = publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
   } else {

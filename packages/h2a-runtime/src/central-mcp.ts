@@ -34,6 +34,7 @@ import { dirname, join } from "node:path";
 
 import { getH2aConfig, resolveConfigPath, setH2aConfig } from "./config.js";
 import { appendCrashLog, MAX_CRASH_LOG_BYTES } from "./crash-log.js";
+import { scrubSessionIdentityEnv } from "./session-auth.js";
 
 const CENTRAL_PORT_BASE = 47_000;
 const CENTRAL_PORT_SPAN = 10_000;
@@ -357,7 +358,7 @@ export async function ensureCentralMcp(
         detached: true,
         stdio: ["ignore", logFd, logFd],
         env: {
-          ...process.env,
+          ...scrubSessionIdentityEnv(process.env),
           [H2A_MCP_CENTRAL_ENV]: "1",
           [H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint,
         },

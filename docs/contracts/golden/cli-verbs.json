@@ -1,6 +1,7 @@
 [
   "--help",
   "attest-comprehension",
+  "authorize",
   "blockage list",
   "blockage raise",
   "blockage resolve",
@@ -86,6 +87,7 @@
   "org validate",
   "outbox put",
   "outbox read",
+  "presence-reap",
   "register",
   "registry bootstrap",
   "registry catalog",

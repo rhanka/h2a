@@ -1,8 +1,33 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { op } = vi.hoisted(() => ({ op: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawnSync: op }));
 import { NativeHostCapabilityMismatchError, startNativeHeadlessSession, startNativeH2aSidecar, startNativeSession } from "./native-host.js";
+
+const TEST_IDENTITY = {
+  kind: "reuse" as const,
+  host: "codex",
+  actorId: "codex:worker:000000000001",
+  agentUuid: "11111111-1111-4111-8111-111111111111",
+  sessionClass: "human" as const,
+  invocationMode: "interactive" as const,
+};
+const TEST_HEADLESS_IDENTITY = {
+  ...TEST_IDENTITY,
+  sessionClass: "background" as const,
+  invocationMode: "headless" as const,
+};
+
+let rtDir = "";
+beforeEach(() => {
+  rtDir = mkdtempSync(join(tmpdir(), "h2a-ownership-rt-"));
+});
+afterEach(() => {
+  if (rtDir) rmSync(rtDir, { recursive: true, force: true });
+});
 
 describe("ownership before native creation", () => {
   for (const sidecar of [false, true]) {
@@ -31,7 +56,11 @@ describe("ownership before native creation", () => {
         expect(startNativeH2aSidecar("h2a-worker", "/tmp", "h2a", { beforeCreate })).toBe(true);
         expect(ownership!.name).toBe("h2a-worker.h2a");
       } else {
-        startNativeSession("codex", "codex", "/tmp", [], "worker", { beforeCreate });
+        startNativeSession("codex", "codex", "/tmp", [], "worker", {
+          identity: TEST_IDENTITY,
+          sessionRuntimeDir: rtDir,
+          beforeCreate,
+        });
         expect(ownership!.name).toBe("h2a-worker");
       }
     });
@@ -40,7 +69,11 @@ describe("ownership before native creation", () => {
     op.mockImplementation((_command, argv) => ({ status: 0, stdout: JSON.stringify(argv[1] === "probe"
       ? { verdict: "dead" } : { hostPid: 1, socketPath: "/test", generation: "g" }), stderr: "" }));
     op.mockClear();
-    expect(() => startNativeSession("codex", "codex", "/tmp", [], "worker", { beforeCreate: vi.fn() }))
+    expect(() => startNativeSession("codex", "codex", "/tmp", [], "worker", {
+      identity: TEST_IDENTITY,
+      sessionRuntimeDir: rtDir,
+      beforeCreate: vi.fn(),
+    }))
       .toThrow("does not provide launchFence");
     expect(op.mock.calls.some(([, argv]) => argv[1] === "create")).toBe(false);
   });
@@ -52,7 +85,14 @@ describe("ownership before native creation", () => {
     op.mockClear();
     const beforeCreate = vi.fn(), onCreateAttempt = vi.fn();
     let error: unknown;
-    try { startNativeSession("codex", "codex", "/tmp", [], "worker", { beforeCreate, onCreateAttempt }); }
+    try {
+      startNativeSession("codex", "codex", "/tmp", [], "worker", {
+        identity: TEST_IDENTITY,
+        sessionRuntimeDir: rtDir,
+        beforeCreate,
+        onCreateAttempt,
+      });
+    }
     catch (caught) { error = caught; }
     expect(error).toBeInstanceOf(NativeHostCapabilityMismatchError);
     if (!(error instanceof NativeHostCapabilityMismatchError)) throw error;
@@ -79,7 +119,12 @@ describe("ownership before native creation", () => {
           : argv[1] === "admit" ? { admitted: true }
           : { pid: 124 }), stderr: "" };
       });
-      const metadata = { beforeCreate: () => { events.push("ownership"); }, onCreateAttempt: () => { events.push("creation-attempted"); } };
+      const metadata = {
+        identity: TEST_IDENTITY,
+        sessionRuntimeDir: rtDir,
+        beforeCreate: () => { events.push("ownership"); },
+        onCreateAttempt: () => { events.push("creation-attempted"); },
+      };
       if (sidecar) startNativeH2aSidecar("h2a-worker", "/tmp", "h2a", metadata);
       else startNativeSession("codex", "codex", "/tmp", [], "worker", metadata);
       const expected = ["probe", ...(sidecar ? ["probe"] : []), "ensure-host", "admit", "ownership", "creation-attempted", "create"];
@@ -94,6 +139,8 @@ describe("ownership before native creation", () => {
     op.mockClear();
     const onCreateAttempt = vi.fn();
     expect(() => startNativeSession("codex", "codex", "/tmp", [], "worker", {
+      identity: TEST_IDENTITY,
+      sessionRuntimeDir: rtDir,
       beforeCreate: () => { throw new Error("ownership failed"); }, onCreateAttempt,
     })).toThrow("ownership failed");
     expect(onCreateAttempt).not.toHaveBeenCalled();
@@ -107,7 +154,8 @@ describe("ownership before native creation", () => {
       return { status: 0, stdout: JSON.stringify(argv[1] === "probe" ? { verdict: "dead" } : { pid: 124 }), stderr: "" };
     });
     startNativeHeadlessSession("codex", "codex", "/tmp", [], "/tmp/result", "/tmp/output", "worker",
-      undefined, true, undefined, () => { events.push("creation-attempted"); });
+      undefined, true, undefined, () => { events.push("creation-attempted"); },
+      undefined, undefined, undefined, undefined, { identity: TEST_HEADLESS_IDENTITY, sessionRuntimeDir: rtDir });
     expect(events).toEqual(["probe", "creation-attempted", "create"]);
   });
 });

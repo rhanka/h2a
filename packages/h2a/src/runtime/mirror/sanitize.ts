@@ -644,6 +644,7 @@ const PRESENCE_PLAN = {
   // — a relauncher on another host could not use them even if it wanted to.
   launchContext: withhold("command-line"),
   pid: withhold("process-identity"),
+  pidNamespace: withhold("process-identity"),
   // Not privacy — PROVENANCE. `mirroredAt` is the receiving side's own record of
   // when it ingested a row, and `deriveLiveness` reads it to decide `stale`. A
   // sender-supplied value would be a forged freshness claim feeding a liveness

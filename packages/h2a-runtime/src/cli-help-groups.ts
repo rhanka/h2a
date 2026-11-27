@@ -184,6 +184,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       // on this host, not a provider route or a session lifecycle action.
       "tmux",
       "trust",
+      "authorize",
     ],
   },
   {

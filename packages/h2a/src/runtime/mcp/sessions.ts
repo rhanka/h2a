@@ -22,6 +22,7 @@ import {
   writePresence,
   writePresenceAsync
 } from "../local-files/presence.js";
+import { readPidNamespaceId } from "../identity/session-auth.js";
 import { withoutLockOwnership } from "../handover/mutation.js";
 
 export interface OpenSessionRequest {
@@ -35,6 +36,8 @@ export interface OpenSessionRequest {
   readonly name?: string;
   /** PID of the holding process. Defaults to process.pid. */
   readonly pid?: number;
+  /** Linux PID namespace of the owning session process. Defaults to current process namespace. */
+  readonly pidNamespace?: string;
   /** Scopes / negotiations the session wants to follow. Defaults to empty arrays. */
   readonly interests?: Partial<H2ASessionInterests>;
   /** Topics the session subscribes to. Defaults to all four canonical topics. */
@@ -143,6 +146,7 @@ export class SessionRegistry {
   }
 
   private buildSession(request: OpenSessionRequest, sessionId: string, now: string): H2ASession {
+    const pidNamespace = request.pidNamespace ?? readPidNamespaceId("self");
     return {
       sessionId,
       instance: request.instance,
@@ -152,6 +156,7 @@ export class SessionRegistry {
       ...(request.version !== undefined ? { version: request.version } : {}),
       ...(request.launchContext !== undefined ? { launchContext: request.launchContext } : {}),
       pid: request.pid ?? process.pid,
+      ...(pidNamespace !== undefined ? { pidNamespace } : {}),
       startedAt: now,
       heartbeatAt: now,
       // WP-F: boot = a live MCP channel (the initialize handshake just landed).

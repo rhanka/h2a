@@ -47,6 +47,10 @@ import {
   type TrustOwnerAlert,
 } from "./onboarding-core.js";
 import { SESSION_CLASS_ENV } from "./session-class.js";
+import {
+  SESSION_PROOF_PATH_ENV,
+  SESSION_REF_ENV,
+} from "./session-auth.js";
 import { formatTrustOwnerAlertLine } from "./trust-alerts.js";
 
 export interface TrustCliDeps {
@@ -69,6 +73,9 @@ export function isInsideH2aSessionEnv(
   if (env["H2A_NATIVE_PTY_SESSION"]?.trim()) return true;
   if (env["H2A_SESSION_TOKEN"]?.trim()) return true;
   if (env["H2A_JOB_ID"]?.trim()) return true;
+  if (env["REMOTE_JOB_ID"]?.trim()) return true;
+  if (env[SESSION_REF_ENV]?.trim()) return true;
+  if (env[SESSION_PROOF_PATH_ENV]?.trim()) return true;
   return false;
 }
 
@@ -198,7 +205,10 @@ export function withTrustMutationLocksSync<T>(
   }
 }
 
-export function assertOwnerTerminalAccess(deps: TrustCliDeps = {}): void {
+export function assertOwnerTerminalAccess(
+  deps: TrustCliDeps = {},
+  commandLabel = "trust",
+): void {
   const env = deps.env ?? process.env;
   const stdinIsTTY = deps.stdinIsTTY ?? (process.stdin.isTTY === true);
   const stdoutIsTTY = deps.stdoutIsTTY ?? (process.stdout.isTTY === true);
@@ -206,8 +216,8 @@ export function assertOwnerTerminalAccess(deps: TrustCliDeps = {}): void {
     throw new OnboardingLaunchError({
       code: "cli-workspace-not-trusted",
       phase: "onboarding",
-      message: "refusing `h2a trust`: command is restricted to the owner's terminal and forbidden inside any h2a session",
-      hint: "run `h2a trust` directly from your standalone host terminal",
+      message: `refusing \`h2a ${commandLabel}\`: command is restricted to the owner's terminal and forbidden inside any h2a session`,
+      hint: `run \`h2a ${commandLabel}\` directly from your standalone host terminal`,
       retrySafe: false,
     });
   }
@@ -215,8 +225,8 @@ export function assertOwnerTerminalAccess(deps: TrustCliDeps = {}): void {
     throw new OnboardingLaunchError({
       code: "cli-workspace-not-trusted",
       phase: "onboarding",
-      message: "refusing `h2a trust`: interactive owner TTY required (stdin and stdout must be terminals)",
-      hint: "run `h2a trust` directly from your interactive terminal",
+      message: `refusing \`h2a ${commandLabel}\`: interactive owner TTY required (stdin and stdout must be terminals)`,
+      hint: `run \`h2a ${commandLabel}\` directly from your interactive terminal`,
       retrySafe: false,
     });
   }

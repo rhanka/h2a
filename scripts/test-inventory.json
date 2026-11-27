@@ -14,6 +14,7 @@
   "packages/h2a-runtime/src/browser.test.ts": [],
   "packages/h2a-runtime/src/central-mcp.test.ts": [],
   "packages/h2a-runtime/src/claude-bare.test.ts": [],
+  "packages/h2a-runtime/src/cli-identity-lot1.test.ts": [],
   "packages/h2a-runtime/src/conductor-launch.test.ts": [],
   "packages/h2a-runtime/src/config-migrate.test.ts": [],
   "packages/h2a-runtime/src/config.test.ts": [
@@ -420,6 +421,7 @@
   "packages/h2a/test/cli-command-map.test.js": [],
   "packages/h2a/test/cli-contract.test.js": [],
   "packages/h2a/test/cli-host-status.test.js": [],
+  "packages/h2a/test/cli-identity-guard.test.js": [],
   "packages/h2a/test/cli-mailbox.test.js": [],
   "packages/h2a/test/cli-negotiate-sign-stabilize.test.js": [],
   "packages/h2a/test/cli-negotiate-typed.test.js": [],

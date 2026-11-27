@@ -24,6 +24,7 @@ import {
   groupRuntimeHelpItems,
 } from "./cli-help-groups.js";
 import { registerArchiveCommand } from "./archive-cli.js";
+import { registerAuthorizeCommand } from "./authorize-cli.js";
 import { registerTrustCommand } from "./trust-cli.js";
 import {
   formatTrustOwnerAlertLines,
@@ -192,6 +193,22 @@ import {
 import { recordInjectionBestEffort } from "./injection-ledger.js";
 import { startLaunchGuard, type LaunchGuard, type LaunchOwnership } from "./launch-guard.js";
 import { buildLaunchContext } from "./launch-context.js";
+import {
+  checkCallerOwnsTargetSession,
+  cleanupFailedSessionIdentityLaunch,
+  findActiveSessionKey,
+  prepareSessionIdentityLaunch,
+  resolveCurrentCallerSessionContext,
+  writeLauncherRelaunchHandoff,
+  type LaunchSessionIdentity,
+} from "./launch-identity.js";
+import {
+  listSessionFiches,
+  readBootId,
+  resolveSessionRuntimeDir,
+  scrubSessionIdentityEnv,
+} from "./session-auth.js";
+import { buildSessionExecWrapperCommandLine } from "./session-exec-wrapper.js";
 import {
   attachNativeSession,
   driveNativeInstruction,
@@ -1754,9 +1771,36 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     process.env,
     undefined,
   );
+  const callerCtx = resolveCurrentCallerSessionContext();
+  const jobDelegatorInstance = job.delegatorInstance ?? callerCtx.actorId ?? undefined;
+  const jobDelegatorSessionKey = job.delegatorSessionKey ?? callerCtx.sessionKey ?? undefined;
+  const jobIdentity: LaunchSessionIdentity =
+    job.actorId && job.agentUuid
+      ? {
+          kind: "reuse",
+          host: job.tool,
+          actorId: job.actorId,
+          agentUuid: job.agentUuid,
+          sessionClass: "background",
+          invocationMode: headless ? "headless" : "interactive",
+          ...(job.convId ? { hostSessionId: job.convId } : {}),
+          ...(jobDelegatorInstance !== undefined ? { delegatorInstance: jobDelegatorInstance } : {}),
+          ...(jobDelegatorSessionKey !== undefined ? { delegatorSessionKey: jobDelegatorSessionKey } : {}),
+        }
+      : {
+          kind: "mint",
+          host: job.tool,
+          label: job.id,
+          sessionClass: "background",
+          invocationMode: headless ? "headless" : "interactive",
+          ...(jobDelegatorInstance !== undefined ? { delegatorInstance: jobDelegatorInstance } : {}),
+          ...(jobDelegatorSessionKey !== undefined ? { delegatorSessionKey: jobDelegatorSessionKey } : {}),
+        };
   let tmuxSession: string;
   let workerPid: number | undefined;
   let agentPane: string | undefined;
+  let launchedActorId: string | undefined;
+  let launchedAgentUuid: string | undefined;
   try {
     if (headless) {
       const dir = jobDir(originCwd, job.id);
@@ -1772,8 +1816,16 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
           undefined,
           false,
           "background",
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { identity: jobIdentity, jobId: job.id },
         );
         tmuxSession = launched.name;
+        launchedActorId = launched.actorId;
+        launchedAgentUuid = launched.agentUuid;
         workerPid = nativeWorkerPid(launched.name);
       } else {
         const launched = startHeadlessSession(
@@ -1784,13 +1836,20 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
           join(dir, "result.json"),
           join(dir, "output.log"),
           job.id,
+          jobIdentity,
           undefined,
           undefined,
           false,
           "background",
+          undefined,
+          undefined,
+          undefined,
+          { jobId: job.id },
         );
         tmuxSession = launched.name;
         agentPane = launched.agentPane;
+        launchedActorId = launched.actorId;
+        launchedAgentUuid = launched.agentUuid;
         workerPid = launched.agentPane
           ? localSessionPanePid(launched.agentPane)
           : undefined;
@@ -1802,12 +1861,19 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         runCwd,
         argv.args,
         job.id,
-        { sessionClass: "background" },
+        { sessionClass: "background", identity: jobIdentity, jobId: job.id },
       );
       tmuxSession = launched.name;
+      launchedActorId = launched.actorId;
+      launchedAgentUuid = launched.agentUuid;
       workerPid = nativeWorkerPid(launched.name);
       const h2a = getH2aConfig();
-      startNativeH2aSidecar(tmuxSession, runCwd, h2a.command);
+      startNativeH2aSidecar(
+        tmuxSession,
+        runCwd,
+        h2a.command,
+        launched.sessionKey !== undefined ? { sessionKey: launched.sessionKey } : {},
+      );
     } else {
       const launched = startLocalSession(
         job.tool,
@@ -1816,15 +1882,25 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         argv.args,
         job.id,
         undefined,
-        { sessionClass: "background", attachedTerminal: true },
+        { sessionClass: "background", attachedTerminal: true, identity: jobIdentity, jobId: job.id },
       );
       tmuxSession = launched.name;
       agentPane = launched.agentPane;
+      launchedActorId = launched.actorId;
+      launchedAgentUuid = launched.agentUuid;
       workerPid = launched.agentPane
         ? localSessionPanePid(launched.agentPane)
         : undefined;
       const h2a = getH2aConfig();
-      startH2aWindow(tmuxSession, runCwd, h2a.command);
+      startH2aWindow(
+        tmuxSession,
+        runCwd,
+        h2a.command,
+        undefined,
+        launched.sessionKey !== undefined
+          ? { sessionKey: launched.sessionKey, sessionClass: "background" }
+          : undefined,
+      );
     }
   } catch (err) {
     return { started: false, error: (err as Error).message };
@@ -1856,9 +1932,14 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     ...(job.delegationOrigin !== undefined
       ? { delegationOrigin: job.delegationOrigin }
       : {}),
-    ...(job.delegatorInstance !== undefined
-      ? { delegatorInstance: job.delegatorInstance }
+    ...(jobDelegatorInstance !== undefined
+      ? { delegatorInstance: jobDelegatorInstance }
       : {}),
+    ...(jobDelegatorSessionKey !== undefined
+      ? { delegatorSessionKey: jobDelegatorSessionKey }
+      : {}),
+    ...(launchedActorId !== undefined ? { actorId: launchedActorId } : {}),
+    ...(launchedAgentUuid !== undefined ? { agentUuid: launchedAgentUuid } : {}),
     ...(job.delegatorTmuxSession !== undefined
       ? { delegatorTmuxSession: job.delegatorTmuxSession }
       : {}),
@@ -2137,8 +2218,35 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
     job.depthBudget ?? clampDepth(undefined),
   );
   process.env[JOB_ID_ENV] = job.id;
+  const callerCtx = resolveCurrentCallerSessionContext();
+  const jobDelegatorInstance = job.delegatorInstance ?? callerCtx.actorId ?? undefined;
+  const jobDelegatorSessionKey = job.delegatorSessionKey ?? callerCtx.sessionKey ?? undefined;
+  const jobIdentity: LaunchSessionIdentity =
+    job.actorId && job.agentUuid
+      ? {
+          kind: "reuse",
+          host: job.tool,
+          actorId: job.actorId,
+          agentUuid: job.agentUuid,
+          sessionClass: "background",
+          invocationMode: "headless",
+          ...(job.convId ? { hostSessionId: job.convId } : {}),
+          ...(jobDelegatorInstance !== undefined ? { delegatorInstance: jobDelegatorInstance } : {}),
+          ...(jobDelegatorSessionKey !== undefined ? { delegatorSessionKey: jobDelegatorSessionKey } : {}),
+        }
+      : {
+          kind: "mint",
+          host: job.tool,
+          label: job.id,
+          sessionClass: "background",
+          invocationMode: "headless",
+          ...(jobDelegatorInstance !== undefined ? { delegatorInstance: jobDelegatorInstance } : {}),
+          ...(jobDelegatorSessionKey !== undefined ? { delegatorSessionKey: jobDelegatorSessionKey } : {}),
+        };
   let tmuxSession: string;
   let workerPid: number | undefined;
+  let launchedActorId: string | undefined;
+  let launchedAgentUuid: string | undefined;
   try {
     const dir = jobDir(originCwd, job.id);
     if (job.kind === "local-native") {
@@ -2153,8 +2261,16 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
         undefined,
         false,
         "background",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { identity: jobIdentity, jobId: job.id },
       );
       tmuxSession = launched.name;
+      launchedActorId = launched.actorId;
+      launchedAgentUuid = launched.agentUuid;
       workerPid = nativeWorkerPid(launched.name);
     } else {
       const launched = startHeadlessSession(
@@ -2165,12 +2281,19 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
         join(dir, "result.json"),
         join(dir, "output.log"),
         job.id,
+        jobIdentity,
         undefined,
         undefined,
         false,
         "background",
+        undefined,
+        undefined,
+        undefined,
+        { jobId: job.id },
       );
       tmuxSession = launched.name;
+      launchedActorId = launched.actorId;
+      launchedAgentUuid = launched.agentUuid;
       workerPid = launched.agentPane
         ? localSessionPanePid(launched.agentPane)
         : undefined;
@@ -2211,9 +2334,14 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
     ...(job.delegationOrigin !== undefined
       ? { delegationOrigin: job.delegationOrigin }
       : {}),
-    ...(job.delegatorInstance !== undefined
-      ? { delegatorInstance: job.delegatorInstance }
+    ...(jobDelegatorInstance !== undefined
+      ? { delegatorInstance: jobDelegatorInstance }
       : {}),
+    ...(jobDelegatorSessionKey !== undefined
+      ? { delegatorSessionKey: jobDelegatorSessionKey }
+      : {}),
+    ...(launchedActorId !== undefined ? { actorId: launchedActorId } : {}),
+    ...(launchedAgentUuid !== undefined ? { agentUuid: launchedAgentUuid } : {}),
     ...(job.delegatorTmuxSession !== undefined
       ? { delegatorTmuxSession: job.delegatorTmuxSession }
       : {}),
@@ -5869,8 +5997,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               bare: sameResumeIdentity ? registryEntry?.bare : undefined,
               gatewayMode: sameResumeIdentity ? registryEntry?.gatewayMode : undefined,
               gatewayProvenance: sameResumeIdentity ? registryEntry?.gatewayProvenance : undefined,
+              ...(sameResumeIdentity && registryEntry?.actorId !== undefined ? { actorId: registryEntry.actorId } : {}),
+              ...(sameResumeIdentity && registryEntry?.agentUuid !== undefined ? { agentUuid: registryEntry.agentUuid } : {}),
+              ...(sameResumeIdentity && registryEntry?.delegatorInstance !== undefined ? { delegatorInstance: registryEntry.delegatorInstance } : {}),
+              ...(sameResumeIdentity && registryEntry?.delegatorSessionKey !== undefined ? { delegatorSessionKey: registryEntry.delegatorSessionKey } : {}),
             }
           : registryEntry;
+        const resumeOwnCheck = checkCallerOwnsTargetSession({
+          commandVerb: "resume",
+          targetLabel: displaySlug,
+          targetDelegatorInstance: entry?.delegatorInstance,
+        });
+        if (!resumeOwnCheck.ok) {
+          process.stderr.write(`[h2a] ${resumeOwnCheck.message}\n`);
+          process.exitCode = 2;
+          return;
+        }
         // WHICH host serves this resume — resolved BEFORE ANY act (F1): every
         // attach/kill/start below derives EXCLUSIVELY from this resolution's
         // kind + name over the ONE registry snapshot read above. An option
@@ -6115,7 +6257,79 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.stderr.write(
                 `[h2a] already inside ${displaySlug}; running ${profile} resume in this pane\n`,
               );
-              process.exitCode = runLocalCliForeground(command, args);
+              const fgSessionClass = deriveSessionClass({
+                background: opts.attach !== true,
+                humanTerminal:
+                  opts.attach === true &&
+                  process.stdin.isTTY === true &&
+                  process.stdout.isTTY === true,
+                ...(profile === "agy"
+                  ? { inheritedClass: sessionClassFromEnv(process.env[SESSION_CLASS_ENV]) }
+                  : {}),
+              });
+              const fgCaller = resolveCurrentCallerSessionContext();
+              const fgEntryActorId = "actorId" in entry ? entry.actorId : undefined;
+              const fgEntryAgentUuid = "agentUuid" in entry ? entry.agentUuid : undefined;
+              const fgEntryDelegator =
+                "delegatorInstance" in entry ? entry.delegatorInstance : undefined;
+              const fgEntryDelegatorKey =
+                "delegatorSessionKey" in entry ? entry.delegatorSessionKey : undefined;
+              const fgIdentity: LaunchSessionIdentity =
+                profile === "shell"
+                  ? { kind: "none-shell", sessionClass: "human" }
+                  : fgEntryActorId && fgEntryAgentUuid
+                    ? {
+                        kind: "reuse",
+                        host: profile,
+                        actorId: fgEntryActorId,
+                        agentUuid: fgEntryAgentUuid,
+                        sessionClass: fgSessionClass,
+                        invocationMode: "interactive",
+                        hostSessionId: entry.convId ?? null,
+                        ...(fgEntryDelegator ?? fgCaller.actorId
+                          ? { delegatorInstance: (fgEntryDelegator ?? fgCaller.actorId)! }
+                          : {}),
+                        ...(fgEntryDelegatorKey ?? fgCaller.sessionKey
+                          ? { delegatorSessionKey: (fgEntryDelegatorKey ?? fgCaller.sessionKey)! }
+                          : {}),
+                      }
+                    : {
+                        kind: "mint",
+                        host: profile,
+                        label: displaySlug,
+                        sessionClass: fgSessionClass,
+                        invocationMode: "interactive",
+                        hostSessionId: entry.convId ?? null,
+                        ...(fgCaller.actorId ? { delegatorInstance: fgCaller.actorId } : {}),
+                        ...(fgCaller.sessionKey ? { delegatorSessionKey: fgCaller.sessionKey } : {}),
+                      };
+              const fgPrepared = prepareSessionIdentityLaunch(fgIdentity);
+              if (fgPrepared.kind === "verified") {
+                writeLauncherRelaunchHandoff(fgPrepared);
+                const relaunchHint =
+                  `h2a run ${profile} ${entry.cwd} --name ${displaySlug}` +
+                  (entry.convId ? ` -r ${entry.convId}` : "");
+                const wrapperCmd = buildSessionExecWrapperCommandLine({
+                  sessionKey: fgPrepared.sessionKey,
+                  relaunchHint,
+                  command,
+                  commandArgs: args,
+                  noShell: true,
+                });
+                try {
+                  process.exitCode = runLocalCliForeground(
+                    wrapperCmd[0]!,
+                    wrapperCmd.slice(1),
+                    { env: scrubSessionIdentityEnv(process.env) },
+                  );
+                } finally {
+                  cleanupFailedSessionIdentityLaunch(fgPrepared);
+                }
+              } else {
+                process.exitCode = runLocalCliForeground(command, args, {
+                  env: scrubSessionIdentityEnv(process.env),
+                });
+              }
               return;
             }
             process.stderr.write(
@@ -6304,7 +6518,43 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             throw error;
           }
         }
-        const { name } =
+        const resumeCaller = resolveCurrentCallerSessionContext();
+        const resumeEntryActorId = "actorId" in entry ? entry.actorId : undefined;
+        const resumeEntryAgentUuid = "agentUuid" in entry ? entry.agentUuid : undefined;
+        const resumeEntryDelegator =
+          "delegatorInstance" in entry ? entry.delegatorInstance : undefined;
+        const resumeEntryDelegatorKey =
+          "delegatorSessionKey" in entry ? entry.delegatorSessionKey : undefined;
+        const resumeIdentity: LaunchSessionIdentity =
+          profile === "shell"
+            ? { kind: "none-shell", sessionClass }
+            : resumeEntryActorId && resumeEntryAgentUuid
+              ? {
+                  kind: "reuse",
+                  host: profile,
+                  actorId: resumeEntryActorId,
+                  agentUuid: resumeEntryAgentUuid,
+                  sessionClass,
+                  invocationMode: "interactive",
+                  hostSessionId: entry.convId ?? null,
+                  ...(resumeEntryDelegator ?? resumeCaller.actorId
+                    ? { delegatorInstance: (resumeEntryDelegator ?? resumeCaller.actorId)! }
+                    : {}),
+                  ...(resumeEntryDelegatorKey ?? resumeCaller.sessionKey
+                    ? { delegatorSessionKey: (resumeEntryDelegatorKey ?? resumeCaller.sessionKey)! }
+                    : {}),
+                }
+              : {
+                  kind: "mint",
+                  host: profile,
+                  label: resumeSlug,
+                  sessionClass,
+                  invocationMode: "interactive",
+                  hostSessionId: entry.convId ?? null,
+                  ...(resumeCaller.actorId ? { delegatorInstance: resumeCaller.actorId } : {}),
+                  ...(resumeCaller.sessionKey ? { delegatorSessionKey: resumeCaller.sessionKey } : {}),
+                };
+        const launched =
           resumeHost === "native"
             ? startNativeSession(
                 profile,
@@ -6314,6 +6564,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 resumeSlug,
                 {
                   sessionClass,
+                  identity: resumeIdentity,
                   ...(entry.convId ? { resumeId: entry.convId } : {}),
                 },
               )
@@ -6324,8 +6575,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 resumeArgs,
                 resumeSlug,
                 undefined,
-                { sessionClass, attachedTerminal: true },
+                { sessionClass, attachedTerminal: true, identity: resumeIdentity },
               );
+        const { name } = launched;
         enrollFromRun({
           profile,
           slug: resumeSlug,
@@ -6334,6 +6586,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           hostKind: resumeHost === "native" ? "local-native" : "local-tmux",
           cwd: entry.cwd,
           sessionClass,
+          ...(launched.actorId !== undefined ? { actorId: launched.actorId } : {}),
+          ...(launched.agentUuid !== undefined ? { agentUuid: launched.agentUuid } : {}),
+          ...(resumeCaller.actorId !== null ? { delegatorInstance: resumeCaller.actorId } : {}),
+          ...(resumeCaller.sessionKey !== null ? { delegatorSessionKey: resumeCaller.sessionKey } : {}),
           ...(entry.convId ? { convId: entry.convId } : {}),
           // Only an explicit CLI choice becomes a new proven pin; otherwise
           // the previous pin (if any) is preserved untouched by the merge.
@@ -6922,6 +7178,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
           );
         }
+        const runCaller = resolveCurrentCallerSessionContext();
         const started: Array<{
           name: string;
           slug: string;
@@ -6936,6 +7193,32 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }> = [];
         for (const label of labels) {
           const clientSessionId = localSessionName(slugify(label ?? cwd));
+          const launchSlug = slugify(label ?? cwd);
+          const launchIdentity: LaunchSessionIdentity =
+            profile === "shell"
+              ? { kind: "none-shell", sessionClass }
+              : opts.resume && pinnedLaunch?.actorId && pinnedLaunch?.agentUuid
+                ? {
+                    kind: "reuse",
+                    host: profile,
+                    actorId: pinnedLaunch.actorId,
+                    agentUuid: pinnedLaunch.agentUuid,
+                    sessionClass,
+                    invocationMode: opts.headless ? "headless" : "interactive",
+                    hostSessionId: opts.resume,
+                    ...(runCaller.actorId ? { delegatorInstance: runCaller.actorId } : {}),
+                    ...(runCaller.sessionKey ? { delegatorSessionKey: runCaller.sessionKey } : {}),
+                  }
+                : {
+                    kind: "mint",
+                    host: profile,
+                    label: launchSlug,
+                    sessionClass,
+                    invocationMode: opts.headless ? "headless" : "interactive",
+                    ...(opts.resume !== undefined ? { hostSessionId: opts.resume } : {}),
+                    ...(runCaller.actorId ? { delegatorInstance: runCaller.actorId } : {}),
+                    ...(runCaller.sessionKey ? { delegatorSessionKey: runCaller.sessionKey } : {}),
+                  };
           try {
             if (structuredLaunch) {
               activeGateway = await prepareStructuredGateway(
@@ -7017,6 +7300,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // re-probes below prefer these and skip their forks.
           let launchedPid: number | undefined;
           let launchedWorkerPid: number | undefined;
+          let launchedSessionKey: string | undefined;
+          let launchedActorId: string | undefined;
+          let launchedAgentUuid: string | undefined;
           let outputLog: string | undefined;
           let resultJson: string | undefined;
           let agentPane: string | undefined;
@@ -7043,7 +7329,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   })
                 : initialPrompt;
             if (sessionHost === "native") {
-              ({ name, slug, promptFile } = startNativeHeadlessSession(
+              ({ name, slug, promptFile, sessionKey: launchedSessionKey, actorId: launchedActorId, agentUuid: launchedAgentUuid } = startNativeHeadlessSession(
                 profile,
                 command,
                 cwd,
@@ -7062,9 +7348,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 opts.outputFile ? resolve(cwd, opts.outputFile) : undefined,
                 undefined,
                 launchBudgetMs,
+                { identity: launchIdentity },
               ));
             } else {
-              ({ name, slug, agentPane, promptFile } = startHeadlessSession(
+              ({ name, slug, agentPane, promptFile, sessionKey: launchedSessionKey, actorId: launchedActorId, agentUuid: launchedAgentUuid } = startHeadlessSession(
                 profile,
                 command,
                 cwd,
@@ -7072,6 +7359,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 resultJson,
                 outputLog,
                 label!,
+                launchIdentity,
                 getTmuxProfileConfig().profile,
                 headlessPromptInput,
                 structuredLaunch,
@@ -7084,13 +7372,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           } else if (sessionHost === "native") {
             // One in-process async operation, with a fresh admission inventory;
             // returns pid/identity so the re-probes below are skipped.
-            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid } = await startNativeSessionSingleShot(
+            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid, sessionKey: launchedSessionKey, actorId: launchedActorId, agentUuid: launchedAgentUuid } = await startNativeSessionSingleShot(
               profile,
               command,
               cwd,
               args,
               label,
               {
+                identity: launchIdentity,
                 onCreateAttempt,
                 ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
                 ...(initialPrompt !== undefined
@@ -7106,7 +7395,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               },
             ));
           } else {
-            ({ name, slug, agentPane } = startLocalSession(
+            ({ name, slug, agentPane, sessionKey: launchedSessionKey, actorId: launchedActorId, agentUuid: launchedAgentUuid } = startLocalSession(
               profile,
               command,
               cwd,
@@ -7114,6 +7403,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               label,
               getTmuxProfileConfig().profile,
               {
+                identity: launchIdentity,
                 onCreateAttempt,
                 ...(opts.resume !== undefined
                   ? { resumeId: opts.resume }
@@ -7157,6 +7447,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (h2aSidecar && sessionHost === "native") {
             h2aSidecarStarted = startNativeH2aSidecar(name, cwd, h2a.command, {
               onCreateAttempt,
+              ...(launchedSessionKey !== undefined ? { sessionKey: launchedSessionKey } : {}),
               ...(structuredLaunch ? { verified: true } : {}),
               ...(launchGuard && launchOwnership?.host === "native" ? { beforeCreate: (owned: NativeLaunchOwnership) => {
                 if (launchOwnership?.host === "native") {
@@ -7191,6 +7482,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     cwd,
                     h2a.command,
                     agentPane!,
+                    undefined,
+                    launchedSessionKey !== undefined
+                      ? { sessionKey: launchedSessionKey, sessionClass }
+                      : {},
                   ),
                 );
               } catch (error) {
@@ -7200,7 +7495,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 h2aSidecarStarted = false;
               }
             } else {
-              h2aSidecarStarted = startH2aWindow(name, cwd, h2a.command);
+              h2aSidecarStarted = startH2aWindow(
+                name,
+                cwd,
+                h2a.command,
+                undefined,
+                launchedSessionKey !== undefined
+                  ? { sessionKey: launchedSessionKey, sessionClass }
+                  : undefined,
+              );
             }
             if (!h2aSidecarStarted && structuredLaunch) {
               cleanupHeadlessPromptFile(promptFile);
@@ -7368,6 +7671,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
             sessionClass,
+            ...(launchedActorId !== undefined ? { actorId: launchedActorId } : {}),
+            ...(launchedAgentUuid !== undefined ? { agentUuid: launchedAgentUuid } : {}),
+            ...(runCaller.actorId !== null ? { delegatorInstance: runCaller.actorId } : {}),
+            ...(runCaller.sessionKey !== null ? { delegatorSessionKey: runCaller.sessionKey } : {}),
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
             ...(gatewayMode !== "auto" || pinnedLaunch?.gatewayProvenance === "explicit"
               ? { gatewayMode: launchGatewayMode, gatewayProvenance: "explicit" as const }
@@ -9154,10 +9461,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       // h2a 0.73.0 provides body.request.instructionLine — use it verbatim when
       // present. Fallback: compose the full command with --instance and --root so
       // `h2a inbox read` gets the required arguments (rc=1 without them).
-      const instructionLine: string =
-        (env as { body?: { request?: { instructionLine?: string } } }).body
-          ?.request?.instructionLine ??
-        `h2a inbox read --instance ${target} --root ${localRoot}`;
+      const envInstruction = (env as { body?: { request?: { instructionLine?: string } } }).body
+        ?.request?.instructionLine;
+      const instructionLine: string = envInstruction ?? (() => {
+        try {
+          const rtDir = resolveSessionRuntimeDir({ createIfMissing: false }).dir;
+          const bootId = readBootId() ?? "nonlinux-boot";
+          const hasFiche = listSessionFiches(rtDir).some(
+            (f) => f.bootId === bootId && f.actorId === target,
+          );
+          if (hasFiche) {
+            return `h2a --as ${target} inbox read --instance ${target} --root ${localRoot}`;
+          }
+        } catch {
+          /* ignore */
+        }
+        return `Call MCP tool h2a_inbox_read (--instance ${target} --root ${localRoot})`;
+      })();
       const paneGuard = guardTmuxPaneBeforeInput(pane, "cli-input");
       if (!paneGuard.ok) {
         process.stderr.write(
@@ -9306,6 +9626,38 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             `local registry is unreadable (${registry.reason})`,
           );
         }
+        const restartCaller = resolveCurrentCallerSessionContext();
+        const identityForRestartCandidate = (
+          candidate: NativeRestartCandidate,
+        ): LaunchSessionIdentity =>
+          candidate.profile === "shell"
+            ? { kind: "none-shell", sessionClass: candidate.sessionClass ?? "human" }
+            : candidate.actorId && candidate.agentUuid
+              ? {
+                  kind: "reuse",
+                  host: candidate.profile,
+                  actorId: candidate.actorId,
+                  agentUuid: candidate.agentUuid,
+                  sessionClass: candidate.sessionClass ?? "human",
+                  invocationMode: "interactive",
+                  ...(candidate.convId !== undefined ? { hostSessionId: candidate.convId } : {}),
+                  ...(candidate.delegatorInstance ?? restartCaller.actorId
+                    ? { delegatorInstance: (candidate.delegatorInstance ?? restartCaller.actorId)! }
+                    : {}),
+                  ...(candidate.delegatorSessionKey ?? restartCaller.sessionKey
+                    ? { delegatorSessionKey: (candidate.delegatorSessionKey ?? restartCaller.sessionKey)! }
+                    : {}),
+                }
+              : {
+                  kind: "mint",
+                  host: candidate.profile,
+                  label: candidate.id,
+                  sessionClass: candidate.sessionClass ?? "human",
+                  invocationMode: "interactive",
+                  ...(candidate.convId !== undefined ? { hostSessionId: candidate.convId } : {}),
+                  ...(restartCaller.actorId ? { delegatorInstance: restartCaller.actorId } : {}),
+                  ...(restartCaller.sessionKey ? { delegatorSessionKey: restartCaller.sessionKey } : {}),
+                };
         const candidates: NativeRestartCandidate[] = registry.entries.map(
           (entry) => ({
             id: entry.id,
@@ -9327,8 +9679,35 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ? { gatewayProvenance: entry.gatewayProvenance }
               : {}),
             ...(entry.bare !== undefined ? { bare: entry.bare } : {}),
+            ...(entry.actorId !== undefined ? { actorId: entry.actorId } : {}),
+            ...(entry.agentUuid !== undefined ? { agentUuid: entry.agentUuid } : {}),
+            ...(entry.delegatorInstance !== undefined
+              ? { delegatorInstance: entry.delegatorInstance }
+              : {}),
+            ...(entry.delegatorSessionKey !== undefined
+              ? { delegatorSessionKey: entry.delegatorSessionKey }
+              : {}),
           }),
         );
+        if (restartCaller.isAgent && restartCaller.actorId) {
+          if (opts.all || !session) {
+            throw new NativeRestartError(
+              "owner-only-command",
+              "restart --all or unnamed restart is restricted to the owner",
+            );
+          }
+          const matchedCandidate = candidates.find(
+            (c) => !c.endedAt && (c.id === session || c.label === session || c.name === session),
+          );
+          const restartOwn = checkCallerOwnsTargetSession({
+            commandVerb: "restart",
+            targetLabel: session,
+            targetDelegatorInstance: matchedCandidate?.delegatorInstance,
+          });
+          if (!restartOwn.ok) {
+            throw new NativeRestartError("session-not-owned-by-caller", restartOwn.message);
+          }
+        }
         const currentSession =
           process.env["H2A_NATIVE_PTY_SESSION"] ??
           process.env["H2A_NATIVE_TARGET_SESSION"];
@@ -9390,6 +9769,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 prepared.gatewayEnvironment,
               );
               try {
+                const oldSessionKey = findActiveSessionKey({
+                  actorId: candidate.actorId,
+                  hostSessionId: candidate.convId,
+                });
                 const respawned = softRespawnNativeSessionIfIncarnation(
                   candidate.profile,
                   prepared.command,
@@ -9405,6 +9788,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                       : {}),
                   },
                   {
+                    identity: identityForRestartCandidate(candidate),
+                    ...(oldSessionKey !== undefined ? { oldSessionKey } : {}),
                     ...(candidate.convId !== undefined
                       ? { resumeId: candidate.convId }
                       : {}),
@@ -9419,6 +9804,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   pid: respawned.pid,
                   cwd: candidate.cwd,
                   sessionClass: candidate.sessionClass ?? "human",
+                  ...(respawned.actorId !== undefined ? { actorId: respawned.actorId } : {}),
+                  ...(respawned.agentUuid !== undefined ? { agentUuid: respawned.agentUuid } : {}),
                   ...(candidate.convId !== undefined
                     ? { convId: candidate.convId }
                     : {}),
@@ -9455,6 +9842,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   prepared.args,
                   candidate.id,
                   {
+                    identity: identityForRestartCandidate(candidate),
                     ...(candidate.convId !== undefined
                       ? { resumeId: candidate.convId }
                       : {}),
@@ -9470,6 +9858,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   pid: relaunched.pid,
                   cwd: candidate.cwd,
                   sessionClass: candidate.sessionClass ?? "human",
+                  ...(relaunched.actorId !== undefined ? { actorId: relaunched.actorId } : {}),
+                  ...(relaunched.agentUuid !== undefined ? { agentUuid: relaunched.agentUuid } : {}),
                   ...(candidate.convId !== undefined
                     ? { convId: candidate.convId }
                     : {}),
@@ -9606,6 +9996,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         if (nativeEntry && nativeName && nativeLiveness === true) {
+          const relaunchOwn = checkCallerOwnsTargetSession({
+            commandVerb: "relaunch",
+            targetLabel: filter,
+            targetDelegatorInstance: nativeEntry.delegatorInstance,
+          });
+          if (!relaunchOwn.ok) {
+            process.stderr.write(`[h2a] ${relaunchOwn.message}\n`);
+            process.exitCode = 2;
+            return;
+          }
           // F1: the kill target derives from the ONE symmetric resolver over
           // the same read — never directly from the row lookup above. A
           // dual-host identity (ambiguous) or an unprovable one refuses here
@@ -9672,6 +10072,34 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const args = nativeEntry.convId
             ? localResumeArgs(profile, nativeEntry.convId, { bare: useBare })
             : localStartArgs(profile, { bare: useBare });
+          const relaunchCaller = resolveCurrentCallerSessionContext();
+          const relaunchNativeIdentity: LaunchSessionIdentity =
+            nativeEntry.actorId && nativeEntry.agentUuid
+              ? {
+                  kind: "reuse",
+                  host: profile,
+                  actorId: nativeEntry.actorId,
+                  agentUuid: nativeEntry.agentUuid,
+                  sessionClass: nativeEntry.sessionClass ?? "human",
+                  invocationMode: "interactive",
+                  ...(nativeEntry.convId ? { hostSessionId: nativeEntry.convId } : {}),
+                  ...(nativeEntry.delegatorInstance ?? relaunchCaller.actorId
+                    ? { delegatorInstance: (nativeEntry.delegatorInstance ?? relaunchCaller.actorId)! }
+                    : {}),
+                  ...(nativeEntry.delegatorSessionKey ?? relaunchCaller.sessionKey
+                    ? { delegatorSessionKey: (nativeEntry.delegatorSessionKey ?? relaunchCaller.sessionKey)! }
+                    : {}),
+                }
+              : {
+                  kind: "mint",
+                  host: profile,
+                  label: slug,
+                  sessionClass: nativeEntry.sessionClass ?? "human",
+                  invocationMode: "interactive",
+                  ...(nativeEntry.convId ? { hostSessionId: nativeEntry.convId } : {}),
+                  ...(relaunchCaller.actorId ? { delegatorInstance: relaunchCaller.actorId } : {}),
+                  ...(relaunchCaller.sessionKey ? { delegatorSessionKey: relaunchCaller.sessionKey } : {}),
+                };
           const relaunched = startNativeSession(
             profile,
             command,
@@ -9679,6 +10107,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             args,
             slug,
             {
+              identity: relaunchNativeIdentity,
               ...(nativeEntry.convId ? { resumeId: nativeEntry.convId } : {}),
               ...(nativeEntry.sessionClass !== undefined
                 ? { sessionClass: nativeEntry.sessionClass }
@@ -9693,6 +10122,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(relaunched.pid !== undefined ? { pid: relaunched.pid } : {}),
             cwd: nativeEntry.cwd,
             sessionClass: nativeEntry.sessionClass ?? "human",
+            ...(relaunched.actorId !== undefined ? { actorId: relaunched.actorId } : {}),
+            ...(relaunched.agentUuid !== undefined ? { agentUuid: relaunched.agentUuid } : {}),
             // No new CLI choice here: preserve the recorded pin verbatim so a
             // proven choice survives the relaunch and a legacy row keeps its
             // (unproven) data without gaining authority.
@@ -9833,6 +10264,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           `[h2a] WARNING: force-restart plan covers ${sessions.length} managed session(s): ${sessions.map((session) => session.name).join(", ") || "none"}\n`,
         );
       }
+      if (filter) {
+        const matchedRow =
+          sessions.length === 1 ? entryByTmuxSession.get(sessions[0]!.name) : undefined;
+        const tmuxRelaunchOwn = checkCallerOwnsTargetSession({
+          commandVerb: "relaunch",
+          targetLabel: filter,
+          targetDelegatorInstance: matchedRow?.delegatorInstance,
+        });
+        if (!tmuxRelaunchOwn.ok) {
+          process.stderr.write(`[h2a] ${tmuxRelaunchOwn.message}\n`);
+          process.exitCode = 2;
+          return;
+        }
+      }
       if (plan.actions.length === 0) {
         process.stderr.write(
           `[h2a] nothing to relaunch${filter ? ` matching "${filter}"` : ""} (${plan.skipped.length} skipped)\n`,
@@ -9899,6 +10344,50 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             retypeCmd = scrubbedRetypeCommand(action.cmd);
           }
           const sessionId = retypeEntry?.id;
+          const retypeCaller = resolveCurrentCallerSessionContext();
+          const retypeIdentity: LaunchSessionIdentity =
+            action.profile === "shell"
+              ? { kind: "none-shell", sessionClass: retypeEntry?.sessionClass ?? "human" }
+              : retypeEntry?.actorId && retypeEntry?.agentUuid
+                ? {
+                    kind: "reuse",
+                    host: action.profile,
+                    actorId: retypeEntry.actorId,
+                    agentUuid: retypeEntry.agentUuid,
+                    sessionClass: retypeEntry.sessionClass ?? "human",
+                    invocationMode: "interactive",
+                    ...(action.convId ? { hostSessionId: action.convId } : {}),
+                    ...(retypeEntry.delegatorInstance ?? retypeCaller.actorId
+                      ? { delegatorInstance: (retypeEntry.delegatorInstance ?? retypeCaller.actorId)! }
+                      : {}),
+                    ...(retypeEntry.delegatorSessionKey ?? retypeCaller.sessionKey
+                      ? { delegatorSessionKey: (retypeEntry.delegatorSessionKey ?? retypeCaller.sessionKey)! }
+                      : {}),
+                  }
+                : {
+                    kind: "mint",
+                    host: action.profile,
+                    label: action.slug,
+                    sessionClass: retypeEntry?.sessionClass ?? "human",
+                    invocationMode: "interactive",
+                    ...(action.convId ? { hostSessionId: action.convId } : {}),
+                    ...(retypeCaller.actorId ? { delegatorInstance: retypeCaller.actorId } : {}),
+                    ...(retypeCaller.sessionKey ? { delegatorSessionKey: retypeCaller.sessionKey } : {}),
+                  };
+          const retypePrepared = prepareSessionIdentityLaunch(retypeIdentity);
+          let handedOffRetypeCmd = retypeCmd;
+          if (retypePrepared.kind === "verified") {
+            writeLauncherRelaunchHandoff(retypePrepared);
+            const wrapperArgv = buildSessionExecWrapperCommandLine({
+              sessionKey: retypePrepared.sessionKey,
+              relaunchHint: action.cmd,
+              command: "/bin/sh",
+              commandArgs: ["-c", retypeCmd],
+              noShell: true,
+            });
+            const shellQuote = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
+            handedOffRetypeCmd = wrapperArgv.map(shellQuote).join(" ");
+          }
           const isAgyRetype =
             retypeEntry?.tool === "agy" || classifyCliCommand(retypeCmd) === "agy";
           const runRetype = () =>
@@ -9906,9 +10395,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ? relaunchSessionWithLease({
                   sessionId,
                   tmuxSession: action.name,
-                  command: retypeCmd,
+                  command: handedOffRetypeCmd,
                 })
-              : relaunchInSession(action.name, retypeCmd);
+              : relaunchInSession(action.name, handedOffRetypeCmd);
           let relaunched = false;
           try {
             if (isAgyRetype) {
@@ -9933,7 +10422,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
           } finally {
             // A successful retype transfers cleanup to the private reader.
-            if (!relaunched) cleanupRetypeEnv();
+            if (!relaunched) {
+              cleanupRetypeEnv();
+              cleanupFailedSessionIdentityLaunch(retypePrepared);
+            }
           }
           if (relaunched) {
             ok += 1;
@@ -10080,7 +10572,37 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             action.profile, "auto", entry.gatewayMode, entry.gatewayProvenance,
           );
           await injectLlmMeshGatewayEnv(gatewayMode, true, localSessionName(action.slug));
-          const { name, agentPane } = startLocalSession(
+          const tmuxRelaunchCaller = resolveCurrentCallerSessionContext();
+          const tmuxRelaunchIdentity: LaunchSessionIdentity =
+            action.profile === "shell"
+              ? { kind: "none-shell", sessionClass }
+              : entry.actorId && entry.agentUuid
+                ? {
+                    kind: "reuse",
+                    host: action.profile,
+                    actorId: entry.actorId,
+                    agentUuid: entry.agentUuid,
+                    sessionClass,
+                    invocationMode: "interactive",
+                    hostSessionId: action.convId,
+                    ...(entry.delegatorInstance ?? tmuxRelaunchCaller.actorId
+                      ? { delegatorInstance: (entry.delegatorInstance ?? tmuxRelaunchCaller.actorId)! }
+                      : {}),
+                    ...(entry.delegatorSessionKey ?? tmuxRelaunchCaller.sessionKey
+                      ? { delegatorSessionKey: (entry.delegatorSessionKey ?? tmuxRelaunchCaller.sessionKey)! }
+                      : {}),
+                  }
+                : {
+                    kind: "mint",
+                    host: action.profile,
+                    label: action.slug,
+                    sessionClass,
+                    invocationMode: "interactive",
+                    hostSessionId: action.convId,
+                    ...(tmuxRelaunchCaller.actorId ? { delegatorInstance: tmuxRelaunchCaller.actorId } : {}),
+                    ...(tmuxRelaunchCaller.sessionKey ? { delegatorSessionKey: tmuxRelaunchCaller.sessionKey } : {}),
+                  };
+          const { name, agentPane, actorId: launchedActorId, agentUuid: launchedAgentUuid } = startLocalSession(
             action.profile,
             action.command,
             entry.cwd,
@@ -10090,6 +10612,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             action.slug,
             undefined,
             {
+              identity: tmuxRelaunchIdentity,
               sessionClass,
               resumeId: action.convId,
               attachedTerminal: true,
@@ -10105,6 +10628,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd: entry.cwd,
             sessionClass,
             convId: action.convId,
+            ...(launchedActorId !== undefined ? { actorId: launchedActorId } : {}),
+            ...(launchedAgentUuid !== undefined ? { agentUuid: launchedAgentUuid } : {}),
             ...(entry.gatewayMode !== undefined
               ? { gatewayMode: entry.gatewayMode }
               : {}),
@@ -11329,6 +11854,46 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         second: string | undefined,
         opts: { reason?: string },
       ) => {
+        const stopCaller = resolveCurrentCallerSessionContext();
+        if (stopCaller.isAgent && stopCaller.actorId) {
+          if (second !== undefined || looksLikeUrl(first)) {
+            const denied = checkCallerOwnsTargetSession({
+              commandVerb: "stop",
+              targetLabel: first,
+              targetDelegatorInstance: undefined,
+            });
+            if (!denied.ok) {
+              process.stderr.write(`[h2a] ${denied.message}\n`);
+              process.exitCode = 2;
+              return;
+            }
+          }
+          const regRead = loadRegistry();
+          const candidates =
+            regRead.state === "ok"
+              ? regRead.entries.filter(
+                  (e) =>
+                    !e.endedAt &&
+                    (e.id === first ||
+                      e.label === first ||
+                      e.tmuxSession === first ||
+                      e.tmuxSession === localSessionName(first)),
+                )
+              : [];
+          const targetRow = candidates
+            .slice()
+            .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0];
+          const stopOwn = checkCallerOwnsTargetSession({
+            commandVerb: "stop",
+            targetLabel: first,
+            targetDelegatorInstance: targetRow?.delegatorInstance,
+          });
+          if (!stopOwn.ok) {
+            process.stderr.write(`[h2a] ${stopOwn.message}\n`);
+            process.exitCode = 2;
+            return;
+          }
+        }
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
           const localTarget = resolveManagedLocalTarget(first);
@@ -12029,6 +12594,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // └──
   registerArchiveCommand(program);
   registerTrustCommand(program);
+  registerAuthorizeCommand(program);
   applyRuntimeHelpGroups(program.createHelp().visibleCommands(program));
   program.configureHelp({ groupItems: groupRuntimeHelpItems });
   program.addHelpText(

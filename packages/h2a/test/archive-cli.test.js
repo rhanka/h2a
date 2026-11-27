@@ -12,6 +12,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(TEST_DIR, "..", "..", "..");
 const BIN_JS = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 const RUNTIME_ARCHIVE_JS = join(REPO_ROOT, "packages", "h2a-runtime", "dist", "session-archive.js");
-const SCRATCH_PARENT = join(REPO_ROOT, ".tmp", "archive-cli-test");
+const SCRATCH_PARENT = join(tmpdir(), "h2a-archive-cli-test");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SESSION_UUID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

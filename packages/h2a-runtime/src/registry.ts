@@ -213,6 +213,12 @@ export type RegistryEntry = {
   delegationOrigin?: DelegationOrigin;
   /** Exact h2a identity of the delegating MCP sidecar or delegate callback. */
   delegatorInstance?: string;
+  /** Session fiche key of the delegating session (for anti-laundering chains). */
+  delegatorSessionKey?: string;
+  /** Perennial CLI actor login (`<host>:<slug>:<uuid12>`). */
+  actorId?: string;
+  /** Perennial agent UUID paired with `actorId`. */
+  agentUuid?: string;
   /** Exact tmux session that hosted the delegator when the launch was made. */
   delegatorTmuxSession?: string;
   /** "job" marks a delegated agent (see `delegate.ts`); absent = a session. */
@@ -291,6 +297,9 @@ export type EnrollInput = {
   sessionClass: RegistrySessionClass;
   delegationOrigin?: DelegationOrigin;
   delegatorInstance?: string;
+  delegatorSessionKey?: string;
+  actorId?: string;
+  agentUuid?: string;
   delegatorTmuxSession?: string;
   label?: string;
   convId?: string;
@@ -1320,10 +1329,16 @@ function applyEnroll(
   const pid = input.pid ?? prev?.pid;
   if (pid !== undefined) entry.pid = pid;
   entry.sessionClass = input.sessionClass;
+  const actorId = input.actorId ?? (input.freshConversation ? undefined : prev?.actorId);
+  if (actorId !== undefined) entry.actorId = actorId;
+  const agentUuid = input.agentUuid ?? (input.freshConversation ? undefined : prev?.agentUuid);
+  if (agentUuid !== undefined) entry.agentUuid = agentUuid;
   const delegationOrigin = input.delegationOrigin ?? prev?.delegationOrigin;
   if (delegationOrigin !== undefined) entry.delegationOrigin = delegationOrigin;
-  const delegatorInstance = input.delegatorInstance ?? prev?.delegatorInstance;
+  const delegatorInstance = input.delegatorInstance ?? (input.freshConversation ? undefined : prev?.delegatorInstance);
   if (delegatorInstance !== undefined) entry.delegatorInstance = delegatorInstance;
+  const delegatorSessionKey = input.delegatorSessionKey ?? (input.freshConversation ? undefined : prev?.delegatorSessionKey);
+  if (delegatorSessionKey !== undefined) entry.delegatorSessionKey = delegatorSessionKey;
   const delegatorTmuxSession = input.delegatorTmuxSession ?? prev?.delegatorTmuxSession;
   if (delegatorTmuxSession !== undefined) entry.delegatorTmuxSession = delegatorTmuxSession;
   const role = input.role ?? prev?.role;
@@ -1739,6 +1754,9 @@ export function enrollFromRun(args: {
   sessionClass: RegistrySessionClass;
   delegationOrigin?: DelegationOrigin;
   delegatorInstance?: string;
+  delegatorSessionKey?: string;
+  actorId?: string;
+  agentUuid?: string;
   delegatorTmuxSession?: string;
 }): void {
   const tool = coerceRegistryTool(args.profile);
@@ -1768,6 +1786,15 @@ export function enrollFromRun(args: {
         : {}),
       ...(args.delegatorInstance !== undefined
         ? { delegatorInstance: args.delegatorInstance }
+        : {}),
+      ...(args.delegatorSessionKey !== undefined
+        ? { delegatorSessionKey: args.delegatorSessionKey }
+        : {}),
+      ...(args.actorId !== undefined
+        ? { actorId: args.actorId }
+        : {}),
+      ...(args.agentUuid !== undefined
+        ? { agentUuid: args.agentUuid }
         : {}),
       ...(args.delegatorTmuxSession !== undefined
         ? { delegatorTmuxSession: args.delegatorTmuxSession }

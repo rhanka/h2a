@@ -12,6 +12,7 @@ import {
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { scrubSessionIdentityEnv } from "../identity/session-auth.js";
 
 export const FOCUS_BUILD_RESULT_DEFAULT_WAIT_MS = 15_000;
 export const FOCUS_BUILD_RESULT_MAX_WAIT_MS = 20_000;
@@ -288,7 +289,10 @@ function parseWorkerResultStdout(stdoutText: string): FocusWorkerResult | undefi
 function buildWorkerEnvironment(
   baseEnv: Readonly<Record<string, string | undefined>> | undefined
 ): NodeJS.ProcessEnv {
-  const merged: NodeJS.ProcessEnv = { ...process.env, ...(baseEnv ?? {}) };
+  const merged: NodeJS.ProcessEnv = scrubSessionIdentityEnv({
+    ...process.env,
+    ...(baseEnv ?? {})
+  });
   // Never propagate central attachment / stdio readiness secrets into build workers.
   for (const key of Object.keys(merged)) {
     if (key.startsWith("H2A_MCP_READY_") || key.startsWith("H2A_NATIVE_") || merged[key] === undefined) {

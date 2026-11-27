@@ -20,6 +20,7 @@ import { win32 } from "node:path";
 
 import { isLoopbackHostname } from "./publish-config.js";
 import { SentropicPublishError } from "./publish-errors.js";
+import { scrubSessionIdentityEnv } from "../session-auth.js";
 
 export interface BrowserCommand {
   readonly command: string;
@@ -78,7 +79,13 @@ export function openInSystemBrowser(url: string, opts: { platform?: NodeJS.Platf
   }
   const spawn: SpawnLike = opts.spawn ?? nodeSpawn;
   try {
-    const child = spawn(command.command, [...command.args], { detached: true, stdio: "ignore", windowsHide: true, shell: false });
+    const child = spawn(command.command, [...command.args], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      shell: false,
+      env: scrubSessionIdentityEnv(process.env),
+    });
     child.on("error", () => {});
     child.unref();
     return true;

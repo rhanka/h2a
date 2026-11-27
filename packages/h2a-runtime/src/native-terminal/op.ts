@@ -56,6 +56,15 @@ import { NativeTerminalClient, NativeTerminalRequestTimeoutError } from "./clien
 import { coreSpawnTarget } from "../identity-operator-break.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
+  deleteDaemonLaunchReceipt,
+  hasSandboxOrQualificationRuntime,
+  issueDaemonLaunchReceipt,
+  resolveSessionRuntimeDir,
+  RUN_LAUNCH_ID_ENV,
+  RUN_LAUNCH_TOKEN_ENV,
+  scrubSessionIdentityEnv,
+} from "../session-auth.js";
+import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
   NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -498,6 +507,35 @@ function stationExecTimeoutMs(args: ReadonlyArray<string>): number {
 function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
   const target = coreSpawnTarget(process.env);
   const timeoutMs = stationExecTimeoutMs(request.args);
+  const env: NodeJS.ProcessEnv = {
+    ...scrubSessionIdentityEnv(process.env),
+    ...scrubSessionIdentityEnv(request.env ?? {}),
+  };
+  let runtimeDir: string | undefined;
+  let issuedLaunchId: string | undefined;
+  const allowedVerb = request.args[0] ?? "run";
+  try {
+    const allowD16 = hasSandboxOrQualificationRuntime();
+    runtimeDir = resolveSessionRuntimeDir({ createIfMissing: allowD16 }).dir;
+  } catch {
+    /* non-privileged or uninitialized runtime dir falls back to bin.ts guard */
+  }
+  if (runtimeDir) {
+    try {
+      const issued = issueDaemonLaunchReceipt(runtimeDir, {
+        daemonKind: "native-station",
+        allowedVerb,
+        delegatorInstance: "native-station",
+        delegationOrigin: "native-station",
+        sessionClass: request.env?.["H2A_SESSION_CLASS"] === "human" ? "human" : "background",
+      });
+      issuedLaunchId = issued.launchId;
+      env[RUN_LAUNCH_ID_ENV] = issued.launchId;
+      env[RUN_LAUNCH_TOKEN_ENV] = issued.launchToken;
+    } catch {
+      /* ignore receipt creation errors here; guard fails closed if required */
+    }
+  }
   return new Promise((resolve) => {
     let settled = false;
     let killedByTimeout = false;
@@ -506,6 +544,9 @@ function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (runtimeDir && issuedLaunchId) {
+        deleteDaemonLaunchReceipt(runtimeDir, issuedLaunchId);
+      }
       resolve(result);
     };
     const timer = setTimeout(() => {
@@ -526,7 +567,7 @@ function stationExecH2a(request: StationCliRequest): Promise<StationCliResult> {
         [...target.prefixArgs, ...request.args],
         {
           cwd: request.cwd,
-          env: { ...process.env, ...(request.env ?? {}) },
+          env,
           // Absent from the execFile overloads but forwarded to `spawn`
           // at runtime (verified here): own process group for the child.
           detached: true,

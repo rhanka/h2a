@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { scrubSessionIdentityEnv } from "./session-auth.js";
 
 import {
   ambiguousLiveSessionNames,
@@ -104,7 +105,8 @@ export function launchStationWindow(
   try {
     // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
     // silently claiming the window opened.
-    const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
+    const childEnv = scrubSessionIdentityEnv(process.env);
+    delete childEnv["GNOME_TERMINAL_SCREEN"];
     const child = spawn("gnome-terminal", args, {
       stdio: ["ignore", "ignore", "pipe"],
       detached: true,
@@ -215,7 +217,8 @@ export function launchLayoutWithOutcomes(
       );
       // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
       // silently claiming the window opened.
-      const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
+      const childEnv = scrubSessionIdentityEnv(process.env);
+      delete childEnv["GNOME_TERMINAL_SCREEN"];
       const child = spawn("gnome-terminal", args, {
         stdio: ["ignore", "ignore", "pipe"],
         detached: true,

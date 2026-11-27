@@ -34,6 +34,7 @@ import {
   presenceFile,
   type LocalStorePaths
 } from "./paths.js";
+import { readPidNamespaceId } from "../identity/session-auth.js";
 import { sweepOrphanFiles } from "./orphan-gc.js";
 import { randomBytes } from "node:crypto";
 import { rememberRecipient } from "./recipient-hints.js";
@@ -321,10 +322,12 @@ export function reapDeadInstancePresence(
   } catch {
     return [];
   }
+  const currentPidNs = readPidNamespaceId("self");
   const reaped: string[] = [];
   for (const session of all) {
     if (session.instance !== instance) continue;
     if (session.sessionId === keepSessionId) continue;
+    if (session.pidNamespace && currentPidNs && session.pidNamespace !== currentPidNs) continue;
     const pid = (session as { pid?: number }).pid;
     if (typeof pid !== "number") continue;
     if (isAlive(pid)) continue;
@@ -357,8 +360,10 @@ export function reapAllDeadPresence(
   } catch {
     return [];
   }
+  const currentPidNs = readPidNamespaceId("self");
   const reaped: Array<{ sessionId: string; instance: string; pid: number }> = [];
   for (const session of all) {
+    if (session.pidNamespace && currentPidNs && session.pidNamespace !== currentPidNs) continue;
     const pid = (session as { pid?: number }).pid;
     if (typeof pid !== "number") continue;
     if (isAlive(pid)) continue;
@@ -383,10 +388,12 @@ export async function reapDeadInstancePresenceAsync(
   } catch {
     return [];
   }
+  const currentPidNs = readPidNamespaceId("self");
   const reaped: string[] = [];
   for (const session of all) {
     if (session.instance !== instance) continue;
     if (session.sessionId === keepSessionId) continue;
+    if (session.pidNamespace && currentPidNs && session.pidNamespace !== currentPidNs) continue;
     const pid = (session as { pid?: number }).pid;
     if (typeof pid !== "number") continue;
     if (isAlive(pid)) continue;

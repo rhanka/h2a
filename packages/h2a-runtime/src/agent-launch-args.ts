@@ -1,4 +1,5 @@
 import { normalizeAgyEffort, resolveAgyModel, resolveLaunchModelAlias } from "./agy-claude.js";
+import { applyCodexNoDaemon, codexSupportsNoDaemon } from "./session-auth.js";
 
 export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
@@ -24,6 +25,8 @@ export type AgentLaunchArgsOptions = {
   resumeId?: string;
   headless?: boolean;
   bare?: boolean;
+  /** Override Codex `--no-daemon` probing (used in isolated tests or remote specs). */
+  noDaemon?: boolean;
 };
 
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
@@ -166,7 +169,7 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
     ];
   }
 
-  return [
+  const codexArgs = [
     ...(options.model ? ["-m", options.model] : []),
     ...(options.effort
       ? ["-c", `model_reasoning_effort=${JSON.stringify(options.effort)}`]
@@ -177,4 +180,7 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
         ? ["resume", options.resumeId]
         : []),
   ];
+  return applyCodexNoDaemon(codexArgs, {
+    enabled: !options.headless && (options.noDaemon ?? codexSupportsNoDaemon("codex")),
+  });
 }

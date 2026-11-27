@@ -64,6 +64,16 @@ export function assertQualifiedPath(path) {
 export function qualifiedEnvironment(dir) {
   dir = assertQualifiedPath(dir);
   const env = { PATH: process.env.PATH, NODE_OPTIONS: process.env.NODE_OPTIONS ?? "--max-old-space-size=256" };
+  for (const key of [
+    "H2A_HOST_QUALIFICATION_RESERVATION",
+    "H2A_TEST_STATE_ROOT",
+    "H2A_TEST_STATE_QUALIFICATION_ROOT",
+    "H2A_TEST_STATE_BARRIER",
+    "H2A_TEST_SANDBOX_NONCE",
+    "H2A_TEST_STATE_RECEIPT",
+  ]) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
   for (const [key, leaf] of Object.entries({ HOME: "home", XDG_CONFIG_HOME: "xdg-config", XDG_DATA_HOME: "xdg-data", XDG_STATE_HOME: "xdg-state", XDG_CACHE_HOME: "xdg-cache", XDG_RUNTIME_DIR: "runtime", TMPDIR: "tmp", REMOTE_CLI_CONFIG_HOME: "config", CODEX_HOME: "codex" })) {
     env[key] = join(dir, leaf);
     assertQualifiedPath(env[key]);

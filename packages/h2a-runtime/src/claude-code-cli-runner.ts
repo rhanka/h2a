@@ -28,6 +28,7 @@ import {
   reapProcessTree,
   sweepOrphanSandboxes,
 } from "./claude-code-cli-lifecycle.js";
+import { scrubSessionIdentityEnv } from "./session-auth.js";
 
 /**
  * Returns true for a regular file with the execute bit set. A directory or
@@ -351,7 +352,7 @@ export class OfficialClaudeCodeCliRunner implements ClaudeCodeCliRunner {
     try {
       const child = this.spawnFn(binaryPath, args, {
         cwd: sandbox.cwdDir,
-        env,
+        env: scrubSessionIdentityEnv(env),
         stdio: ["pipe", "pipe", "pipe"],
         detached: true,
       });

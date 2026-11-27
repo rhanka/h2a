@@ -92,7 +92,7 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
   },
   codex: {
     host: "codex",
-    resumeCommand: "codex resume",
+    resumeCommand: "codex resume --no-daemon",
     mechanism: "codex-app-server",
     push: true,
     hint: "Run the record command from a codex app-server / remote-control stop handler."

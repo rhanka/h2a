@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
@@ -13,8 +13,28 @@ import { enrollViaFacade } from "./llm-mesh-accounts.js";
 import { destroyMaterializedSeat, materializeSeatBundle } from "./cli-seat-materialization.js";
 import { makeSyntheticConsumerBundle } from "./cli-seat-fixtures.js";
 
+const SEAT_IDENTITY = {
+  kind: "reuse" as const,
+  host: "codex",
+  actorId: "codex:review:000000000001",
+  agentUuid: "11111111-1111-4111-8111-111111111111",
+  sessionClass: "human" as const,
+  invocationMode: "interactive" as const,
+};
+const SEAT_HEADLESS_IDENTITY = {
+  ...SEAT_IDENTITY,
+  sessionClass: "background" as const,
+  invocationMode: "headless" as const,
+};
+
 let runtimeBase: string;
-beforeEach(() => { runtimeBase = mkdtempSync(join(tmpdir(), "seat-wiring-runtime-")); vi.stubEnv("XDG_RUNTIME_DIR", runtimeBase); });
+let sessionRtDir: string;
+beforeEach(() => {
+  runtimeBase = mkdtempSync(join(tmpdir(), "seat-wiring-runtime-"));
+  sessionRtDir = join(runtimeBase, "h2a-session-rt");
+  mkdirSync(sessionRtDir, { mode: 0o700 });
+  vi.stubEnv("XDG_RUNTIME_DIR", runtimeBase);
+});
 afterEach(() => { vi.unstubAllEnvs(); op.mockReset(); rmSync(runtimeBase, { recursive: true, force: true }); });
 
 describe("review 348 finding 3: real runtime environment capture", () => {
@@ -44,8 +64,8 @@ describe("review 348 finding 3: real runtime environment capture", () => {
         }
         return { status: 0, stdout: JSON.stringify(payload), stderr: "" };
       });
-      if (kind === "interactive") startNativeSession("codex", "codex", root, [], "review", { terminateOnAgentExit: true, seat });
-      else if (kind === "headless") startNativeHeadlessSession("codex", "codex", root, [], join(root, "result"), join(root, "output"), "review", undefined, undefined, undefined, undefined, undefined, undefined, seat);
+      if (kind === "interactive") startNativeSession("codex", "codex", root, [], "review", { identity: SEAT_IDENTITY, sessionRuntimeDir: sessionRtDir, terminateOnAgentExit: true, seat });
+      else if (kind === "headless") startNativeHeadlessSession("codex", "codex", root, [], join(root, "result"), join(root, "output"), "review", undefined, undefined, undefined, undefined, undefined, undefined, seat, undefined, { identity: SEAT_HEADLESS_IDENTITY, sessionRuntimeDir: sessionRtDir });
       else expect(startNativeH2aSidecar("h2a-review", root, "h2a mcp-serve", { seat })).toBe(true);
       expect(captured).toBeDefined();
       expect(JSON.stringify(captured)).not.toContain(canary);
@@ -73,8 +93,8 @@ describe("review 348 finding 3: real runtime environment capture", () => {
       captured = JSON.parse(readFileSync(argv[argv.indexOf("--env-file") + 1]!, "utf8"));
       return { status: 0, stdout: JSON.stringify({ pid: 123, id: "h2a-review", status: "running" }), stderr: "" };
     });
-    if (kind === "interactive") startNativeSession("claude", "claude", runtimeBase, [], "review", { terminateOnAgentExit: true });
-    else startNativeHeadlessSession("claude", "claude", runtimeBase, [], join(runtimeBase, "result"), join(runtimeBase, "output"), "review");
+    if (kind === "interactive") startNativeSession("claude", "claude", runtimeBase, [], "review", { identity: { ...SEAT_IDENTITY, host: "claude", actorId: "claude:review:000000000001" }, sessionRuntimeDir: sessionRtDir, terminateOnAgentExit: true });
+    else startNativeHeadlessSession("claude", "claude", runtimeBase, [], join(runtimeBase, "result"), join(runtimeBase, "output"), "review", undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { identity: { ...SEAT_HEADLESS_IDENTITY, host: "claude", actorId: "claude:review:000000000001" }, sessionRuntimeDir: sessionRtDir });
     expect(captured).toMatchObject(original);
     expect(captured!.XDG_RUNTIME_DIR).toBe(runtimeBase);
     expect(captured!.TERM).toBe("xterm-256color");

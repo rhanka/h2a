@@ -13,6 +13,7 @@ import {
   writePrivateMetadata,
   type LlmMeshConfig,
 } from "./config-file.js";
+import { scrubSessionIdentityEnv } from "../session-auth.js";
 
 const ANTHROPIC_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
@@ -228,7 +229,7 @@ export async function startGateway(
   mkdirSync(stateDir ?? sentropicDir(), { recursive: true });
 
   const gatewayEnv: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...scrubSessionIdentityEnv(process.env),
     PORT: String(port),
     H2A_LLM_MESH_OWNER_SCOPE: llmMeshOwnerScopeRef(),
     ...(config.routing

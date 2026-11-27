@@ -15,7 +15,7 @@ import {
 } from './report/velocity-eta.js'
 
 import { EventStore } from './events/store.js'
-import type { ActorId, Aggregate, CaptureOrigin, CommandEvent, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
+import type { ActorId, Aggregate, CaptureOrigin, CommandEvent, EventCore, EventType, Provenance, TrackEvent, Ulid } from './events/types.js'
 import { parseRunReport, type RunReportFormat } from './accept/ingest.js'
 import { parseBranch, slugify } from './branch/parse.js'
 import { branchSignature } from './branch/signature.js'
@@ -187,6 +187,8 @@ export interface TrackOptions {
   by?: ActorId
   /** D3 provenance stamped on every emitted event (transport/trust). Omitted ⇒ no `prov` field. */
   prov?: Provenance
+  /** Per-event cryptographic attestation callback (M3 CLI integration). */
+  signProvenance?: (core: Omit<EventCore, 'prov'>) => Provenance
   /**
    * Demand lifecycle (Mode A, Build 2) — the ADVISORY ephemeral lease side-store. When supplied, a lifecycle
    * transition on a subject that has a LIVE lease defaults the recorded `handler` to the lease HOLDER (the
@@ -297,6 +299,7 @@ export class Track {
   private readonly newId: () => Ulid
   private readonly actor: ActorId
   private readonly prov: Provenance | undefined
+  private readonly signProvenance: ((core: Omit<EventCore, 'prov'>) => Provenance) | undefined
   /** Demand lifecycle (Mode A, Build 2) — the optional advisory lease store (sources the default handler). */
   private readonly leases: LeaseStore | undefined
   /** Delivery idempotency token stamped on emitted events for the duration of a `withClientToken` scope. */
@@ -328,6 +331,7 @@ export class Track {
     // the caller can never make events carry divergent provenance. `structuredClone` deep-copies the
     // nested `sig` (M3) — a shallow spread would share `sig` by reference and reopen the D3 mutation hole.
     this.prov = opts.prov ? structuredClone(opts.prov) : undefined
+    this.signProvenance = opts.signProvenance
     this.leases = opts.leases
   }
 
@@ -2545,17 +2549,23 @@ export class Track {
    */
   private emitBatch(parts: EventPart[]): TrackEvent[] {
     const at = this.clock()
-    const events: CommandEvent[] = parts.map((part) => ({
-      id: this.newId(),
-      type: part.type,
-      aggregate: part.aggregate,
-      aggregateId: part.aggregateId,
-      at,
-      by: this.actor,
-      ...(this.prov !== undefined ? { prov: this.prov } : {}),
-      ...(this.activeClientToken !== undefined ? { clientToken: this.activeClientToken } : {}),
-      payload: part.payload,
-    }))
+    const events: CommandEvent[] = parts.map((part) => {
+      const base: Omit<EventCore, 'prov'> = {
+        id: this.newId(),
+        type: part.type,
+        aggregate: part.aggregate,
+        aggregateId: part.aggregateId,
+        at,
+        by: this.actor,
+        ...(this.activeClientToken !== undefined ? { clientToken: this.activeClientToken } : {}),
+        payload: part.payload,
+      }
+      const prov = this.signProvenance ? structuredClone(this.signProvenance(base)) : this.prov
+      return {
+        ...base,
+        ...(prov !== undefined ? { prov } : {}),
+      }
+    })
     const dedupeOpt = this.activeDedupe !== undefined ? { dedupe: this.activeDedupe } : {}
     const recheckOpt = this.activeRecheck !== undefined ? { recheck: this.activeRecheck } : {}
     if (events.length > 1) {
