@@ -1076,7 +1076,7 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
     vi.stubEnv("XDG_CONFIG_HOME", join(box.home, ".config"));
     vi.stubEnv("CLAUDE_CONFIG_DIR", box.claudeDir);
     try {
-      const proj = await projectStatusForH2a({ includeManagedInventory: true, includeDelegations: false });
+      const proj = await projectStatusForH2a({ includeManagedInventory: true, includeDelegations: false, nowMs: FIXED_NOW_MS });
       expect(proj.warnings.some((w) => w.includes("archive-schedule: ok"))).toBe(true);
     } finally {
       vi.unstubAllEnvs();
@@ -1199,5 +1199,66 @@ describe("h2a archive schedule wiring & §4 contract (H1)", () => {
     expect(budgetPass.ok).toBe(true);
     expect(budgetPass.exitCode).toBe(0);
     expect(budgetPass.runResult?.stoppedForDurationBudget).toBe(true);
+  });
+
+  it("keeps status projection identical under a distant 2030 wall clock when nowMs is injected", async () => {
+    const box = createIsolatedTestEnv();
+    const adapter = createFakeSchedulerAdapter({
+      clock: () => new Date(FIXED_NOW_MS - 50 * 3_600_000).toISOString(),
+      stateDir: box.stateDir,
+      envFilePath: box.envFilePath,
+    });
+    await runArchiveScheduleEnable(
+      { calendar: "daily" },
+      {
+        adapter,
+        env: box.env,
+        nodeBin: box.nodeBin,
+        h2aBinScript: box.h2aBinScript,
+        stateDir: box.stateDir,
+        envFilePath: box.envFilePath,
+        unitDir: box.unitDir,
+      },
+    );
+    adapter.setWitness(H2A_ARCHIVE_TASK_ID, makeWitness());
+
+    // Add an unarchived session 25d old under 30d default (5d remaining -> <14d alert)
+    // so both readArchiveScheduleHealth and readClaudeArchiveAlerts depend on nowMs.
+    const workspace = join(box.root, "proj-guard");
+    const projectDir = join(box.claudeDir, "projects", workspace.replaceAll("/", "-"));
+    mkdirSync(workspace, { recursive: true });
+    mkdirSync(projectDir, { recursive: true });
+    const sessionPath = join(projectDir, `${UUID_1}.jsonl`);
+    writeFileSync(sessionPath, `${JSON.stringify({ cwd: workspace })}\n`, "utf8");
+    const dt25d = new Date(FIXED_NOW_MS - 25 * DAY_MS);
+    utimesSync(sessionPath, dt25d, dt25d);
+
+    vi.stubEnv("SENTROPIC_LOCAL_SCHEDULER_STATE_DIR", box.stateDir);
+    vi.stubEnv("HOME", box.home);
+    vi.stubEnv("XDG_DATA_HOME", box.xdgData);
+    vi.stubEnv("XDG_CONFIG_HOME", join(box.home, ".config"));
+    vi.stubEnv("CLAUDE_CONFIG_DIR", box.claudeDir);
+    vi.stubEnv("H2A_ROOT", box.h2aRoot);
+    try {
+      const baseline = await projectStatusForH2a({
+        includeManagedInventory: true,
+        includeDelegations: false,
+        nowMs: FIXED_NOW_MS,
+      });
+      expect(baseline.warnings.some((w) => w.includes("archive-schedule: ok (last run 1h ago)"))).toBe(true);
+      expect(baseline.warnings.some((w) => w.includes(UUID_1) && w.includes("Claude purge in 5d"))).toBe(true);
+
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.UTC(2030, 0, 1, 0, 0, 0));
+      const under2030Clock = await projectStatusForH2a({
+        includeManagedInventory: true,
+        includeDelegations: false,
+        nowMs: FIXED_NOW_MS,
+      });
+      expect(under2030Clock).toEqual(baseline);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
   });
 });
