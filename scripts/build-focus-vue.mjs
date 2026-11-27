@@ -20,7 +20,7 @@ if (process.argv.includes('--check')) {
 } else {
   // Reject the tempting older-package overrides: they omit mandatory host exports.
   for (const [name, version] of Object.entries({ vue: '3.6.0-rc.15', '@vue/compiler-sfc': '3.6.0-rc.15',
-    '@sentropic/design-system-vue': '0.42.0-next.0', '@sentropic/diagram-canvas': '0.6.0', '@sentropic/design-system-themes': '0.16.1', '@sentropic/design-system-tokens': '0.16.1', '@sentropic/diagram-core': '0.6.1' })) {
+    '@sentropic/design-system-vue': '0.42.0-next.0', '@sentropic/diagram-canvas': '0.8.0', '@sentropic/design-system-themes': '0.16.1', '@sentropic/design-system-tokens': '0.16.1', '@sentropic/diagram-core': '0.6.1' })) {
     let installed;
     try { installed = JSON.parse(readFileSync(join(root, 'node_modules', name, 'package.json'))).version; } catch { /* Report the missing public package only. */ }
     if (installed !== version) throw new Error(`Vue dependency closure unavailable: requires ${name}@${version}`);

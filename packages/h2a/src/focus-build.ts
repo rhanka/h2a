@@ -30,7 +30,7 @@ import {
 const { assertFocusForPresentation, assertFocusDocument } =
   await import(new URL('../focus-kit/validator.mjs', import.meta.url).href) as typeof import('@sentropic/focus/validate');
 
-// Generated from the shared focus-kit DS bridge (`ds-diagram-bridge.js` via `diagram-views.mjs`).
+// Generated from the shared focus-kit DS bridge (`diagram-model.js` via `diagram-views.mjs`, backed by `@sentropic/diagram-canvas/focus-bridge`).
 export interface R7RenderedVariant {
   readonly svg: string;
   readonly width: number;
