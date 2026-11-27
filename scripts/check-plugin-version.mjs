@@ -58,35 +58,126 @@ function runGit(root, args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
 
+function isShallowRepository(root) {
+  try {
+    return runGit(root, ["rev-parse", "--is-shallow-repository"]) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function compareSemverAsc(a, b) {
+  const parse = (raw) => {
+    const clean = raw.replace(/^v/i, "");
+    const dash = clean.indexOf("-");
+    const core = (dash === -1 ? clean : clean.slice(0, dash)).split(".").map(Number);
+    const pre = dash === -1 ? null : clean.slice(dash + 1).split(".").map((p) => (/^\d+$/.test(p) ? Number(p) : p));
+    return { core, pre };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < 3; i++) {
+    if ((pa.core[i] ?? 0) !== (pb.core[i] ?? 0)) return (pa.core[i] ?? 0) - (pb.core[i] ?? 0);
+  }
+  if (pa.pre === null && pb.pre === null) return 0;
+  if (pa.pre === null) return 1;
+  if (pb.pre === null) return -1;
+  const maxLen = Math.max(pa.pre.length, pb.pre.length);
+  for (let i = 0; i < maxLen; i++) {
+    const va = pa.pre[i];
+    const vb = pb.pre[i];
+    if (va === undefined) return -1;
+    if (vb === undefined) return 1;
+    if (va === vb) continue;
+    if (typeof va === "number" && typeof vb === "number") return va - vb;
+    if (typeof va === "number") return -1;
+    if (typeof vb === "number") return 1;
+    return String(va).localeCompare(String(vb));
+  }
+  return 0;
+}
+
+function listReleaseTagsAtRef(root, ref = "HEAD") {
+  try {
+    const raw = runGit(root, ["tag", "--points-at", ref, "--list", "v[0-9]*"]);
+    return raw
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?$/.test(s))
+      .sort(compareSemverAsc);
+  } catch {
+    return [];
+  }
+}
+
 export function resolveBaselineReleaseTag(root, explicitBase) {
-  if (explicitBase) return explicitBase;
+  if (explicitBase) {
+    try {
+      runGit(root, ["rev-parse", "--verify", `${explicitBase}^{commit}`]);
+      return explicitBase;
+    } catch {
+      throw new Error(`plugin_version_check_incomplete: baseline ref ${JSON.stringify(explicitBase)} is missing in git history`);
+    }
+  }
   try {
     runGit(root, ["rev-parse", "--git-dir"]);
   } catch {
-    return null;
+    throw new Error("plugin_version_check_incomplete: not a git repository; cannot resolve baseline release tag");
   }
-  const headTag = (() => {
-    try {
-      return runGit(root, ["describe", "--tags", "--exact-match", "HEAD"]);
-    } catch {
-      return "";
+  if (isShallowRepository(root)) {
+    throw new Error(
+      "plugin_version_check_incomplete: shallow git checkout cannot verify plugin content history; fetch full history and tags (fetch-depth: 0)"
+    );
+  }
+
+  const headTags = listReleaseTagsAtRef(root, "HEAD");
+  const envRefTag = typeof process.env.GITHUB_REF === "string" && process.env.GITHUB_REF.startsWith("refs/tags/")
+    ? process.env.GITHUB_REF.slice("refs/tags/".length)
+    : null;
+  const currentTag = envRefTag && headTags.includes(envRefTag) ? envRefTag : headTags[headTags.length - 1] ?? null;
+
+  // Same-tree promotion: when stable vX.Y.Z is tagged on a commit/tree that
+  // already carries vX.Y.Z-rc.N, compare against that RC tag on HEAD rather
+  // than stepping back to HEAD^ and an older RC.
+  if (currentTag && !currentTag.includes("-")) {
+    const matchingRcOnHead = headTags.filter((tag) => tag.startsWith(`${currentTag}-rc.`));
+    if (matchingRcOnHead.length > 0) {
+      return matchingRcOnHead[matchingRcOnHead.length - 1];
     }
-  })();
-  const searchFrom = /^v[0-9]/.test(headTag) ? "HEAD^" : "HEAD";
+    try {
+      const headTree = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+      const matchingRcTag = runGit(root, ["tag", "--list", `${currentTag}-rc.*`, "--sort=-v:refname"])
+        .split("\n")
+        .map((s) => s.trim())
+        .find((tag) => {
+          if (!tag) return false;
+          try {
+            return runGit(root, ["rev-parse", `${tag}^{tree}`]) === headTree;
+          } catch {
+            return false;
+          }
+        });
+      if (matchingRcTag) return matchingRcTag;
+    } catch {
+      /* fall through to ancestor tag search */
+    }
+  }
+
+  const searchFrom = headTags.length > 0 ? "HEAD^" : "HEAD";
   try {
     const tag = runGit(root, ["describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", searchFrom]);
-    return /^v[0-9]/.test(tag) ? tag : null;
+    if (/^v[0-9]/.test(tag)) return tag;
   } catch {
-    return null;
+    /* handled below */
   }
+  throw new Error(
+    `plugin_version_check_incomplete: no baseline release or RC tag (vX.Y.Z / vX.Y.Z-rc.N) reachable from ${searchFrom}`
+  );
 }
 
 export function checkPluginContentVersionBump(root, options = {}) {
   const currentVersion = checkPluginManifestSync(root);
   const baseRef = resolveBaselineReleaseTag(root, options.baseRef);
-  if (!baseRef) {
-    return { checked: false, currentVersion, baseRef: null, changedFiles: [] };
-  }
 
   const diffOut = runGit(root, ["diff", "--name-only", baseRef, "--", ...PLUGIN_CONTENT_PATHS]);
   const changedFiles = diffOut ? diffOut.split("\n").filter(Boolean) : [];
@@ -116,19 +207,24 @@ export function checkPluginContentVersionBump(root, options = {}) {
 function parseCliArgs(argv) {
   let root = process.cwd();
   let baseRef;
+  let syncOnly = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--root" && argv[i + 1]) root = resolve(argv[++i]);
     else if (argv[i] === "--base" && argv[i + 1]) baseRef = argv[++i];
+    else if (argv[i] === "--sync-only") syncOnly = true;
   }
-  return { root, baseRef };
+  return { root, baseRef, syncOnly };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const { root, baseRef } = parseCliArgs(process.argv.slice(2));
-  const result = checkPluginContentVersionBump(root, { baseRef });
-  console.log(
-    result.checked
-      ? `plugin-version check OK: version=${result.currentVersion}, base=${result.baseRef}, changedPluginFiles=${result.changedFiles.length}`
-      : `plugin-version check OK: manifests synced at ${result.currentVersion} (no baseline tag)`
-  );
+  const { root, baseRef, syncOnly } = parseCliArgs(process.argv.slice(2));
+  if (syncOnly) {
+    const version = checkPluginManifestSync(root);
+    console.log(`plugin-version sync OK: manifests synced at ${version}`);
+  } else {
+    const result = checkPluginContentVersionBump(root, { baseRef });
+    console.log(
+      `plugin-version check OK: version=${result.currentVersion}, base=${result.baseRef}, changedPluginFiles=${result.changedFiles.length}`
+    );
+  }
 }

@@ -47,8 +47,9 @@
  * exported so the unit-test suite can exercise them without spawning a
  * subprocess.
  */
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { checkPluginContentVersionBump } from "./check-plugin-version.mjs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,11 +61,16 @@ const REPO_ROOT = resolve(HERE, "..");
  * The packaged-artifact smoke (`scripts/smoke-artifact.mjs`) proves the
  * candidate against a `PINNED_RUNTIME_VERSION` literal (SPEC 0.98.5 R8.3(4)):
  * the proof must compare against a literal, never against the tree's own
- * version. Every `npm run release -- --version X.Y.Z` therefore rewrites that
- * literal to `X.Y.Z` as part of the bump, so the pin can never be forgotten
+ * version. Every `npm run release -- --version <version>` therefore rewrites
+ * that literal as part of the bump, so the pin can never be forgotten
  * on the next release train.
  */
 const SMOKE_PIN_FILE = "scripts/smoke-artifact.mjs";
+const SHIPPED_ENTRY_DIGESTS_FILE = "packages/h2a/src/registry/shipped-entry-digests.ts";
+const REGISTRY_ENTRY_FILES = [
+  "packages/h2a/registry/entries.v1.json",
+  "packages/track/registry/entries.v1.json"
+];
 
 const PACKAGE_FILES = [
   "package.json",
@@ -103,10 +109,12 @@ const LOCKSTEP_LOCK_KEYS = [
   "packages/track"
 ];
 
+const STRICT_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const RELEASE_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.(0|[1-9]\d*))?$/;
+
 /**
  * Parse a strict SemVer "X.Y.Z" into its numeric components. Throws on any
- * deviation (extra prefix, pre-release suffix, missing component). Keeps the
- * release flow boring: we only ship X.Y.Z tags in V1.
+ * deviation (extra prefix, pre-release suffix, missing component).
  *
  * @param {string} value - The version literal, e.g. `"0.2.0"`.
  * @returns {{ major: number, minor: number, patch: number }}
@@ -117,7 +125,7 @@ export function parseVersion(value) {
       `parseVersion: expected a string version, got ${typeof value}`
     );
   }
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);
+  const match = STRICT_VERSION_RE.exec(value);
   if (!match) {
     throw new Error(
       `parseVersion: "${value}" is not a strict X.Y.Z SemVer triple (no leading zeros, pre-release, or build metadata allowed in release tags).`
@@ -131,6 +139,32 @@ export function parseVersion(value) {
 }
 
 /**
+ * Parse a release or release-candidate version (`X.Y.Z` or `X.Y.Z-rc.N`).
+ *
+ * @param {string} value - Target release version, e.g. `"0.2.0"` or `"0.2.0-rc.1"`.
+ * @returns {{ major: number, minor: number, patch: number, rc: number | null }}
+ */
+export function parseReleaseVersion(value) {
+  if (typeof value !== "string") {
+    throw new TypeError(
+      `parseReleaseVersion: expected a string version, got ${typeof value}`
+    );
+  }
+  const match = RELEASE_VERSION_RE.exec(value);
+  if (!match) {
+    throw new Error(
+      `parseReleaseVersion: "${value}" must be X.Y.Z or X.Y.Z-rc.N (no leading zeros, other pre-release tag, or build metadata).`
+    );
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    rc: match[4] !== undefined ? Number(match[4]) : null
+  };
+}
+
+/**
  * Bump a parsed `package.json` JSON string to `newVersion`. Pure: takes a
  * JSON string in, returns a JSON string out (with the trailing newline
  * preserved if the input had one).
@@ -139,14 +173,14 @@ export function parseVersion(value) {
  * - Sets `.version` to `newVersion`.
  * - For every lockstep sibling in `.dependencies` or `.peerDependencies` (see
  *   `LOCKSTEP_DEP_NAMES`), rewrites the requirement to
- *   `"X.Y.Z"` of the same version so npm cannot mix releases.
+ *   exact `newVersion` so npm cannot mix releases.
  *
  * @param {string} jsonContent - Raw JSON content of a `package.json` file.
- * @param {string} newVersion - Target version, validated by `parseVersion`.
+ * @param {string} newVersion - Target version, validated by `parseReleaseVersion`.
  * @returns {string} The updated JSON string (pretty-printed, 2-space indent).
  */
 export function bumpPackageJsonContent(jsonContent, newVersion) {
-  parseVersion(newVersion); // validate
+  parseReleaseVersion(newVersion); // validate
   const trailingNewline = jsonContent.endsWith("\n");
   const parsed = JSON.parse(jsonContent);
   parsed.version = newVersion;
@@ -170,11 +204,11 @@ export function bumpPackageJsonContent(jsonContent, newVersion) {
  * install command to repair it.
  *
  * @param {string} jsonContent - Raw root `package-lock.json` content.
- * @param {string} newVersion - Target version, validated by `parseVersion`.
+ * @param {string} newVersion - Target version, validated by `parseReleaseVersion`.
  * @returns {string} The updated JSON string (pretty-printed, 2-space indent).
  */
 export function bumpPackageLockContent(jsonContent, newVersion) {
-  parseVersion(newVersion); // validate
+  parseReleaseVersion(newVersion); // validate
   const trailingNewline = jsonContent.endsWith("\n");
   const parsed = JSON.parse(jsonContent);
   parsed.version = newVersion;
@@ -223,11 +257,11 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
  * introduced — the pin stays a literal, per SPEC 0.98.5 R8.3(4).
  *
  * @param {string} jsContent - Raw `scripts/smoke-artifact.mjs` content.
- * @param {string} newVersion - Target version, validated by `parseVersion`.
+ * @param {string} newVersion - Target version, validated by `parseReleaseVersion`.
  * @returns {string} The updated script source.
  */
 export function bumpSmokeArtifactPinContent(jsContent, newVersion) {
-  parseVersion(newVersion); // validate
+  parseReleaseVersion(newVersion); // validate
   const matches = jsContent.match(/^const PINNED_RUNTIME_VERSION = '[^']*'$/gm);
   const count = matches ? matches.length : 0;
   if (count !== 1) {
@@ -250,16 +284,16 @@ const MAIN_BRANCH = "main";
 
 /**
  * Decide on which branch the version commit lands. `main` is PR-only, so a
- * run from `main` moves to a fresh `release/vX.Y.Z` branch; any other branch
- * is kept (the bump may ride in the feature PR itself). A detached HEAD is
- * refused because there would be no branch to open a PR from.
+ * run from `main` moves to a fresh `release/v<version>` branch; any other
+ * branch is kept (the bump may ride in the feature PR itself). A detached HEAD
+ * is refused because there would be no branch to open a PR from.
  *
  * @param {string} currentBranch - Output of `git rev-parse --abbrev-ref HEAD`.
- * @param {string} newVersion - Target version, validated by `parseVersion`.
+ * @param {string} newVersion - Target version, validated by `parseReleaseVersion`.
  * @returns {{ branch: string, create: boolean }}
  */
 export function resolveReleaseBranch(currentBranch, newVersion) {
-  parseVersion(newVersion); // validate
+  parseReleaseVersion(newVersion); // validate
   const current = (currentBranch ?? "").trim();
   if (current === "" || current === "HEAD") {
     throw new Error(
@@ -290,7 +324,12 @@ export function planReleaseGitSteps({ version, currentBranch }) {
       args: ["switch", "-c", branch]
     });
   }
-  steps.push({ label: "Stage version bumps", command: "git", args: ["add", ...PACKAGE_FILES] });
+  const stageFiles = [
+    ...PACKAGE_FILES,
+    ...REGISTRY_ENTRY_FILES.filter((rel) => existsSync(join(REPO_ROOT, rel))),
+    ...(existsSync(join(REPO_ROOT, SHIPPED_ENTRY_DIGESTS_FILE)) ? [SHIPPED_ENTRY_DIGESTS_FILE] : [])
+  ];
+  steps.push({ label: "Stage version bumps", command: "git", args: ["add", ...stageFiles] });
   steps.push({
     label: "Commit version bumps",
     command: "git",
@@ -311,14 +350,17 @@ export function formatNextSteps({
   version, branch, signTag = false,
   focusVersion = JSON.parse(readFileSync(join(REPO_ROOT, "packages/focus/package.json"), "utf8")).version
 }) {
+  const isRc = parseReleaseVersion(version).rc !== null;
+  const baseVersion = version.split("-")[0];
   const tag = `v${version}`;
-  const rcTag = `${tag}-rc.1`;
+  const rcTag = isRc ? tag : `${tag}-rc.1`;
+  const stableTag = `v${baseVersion}`;
   const tagFlags = signTag ? "-s -a" : "-a";
   return [
     "",
     "Next steps (manual — nothing in this script touches the network):",
     "",
-    "  # 1. Publish the version commit through a PR (main is PR-only)",
+    "  # 1. Publish the version commit through a PR (main is PR-only; plugin.json updates on Git main for Claude/Codex marketplace)",
     `  git push -u origin ${branch}`,
     `  gh pr create --base main --head ${branch} --fill`,
     "",
@@ -345,23 +387,23 @@ export function formatNextSteps({
     `  npm install --prefix ./tmp/focus-consumer-test @sentropic/focus@${focusVersion}-rc.1`,
     "  # Perform a REAL machine reboot; verify startup, reconnection and normal work.",
     "  # Record owner acceptance and the RC run URL. If it fails, fix through a PR",
-    "  # and repeat with the next unused rc.N on the new merged commit; never move tags.",
+    `  # and bump the next rc.N via \`npm run release -- --version ${baseVersion}-rc.<N>\` so plugin.json updates in Git; never move tags.`,
     "",
-    "  # 5. Only after owner acceptance: tag the EXACT SAME merged commit",
-    `  git tag ${tagFlags} ${tag} "$SHA" -m "release: ${tag}"`,
-    `  git push origin ${tag}`,
+    `  # 5. Only after owner acceptance: ${isRc ? `bump plugin.json + packages to ${baseVersion} via PR (npm run release -- --version ${baseVersion}) then tag` : "tag the EXACT SAME merged commit"}`,
+    `  git tag ${tagFlags} ${stableTag} "$SHA" -m "release: ${stableTag}"`,
+    `  git push origin ${stableTag}`,
     "",
     "  # 6. Wait for the entire stable release.yml run to succeed, then exit the RC",
-    `  gh run list --workflow release.yml --branch ${tag}`,
-    `  npm i -g @sentropic/h2a@${version}`,
+    `  gh run list --workflow release.yml --branch ${stableTag}`,
+    `  npm i -g @sentropic/h2a@${baseVersion}`,
     `  npm install --prefix ./tmp/focus-consumer-test @sentropic/focus@${focusVersion}`,
     "  # h2a upgrade and automatic upgrade reject prerelease versions; install explicitly.",
     "",
     "On tag push, .github/workflows/release.yml runs:",
     "  - tag-on-main gate (refuses a tag not reachable from origin/main)",
+    "  - full-history checkout (fetch-depth: 0) + plugin content bump verification (scripts/check-plugin-version.mjs)",
     "  - typecheck + tests",
-    "  - version sanity gate; RC versions and exact pins stamped only in CI",
-    "  - stable publication requires a successful same-source-tree RC attestation",
+    "  - stable publication requires a successful RC attestation (same tree or version-manifest-only promotion commit)",
     "  - npm publish --access public via npm Trusted Publishing (five packages; focus version is independent; RC uses next)",
     "  - post-publish install/doctor smoke; RC attestation after registry verification",
     "  - gh release create --generate-notes",
@@ -420,6 +462,73 @@ function runStep(label, command, args, options = {}) {
   }
 }
 
+function canonicalJsonValue(value) {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") return Object.is(value, -0) ? "0" : JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJsonValue(item)).join(",")}]`;
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJsonValue(value[key])}`).join(",")}}`;
+  }
+  throw new Error(`release: non-JSON value of type ${typeof value}`);
+}
+
+function bumpRegistryAndDigestFiles(newVersion, options = {}) {
+  const records = [];
+  for (const rel of REGISTRY_ENTRY_FILES) {
+    const abs = join(REPO_ROOT, rel);
+    if (!existsSync(abs)) continue;
+    const raw = readFileSync(abs, "utf8");
+    const parsed = JSON.parse(raw);
+    const entry = parsed?.entries?.[0];
+    if (!entry?.publisher) continue;
+    entry.publisher.packageVersion = newVersion;
+    const next = `${JSON.stringify(parsed, null, 2)}\n`;
+    if (raw === next) {
+      process.stdout.write(`  ${rel}: already at ${newVersion}\n`);
+    } else if (options.dryRun) {
+      process.stdout.write(`  ${rel}: would bump to ${newVersion}\n`);
+    } else {
+      writeFileSync(abs, next, "utf8");
+      process.stdout.write(`  ${rel}: bumped to ${newVersion}\n`);
+    }
+    records.push({
+      id: entry.id,
+      packageName: entry.publisher.packageName,
+      packageVersion: newVersion,
+      digest: createHash("sha256").update(canonicalJsonValue(entry), "utf8").digest("hex")
+    });
+  }
+  const digestsAbs = join(REPO_ROOT, SHIPPED_ENTRY_DIGESTS_FILE);
+  if (records.length === 2 && existsSync(digestsAbs)) {
+    const raw = readFileSync(digestsAbs, "utf8");
+    const next =
+      "// Generated by scripts/generate-registry-entries.mjs — do not edit by hand.\n" +
+      "export interface ShippedEntryDigestRecord {\n" +
+      "  readonly id: string;\n" +
+      "  readonly packageName: string;\n" +
+      "  readonly packageVersion: string;\n" +
+      "  readonly digest: string;\n" +
+      "}\n\n" +
+      "export const CURRENT_SHIPPED_ENTRY_DIGESTS: ReadonlyMap<string, ShippedEntryDigestRecord> = new Map([\n" +
+      records
+        .map(
+          (rec) =>
+            `  [${JSON.stringify(rec.id)}, { id: ${JSON.stringify(rec.id)}, packageName: ${JSON.stringify(rec.packageName)}, packageVersion: ${JSON.stringify(rec.packageVersion)}, digest: ${JSON.stringify(rec.digest)} }]`
+        )
+        .join(",\n") +
+      "\n]);\n";
+    if (raw === next) {
+      process.stdout.write(`  ${SHIPPED_ENTRY_DIGESTS_FILE}: already at ${newVersion}\n`);
+    } else if (options.dryRun) {
+      process.stdout.write(`  ${SHIPPED_ENTRY_DIGESTS_FILE}: would bump to ${newVersion}\n`);
+    } else {
+      writeFileSync(digestsAbs, next, "utf8");
+      process.stdout.write(`  ${SHIPPED_ENTRY_DIGESTS_FILE}: bumped to ${newVersion}\n`);
+    }
+  }
+}
+
 function bumpAllPackages(newVersion, options = {}) {
   for (const rel of PACKAGE_FILES) {
     const absolute = join(REPO_ROOT, rel);
@@ -441,6 +550,7 @@ function bumpAllPackages(newVersion, options = {}) {
     writeFileSync(absolute, next, "utf8");
     process.stdout.write(`  ${rel}: bumped to ${newVersion}\n`);
   }
+  bumpRegistryAndDigestFiles(newVersion, options);
 }
 
 function assertCleanWorktree() {
@@ -498,13 +608,13 @@ async function main(argv) {
   }
 
   if (!args.version) {
-    process.stderr.write("release: --version <X.Y.Z> is required\n");
+    process.stderr.write("release: --version <X.Y.Z|X.Y.Z-rc.N> is required\n");
     printHelp();
     process.exit(1);
   }
 
   try {
-    parseVersion(args.version);
+    parseReleaseVersion(args.version);
   } catch (err) {
     process.stderr.write(`release: ${(err && err.message) || err}\n`);
     process.exit(1);

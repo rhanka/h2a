@@ -29,9 +29,22 @@ From a clean `main` checkout aligned with `origin/main` (the script switches to
 a new `release/vX.Y.Z` branch), or from the feature branch that carries the
 bump (see `docs/governance/agent-release-policy.md`):
 
+> **Git marketplace plugin manifest rule:** Claude Code and Codex install the
+> `h2a` plugin from the Git repository branch (`rhanka/h2a` `main`,
+> `./packages/h2a`), **not** from npm tarballs. Every publication — including
+> every release candidate (`X.Y.Z-rc.N`) and every subsequent `rc.N` — MUST
+> commit the version bump in `packages/h2a/.claude-plugin/plugin.json`,
+> `packages/h2a/.codex-plugin/plugin.json`, lockstep manifests, and compiled
+> shipped digests (`packages/h2a/src/registry/shipped-entry-digests.ts`) on
+> `main` via PR **before** tagging:
+> `npm run release -- --version X.Y.Z-rc.1` (and `--version X.Y.Z-rc.2`, ...
+> for subsequent RCs), then `npm run release -- --version X.Y.Z` when
+> promoting stable (or tagging `vX.Y.Z` directly on the final RC tree when its
+> manifests already target `X.Y.Z`).
+
 ```sh
 git pull --ff-only origin main
-npm run release -- --version 0.2.0          # commits on release/v0.2.0, no tag
+npm run release -- --version 0.2.0          # (or 0.2.0-rc.1 for an RC bump) commits on release/v0.2.0, no tag
 git push -u origin release/v0.2.0
 gh pr create --base main --head release/v0.2.0 --fill
 gh pr checks release/v0.2.0 --watch --required
@@ -53,7 +66,7 @@ npm i -g @sentropic/h2a@next
 # Perform a REAL machine reboot, then verify h2a startup, reconnection,
 # and the owner's normal workflow. Record the result and the RC run URL.
 
-# Only after owner acceptance: tag the EXACT SAME merged commit.
+# Only after owner acceptance: tag the approved commit (same tree, or version-bump PR to 0.2.0).
 git tag -a v0.2.0 "$SHA" -m "release: v0.2.0"
 git push origin v0.2.0
 # Wait for the entire stable release.yml run to succeed, including publication
@@ -71,30 +84,33 @@ Never tag before the merge: a squash or rebase merge rewrites the commit, so a
 pre-merge tag would point outside `main`, and `release.yml` refuses any tag
 that is not reachable from `origin/main`.
 
-`npm run release -- --version X.Y.Z` performs only local preparation:
+`npm run release -- --version X.Y.Z` (or `X.Y.Z-rc.N` for RCs) performs only local preparation:
 
 1. Refuses to start unless `git status --porcelain` is clean.
 2. Runs `npm run typecheck` and `npm test`.
 3. Verifies those commands did not dirty the worktree.
-4. Bumps `package.json`, `package-lock.json`, and every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`).
-5. Pins internal dependencies and peers to exact `X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track` / `@sentropic/h2a-runtime`. Release gates reject mixed versions or ranges before packing and publishing.
-6. Commits the version bump as `release: vX.Y.Z` on a branch: from `main` it first creates `release/vX.Y.Z`; from another branch it commits there; a detached HEAD is refused; it never commits on `main`.
-7. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated RC tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — successful RC publication, owner installation and real reboot acceptance, stable tag on the same commit, and explicit stable installation after successful publication).
+4. Bumps `package.json`, `package-lock.json`, every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`), `packages/h2a/.claude-plugin/plugin.json`, `packages/h2a/.codex-plugin/plugin.json`, `packages/*/registry/entries.v1.json`, `packages/h2a/src/registry/shipped-entry-digests.ts`, and `scripts/smoke-artifact.mjs`.
+5. Pins internal dependencies and peers to the exact target version: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track` / `@sentropic/h2a-runtime`. Release gates reject mixed versions or ranges before packing and publishing.
+6. Verifies `scripts/check-plugin-version.mjs` fails closed on shallow checkouts or stale plugin versions when plugin content changed.
+7. Commits the version bump as `release: v<version>` on a branch: from `main` it first creates `release/v<version>`; from another branch it commits there; a detached HEAD is refused; it never commits on `main`.
+8. Prints the next steps (branch push, PR, green CI, merge, fetch, annotated RC tag on the merged commit verified on `origin/main` — signed when `git config commit.gpgsign` is `true` — successful RC publication, owner installation and real reboot acceptance, stable tag, and explicit stable installation after successful publication).
 
 The script deliberately does **not** create the tag, does **not** publish to npm and does **not** push to GitHub. `--dry-run` prints the planned commands and file bumps without writing files or running git/npm commands.
 
-The preparation script's version must be a strict `X.Y.Z` SemVer triple with
-no leading `v`, pre-release/build metadata, or leading zeros. Keep this stable
-version in Git while testing RCs. Do not commit an RC version bump: release CI
-stamps all five package manifests (focus keeps its own base), exact internal pins and the independent
-artifact-smoke version literal with `X.Y.Z-rc.N` in disposable checkouts only.
-`N` is a nonnegative integer without leading zeros.
+The preparation script's version must be a strict `X.Y.Z` or `X.Y.Z-rc.N`
+SemVer literal (`N` = nonnegative integer without leading zeros), with no
+leading `v`, other pre-release tag, or build metadata. Bump `plugin.json` in Git
+via PR before every RC (`rc.1`, `rc.2`, ...) and on promotion to stable so Git
+marketplace installs always pick up the published plugin version; `release.yml`
+runs with `fetch-depth: 0` so `check-plugin-version.mjs` always verifies full
+tag history and accepts stable promotions on the same tree as the last RC.
 
-If the reboot test fails, fix the source through a PR, then cut `rc.2` (or the
-next unused candidate number) on the new merged commit. Repeat installation
-and the real reboot. Any source-tree change requires a new successful RC;
-never move an existing tag. Avoid concurrent RC publications because all five
-`next` tags must point to the candidate when its attestation is recorded.
+If the reboot test fails, fix the source through a PR, then bump and cut `rc.2`
+(or the next unused candidate number) on the new merged commit. Repeat
+installation and the real reboot. Any source-tree change requires a new
+successful RC; never move an existing tag. Avoid concurrent RC publications
+because all five `next` tags must point to the candidate when its attestation
+is recorded.
 
 ## Publish Workflow
 
