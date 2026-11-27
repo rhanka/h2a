@@ -42,6 +42,12 @@ export function verifyPublishablePayload(directory) {
   if (JSON.stringify([...(pkg.bundleDependencies ?? [])].sort()) !== JSON.stringify(Object.keys(pkg.dependencies ?? {}).sort())) throw Error('release_bundle_incomplete');
   const sibling = pkg.name === '@sentropic/h2a' ? '@sentropic/h2a-runtime' : '@sentropic/h2a';
   if (pkg.dependencies[sibling] !== pkg.version) throw Error('release_runtime_not_lockstep');
+  if (pkg.name === '@sentropic/h2a') {
+    for (const pluginRel of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+      if (!files.has(pluginRel)) continue;
+      if (json(pluginRel).version !== pkg.version) throw Error('release_plugin_version_not_lockstep');
+    }
+  }
   return published;
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

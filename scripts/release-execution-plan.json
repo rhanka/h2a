@@ -74,7 +74,8 @@
       {
         "uses": "actions/checkout@v4",
         "with": {
-          "ref": "${{ needs.resolve-release-sha.outputs.release-sha }}"
+          "ref": "${{ needs.resolve-release-sha.outputs.release-sha }}",
+          "fetch-depth": 0
         }
       },
       {
@@ -265,7 +266,8 @@
       {
         "uses": "actions/checkout@v4",
         "with": {
-          "ref": "${{ needs.verify.outputs.release-sha }}"
+          "ref": "${{ needs.verify.outputs.release-sha }}",
+          "fetch-depth": 0
         }
       },
       {

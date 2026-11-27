@@ -412,6 +412,11 @@ jobs:
         run: node scripts/test-sandbox.mjs --prepare-ci
       - run: npm ci
       - run: npm run typecheck
+      - name: Verify plugin manifest sync and registry entry digests
+        run: |
+          node scripts/check-plugin-version.mjs --sync-only
+          npm run build
+          node scripts/generate-registry-entries.mjs --check
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures

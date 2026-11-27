@@ -1763,8 +1763,20 @@ test('L0 ledger gate: repository version bumps preserve verdicts and different f
     assert.deepEqual(after.results, before.results);
     assert.equal(after.results[0].signature.actual, '<repo-version>');
     assert.equal(after.results[0].signature.expected, '<candidate-version>');
-    for (const result of [...before.results.slice(0, 2), ...after.results.slice(0, 2)]) {
-      assert.equal(contractFailure(result, readCleanseLedger()), undefined, result.id);
+    const liveLedger = readCleanseLedger();
+    for (const sample of [before, after]) {
+      for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+        const result = observeContract(
+          { id: 'packaged ' + path + ' exact RC', lot: 'L3', actual: sample.context.version, expected: sample.context.version },
+          sample.context,
+        );
+        assert.equal(contractFailure(result, liveLedger), undefined, result.id);
+      }
+      const integrationResult = observeContract(
+        { id: 'packaged integration manifest exact RC', lot: 'L3', actual: undefined, expected: sample.context.version },
+        sample.context,
+      );
+      assert.equal(contractFailure(integrationResult, liveLedger), undefined, integrationResult.id);
     }
     const ledger = Object.fromEntries(before.results.map(({ id, ...entry }) => [id, entry]));
     assert.deepEqual(after.results.map(result => contractFailure(result, ledger)), Array(4).fill(undefined));

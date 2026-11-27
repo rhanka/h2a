@@ -28,6 +28,7 @@ const {
   bumpSmokeArtifactPinContent,
   formatNextSteps,
   gitStatusIsClean,
+  parseReleaseVersion,
   parseVersion,
   planReleaseGitSteps,
   resolveReleaseBranch
@@ -50,6 +51,21 @@ test("parseVersion rejects bad inputs", () => {
   assert.throws(() => parseVersion(""));              // empty
   assert.throws(() => parseVersion(undefined));       // wrong type
   assert.throws(() => parseVersion(0.2));             // wrong type
+});
+
+test("parseReleaseVersion admits strict X.Y.Z and X.Y.Z-rc.N for git-committed RC bumps", () => {
+  assert.deepEqual(parseReleaseVersion("0.99.0"), { major: 0, minor: 99, patch: 0, rc: null });
+  assert.deepEqual(parseReleaseVersion("0.99.0-rc.1"), { major: 0, minor: 99, patch: 0, rc: 1 });
+  assert.deepEqual(parseReleaseVersion("0.99.0-rc.16"), { major: 0, minor: 99, patch: 0, rc: 16 });
+  assert.throws(() => parseReleaseVersion("0.99.0-rc.01"));
+  assert.throws(() => parseReleaseVersion("0.99.0-beta.1"));
+  assert.throws(() => parseReleaseVersion("v0.99.0-rc.1"));
+  const rcPkg = JSON.parse(bumpPackageJsonContent(JSON.stringify({ name: "@sentropic/h2a", version: "0.98.11", dependencies: { "@sentropic/track": "0.98.11" } }, null, 2), "0.99.0-rc.2"));
+  assert.equal(rcPkg.version, "0.99.0-rc.2");
+  assert.equal(rcPkg.dependencies["@sentropic/track"], "0.99.0-rc.2");
+  const rcPlan = planReleaseGitSteps({ version: "0.99.0-rc.2", currentBranch: "main" });
+  assert.equal(rcPlan.branch, "release/v0.99.0-rc.2");
+  assert.ok(rcPlan.steps[1].args.includes("packages/h2a/src/registry/shipped-entry-digests.ts"));
 });
 
 test("bumpPackageJsonContent updates the version field", () => {

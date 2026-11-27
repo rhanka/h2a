@@ -33,9 +33,12 @@ import {
 } from "./descriptors.js";
 import {
   BRIDGE_LOCK_FORMAT,
+  PRIOR_SHIPPED_ENTRY_DIGESTS,
   defaultPluginBridgeLockPath,
   findVerifiedPluginVersionDir,
   isBridgeLockLive,
+  isPublishedPackageVersion,
+  isStrictlyNewerSemver,
   pluginBridgeConfigBase,
   provisionBridgeLock,
   quarantineBridgeLock,
@@ -43,8 +46,10 @@ import {
   resolveClaudeConfigPath,
   resolveClaudeConfigRoot,
   resolveCodexConfigRoot,
+  rotateBridgeLock,
   type BridgeLock
 } from "./bridge-lock.js";
+import { currentCliVersion } from "../runtime/upgrade/index.js";
 import {
   isBridgeServer as isCodexBridgeServer,
   isH2aServerName as isCodexH2aServerName,
@@ -1765,15 +1770,20 @@ export function rebootstrapMissingPluginLock(options: PluginInstallOptions): {
   return { lockPath, lockAction };
 }
 
+interface CachedDescriptorRecord {
+  readonly packageName: string;
+  readonly packageVersion: string;
+}
+
 function collectTrustedPluginUpgradeMetadata(
   host: "claude" | "codex",
   profile: string,
   declaration: PluginDeclaration,
   configPath?: string
-): { versions: Set<string>; cachedEntriesById: Map<string, Set<string>> } {
+): { versions: Set<string>; cachedEntriesById: Map<string, Map<string, CachedDescriptorRecord>> } {
   const versions = new Set<string>();
-  const cachedEntriesById = new Map<string, Set<string>>();
-  if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0) {
+  const cachedEntriesById = new Map<string, Map<string, CachedDescriptorRecord>>();
+  if (isPublishedPackageVersion(declaration.pluginVersion)) {
     versions.add(declaration.pluginVersion);
   }
   const addCachedEntriesFromDir = (pluginDir: string): void => {
@@ -1783,15 +1793,25 @@ function collectTrustedPluginUpgradeMetadata(
       const parsed = JSON.parse(readFileSync(entriesPath, "utf8")) as { entries?: unknown };
       if (!Array.isArray(parsed?.entries)) return;
       for (const rawEntry of parsed.entries) {
-        if (!isPlainObject(rawEntry) || typeof rawEntry["id"] !== "string") continue;
+        if (!isPlainObject(rawEntry) || typeof rawEntry["id"] !== "string" || !isPlainObject(rawEntry["publisher"])) continue;
+        const pub = rawEntry["publisher"];
+        if (
+          typeof pub["packageName"] !== "string" ||
+          !isPublishedPackageVersion(pub["packageVersion"])
+        ) {
+          continue;
+        }
         try {
           const digest = digestDescriptor(rawEntry as unknown as RegistryEntry);
-          let set = cachedEntriesById.get(rawEntry["id"]);
-          if (!set) {
-            set = new Set<string>();
-            cachedEntriesById.set(rawEntry["id"], set);
+          let map = cachedEntriesById.get(rawEntry["id"]);
+          if (!map) {
+            map = new Map<string, CachedDescriptorRecord>();
+            cachedEntriesById.set(rawEntry["id"], map);
           }
-          set.add(digest);
+          map.set(digest, {
+            packageName: pub["packageName"],
+            packageVersion: pub["packageVersion"]
+          });
         } catch {
           /* ignore invalid cached descriptor */
         }
@@ -1809,8 +1829,7 @@ function collectTrustedPluginUpgradeMetadata(
       receipt["host"] === host &&
       (receipt["profile"] ?? "default") === profile &&
       isPlainObject(receipt["plugin"]) &&
-      typeof receipt["plugin"]["version"] === "string" &&
-      receipt["plugin"]["version"].length > 0
+      isPublishedPackageVersion(receipt["plugin"]["version"])
     ) {
       versions.add(receipt["plugin"]["version"]);
     }
@@ -1825,7 +1844,7 @@ function collectTrustedPluginUpgradeMetadata(
         try {
           if (!statSync(candidateDir).isDirectory()) continue;
           const sibling = readPluginDeclaration(host, candidateDir, profile);
-          if (typeof sibling.pluginVersion === "string" && sibling.pluginVersion.length > 0) {
+          if (isPublishedPackageVersion(sibling.pluginVersion)) {
             versions.add(sibling.pluginVersion);
           }
           addCachedEntriesFromDir(candidateDir);
@@ -1840,39 +1859,26 @@ function collectTrustedPluginUpgradeMetadata(
   return { versions, cachedEntriesById };
 }
 
-const PRIOR_SHIPPED_H2A_ENTRY_DIGESTS: ReadonlyMap<string, string> = new Map([
-  // Exact SHA-256 digests of the previous `@sentropic/h2a` (`sentropic.h2a`) v0.98.11-rc.15 / pre-async-focus descriptor (66 tools).
-  ["9451fa7f46bd00d9b19d54459446442003c8d2304461edff7af6ef2384596c76", "0.98.11-rc.15"],
-  ["38e1244358ff2f46cdb93bb77bec82649fc09c9486783aa1168d1d90fe9b9558", "0.98.11-rc.15"]
-]);
-
 /**
  * Cryptographically verified in-place refresh of a default plugin bridge lock
- * after a global `h2a` package version upgrade (e.g. 0.98.10 → 0.98.11) when
+ * after a global `h2a` package version upgrade (e.g. 0.98.10 -> 0.98.11) when
  * invoked via `registry-bridge serve --auto-upgrade` (explicit opt-in) or via
  * the explicit `h2a doctor --repair` convergence (both hosts).
  *
- * Security invariant: tampered or corrupt locks MUST fail closed. This helper
- * ONLY refreshes `lockPath` when:
- * - the existing lock is structurally valid (`h2a.registry-bridge-lock/v1`)
- *   and binds the exact `host` and `profile`;
- * - the host config & receipt pass the exact same conflict guards as
- *   `rebootstrapMissingPluginLock` (never writes host config, receipt, or
- *   `~/.local/bin/h2a`);
- * - every entry's `configDigest` still matches the normalized configuration;
- * - every drifted entry digest cryptographically matches either the packed
- *   entry with `publisher.packageVersion` set to a trusted on-disk plugin
- *   version (verified plugin cache or plugin install receipt), a verified
- *   cached `registry/entries.v1.json` entry, or an exact SHA-256 digest in
- *   `PRIOR_SHIPPED_H2A_ENTRY_DIGESTS` when `sentropic.h2a` has `trustedVersions.size > 0`
- *   (covers MCP tool additions where the N-1 package descriptor had fewer tools).
- *
- * Any tampered digest (arbitrary hash, modified config, or unknown source)
- * returns `{ refreshed: false }` without modifying a single byte of `lockPath`.
+ * Delegates durable backup (`.quarantine-*`), atomic replacement, and rotation
+ * journal logging (`.rotations.jsonl`) to `rotateBridgeLock` in `bridge-lock.ts`.
  */
 export function refreshUpgradedPluginLock(
   options: PluginInstallOptions & { memoryEntry?: RegistryEntry }
-): { refreshed: boolean; lockPath: string; priorVersions?: string[]; quarantinePath?: string } {
+): {
+  refreshed: boolean;
+  lockPath: string;
+  priorVersions?: string[];
+  quarantinePath?: string;
+  backupPath?: string;
+  journalPath?: string;
+  reason?: string;
+} {
   assertRegistryHost(options.host);
   if (options.host !== "claude" && options.host !== "codex") {
     return { refreshed: false, lockPath: "" };
@@ -1897,151 +1903,91 @@ export function refreshUpgradedPluginLock(
     }
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(lockPath, "utf8")) as unknown;
-  } catch {
-    return { refreshed: false, lockPath };
-  }
-  if (!isPlainObject(parsed) || parsed["format"] !== BRIDGE_LOCK_FORMAT) {
-    return { refreshed: false, lockPath };
-  }
-  const existing = parsed as unknown as BridgeLock;
-  if (
-    existing.lockVersion !== 1 ||
-    existing.host !== options.host ||
-    existing.profile !== profile ||
-    !Array.isArray(existing.selection) ||
-    existing.selection.length === 0 ||
-    !isPlainObject(existing.entries) ||
-    !isPlainObject(existing.compatibility)
-  ) {
-    return { refreshed: false, lockPath };
-  }
-
-  const known = new Map<string, RegistryEntry>([
-    [options.h2aEntry.id, options.h2aEntry],
-    [options.trackEntry.id, options.trackEntry],
-    ...(options.memoryEntry ? [[options.memoryEntry.id, options.memoryEntry] as const] : [])
-  ]);
+  const installedVersion = currentCliVersion();
   const { versions: trustedVersions, cachedEntriesById } = collectTrustedPluginUpgradeMetadata(
     options.host,
     profile,
     declaration,
     options.configPath || undefined
   );
-
-  const seen = new Set<string>();
   const matchedPriorVersions = new Set<string>();
-  const refreshedEntries: BridgeLock["entries"] = {};
-  let anyDrifted = false;
 
-  for (const selected of existing.selection) {
-    if (!isPlainObject(selected) || typeof selected.id !== "string") return { refreshed: false, lockPath };
-    if (seen.has(selected.id)) return { refreshed: false, lockPath };
-    seen.add(selected.id);
-    const packed = known.get(selected.id);
-    if (!packed || selected.kind !== packed.kind || selected.entryVersion !== packed.entryVersion) {
-      return { refreshed: false, lockPath };
-    }
-    const record = existing.entries[selected.id];
-    if (!isPlainObject(record) || typeof record["digest"] !== "string" || !isPlainObject(record["config"])) {
-      return { refreshed: false, lockPath };
-    }
-    let currentDigest: string;
-    let expectedConfigDigest: string;
-    try {
-      currentDigest = validateRegistryEntry(packed).digest;
-      const normalized = normalizeConfiguration(packed, record["config"]);
-      expectedConfigDigest = sha256Hex(canonicalJson(normalized));
-    } catch {
-      return { refreshed: false, lockPath };
-    }
-    if (record["configDigest"] !== expectedConfigDigest) {
-      return { refreshed: false, lockPath };
-    }
-    if (record["digest"] !== currentDigest) {
-      let proven = false;
-      for (const candidateVersion of trustedVersions) {
-        if (candidateVersion === packed.publisher.packageVersion) continue;
-        try {
-          const priorDigest = digestDescriptor({
-            ...packed,
-            publisher: { ...packed.publisher, packageVersion: candidateVersion }
-          });
-          if (record["digest"] === priorDigest) {
-            proven = true;
-            matchedPriorVersions.add(candidateVersion);
-            break;
+  try {
+    const result = rotateBridgeLock({
+      lockPath,
+      host: options.host,
+      profile,
+      h2aEntry: options.h2aEntry,
+      trackEntry: options.trackEntry,
+      ...(options.memoryEntry ? { memory: { entry: options.memoryEntry, config: {} } } : {}),
+      actor: `refreshUpgradedPluginLock(${options.host})`,
+      reason: "verified-plugin-upgrade",
+      verifyPriorDigest: ({ id, priorDigest, packed, expectedPackageName, installedVersion: targetVersion }) => {
+        const expectedPublisher = expectedPackageName;
+        for (const candidateVersion of trustedVersions) {
+          if (!isPublishedPackageVersion(candidateVersion) || !isStrictlyNewerSemver(targetVersion, candidateVersion)) {
+            continue;
           }
-        } catch {
-          /* ignore */
+          try {
+            const candidateDigest = digestDescriptor({
+              ...packed,
+              publisher: { ...packed.publisher, packageName: expectedPublisher, packageVersion: candidateVersion }
+            });
+            if (priorDigest === candidateDigest) {
+              matchedPriorVersions.add(candidateVersion);
+              return { priorVersion: candidateVersion, reason: "trusted-plugin-version" };
+            }
+          } catch {
+            /* ignore invalid candidate version */
+          }
         }
-      }
-      if (!proven && cachedEntriesById.get(selected.id)?.has(record["digest"])) {
-        proven = true;
-        if (typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0) {
-          matchedPriorVersions.add(declaration.pluginVersion);
+        const cached = cachedEntriesById.get(id)?.get(priorDigest);
+        if (
+          cached &&
+          cached.packageName === expectedPublisher &&
+          isPublishedPackageVersion(cached.packageVersion) &&
+          isStrictlyNewerSemver(targetVersion, cached.packageVersion)
+        ) {
+          matchedPriorVersions.add(cached.packageVersion);
+          return { priorVersion: cached.packageVersion, reason: "cached-same-publisher-descriptor" };
         }
-      }
-      if (!proven && selected.id === "sentropic.h2a" && trustedVersions.size > 0) {
-        const priorRelease = PRIOR_SHIPPED_H2A_ENTRY_DIGESTS.get(record["digest"]);
-        if (priorRelease !== undefined) {
-          proven = true;
-          matchedPriorVersions.add(
-            typeof declaration.pluginVersion === "string" && declaration.pluginVersion.length > 0
-              ? declaration.pluginVersion
-              : priorRelease
-          );
+        if (trustedVersions.size > 0) {
+          const shipped = PRIOR_SHIPPED_ENTRY_DIGESTS.get(priorDigest);
+          if (
+            shipped &&
+            shipped.id === id &&
+            shipped.packageName === expectedPublisher &&
+            isPublishedPackageVersion(shipped.packageVersion) &&
+            isStrictlyNewerSemver(targetVersion, shipped.packageVersion)
+          ) {
+            matchedPriorVersions.add(shipped.packageVersion);
+            return { priorVersion: shipped.packageVersion, reason: "prior-shipped-published-release" };
+          }
         }
+        void installedVersion;
+        return null;
       }
-      if (!proven) return { refreshed: false, lockPath };
-      anyDrifted = true;
+    });
+    if (!result.rotated) {
+      return { refreshed: false, lockPath };
     }
-    refreshedEntries[selected.id] = {
-      digest: currentDigest,
-      config: record["config"] as Record<string, unknown>,
-      configDigest: expectedConfigDigest
+    return {
+      refreshed: true,
+      lockPath,
+      priorVersions: [...matchedPriorVersions],
+      ...(result.backupPath ? { quarantinePath: result.backupPath, backupPath: result.backupPath } : {}),
+      ...(result.journalPath ? { journalPath: result.journalPath } : {})
+    };
+  } catch (err) {
+    if (err instanceof RegistryError && err.code === "restore_failed") {
+      throw err;
+    }
+    return {
+      refreshed: false,
+      lockPath,
+      reason: (err as Error).message
     };
   }
-  if (!anyDrifted || Object.keys(existing.entries).some((id) => !seen.has(id))) {
-    return { refreshed: false, lockPath };
-  }
-
-  const refreshed: BridgeLock = {
-    ...existing,
-    entries: refreshedEntries
-  };
-  // NB-1: keep the stale N-1 lock reversible WITHOUT opening a
-  // missing_lock window: the quarantine copy is verified first and the live
-  // lock is never unlinked — the tmp file renames over it atomically below.
-  // (quarantineBridgeLock unlinks, which a parallel start would observe as
-  // missing_lock; the uninstall flow keeps using it where removal is wanted.)
-  const quarantinePath = `${lockPath}.quarantine-${Date.now()}-${randomUUID().slice(0, 8)}`;
-  try {
-    const originalBytes = readFileSync(lockPath);
-    writeFileSync(quarantinePath, originalBytes, { mode: 0o600, flag: "wx" });
-    if (!readFileSync(quarantinePath).equals(originalBytes)) {
-      throw new RegistryError("restore_failed", `quarantine copy verification failed for ${quarantinePath}`);
-    }
-  } catch (err) {
-    if (err instanceof RegistryError) throw err;
-    throw new RegistryError("restore_failed", `failed to quarantine stale plugin lock at ${lockPath}: ${(err as Error).message ?? "unknown error"}`);
-  }
-  mkdirSync(dirname(lockPath), { recursive: true });
-  const tmpPath = `${lockPath}.tmp-${process.pid}-${randomUUID()}`;
-  writeFileSync(tmpPath, `${JSON.stringify(refreshed, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  try {
-    renameSync(tmpPath, lockPath);
-  } catch (err) {
-    try {
-      unlinkSync(tmpPath);
-    } catch {
-      /* ignore */
-    }
-    throw err;
-  }
-  return { refreshed: true, lockPath, priorVersions: [...matchedPriorVersions], ...(quarantinePath ? { quarantinePath } : {}) };
 }
 
 /**

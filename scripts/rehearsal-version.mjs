@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // CI workspace only. Never call release.mjs or change the release versioning path.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const { GITHUB_ACTIONS, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT } = process.env
@@ -49,6 +49,12 @@ for (const { path, manifest } of manifests) {
     }
   }
   writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n')
+}
+for (const pluginRel of ['packages/h2a/.claude-plugin/plugin.json', 'packages/h2a/.codex-plugin/plugin.json']) {
+  if (!existsSync(pluginRel)) continue
+  const pluginManifest = JSON.parse(readFileSync(pluginRel, 'utf8'))
+  pluginManifest.version = version
+  writeFileSync(pluginRel, JSON.stringify(pluginManifest, null, 2) + '\n')
 }
 // Keep the independent literal proof; only its CI copy changes, never the release smoke.
 writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`).replace(focusPin, `const PINNED_FOCUS_VERSION = '${focusVersion}'`))

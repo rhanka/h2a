@@ -156,6 +156,7 @@ export function createAuthenticatedServer(auth, fetch, getHealth) {
         sendPlain(200, {
           ok: true,
           generation: auth.marker.generation,
+          ...(auth.marker.packageVersion ? { packageVersion: auth.marker.packageVersion } : {}),
           state: auth.ready ? 'ready' : 'starting',
           pid: auth.marker.pid,
           ledgerMigrationComplete: true,

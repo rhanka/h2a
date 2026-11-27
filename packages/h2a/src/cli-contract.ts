@@ -695,10 +695,10 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     verb: "registry bootstrap",
     outputShape: "action",
     exitCodes: [0, 1, 2],
-    requiredFlags: ["host", "config"],
-    optionalFlags: ["profile", "lock", "dry-run"],
+    requiredFlags: ["host"],
+    optionalFlags: ["config", "profile", "lock", "mechanism", "plugin-dir", "dry-run"],
     description:
-      "Explicit operator-owned install of the one registry bridge declaration (server key h2a) into a host config: preview|install|uninstall. Preserves unrelated bytes, provisions the bridge lock, refuses unknown same-key ownership, migrates legacy direct entries atomically. R5."
+      "Explicit operator-owned install and maintenance of the registry bridge declaration (server key h2a) and its lock: preview|install|uninstall|rotate. Preserves unrelated bytes, provisions or rotates the bridge lock (backing up the prior lock and logging rotations), refuses unknown descriptors/same-key ownership, and migrates legacy direct entries atomically. R5."
   },
   {
     verb: "registry-bridge serve",

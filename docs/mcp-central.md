@@ -3,6 +3,18 @@
 On Linux, `mcp-serve --host claude` selects the central by default when the host
 provides `CLAUDE_CODE_SESSION_ID`. `H2A_MCP_CENTRAL=0` or
 `h2a.central.enabled=false` selects stdio for new connections.
+When auto-started via `launchCentral`, the detached central process is attached
+via `busctl --user StartTransientUnit` into a generation-unique
+`systemd --user` transient scope (`h2a-mcp-central-<generation>.scope`, with
+`UnitExists` / `was already loaded or has a fragment file` fallback retry if an
+explicit `H2A_MCP_CENTRAL_SYSTEMD_UNIT` collides) under `app.slice` with
+`MemoryHigh=3G` and `MemoryMax=4G`, keeping central memory isolated from the
+launching host session's cgroup scope. After `StartTransientUnit`, central scope
+isolation polls `/proc/<pid>/cgroup` and sets `isolated: true` only when the
+target unit appears in the process cgroup. When `systemd --user`, D-Bus user
+transport, or scope verification is unavailable, central cleanly falls back with
+`isolated: false` (`detached spawn in caller scope`) and logs the fallback
+reason to `mcp-central.log` and stderr.
 Routing happens before heavy imports. Codex,
 agy, ambiguous Claude identities, explicit instance overrides, cluster-mesh,
 and unsupported state roots retain full stdio. The shipped manifests are unchanged.

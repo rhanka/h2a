@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import { digest } from './wire.js';
@@ -17,9 +18,10 @@ import { classifyDurableProcFrame } from './proc-identity.js';
 import { starterPlan } from './selection.js';
 import { readState, publishState, replaceState } from './state.js';
 import { reserveSuccessorAttempt, recordSuccessor, failSuccessor, markSuccessorFailed } from './successor.js';
+import { isolateCentralSystemdScope } from './central-scope.js';
 
 /** @param {*} options */
-export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath, probeOptions, evictionOptions }) {
+export async function launchCentral({ directory, root, installation, physicalPrefix, fallbackEntry, environment, kind = 'shim', onSpawn, logPath, probeOptions, evictionOptions, scopeOptions, stderr }) {
   const identity = currentIdentity();
   const authority = await prepareAuthority({ directory, root, physicalPrefix: installation?.canonicalPrefix ?? physicalPrefix, frame: identity });
   let plan, child, ticket;
@@ -76,12 +78,31 @@ export async function launchCentral({ directory, root, installation, physicalPre
       candidateIdentity: null, entrypoint: plan.entrypoint, createdAt: Date.now(), state: 'RESERVED' };
     const reserved = old ? replaceState(slotPath, slot, 'startupReservation', old) : publishState(slotPath, slot, 'startupReservation');
     const log = fs.openSync(logPath?.() ?? join(directory, 'mcp-central.log'), 'a', 0o600);
+    let scopeResult;
     try {
       child = spawn(process.execPath, ['--max-old-space-size=384', plan.entrypoint, 'mcp-central-serve', '--root', root,
         '--runtime-base', dirname(directory), '--auto-start', ...(ticket ? ['--handover-id', ticket.handoverId,
           '--transaction-epoch', String(ticket.transactionEpoch), '--successor-attempt', String(ticket.attempt)] : [])],
         { detached: true, cwd: environment.HOME, env: environment, stdio: ['ignore', log, log] });
       await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+      const generationToken = `${ticket ? `t${ticket.transactionEpoch}-a${ticket.attempt}-` : ''}${child.pid}-${randomUUID().slice(0, 8)}`;
+      scopeResult = await isolateCentralSystemdScope(child.pid, {
+        environment,
+        generation: generationToken,
+        ...(scopeOptions ?? {})
+      });
+      try {
+        fs.writeSync(log, `${scopeResult.message}\n`);
+      } catch {
+        /* best-effort log diagnostic */
+      }
+      if (!scopeResult.isolated && environment?.H2A_MCP_CENTRAL_QUIET_SCOPE_FALLBACK !== '1') {
+        try {
+          (stderr ?? process.stderr).write(`${scopeResult.message}\n`);
+        } catch {
+          /* best-effort fallback diagnostic */
+        }
+      }
     } catch (error) {
       replaceState(slotPath, { ...slot, revision: reserved.value.revision + 1, state: 'FAILED' }, 'startupReservation', reserved);
       if (ticket) failSuccessor(plan.transactionPath, ticket, 'spawn_failed', 'dead');
@@ -93,7 +114,7 @@ export async function launchCentral({ directory, root, installation, physicalPre
     replaceState(slotPath, { ...slot, revision: reserved.value.revision + 1, candidateIdentity: candidate, state: 'STARTING' }, 'startupReservation', reserved);
     if (ticket) recordSuccessor(plan.transactionPath, ticket, candidate);
     child.unref();
-    onSpawn?.(child);
+    onSpawn?.(child, scopeResult);
   } finally { await lock.release(); }
   const budget = plan.manifest?.startupWaitBudgetMs ?? 10_000, deadline = Date.now() + budget;
   while (Date.now() < deadline) {

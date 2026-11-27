@@ -130,6 +130,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve-release-sha.outputs.release-sha }}
+          fetch-depth: 0
 
       - name: Ensure release tag is on main
         shell: bash
@@ -294,6 +295,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.verify.outputs.release-sha }}
+          fetch-depth: 0
 
       # SPEC 0.98.5 R8.2: publish downloads the tarballs verify built and
       # verifies every sha256 BEFORE publishing: the registry receives THESE

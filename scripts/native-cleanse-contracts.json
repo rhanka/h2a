@@ -374,28 +374,10 @@
       }
     },
     "packaged .claude-plugin/plugin.json exact RC": {
-      "state": "RED",
-      "signature": {
-        "actual": "<repo-version>",
-        "code": "ERR_ASSERTION",
-        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
-        "expected": "<candidate-version>",
-        "message": "packaged .claude-plugin/plugin.json exact RC (L3)",
-        "name": "AssertionError",
-        "operator": "deepStrictEqual"
-      }
+      "state": "GREEN"
     },
     "packaged .codex-plugin/plugin.json exact RC": {
-      "state": "RED",
-      "signature": {
-        "actual": "<repo-version>",
-        "code": "ERR_ASSERTION",
-        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
-        "expected": "<candidate-version>",
-        "message": "packaged .codex-plugin/plugin.json exact RC (L3)",
-        "name": "AssertionError",
-        "operator": "deepStrictEqual"
-      }
+      "state": "GREEN"
     },
     "packaged integration manifest exact RC": {
       "state": "RED",

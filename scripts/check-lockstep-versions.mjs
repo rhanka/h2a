@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Keep npm from combining a published core with incompatible newer siblings.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -22,6 +22,14 @@ export function checkLockstepVersions(root) {
           throw new Error(`${pkg.name} ${field}.${dep} must be exactly ${versions[dep]}, got ${requirement}`);
         }
       }
+    }
+  }
+  for (const rel of ['packages/h2a/.claude-plugin/plugin.json', 'packages/h2a/.codex-plugin/plugin.json']) {
+    const manifestPath = join(root, rel);
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (manifest.version !== expected) {
+      throw new Error(`Plugin manifest ${rel} version must be ${expected}, got ${JSON.stringify(manifest.version)}`);
     }
   }
   return expected;
