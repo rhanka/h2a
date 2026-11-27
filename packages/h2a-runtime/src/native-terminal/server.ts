@@ -183,6 +183,14 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
   if (!Object.values(environment).every((value) => typeof value === "string")) {
     throw new TypeError("terminal env values must be strings");
   }
+  const memoryPolicy = options.memoryPolicy;
+  if (memoryPolicy !== undefined && memoryPolicy !== "default" && memoryPolicy !== "agy") {
+    throw new TypeError("terminal memoryPolicy must be default or agy");
+  }
+  const sessionClass = options.sessionClass;
+  if (sessionClass !== undefined && sessionClass !== "human" && sessionClass !== "background") {
+    throw new TypeError("terminal sessionClass must be human or background");
+  }
   return {
     ...(options.launchFence !== undefined ? { launchFence: {
       generation: requiredIdentifier(requiredRecord(options.launchFence, "launch fence").generation, "launch generation"),
@@ -195,6 +203,8 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
     env: environment as Record<string, string>,
     cols: requiredInteger(options.cols, "terminal cols"),
     rows: requiredInteger(options.rows, "terminal rows"),
+    ...(memoryPolicy !== undefined ? { memoryPolicy } : {}),
+    ...(sessionClass !== undefined ? { sessionClass } : {}),
   };
 }
 
@@ -250,6 +260,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         applicationFacetVersion: APPLICATION_FACET_VERSION,
         launchFence: true,
         softRespawn: true,
+        hostIsolated: host.hostIsolated,
         generation: host.generation,
         hostPid: process.pid,
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,

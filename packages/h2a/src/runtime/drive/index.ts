@@ -8,8 +8,12 @@
  * gate into pre-action prompt hooks; remote crossing remains the stricter trust
  * boundary for E1d.
  */
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { fileURLToPath } from "node:url";
+
+import { checkAgyTrustPrecheckSync, classifyCliCommand } from "../onboarding-core.js";
 
 import type {
   H2AActorRegistration,
@@ -526,7 +530,11 @@ export function localTmuxDriver(options: DriverRuntimeOptions = {}): H2ADriver {
         return false;
       }
       // shared submit path: literal text + separate Enter(s) (see tmuxSendSubmit).
-      const ok = tmuxSendSubmit(runtime, target, request.instructionLine);
+      const profile = request.host ?? (request.launchContext?.command ? classifyCliCommand(request.launchContext.command) : undefined);
+      const ok = tmuxSendSubmit(runtime, target, request.instructionLine, {
+        ...(profile && profile !== "unknown" ? { profile } : {}),
+        mode: "cli-input",
+      });
       options.log?.(`drive[local-tmux]: ${request.to} -> ${target} (${ok ? "ok" : "failed"})`);
       return ok;
     }
@@ -534,8 +542,9 @@ export function localTmuxDriver(options: DriverRuntimeOptions = {}): H2ADriver {
 }
 
 export function buildHeadlessDriveCommand(
-  input: BuildHeadlessDriveCommandInput
-): DriveCommand | undefined {
+  input: BuildHeadlessDriveCommandInput,
+  bin = fileURLToPath(new URL("../../bin.js", import.meta.url)),
+): (DriveCommand & { readonly input?: string }) | undefined {
   switch (input.host) {
     case "codex":
       return {
@@ -555,12 +564,29 @@ export function buildHeadlessDriveCommand(
         args: ["-p", input.instructionLine],
         ...(input.cwd ? { cwd: input.cwd } : {})
       };
-    case "agy":
+    case "agy": {
+      if (!existsSync(bin)) return undefined;
+      const cwd = input.cwd ?? process.cwd();
       return {
-        file: "agy",
-        args: ["-p", input.instructionLine],
+        file: process.execPath,
+        args: [
+          bin,
+          "run",
+          "agy",
+          cwd,
+          "--headless",
+          "--no-attach",
+          "--background",
+          "--prompt-stdin",
+          "--no-h2a",
+          "--json",
+          "--name",
+          `drive-${randomUUID().slice(0, 8)}`,
+        ],
+        input: input.instructionLine,
         ...(input.cwd ? { cwd: input.cwd } : {})
       };
+    }
     default:
       return undefined;
   }
@@ -571,14 +597,47 @@ export function headlessDriver(options: DriverRuntimeOptions = {}): H2ADriver {
   return {
     drive(request) {
       const cwd = request.launchContext?.cwd;
+      const isAgy =
+        request.host === "agy" ||
+        (request.launchContext?.command !== undefined &&
+          classifyCliCommand(request.launchContext.command) === "agy");
+      if (isAgy) {
+        if (!cwd) {
+          options.log?.(`drive[headless]: refusing agy launch without cwd for ${request.to}`);
+          return false;
+        }
+        try {
+          checkAgyTrustPrecheckSync({ cwd });
+        } catch (err) {
+          options.log?.(`drive[headless]: agy precheck refused for ${request.to}: ${(err as Error).message}`);
+          return false;
+        }
+        const agyCommand = buildHeadlessDriveCommand({
+          host: "agy",
+          instructionLine: request.instructionLine,
+          cwd,
+        });
+        if (!agyCommand) return false;
+        const ok = runtime.spawnDetached(agyCommand, { cwd });
+        options.log?.(`drive[headless]: ${request.to} -> h2a run agy (${ok ? "spawned" : "failed"})`);
+        return ok;
+      }
+      const fallbackCmd = request.launchContext?.command;
+      if (
+        !request.host &&
+        fallbackCmd !== undefined &&
+        classifyCliCommand(fallbackCmd) === "unknown"
+      ) {
+        return false;
+      }
       const command =
         buildHeadlessDriveCommand({
           host: request.host,
           instructionLine: request.instructionLine,
           cwd
         }) ??
-        (request.launchContext?.command
-          ? `${request.launchContext.command} ${shellQuote(request.instructionLine)}`
+        (fallbackCmd
+          ? `${fallbackCmd} ${shellQuote(request.instructionLine)}`
           : undefined);
       if (!command) return false;
       const ok = runtime.spawnDetached(command, { cwd });

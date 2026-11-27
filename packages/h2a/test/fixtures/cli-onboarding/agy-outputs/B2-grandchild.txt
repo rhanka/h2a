@@ -1,0 +1,18 @@
+Script started on 2026-11-25 20:52:52-05:00 [COMMAND="<SANDBOX>/run-B2-grandchild.sh" <not executed on terminal>]
+[>q   [>4m    [>4;2m[>5u
+  ▄ ▀ ▀ ▄
+  ▀ ▀ ▀ ▀ ▀▀
+  ▀ ▀ ▀ ▀ ▀ ▀ ▀ ▀
+   ▄ ▀ ▀      ▀▀ ▄
+  ▄ ▀ ▀        ▀ ▀ ▄
+ Welcome to the  Antigravity CLI . You are currently not signed in.
+ ⣷  Signing in...  Accessing workspace:
+ /home/antoinefa/src/h2a/tmp/h-cond/cli-onboarding/agy-trust-probe/.sandbox-agy-
+ 6905/parent/child/grandchild
+Do you trust the contents of this project?
+ Antigravity CLI  requires permission to read, edit, and execute files here.
+ > Yes, I trust this folder
+   No, exit
+   ↑/↓  Navigate ·  enter  Confirm   Gemini 4 Hydrogen · xhigh
+  auto  ·
+Script done on 2026-11-25 20:53:03-05:00 [COMMAND_EXIT_CODE="0"]

@@ -161,6 +161,10 @@ export type PtySpawner = (options: {
   env: Readonly<Record<string, string>>;
   cols: number;
   rows: number;
+  memoryPolicy?: "default" | "agy";
+  sessionClass?: "human" | "background";
+  memorySlice?: "app.slice" | "h2a-agents.slice";
+  oomPreference?: "avoid" | "none";
 }) => PtyHandle;
 
 export const nodePtySpawner: PtySpawner = (options) => {

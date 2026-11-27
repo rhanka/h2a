@@ -133,6 +133,9 @@ test("core writer enforces 0700/0600 modes, stores no raw text, and hook reader 
     try {
       const calls = [];
       const rt = {
+        capture() {
+          return "❯ Ready\n";
+        },
         run(file, args) {
           calls.push([file, ...args]);
           return true;

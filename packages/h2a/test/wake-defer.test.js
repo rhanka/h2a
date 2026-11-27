@@ -55,6 +55,7 @@ function driverRuntime(activeSecAgo) {
       return true;
     },
     capture(file, args) {
+      if (args.includes("capture-pane")) return "❯ Ready\n";
       if (args.includes("display-message")) return "mysess\n";
       if (args.includes("list-clients")) return `${Math.floor(Date.now() / 1000) - activeSecAgo}\n`;
       return undefined;

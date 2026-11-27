@@ -684,10 +684,14 @@ writeFileSync(temporary, JSON.stringify({
 renameSync(temporary, output);
 `;
   writeFileSync(observerPath, source);
+  const shimPath = join(directory, "codex");
+  writeFileSync(
+    shimPath,
+    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(observerPath)} ${shellQuote(outputPath)}\n`,
+    { mode: 0o700 },
+  );
   try {
-    const command = [process.execPath, observerPath, outputPath]
-      .map(shellQuote)
-      .join(" ");
+    const command = shellQuote(shimPath);
     const relauncher = headlessRelauncher();
     const detachedFinding = finding("local-native", command);
     detachedFinding.launchContext.cwd = directory;

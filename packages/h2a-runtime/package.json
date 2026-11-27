@@ -27,6 +27,10 @@
       "types": "./dist/session-archive-alerts.d.ts",
       "import": "./dist/session-archive-alerts.js"
     },
+    "./trust-alerts": {
+      "types": "./dist/trust-alerts.d.ts",
+      "import": "./dist/trust-alerts.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {

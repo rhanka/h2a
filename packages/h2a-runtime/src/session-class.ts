@@ -19,8 +19,10 @@ export function deriveSessionClass(options: {
   readonly background?: boolean;
   readonly headless?: boolean;
   readonly humanTerminal?: boolean;
+  readonly inheritedClass?: SessionClass | undefined;
 }): SessionClass {
   if (
+    options.inheritedClass === "background" ||
     options.background === true ||
     options.headless === true ||
     options.humanTerminal !== true

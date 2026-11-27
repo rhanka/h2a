@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { H2ALaunchContext, H2ASession } from "../../session.js";
+import { classifyCliCommand } from "../onboarding-core.js";
 import { listPresence } from "../local-files/presence.js";
 import type { RelauncherRuntime } from "../drumbeat/relaunchers.js";
 import type { H2ARelauncher } from "../drumbeat/watch.js";
@@ -409,10 +410,13 @@ export function createH2aPtyActuator(
         if (!command || command.trim().length === 0) {
           return result(input, "deferred");
         }
+        const customRelauncher = deps.relaunchers?.[target.kind];
+        if (customRelauncher === undefined && classifyCliCommand(command) === "unknown") {
+          return result(input, "failed");
+        }
         let acted = false;
         try {
-          const relauncher =
-            deps.relaunchers?.[target.kind] ?? await defaultRelauncher(target);
+          const relauncher = customRelauncher ?? await defaultRelauncher(target);
           acted = await relauncher.relance({
             instance: target.instance,
             reason: "stopped",
