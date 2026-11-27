@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, chmodSync, statSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -300,9 +300,11 @@ describe("trust pre-check (Q1-A, Q2-C) and owner-only h2a trust", () => {
       JSON.stringify({ agy: { subtrees: [realpathSync(ws)], exact: [], refused: [] } }),
       { mode: 0o600 },
     );
+    const nestedDir = join(ws, "nested");
+    mkdirSync(nestedDir, { recursive: true });
     let mismatchErr: OnboardingLaunchError | undefined;
     try {
-      checkAgyTrustPrecheckSync({ cwd: join(ws, "nested"), env });
+      checkAgyTrustPrecheckSync({ cwd: nestedDir, env });
     } catch (err) {
       mismatchErr = err as OnboardingLaunchError;
     }
@@ -489,11 +491,27 @@ describe("command classification, guards, and Q4-A modals", () => {
       }
     }
     const bChildRendered = await renderTerminalScreen(readFileSync(join(agyOutDir, "B-child.raw"), "utf8"));
-    for (const prof of ["agy", undefined] as const) {
+    for (const prof of ["agy", undefined, "shell", "vibe"] as const) {
       expect(detectHostModal(bChildRendered, prof)?.code).toBe("cli-workspace-not-trusted");
       expect(paneIsReady(bChildRendered, prof)).toBe(false);
       expect(guardPaneBeforeAutomatedInput(bChildRendered, prof, "shell-relaunch")).toMatchObject({ ok: false, outcome: "blocked" });
     }
+
+    // NB-r2-2: AGY and Codex trust prompts block even on shell/vibe-labeled panes.
+    const bChildTxt = readFileSync(join(agyOutDir, "B-child.txt"), "utf8");
+    for (const prof of ["shell", "vibe"] as const) {
+      expect(detectHostModal(bChildTxt, prof)?.code).toBe("cli-workspace-not-trusted");
+      expect(guardPaneBeforeAutomatedInput(bChildTxt, prof, "shell-relaunch")).toMatchObject({ ok: false, outcome: "blocked" });
+      expect(detectHostModal(codexFolderAccess, prof)?.code).toBe("cli-workspace-not-trusted");
+      expect(guardPaneBeforeAutomatedInput(codexFolderAccess, prof, "shell-relaunch")).toMatchObject({ ok: false, outcome: "blocked" });
+    }
+
+    // NB-r2-3: AGY color-scheme wizard step 1 (>900 chars to [Next]) is caught before Terms of Service.
+    const wizardFull = readFileSync(join(agyOutDir, "00b-wizard-init.txt"), "utf8");
+    const wizardStep1 = wizardFull.slice(0, wizardFull.indexOf("Terms of Service"));
+    expect(detectHostModal(wizardStep1, "agy")?.code).toBe("cli-first-run-wizard");
+    expect(guardPaneBeforeAutomatedInput(wizardStep1, "agy", "shell-relaunch")).toMatchObject({ ok: false, outcome: "blocked" });
+    expect(paneIsReady(wizardFull, "agy")).toBe(true);
 
     // Normal claude and codex screens (including quoted modal phrases) must never be falsely blocked.
     const claudeWithQuotedNoise = [
@@ -587,7 +605,7 @@ describe("serialized agy starts and memory slice guard", () => {
       withAgyStartQueueAsync(
         async () => {
           events.push(`start-${id}`);
-          startTimes.push(Date.now());
+          startTimes.push(performance.now());
           await new Promise((r) => setTimeout(r, 15));
           events.push(`end-${id}`);
           return { result: id, workerPid: process.pid };
@@ -616,37 +634,94 @@ describe("serialized agy starts and memory slice guard", () => {
     writeFileSync(startLockPath, "stale", { mode: 0o664 });
     chmodSync(startLockPath, 0o664);
 
-    // 1. h2a A starts.
-    let spawnAMs = 0;
+    const events: string[] = [];
+
+    // 1. h2a A starts and finishes cleanly.
     await withAgyStartQueueAsync(
       async () => {
-        spawnAMs = Date.now();
+        events.push("A-start");
         return { result: "A", workerPid: process.pid };
       },
-      { lockPath: startLockPath, spacingMs: 180, postSpawnMaxHoldMs: 20, checkWorkerAgy: () => true },
+      { lockPath: startLockPath, spacingMs: 50, postSpawnMaxHoldMs: 10, onWait: () => {}, checkWorkerAgy: () => true },
     );
+    events.push("A-end");
 
-    // 2. External script truncates agy-start.lock with `9>` under real flock and waits 200ms (like run-lane-agy.sh).
-    let scriptDoneMs = 0;
-    const bashRes = spawnSync(
+    // 2. External script truncates agy-start.lock with `9>` under real flock and holds it while B contends.
+    const bashChild = spawn(
       "/bin/bash",
-      ["-c", `( flock 9; sleep 0.2 ) 9>"$LOCK"; date +%s%3N`],
-      { env: { LOCK: startLockPath }, encoding: "utf8" },
+      ["-c", '( flock 9; printf "S-acquired\\n"; IFS= read -r _ ) 9>"$LOCK"'],
+      { env: { LOCK: startLockPath }, stdio: ["pipe", "pipe", "pipe"] },
     );
-    expect(bashRes.status).toBe(0);
-    scriptDoneMs = Number(bashRes.stdout.trim());
-    expect(scriptDoneMs - spawnAMs).toBeGreaterThanOrEqual(150);
+    const bashExit = new Promise<number | null>((resolveExit, rejectExit) => {
+      bashChild.once("error", rejectExit);
+      bashChild.once("close", (code) => resolveExit(code));
+    });
+    await new Promise<void>((resolveAcquired, rejectAcquired) => {
+      let stdoutBuf = "";
+      let stderrBuf = "";
+      bashChild.stdout.on("data", (chunk: Buffer) => {
+        stdoutBuf += chunk.toString("utf8");
+        if (stdoutBuf.includes("S-acquired")) {
+          events.push("S-acquired");
+          resolveAcquired();
+        }
+      });
+      bashChild.stderr.on("data", (chunk: Buffer) => {
+        stderrBuf += chunk.toString("utf8");
+      });
+      bashChild.once("error", rejectAcquired);
+      bashChild.once("close", (code) => {
+        if (!stdoutBuf.includes("S-acquired")) {
+          rejectAcquired(new Error(`bash lock holder exited (${code}) before S-acquired: ${stderrBuf}`));
+        }
+      });
+    });
 
-    // 3. h2a B arrives right after S even though .stamp from A is now >= 200ms old and lock was truncated to 0 bytes.
-    let spawnBMs = 0;
+    // 3. h2a B contends against S's real flock, triggers release, then still waits full monotonic spacingMs.
+    let bQueued = false;
+    let tBSpacingMono = 0;
+    let tBStartMono = 0;
     await withAgyStartQueueAsync(
       async () => {
-        spawnBMs = Date.now();
+        tBStartMono = performance.now();
+        events.push("B-start");
         return { result: "B", workerPid: process.pid };
       },
-      { lockPath: startLockPath, spacingMs: 180, postSpawnMaxHoldMs: 20, checkWorkerAgy: () => true },
+      {
+        lockPath: startLockPath,
+        spacingMs: 180,
+        timeoutMs: 10_000,
+        postSpawnMaxHoldMs: 20,
+        checkWorkerAgy: () => true,
+        onWait: (msg) => {
+          if (!bQueued && msg.includes("agy start queued")) {
+            bQueued = true;
+            events.push("B-queued");
+            events.push("S-release-requested");
+            bashChild.stdin.end("go\n");
+          } else if (msg.includes("agy start spacing")) {
+            tBSpacingMono = performance.now();
+            events.push("B-spacing");
+          }
+        },
+      },
     );
-    expect(spawnBMs - scriptDoneMs).toBeGreaterThanOrEqual(160);
+    events.push("B-end");
+
+    expect(await bashExit).toBe(0);
+    expect(events).toEqual([
+      "A-start",
+      "A-end",
+      "S-acquired",
+      "B-queued",
+      "S-release-requested",
+      "B-spacing",
+      "B-start",
+      "B-end",
+    ]);
+    expect(tBStartMono - tBSpacingMono).toBeGreaterThanOrEqual(180);
+    expect(statSync(startLockPath).mode & 0o777).toBe(0o600);
+    expect(readFileSync(startLockPath, "utf8")).toBe("");
     expect(resolveAgyQueueTimeoutMs(240_000, {})).toBe(72_000);
     expect(resolveAgyQueueTimeoutMs(200_000, {})).toBe(32_000);
     expect(resolveAgyQueueTimeoutMs(30_000, {})).toBe(15_000);

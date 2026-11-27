@@ -336,9 +336,11 @@ test("static CI guard verifies serialized lock, classifier, and modal guards acr
     ["packages/h2a-runtime/src/index.ts", /checkAgyTrustPrecheckSync/],
     ["packages/h2a-runtime/src/index.ts", /withAgyStartQueueSync/],
     ["packages/h2a-runtime/src/index.ts", /guardTmuxPaneBeforeInput/],
+    ["packages/h2a-runtime/src/index.ts", /guardTmuxPaneBeforeInput\([^)]+\)[\s\S]{0,400}spawnSync\("tmux",\s*\["send-keys"/],
     ["packages/h2a-runtime/src/native-terminal/op.ts", /guardPaneBeforeAutomatedInput/],
     ["packages/h2a-runtime/src/prompt-delivery.ts", /guardPaneBeforeAutomatedInput/],
     ["packages/h2a/src/runtime/drumbeat/relaunchers.ts", /guardPaneBeforeAutomatedInput/],
+    ["packages/h2a/src/runtime/drumbeat/relaunchers.ts", /guardPaneBeforeAutomatedInput\([^)]+\)[\s\S]{0,600}runtime\.run\("tmux",\s*\["send-keys"/],
     ["packages/h2a/src/runtime/drumbeat/relaunchers.ts", /classifyCliCommand/],
     ["packages/h2a/src/runtime/drive/index.ts", /classifyCliCommand/],
     ["packages/h2a/src/runtime/drive/index.ts", /checkAgyTrustPrecheckSync/],
@@ -351,8 +353,8 @@ test("static CI guard verifies serialized lock, classifier, and modal guards acr
     assert.match(content, re, `expected ${relPath} to contain ${re}`);
   }
 
-  // NB-10: Exhaustively scan all non-test sources under packages/h2a*/src/ for tmux
-  // send-keys / paste-buffer spawns; every caller must stay in the guarded allowlist.
+  // NB-10: Exhaustively scan all non-test sources (.ts, .mjs, .js) under packages/h2a*/src/
+  // for tmux send-keys / paste-buffer spawns; every caller must stay in the guarded allowlist.
   const allowedTmuxSendFiles = new Set([
     "packages/h2a-runtime/src/tmux.ts",
     "packages/h2a-runtime/src/index.ts",
@@ -364,8 +366,9 @@ test("static CI guard verifies serialized lock, classifier, and modal guards acr
       if (entry.isDirectory()) {
         walkSrcFiles(full, out);
       } else if (
-        (entry.name.endsWith(".ts") || entry.name.endsWith(".mjs")) &&
+        (entry.name.endsWith(".ts") || entry.name.endsWith(".mjs") || entry.name.endsWith(".js")) &&
         !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".test.js") &&
         !entry.name.endsWith(".d.ts")
       ) {
         out.push(full);
@@ -382,8 +385,7 @@ test("static CI guard verifies serialized lock, classifier, and modal guards acr
     const content = readFileSync(file, "utf8");
     if (/(?:send-keys|paste-buffer)/.test(content)) {
       const callsTmuxSend =
-        /spawnSync\s*\([^;]{0,120}(?:send-keys|paste-buffer)/.test(content) ||
-        /runtime\.run\s*\([^;]{0,120}(?:send-keys|paste-buffer)/.test(content);
+        /\b(?:spawn|spawnSync|execFile|execFileSync|runtime\.run)\s*\([^;]{0,300}(?:send-keys|paste-buffer)/.test(content);
       if (callsTmuxSend) {
         assert.ok(
           allowedTmuxSendFiles.has(rel),
@@ -772,24 +774,91 @@ test("B-2 & B-3 & NB-4: baseline non-replay, no-init-baseline hint, human preche
     assert.equal(runRefused.status, 1);
     assert.match(runRefused.stderr, /marked as refused/i);
 
-    // B-3: 3-starter counterexample (h2a A -> bash script truncating with 9> -> h2a B) using 0664 lock & real flock.
+    // B-3: 3-starter counterexample (h2a A -> bash script holding flock with 9> -> h2a B) via causal handshake & monotonic clock.
     writeFileSync(startLock, "legacy", { mode: 0o664 });
     chmodSync(startLock, 0o664);
-    let tA = 0;
-    await withAgyStartQueueAsync(async () => { tA = Date.now(); return { result: "A", workerPid: process.pid }; }, {
-      lockPath: startLock, spacingMs: 180, postSpawnMaxHoldMs: 10, checkWorkerAgy: () => true, onWait: () => {},
+    const events = [];
+    await withAgyStartQueueAsync(
+      async () => {
+        events.push("A-start");
+        return { result: "A", workerPid: process.pid };
+      },
+      { lockPath: startLock, spacingMs: 50, postSpawnMaxHoldMs: 10, checkWorkerAgy: () => true, onWait: () => {} },
+    );
+    events.push("A-end");
+
+    const bashHolder = spawn(
+      "/bin/bash",
+      ["-c", '( flock 9; printf "S-acquired\\n"; IFS= read -r _ ) 9>"$LOCK"'],
+      { env: { LOCK: startLock }, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const bashExit = new Promise((resolveExit, rejectExit) => {
+      bashHolder.once("error", rejectExit);
+      bashHolder.once("close", (code) => resolveExit(code));
     });
-    const scriptOut = spawnSync("/bin/bash", ["-c", `( flock 9; sleep 0.2 ) 9>"$LOCK"; date +%s%3N`], {
-      env: { LOCK: startLock }, encoding: "utf8",
+    await new Promise((resolveAcquired, rejectAcquired) => {
+      let stdoutBuf = "";
+      let stderrBuf = "";
+      bashHolder.stdout.on("data", (chunk) => {
+        stdoutBuf += chunk.toString("utf8");
+        if (stdoutBuf.includes("S-acquired")) {
+          events.push("S-acquired");
+          resolveAcquired();
+        }
+      });
+      bashHolder.stderr.on("data", (chunk) => {
+        stderrBuf += chunk.toString("utf8");
+      });
+      bashHolder.once("error", rejectAcquired);
+      bashHolder.once("close", (code) => {
+        if (!stdoutBuf.includes("S-acquired")) {
+          rejectAcquired(new Error(`bash lock holder exited (${code}) before S-acquired: ${stderrBuf}`));
+        }
+      });
     });
-    assert.equal(scriptOut.status, 0);
-    const tS = Number(scriptOut.stdout.trim());
-    let tB = 0;
-    await withAgyStartQueueAsync(async () => { tB = Date.now(); return { result: "B", workerPid: process.pid }; }, {
-      lockPath: startLock, spacingMs: 180, postSpawnMaxHoldMs: 10, checkWorkerAgy: () => true, onWait: () => {},
-    });
-    assert.ok(tS - tA >= 150);
-    assert.ok(tB - tS >= 160);
+
+    let bQueued = false;
+    let tBSpacingMono = 0;
+    let tBStartMono = 0;
+    await withAgyStartQueueAsync(
+      async () => {
+        tBStartMono = performance.now();
+        events.push("B-start");
+        return { result: "B", workerPid: process.pid };
+      },
+      {
+        lockPath: startLock,
+        spacingMs: 180,
+        timeoutMs: 10_000,
+        postSpawnMaxHoldMs: 10,
+        checkWorkerAgy: () => true,
+        onWait: (msg) => {
+          if (!bQueued && msg.includes("agy start queued")) {
+            bQueued = true;
+            events.push("B-queued");
+            events.push("S-release-requested");
+            bashHolder.stdin.end("go\n");
+          } else if (msg.includes("agy start spacing")) {
+            tBSpacingMono = performance.now();
+            events.push("B-spacing");
+          }
+        },
+      },
+    );
+    events.push("B-end");
+
+    assert.equal(await bashExit, 0);
+    assert.deepEqual(events, [
+      "A-start",
+      "A-end",
+      "S-acquired",
+      "B-queued",
+      "S-release-requested",
+      "B-spacing",
+      "B-start",
+      "B-end",
+    ]);
+    assert.ok(tBStartMono - tBSpacingMono >= 180);
     assert.equal(statSync(startLock).mode & 0o777, 0o600);
     assert.equal(readFileSync(startLock, "utf8"), "");
   } finally {

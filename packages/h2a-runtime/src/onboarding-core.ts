@@ -269,7 +269,6 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     },
   },
   {
-    profiles: ["agy"],
     match:
       /(?:Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+project\?[\s\S]{0,360}Yes,\s*I\s+trust\s+this\s+folder[\s\S]{0,200}(?:No,\s*exit|↑\/↓\s+Navigate\s*·\s*enter\s+Confirm)|Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?[\s\S]{0,240}(?:1\.\s+|Yes,\s*)[\s\S]{0,160}(?:enter\s+to\s+confirm|confirm))/i,
     modal: {
@@ -281,7 +280,7 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
   {
     profiles: ["agy"],
     match:
-      /(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI[\s\S]{0,240}Choose\s+(?:a\s+|your\s+)?color\s+(?:scheme|theme)[\s\S]{0,900}(?:\[Next\]|enter\s+(?:Confirm|to\s+continue))|Terms\s+of\s+Service\s*&\s*Data\s+Use[\s\S]{0,900}(?:\[Done\]|enter\s+Confirm))/i,
+      /(?:Welcome\s+to\s+(?:the\s+)?Antigravity\s+CLI[\s\S]{0,240}Choose\s+(?:a\s+|your\s+)?color\s+(?:scheme|theme)[\s\S]{0,1600}(?:\[Next\]|enter\s+(?:Confirm|to\s+continue))|Terms\s+of\s+Service\s*&\s*Data\s+Use[\s\S]{0,900}(?:\[Done\]|enter\s+Confirm))/i,
     modal: {
       code: "cli-first-run-wizard",
       reason: "AGY is waiting on its first-run onboarding wizard",
@@ -299,7 +298,6 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     },
   },
   {
-    profiles: ["codex"],
     match:
       /(?:Folder\s+access[\s\S]{0,300}(?:Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}Trust\s+and\s+continue|You\s+are\s+running\s+Codex[\s\S]{0,200}1\.\s+Yes,\s*continue)[\s\S]{0,200}(?:enter\s+(?:to\s+)?(?:continue|confirm)|Back\s+to\s+Agent\s+Command\s+Center)|Trust\s+this\s+(?:folder|directory)\?[\s\S]{0,320}(?:›\s*1\.|1\.)?\s*Trust\s+and\s+continue[\s\S]{0,200}(?:enter\s+continue|Back\s+to\s+Agent\s+Command\s+Center)|Do\s+you\s+trust\s+the\s+contents\s+of\s+this\s+directory\?[\s\S]{0,200}(?:[›>❯]?\s*1\.\s*Yes,\s*continue)[\s\S]{0,160}Press\s+(?:enter|return)\s+to\s+continue)/i,
     modal: {
@@ -309,7 +307,6 @@ export const NAMED_HOST_MODALS: ReadonlyArray<{
     },
   },
   {
-    profiles: ["claude"],
     match:
       /(?:Quick\s+safety\s+check:\s*Is\s+this\s+a\s+project\s+you\s+created\s+or\s+one\s+you\s+trust\?|Do\s+you\s+trust\s+the\s+files\s+in\s+this\s+folder\?)[\s\S]{0,260}(?:[›>❯]?\s*1\.|Yes,\s*(?:proceed|I\s+trust\s+this\s+folder|continue))[\s\S]{0,160}(?:(?:Enter|Return)\s+to\s+(?:confirm|continue)|Esc\s+to\s+(?:cancel|exit)|No,\s*exit)/i,
     modal: {
