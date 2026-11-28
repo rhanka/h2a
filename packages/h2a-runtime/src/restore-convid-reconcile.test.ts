@@ -236,3 +236,48 @@ describe("persistReconciledConvIds — writeback", () => {
     expect(again).toBe(0);
   });
 });
+
+describe("reconcileRunConvIds — transcripts are read on demand", () => {
+  const cwd = join(HOME, "src", "sentropic");
+  const other = join(HOME, "src", "other");
+
+  function countingReader(map: Record<string, string>) {
+    const calls: string[] = [];
+    const reader = (dir: string, convId: string): string | undefined => {
+      calls.push(`${dir}\x00${convId}`);
+      return map[`${dir}\x00${convId}`];
+    };
+    return { calls, reader };
+  }
+
+  it("should read no transcript when every run entry already carries its conversation uuid", () => {
+    const entries: RegistryEntry[] = [
+      runEntry({ id: "architect", label: "architect", convId: UUID.architect }),
+      hookEntry(UUID.architect),
+      hookEntry(UUID.llmMesh),
+      hookEntry(UUID.canevas, { cwd: other }),
+    ];
+    const { calls, reader } = countingReader({});
+    const r = reconcileRunConvIds(entries, reader);
+    expect(r.resolvedSid.get("architect")).toBe(UUID.architect);
+    expect(calls).toEqual([]);
+  });
+
+  it("should read only the transcripts of the directory a label match needs, once each", () => {
+    const entries: RegistryEntry[] = [
+      runEntry({ id: "llm-mesh", label: "llm-mesh", convId: "llm-mesh" }),
+      runEntry({ id: "twin", label: "llm-mesh", convId: "twin" }),
+      hookEntry(UUID.llmMesh),
+      hookEntry(UUID.architect),
+      // Another directory: no run entry asks for a label there.
+      hookEntry(UUID.canevas, { cwd: other }),
+    ];
+    const { calls, reader } = countingReader({ [`${cwd}\x00${UUID.llmMesh}`]: "llm-mesh" });
+    const r = reconcileRunConvIds(entries, reader);
+    expect(r.resolvedSid.get("llm-mesh")).toBe(UUID.llmMesh);
+    expect(r.resolvedSid.get("twin")).toBe(UUID.llmMesh);
+    expect([...calls].sort()).toEqual(
+      [`${cwd}\x00${UUID.llmMesh}`, `${cwd}\x00${UUID.architect}`].sort(),
+    );
+  });
+});
