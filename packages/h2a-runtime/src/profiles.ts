@@ -39,9 +39,13 @@ const DEFAULT_PROFILES: Readonly<Record<CliProfile, ProfileConfig>> = {
 export function resumeArgsFor(
   config: ProfileConfig,
   sessionId: string | true,
+  options: { readonly noDaemon?: boolean | undefined } = {},
 ): string[] {
   switch (config.profile) {
-    case "codex":
+    case "codex": {
+      const base = sessionId === true ? ["resume", "--last"] : ["resume", sessionId];
+      return options.noDaemon ? ["resume", "--no-daemon", ...base.slice(1)] : base;
+    }
     case "muse":
       return sessionId === true ? ["resume", "--last"] : ["resume", sessionId];
     case "claude":

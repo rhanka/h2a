@@ -1,9 +1,49 @@
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createWriteStream, existsSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { agyClaudeQuotaError, detectAgyClaudeQuotaExhaustion, isAgyClaudeModel, readAgyClaudeQuotaStatus, writeAgyClaudeQuotaStatus } from "./agy-claude.js";
 import { AGY_AUTH_DIAGNOSTIC, AGY_AUTH_REQUIRED } from "./agy-auth.js";
+import {
+  hasSandboxOrQualificationRuntime,
+  resolveSessionRuntimeDir,
+  SESSION_KEY_RE,
+  SESSION_PROOF_PATH_ENV,
+  SESSION_REF_ENV,
+  waitForSessionFiche,
+} from "./session-auth.js";
+
+function waitForLauncherFicheBeforeExec(): { ok: true } | { ok: false; error: string } {
+  const sessionKey = process.env[SESSION_REF_ENV]?.trim();
+  if (!sessionKey) return { ok: true };
+  if (!SESSION_KEY_RE.test(sessionKey)) {
+    return { ok: false, error: `invalid ${SESSION_REF_ENV}` };
+  }
+  const proofPath = process.env[SESSION_PROOF_PATH_ENV]?.trim();
+  let runtimeDir: string | undefined;
+  if (proofPath) {
+    runtimeDir = dirname(dirname(proofPath));
+  } else {
+    try {
+      const allowD16 = hasSandboxOrQualificationRuntime();
+      runtimeDir = resolveSessionRuntimeDir({ createIfMissing: allowD16 }).dir;
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+  const fiche = waitForSessionFiche(runtimeDir, sessionKey, { timeoutMs: 10_000 });
+  if (!fiche) {
+    if (proofPath) {
+      try {
+        rmSync(proofPath, { force: true });
+      } catch {
+        /* best-effort */
+      }
+    }
+    return { ok: false, error: `session fiche missing after 10s for ${sessionKey}` };
+  }
+  return { ok: true };
+}
 
 /** Private run-once supervisor, shared by native and tmux launch paths. */
 export async function runAgyHeadless(options: {
@@ -49,6 +89,25 @@ export async function runAgyHeadless(options: {
     pendingLine = lines.pop()!.slice(-65_536);
     for (const line of lines) observeModel(line);
   };
+  const ficheCheck = waitForLauncherFicheBeforeExec();
+  if (!ficheCheck.ok) {
+    process.stderr.write(`[h2a] ${ficheCheck.error}\n`);
+    writeFileSync(
+      options.resultPath,
+      `${JSON.stringify({
+        kind: "h2a.run.failure",
+        version: 1,
+        state: "failed",
+        exitCode: 2,
+        code: "session-fiche-missing",
+        error: ficheCheck.error,
+        retrySafe: false,
+        retryable: false,
+      })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    return { exitCode: 2, result: { state: "failed", exitCode: 2 } };
+  }
   const completion = await new Promise<{ exitCode: number; spawnError?: string }>((done) => {
     const child = spawn(options.command, options.args, { shell: false, stdio: ["pipe", "pipe", "pipe"] });
     const signals = ["SIGTERM", "SIGINT", "SIGHUP"] as const;

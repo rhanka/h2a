@@ -43,6 +43,7 @@ import {
 } from "./delegate.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
 import type { RegistryEntry } from "./registry.js";
+import { codexSupportsNoDaemon } from "./session-auth.js";
 
 describe("buildDelegateArgs (pure, task is a single argv token)", () => {
   it("interactive: bare positional prompt per type", () => {
@@ -51,6 +52,14 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
       args: ["do X"],
     });
     expect(buildDelegateArgs("codex", "do X", false)).toEqual({
+      command: "codex",
+      args: codexSupportsNoDaemon("codex") ? ["--no-daemon", "do X"] : ["do X"],
+    });
+    expect(buildDelegateArgs("codex", "do X", false, undefined, undefined, { noDaemon: true })).toEqual({
+      command: "codex",
+      args: ["--no-daemon", "do X"],
+    });
+    expect(buildDelegateArgs("codex", "do X", false, undefined, undefined, { noDaemon: false })).toEqual({
       command: "codex",
       args: ["do X"],
     });
@@ -95,6 +104,7 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
     ).toEqual({
       command: "codex",
       args: [
+        ...(codexSupportsNoDaemon("codex") ? ["--no-daemon"] : []),
         "-m",
         "gpt-5.6-terra",
         "-c",
@@ -138,7 +148,14 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
   it("passes Astra max through Codex delegation", () => {
     expect(buildDelegateArgs("codex", "do X", false, "gpt-6.2-astra", "max")).toEqual({
       command: "codex",
-      args: ["-m", "gpt-6.2-astra", "-c", 'model_reasoning_effort="max"', "do X"],
+      args: [
+        ...(codexSupportsNoDaemon("codex") ? ["--no-daemon"] : []),
+        "-m",
+        "gpt-6.2-astra",
+        "-c",
+        'model_reasoning_effort="max"',
+        "do X",
+      ],
     });
   });
 

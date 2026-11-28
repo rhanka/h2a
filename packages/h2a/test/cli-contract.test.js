@@ -783,6 +783,8 @@ function buildHappyArgv(verb, ctx) {
       return ["connect", "--host", "claude", "--root", root, "--instance", "claude:contract"];
     case "doctor":
       return ["doctor", "--root", root];
+    case "presence-reap":
+      return ["presence-reap", "--root", root];
     case "status":
       return ["status", "--root", root];
     case "sessions":
@@ -1563,6 +1565,31 @@ async function happyDrumbeatRelanceInbox() {
   }
 }
 
+async function happyAuthorize() {
+  const { runAuthorizeListCommand } = await import("../../h2a-runtime/dist/authorize-cli.js");
+  const dir = mkdtempSync(join(tmpdir(), "h2a-contract-authorize-"));
+  const rtDir = join(dir, "runtime");
+  mkdirSync(rtDir, { recursive: true, mode: 0o700 });
+  try {
+    const cap = captureAsyncStreams(dir);
+    const rc = await runAuthorizeListCommand(
+      { json: true },
+      {
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir },
+        stdinIsTTY: true,
+        stdoutIsTTY: true,
+        sessionRuntimeDir: rtDir,
+        stdout: (s) => cap.streams.stdout.write(s),
+        stderr: (s) => cap.streams.stderr.write(s),
+      },
+    );
+    assert.equal(rc, 0, `authorize: expected exit 0, got ${rc} (stderr: ${cap.stderrText()})`);
+    assertShape("authorize", "action", cap.stdoutText());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Async happy paths keyed by verb; the sync loop below skips these. */
 const ASYNC_HAPPY_PATHS = new Map([
   ["loop tick", happyLoopTick],
@@ -1576,7 +1603,8 @@ const ASYNC_HAPPY_PATHS = new Map([
   ["drive serve", happyDriveServe],
   ["drumbeat watch", happyDrumbeatWatch],
   ["sysml verify", happySysmlVerify],
-  ["drumbeat relance-inbox", happyDrumbeatRelanceInbox]
+  ["drumbeat relance-inbox", happyDrumbeatRelanceInbox],
+  ["authorize", happyAuthorize]
 ]);
 
 /**
@@ -1701,6 +1729,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "host plugin",
     "connect",
     "doctor",
+    "authorize",
+    "presence-reap",
     "status",
     "sessions",
     "keys generate",

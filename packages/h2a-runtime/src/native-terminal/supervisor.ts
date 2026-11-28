@@ -4,6 +4,8 @@ import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { scrubSessionIdentityEnv } from "../session-auth.js";
+
 import { NativeTerminalClient } from "./client.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
@@ -229,7 +231,7 @@ function defaultSpawnHost(options: {
   ], {
     detached: true,
     stdio: ["ignore", "ignore", "pipe"],
-    env: process.env,
+    env: scrubSessionIdentityEnv(process.env),
   });
   (child.stderr as NodeJS.ReadableStream & { unref?(): void } | null)?.unref?.();
   child.unref();

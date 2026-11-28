@@ -51,11 +51,11 @@ test("wake-request: emits a signed wake-request envelope to the remote inbox", (
     assert.equal(report.to, remote);
     assert.equal(report.request.kind, "wake-request");
     assert.equal(report.request.target, target);
-    // Self-describing: the exact CLI line the launcher should type into the
-    // target's pane — full, runnable (the bare `h2a inbox read` errors).
+    // Without a live verified session fiche for `target`, wake-request emits the
+    // MCP fallback instruction instead of spawning a shell inbox CLI line.
     assert.equal(
       report.request.instructionLine,
-      `h2a inbox read --instance ${target} --root ${root}`
+      `Call MCP tool h2a_inbox_read for instance ${target} (root ${root})`
     );
 
     const store = createLocalStore({ root });
@@ -63,7 +63,7 @@ test("wake-request: emits a signed wake-request envelope to the remote inbox", (
     assert.equal(inbox.length, 1);
     assert.equal(inbox[0].body.topic, "wake-request");
     assert.equal(inbox[0].body.request.target, target);
-    assert.match(inbox[0].body.request.instructionLine, /^h2a inbox read --instance codex:foo:/);
+    assert.match(inbox[0].body.request.instructionLine, /^Call MCP tool h2a_inbox_read for instance codex:foo:/);
     assert.equal(inbox[0].actor.instance, "claude:cond:bbbbbbbbbbbb");
   } finally {
     rmSync(dir, { recursive: true, force: true });

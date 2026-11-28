@@ -116,14 +116,45 @@ const ORIGINAL_ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
 const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
 
+let testRuntimeDir = "";
+const TEST_CLAUDE_IDENTITY = {
+  kind: "reuse" as const,
+  host: "claude",
+  actorId: "claude:worker:000000000001",
+  agentUuid: "11111111-1111-4111-8111-111111111111",
+  sessionClass: "human" as const,
+  invocationMode: "interactive" as const,
+};
+const TEST_CODEX_IDENTITY = {
+  kind: "reuse" as const,
+  host: "codex",
+  actorId: "codex:worker:000000000002",
+  agentUuid: "22222222-2222-4222-8222-222222222222",
+  sessionClass: "human" as const,
+  invocationMode: "interactive" as const,
+};
+const TEST_CODEX_HEADLESS_IDENTITY = {
+  kind: "reuse" as const,
+  host: "codex",
+  actorId: "codex:worker:000000000003",
+  agentUuid: "33333333-3333-4333-8333-333333333333",
+  sessionClass: "background" as const,
+  invocationMode: "headless" as const,
+};
+
 beforeEach(() => {
   spawnSyncMock.mockReset();
   spawnMock.mockReset();
   tmuxProfileConfigMock.mockReset();
   tmuxProfileConfigMock.mockReturnValue({ profile: REMOTE_TMUX_PROFILE_NAME });
+  testRuntimeDir = mkdtempSync(join(tmpdir(), "h2a-tmux-rt-"));
 });
 
 afterEach(() => {
+  if (testRuntimeDir) {
+    rmSync(testRuntimeDir, { recursive: true, force: true });
+    testRuntimeDir = "";
+  }
   if (ORIGINAL_TMUX_ENV === undefined) {
     delete process.env.TMUX;
   } else {
@@ -448,8 +479,13 @@ describe("startLocalSession agent pane metadata", () => {
       });
       const onCreateAttempt = () => { events.push("creation-attempted"); };
       if (headless) startHeadlessSession("codex", "codex", "/tmp", [], "/tmp/result", "/tmp/output", "worker",
-        "remote", undefined, true, undefined, onCreateAttempt);
-      else startLocalSession("codex", "codex", "/tmp", [], "worker", "remote", { onCreateAttempt });
+        TEST_CODEX_HEADLESS_IDENTITY, "remote", undefined, true, undefined, onCreateAttempt, undefined, undefined,
+        { sessionRuntimeDir: testRuntimeDir });
+      else startLocalSession("codex", "codex", "/tmp", [], "worker", "remote", {
+        identity: TEST_CODEX_IDENTITY,
+        sessionRuntimeDir: testRuntimeDir,
+        onCreateAttempt,
+      });
       expect(events).toEqual(["creation-attempted", "new-session"]);
     });
   }
@@ -463,7 +499,7 @@ describe("startLocalSession agent pane metadata", () => {
     });
     const onCreateAttempt = vi.fn();
     expect(() => startLocalSession("codex", "codex", "/tmp", [], "worker", "remote", {
-      refuseExisting: true, onCreateAttempt,
+      identity: TEST_CODEX_IDENTITY, sessionRuntimeDir: testRuntimeDir, refuseExisting: true, onCreateAttempt,
     })).toThrow(/already exists/);
     expect(onCreateAttempt).not.toHaveBeenCalled();
   });
@@ -478,7 +514,9 @@ describe("startLocalSession agent pane metadata", () => {
       return { status: 0, stdout: "" };
     });
 
-    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote");
+    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote", undefined, {
+      identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir,
+    });
 
     const setLines = tmuxCalls("set").map((c) => (c[1] as string[]).join(" "));
     expect(setLines).toContain("set -g @remote_profile old-pc");
@@ -496,7 +534,9 @@ describe("startLocalSession agent pane metadata", () => {
       return { status: 0, stdout: "" };
     });
 
-    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote");
+    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote", undefined, {
+      identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir,
+    });
 
     const newSession = tmuxCalls("new-session")[0]!;
     expect(newSession[1]).toContain("ANTHROPIC_BASE_URL=http://localhost:3002");
@@ -516,7 +556,9 @@ describe("startLocalSession agent pane metadata", () => {
       return { status: 0, stdout: "" };
     });
 
-    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote");
+    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote", undefined, {
+      identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir,
+    });
 
     const setOpt = spawnSyncMock.mock.calls
       .filter(
@@ -552,7 +594,7 @@ describe("startLocalSession agent pane metadata", () => {
       ["--verbose"],
       "worker",
       "remote",
-      { resumeId: "conv-123", h2aCommand: H2A_CMD },
+      { identity: TEST_CODEX_IDENTITY, sessionRuntimeDir: testRuntimeDir, resumeId: "conv-123", h2aCommand: H2A_CMD },
     );
 
     const newSession = tmuxCalls("new-session")[0]![1] as string[];
@@ -597,7 +639,7 @@ describe("startLocalSession agent pane metadata", () => {
       ["--model", "opus"],
       "worker",
       "remote",
-      { terminateOnAgentExit: true },
+      { identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir, terminateOnAgentExit: true },
     );
 
     const argv = tmuxCalls("new-session")[0]![1] as string[];
@@ -638,7 +680,7 @@ describe("startLocalSession agent pane metadata", () => {
       ["--model", "gpt-5.6"],
       "worker",
       "remote",
-      { terminateOnAgentExit: true, attachedTerminal: true },
+      { identity: TEST_CODEX_IDENTITY, sessionRuntimeDir: testRuntimeDir, terminateOnAgentExit: true, attachedTerminal: true },
     );
 
     const newSession = tmuxCalls("new-session")[0]![1] as string[];
@@ -682,7 +724,7 @@ describe("startLocalSession agent pane metadata", () => {
         [],
         "worker",
         "remote",
-        { refuseExisting: true },
+        { identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir, refuseExisting: true },
       ),
     ).toThrow(/already exists.*no agent was started/i);
     expect(tmuxCalls("new-session")).toHaveLength(0);
@@ -707,7 +749,9 @@ describe("startLocalSession agent pane metadata", () => {
     });
 
     expect(
-      startLocalSession("claude", "claude", "/home/u/src/repo", [], "worker"),
+      startLocalSession("claude", "claude", "/home/u/src/repo", [], "worker", undefined, {
+        identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir,
+      }),
     ).toMatchObject({ name: "remote-worker", slug: "worker" });
     expect(tmuxCalls("new-session")).toHaveLength(0);
   });
@@ -727,7 +771,9 @@ describe("startLocalSession agent pane metadata", () => {
     });
 
     expect(() =>
-      startLocalSession("claude", "claude", "/home/u/src/repo", [], "worker"),
+      startLocalSession("claude", "claude", "/home/u/src/repo", [], "worker", undefined, {
+        identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir,
+      }),
     ).toThrow(/ambiguous/);
     expect(tmuxCalls("new-session")).toHaveLength(0);
   });
@@ -753,9 +799,15 @@ describe("startLocalSession agent pane metadata", () => {
         "/must/not/be/written/result.json",
         "/must/not/be/written/output.log",
         "worker",
+        TEST_CODEX_HEADLESS_IDENTITY,
         "remote",
         "prompt",
         true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { sessionRuntimeDir: testRuntimeDir },
       ),
     ).toThrow(/already exists.*no agent was started/i);
     expect(tmuxCalls("new-session")).toHaveLength(0);
@@ -779,6 +831,8 @@ describe("startLocalSession agent pane metadata", () => {
       "/home/u/src/impots2025",
       [],
       "Impots",
+      undefined,
+      { identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir },
     );
 
     const newSession = tmuxCalls("new-session")[0]![1] as string[];
@@ -814,6 +868,8 @@ describe("startLocalSession agent pane metadata", () => {
         "/home/u/src/impots2025",
         [],
         "Impots",
+        undefined,
+        { identity: TEST_CLAUDE_IDENTITY, sessionRuntimeDir: testRuntimeDir },
       );
 
       const newSession = tmuxCalls("new-session")[0]![1] as string[];
@@ -857,9 +913,11 @@ describe("startLocalSession agent pane metadata", () => {
       "/home/u/src/remote",
       [],
       "h2a-target",
+      undefined,
+      { identity: TEST_CODEX_IDENTITY, sessionRuntimeDir: testRuntimeDir },
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       name: "h2a-h2a-target",
       slug: "h2a-target",
       agentPane: "%7",
@@ -1111,9 +1169,15 @@ describe("HEADLESS_WRAPPER", () => {
         resultJson,
         join(dir, "output.log"),
         "direct-worker",
+        TEST_CODEX_HEADLESS_IDENTITY,
         "remote",
         "prompt",
         true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { sessionRuntimeDir: testRuntimeDir },
       );
       expect(started.agentPane).toBe("%3");
       const argv = tmuxCalls("new-session")[0]![1] as string[];
@@ -1162,9 +1226,15 @@ describe("HEADLESS_WRAPPER", () => {
           join(dir, "result.json"),
           join(dir, "output.log"),
           "failed-worker",
+          TEST_CODEX_HEADLESS_IDENTITY,
           "remote",
           "sensitive prompt",
           true,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { sessionRuntimeDir: testRuntimeDir },
         ),
       ).toThrow(/did not return a live agent pane/i);
       expect(existsSync(promptFile)).toBe(false);

@@ -55,3 +55,6 @@ export type {
   ResolveLiveIdentityAsyncOptions,
   ResolvedLiveIdentity
 } from "./live.js";
+export * from "./caller-guard.js";
+export * from "./owner-grants.js";
+export * from "./session-auth.js";

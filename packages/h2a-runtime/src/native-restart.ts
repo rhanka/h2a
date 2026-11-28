@@ -33,6 +33,10 @@ export type NativeRestartCandidate = Readonly<{
   gatewayProvenance?: "explicit";
   /** Pinned Claude `--bare` choice, carried from the registry row so a restart reproduces it. */
   bare?: boolean;
+  actorId?: string;
+  agentUuid?: string;
+  delegatorInstance?: string;
+  delegatorSessionKey?: string;
 }>;
 
 export type NativeRestartSnapshot =
@@ -151,7 +155,9 @@ export class NativeRestartError extends Error {
     | "duplicate-session"
     | "registry-unreadable"
     | "gateway-models-unavailable"
-    | "gateway-preparation-failed";
+    | "gateway-preparation-failed"
+    | "owner-only-command"
+    | "session-not-owned-by-caller";
 
   constructor(code: NativeRestartError["code"], message: string) {
     super(message);

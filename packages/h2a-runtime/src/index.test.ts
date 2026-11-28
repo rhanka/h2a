@@ -1026,7 +1026,11 @@ describe("main", () => {
       expect.any(Array),
       "proj",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1049,7 +1053,11 @@ describe("main", () => {
       expect.any(Array),
       "proj",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1077,7 +1085,11 @@ describe("main", () => {
         expect.any(Array),
         "proj",
         undefined,
-        { attachedTerminal: true, sessionClass: "human" },
+        expect.objectContaining({
+          attachedTerminal: true,
+          sessionClass: "human",
+          identity: expect.any(Object),
+        }),
       );
     } finally {
       if (stdinTty) Object.defineProperty(process.stdin, "isTTY", stdinTty);

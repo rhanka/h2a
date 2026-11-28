@@ -58,6 +58,27 @@ import {
   type LaunchContext,
 } from "./launch-context.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
+import {
+  cleanupFailedSessionIdentityLaunch,
+  prepareSessionIdentityLaunch,
+  publishLauncherSessionFiche,
+  publishLauncherSidecar,
+  WAIT_FOR_FICHE_SHELL_PRELUDE,
+  writeLauncherRelaunchHandoff,
+  type LaunchSessionIdentity,
+} from "./launch-identity.js";
+import {
+  hasSandboxOrQualificationRuntime,
+  resolveSessionRuntimeDir,
+  scrubSessionIdentityEnv,
+  SESSION_CLASS_ENV as IDENTITY_SESSION_CLASS_ENV,
+  SESSION_IDENTITY_SCRUB_KEYS,
+  SESSION_IDENTITY_SCRUB_KEY_SET,
+  SESSION_PROOF_PATH_ENV,
+  SESSION_REF_ENV,
+  sessionSidecarPath,
+} from "./session-auth.js";
+import { buildSessionExecWrapperCommandLine } from "./session-exec-wrapper.js";
 import { recordInjectionBestEffort } from "./injection-ledger.js";
 import {
   classifyCliCommand,
@@ -148,6 +169,7 @@ export const DIRECT_ROUTING_SCRUB_PRELUDE =
  * positional lands in `$0` (the relaunch hint), the CLI in `$1`, args in `$2…`.
  */
 export const LOCAL_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
+${WAIT_FOR_FICHE_SHELL_PRELUDE}
 relaunch="$0"; cli="$1"; shift
 if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
   (export ${APPLICATION_ROLE_ENV}=cli:$BASHPID; exec "$cli" "$@")
@@ -162,8 +184,14 @@ if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
   # the status seen by an existing prompt hook; the host consumes the marker.
   export PROMPT_COMMAND='h2a_prompt_status=$?; printf "\\033]777;h2a-reset\\007"; (exit "$h2a_prompt_status"); '"\${PROMPT_COMMAND:-:}"
 fi
-printf '\\n[h2a] %s exited (code %s) — shell on %s.\\n' "$cli" "$code" "$PWD"
-printf '[h2a] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
+if [ "\${H2A_SESSION_CLASS:-}" = background ]; then
+  printf '\\n[h2a] %s exited (code %s) — delegated (background) session ended on %s.\\n' "$cli" "$code" "$PWD"
+  printf 'Delegated session (background) ended without active fiche: relaunch from an owner terminal outside any h2a session (or Ctrl-D to end this pane).\\n'
+else
+  printf '\\n[h2a] %s exited (code %s) — shell on %s.\\n' "$cli" "$code" "$PWD"
+  printf '[h2a] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
+fi
+unset ${SESSION_REF_ENV} ${SESSION_PROOF_PATH_ENV}
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
 /**
@@ -173,6 +201,7 @@ if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
  * become shell input.
  */
 export const STRUCTURED_LOCAL_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
+${WAIT_FOR_FICHE_SHELL_PRELUDE}
 cli="$0"
 if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then export ${APPLICATION_ROLE_ENV}=cli:$BASHPID; fi
 exec "$cli" "$@"`;
@@ -188,6 +217,7 @@ exec "$cli" "$@"`;
  * the CLI starts, so prompt content never appears in process argv.
  */
 export const HEADLESS_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
+${WAIT_FOR_FICHE_SHELL_PRELUDE}
 result="$0"; log="$1"; prompt="$2"; cli="$3"; shift 3
 if [ -n "$prompt" ]; then
   exec 3<"$prompt"
@@ -258,6 +288,7 @@ export function fanoutLabels(base: string, count: number): string[] {
 const WINDOW_WRAPPER = `agent_pane="$1"; cmd="$2"
 if [ -n "$agent_pane" ]; then export TMUX_PANE="$agent_pane"; fi
 eval "$cmd"; code=$?
+unset ${SESSION_REF_ENV}
 printf '\\n[h2a] %s exited (code %s) — shell on %s. Re-run it or Ctrl-D to end this window.\\n' "$cmd" "$code" "$PWD"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
@@ -409,6 +440,82 @@ function anthopicEnvUnsetCommandPrefix(): string[] {
   const stale: string[] = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
   if (!process.env.ANTHROPIC_API_KEY) stale.push("ANTHROPIC_API_KEY");
   return ["env", ...stale.flatMap((key) => ["-u", key])];
+}
+
+export function tmuxClientEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): NodeJS.ProcessEnv {
+  return scrubSessionIdentityEnv(env);
+}
+
+/**
+ * Scrub all 51 session-identity / internal plumbing keys from the global tmux
+ * server environment (`tmux show-environment -g` -> `set-environment -g -u`).
+ * Returns the exact variable names removed (empty when no server or clean).
+ */
+export function scrubTmuxGlobalEnv(tmuxBin: string = TMUX): string[] {
+  const purged: string[] = [];
+  try {
+    const res = spawnSync(tmuxBin, ["show-environment", "-g"], {
+      encoding: "utf8",
+      env: tmuxClientEnv(),
+    });
+    if (res.status !== 0 || !res.stdout) return [];
+    for (const line of res.stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("-")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      const key = eqIdx === -1 ? trimmed : trimmed.slice(0, eqIdx);
+      if (!SESSION_IDENTITY_SCRUB_KEY_SET.has(key)) continue;
+      const unsetRes = spawnSync(tmuxBin, ["set-environment", "-g", "-u", key], {
+        stdio: "ignore",
+        env: tmuxClientEnv(),
+      });
+      if (unsetRes.status === 0) purged.push(key);
+    }
+  } catch {
+    /* best-effort when tmux server is absent or uninitialized */
+  }
+  return purged;
+}
+
+/**
+ * Build an `env -u ... KEY=VAL` prefix inside the tmux pane itself so global
+ * tmux server variables are scrubbed before `/bin/bash -lc` starts without
+ * ever leaking session secrets onto `tmux new-session -e`.
+ */
+export function tmuxPaneEnvPrefix(options: {
+  readonly excludeUnset?: ReadonlySet<string> | undefined;
+  readonly setVars?: Readonly<Record<string, string>> | undefined;
+} = {}): string[] {
+  const unsetKeys: string[] = [];
+  const seen = new Set<string>();
+  const exclude = options.excludeUnset;
+  if (!callerCarriesGatewayRouting()) {
+    for (const key of ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"]) {
+      if (!exclude?.has(key) && !seen.has(key)) {
+        seen.add(key);
+        unsetKeys.push(key);
+      }
+    }
+    if (!process.env.ANTHROPIC_API_KEY && !exclude?.has("ANTHROPIC_API_KEY") && !seen.has("ANTHROPIC_API_KEY")) {
+      seen.add("ANTHROPIC_API_KEY");
+      unsetKeys.push("ANTHROPIC_API_KEY");
+    }
+  }
+  for (const key of SESSION_IDENTITY_SCRUB_KEYS) {
+    if (exclude?.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    unsetKeys.push(key);
+  }
+  const setPairs: string[] = [];
+  if (options.setVars) {
+    for (const [k, v] of Object.entries(options.setVars)) {
+      if (v !== undefined) setPairs.push(`${k}=${v}`);
+    }
+  }
+  if (unsetKeys.length === 0 && setPairs.length === 0) return [];
+  return ["env", ...unsetKeys.flatMap((k) => ["-u", k]), ...setPairs];
 }
 
 function expandHome(p: string): string {
@@ -636,13 +743,20 @@ export type StartLocalResult = {
   agentPane?: string;
   /** Transient headless prompt path; never surfaced in public JSON. */
   promptFile?: string;
+  readonly sessionKey?: string | undefined;
+  readonly actorId?: string | undefined;
+  readonly agentUuid?: string | undefined;
 };
 
 export type ManagedLaunchMetadata = {
   /** Called immediately before a new-session emission, never on adoption. */
   onCreateAttempt?: () => void;
+  /** Verified identity contract (reuse | mint | none-shell). */
+  readonly identity: LaunchSessionIdentity;
   /** Durable class inherited by the agent's SessionStart/SessionEnd hooks. */
   sessionClass?: SessionClass;
+  /** Delegated job id propagated via REMOTE_JOB_ID only inside the launched child. */
+  readonly jobId?: string | undefined;
   /** Conversation id only; never pass arbitrary CLI argv as resume metadata. */
   resumeId?: string;
   /** Sidecar command selected for this launch, if any. */
@@ -653,6 +767,9 @@ export type ManagedLaunchMetadata = {
   refuseExisting?: boolean;
   /** Optional launch wait budget passed through from CLI/MCP callers. */
   launchBudgetMs?: number;
+  /** Test seam for runtime dir and keypair store. */
+  readonly sessionRuntimeDir?: string | undefined;
+  readonly storeRoot?: string | undefined;
   /**
    * Keep a real, fixed-size PTY client attached while the pane is remotely
    * driven. Required before an initial TUI prompt can be delivered reliably.
@@ -737,7 +854,7 @@ export function ensureHeadlessTerminal(
         detached: true,
         stdio: "ignore",
         env: {
-          ...process.env,
+          ...scrubSessionIdentityEnv(process.env),
           H2A_HEADLESS_TARGET: exactSessionTarget(session),
         },
       },
@@ -1072,17 +1189,21 @@ export function startLocalSession(
   profile: string,
   command: string,
   cwd: string,
-  args: ReadonlyArray<string> = [],
-  label?: string,
-  tmuxProfile = getTmuxProfileConfig().profile,
-  metadata: ManagedLaunchMetadata = {},
+  args: ReadonlyArray<string>,
+  label: string | undefined,
+  tmuxProfile: string = getTmuxProfileConfig().profile,
+  metadata: ManagedLaunchMetadata,
 ): StartLocalResult {
   const isAgy = profile === "agy" || classifyCliCommand([command, ...args]) === "agy";
   const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
   const slug = slugify(label ?? effectiveCwd);
   const name = localSessionName(slug);
   const {
-    sessionClass,
+    identity,
+    sessionClass: metadataSessionClass,
+    jobId,
+    sessionRuntimeDir,
+    storeRoot,
     terminateOnAgentExit = false,
     refuseExisting = false,
     attachedTerminal = false,
@@ -1104,7 +1225,7 @@ export function startLocalSession(
     const agentPane = persistAgentPaneMetadata(existing.session.name, profile, effectiveCwd);
     persistLaunchContext(
       existing.session.name,
-      buildLaunchContext({ profile, cwd: effectiveCwd, label, ...launchMetadata }),
+      buildLaunchContext({ profile, cwd: effectiveCwd, label, ...launchMetadata, ...(metadataSessionClass ? { sessionClass: metadataSessionClass } : {}) }),
     );
     if (attachedTerminal) {
       const terminal = ensureHeadlessTerminal(existing.session.name);
@@ -1121,111 +1242,189 @@ export function startLocalSession(
     };
   }
 
+  scrubTmuxGlobalEnv();
+  const prepared = prepareSessionIdentityLaunch(identity, {
+    ...(jobId !== undefined ? { jobId } : {}),
+    ...(sessionRuntimeDir !== undefined ? { sessionRuntimeDir } : {}),
+    ...(storeRoot !== undefined ? { storeRoot } : {}),
+  });
+  const sessionClass =
+    prepared.kind === "verified" ? prepared.sessionClass : metadataSessionClass;
   const scopedCliArgs = isAgy
     ? assertAgyTmuxSliceAndWrapArgs([command, ...args], sessionClass)
     : [command, ...args];
   const [execCmd, ...execRest] = scopedCliArgs;
-  const agentCommand = [
-    ...anthopicEnvUnsetCommandPrefix(),
-    "/bin/bash",
-    "-lc",
-    terminateOnAgentExit ? STRUCTURED_LOCAL_WRAPPER : LOCAL_WRAPPER,
-    ...(terminateOnAgentExit
-      ? [execCmd!]
-      : [
-          localRelaunchCommand(
-            profile,
-            effectiveCwd,
-            label,
-            metadata.resumeId ? ["--resume", metadata.resumeId] : [],
-          ),
-          execCmd!,
-        ]),
-    ...execRest,
-  ];
-  const startFn = () => {
-    onCreateAttempt?.();
-    const r = spawnSync(
-      TMUX,
-      [
-        "new-session",
-        "-d",
-        "-P",
-        "-F",
-        "#{pane_id}",
-        ...(isAgy ? ["-e", `PWD=${effectiveCwd}`] : []),
-        ...tmuxEnvironmentArgs(sessionClass),
-        "-s",
-        name,
-        // Launcher contract (a2a): the agent's window is NAMED after the profile
-        // (claude/codex/…). One-shot name at creation only — we never touch the
-        // automatic-rename option, so live titles elsewhere keep working.
-        "-n",
-        profile,
-        "-c",
-        effectiveCwd,
-        // A detached pane has no actual terminal client. Do not start a TUI
-        // there: a process that reads stdin before the PTY client attaches sees
-        // EOF, while one that starts rendering can lose the first prompt. Keep a
-        // benign pane alive, attach and verify the PTY, then respawn the agent.
-        ...(attachedTerminal
-          ? ["/bin/bash", "-lc", "exec sleep 86400"]
-          : agentCommand),
-      ],
-      {
-        encoding: "utf8",
-        stdio: ["inherit", "pipe", "inherit"],
-      },
+  const relaunchHint = localRelaunchCommand(
+    profile,
+    effectiveCwd,
+    label,
+    metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+  );
+  let agentCommand: string[];
+  if (terminateOnAgentExit) {
+    const paneEnv = tmuxPaneEnvPrefix(
+      prepared.kind === "verified"
+        ? {
+            setVars: {
+              [IDENTITY_SESSION_CLASS_ENV]: prepared.sessionClass,
+              [SESSION_REF_ENV]: prepared.sessionKey,
+              [SESSION_PROOF_PATH_ENV]: prepared.secretPath,
+              ...(prepared.jobId ? { REMOTE_JOB_ID: prepared.jobId } : {}),
+            },
+          }
+        : sessionClass
+          ? { setVars: { [IDENTITY_SESSION_CLASS_ENV]: sessionClass } }
+          : {},
     );
-    if (r.status !== 0) {
-      throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
-    }
-    const printedPane = r.stdout?.trim();
-    const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
-    const agentPane = persistAgentPaneMetadata(name, profile, effectiveCwd, capturedPane);
-    if ((terminateOnAgentExit || refuseExisting || attachedTerminal) && !agentPane) {
-      killLocalSession(name);
-      throw new Error(`tmux did not return a live agent pane for ${slug}`);
-    }
-    if (attachedTerminal) {
-      const terminal = ensureHeadlessTerminal(name);
-      if (terminal.state === "unavailable") {
-        killLocalSession(name);
-        throw new Error(
-          `could not attach a persistent terminal to ${slug}: ${terminal.reason}`,
-        );
-      }
-      const respawned = spawnSync(
+    agentCommand = [
+      ...paneEnv,
+      "/bin/bash",
+      "-lc",
+      STRUCTURED_LOCAL_WRAPPER,
+      execCmd!,
+      ...execRest,
+    ];
+  } else if (prepared.kind === "verified") {
+    writeLauncherRelaunchHandoff(prepared);
+    const paneEnv = tmuxPaneEnvPrefix({
+      setVars: { [IDENTITY_SESSION_CLASS_ENV]: prepared.sessionClass },
+    });
+    agentCommand = [
+      ...paneEnv,
+      "/bin/bash",
+      "-lc",
+      LOCAL_WRAPPER,
+      relaunchHint,
+      ...buildSessionExecWrapperCommandLine({
+        sessionKey: prepared.sessionKey,
+        relaunchHint,
+        command: execCmd!,
+        commandArgs: execRest,
+        noShell: true,
+      }),
+    ];
+  } else {
+    const paneEnv = tmuxPaneEnvPrefix(
+      sessionClass ? { setVars: { [IDENTITY_SESSION_CLASS_ENV]: sessionClass } } : {},
+    );
+    agentCommand = [
+      ...paneEnv,
+      "/bin/bash",
+      "-lc",
+      LOCAL_WRAPPER,
+      relaunchHint,
+      execCmd!,
+      ...execRest,
+    ];
+  }
+  const clientEnv = tmuxClientEnv();
+  const startFn = () => {
+    try {
+      onCreateAttempt?.();
+      const r = spawnSync(
         TMUX,
         [
-          "respawn-pane",
-          "-k",
-          "-t",
-          agentPane!,
-          "-c",
-          effectiveCwd,
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          "#{pane_id}",
           ...(isAgy ? ["-e", `PWD=${effectiveCwd}`] : []),
           ...tmuxEnvironmentArgs(sessionClass),
-          ...agentCommand,
+          "-s",
+          name,
+          // Launcher contract (a2a): the agent's window is NAMED after the profile
+          // (claude/codex/…). One-shot name at creation only — we never touch the
+          // automatic-rename option, so live titles elsewhere keep working.
+          "-n",
+          profile,
+          "-c",
+          effectiveCwd,
+          // A detached pane has no actual terminal client. Do not start a TUI
+          // there: a process that reads stdin before the PTY client attaches sees
+          // EOF, while one that starts rendering can lose the first prompt. Keep a
+          // benign pane alive, attach and verify the PTY, then respawn the agent.
+          ...(attachedTerminal
+            ? ["/bin/bash", "-lc", "exec sleep 86400"]
+            : agentCommand),
         ],
-        { stdio: ["ignore", "ignore", "ignore"] },
+        {
+          encoding: "utf8",
+          stdio: ["inherit", "pipe", "inherit"],
+          env: clientEnv,
+        },
       );
-      if (respawned.status !== 0) {
-        killLocalSession(name);
-        throw new Error(`tmux could not start the agent pane for ${slug} after terminal attachment`);
+      if (r.status !== 0) {
+        throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
       }
+      const printedPane = r.stdout?.trim();
+      const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
+      const agentPane = persistAgentPaneMetadata(name, profile, effectiveCwd, capturedPane);
+      if ((terminateOnAgentExit || refuseExisting || attachedTerminal) && !agentPane) {
+        killLocalSession(name);
+        throw new Error(`tmux did not return a live agent pane for ${slug}`);
+      }
+      if (attachedTerminal) {
+        const terminal = ensureHeadlessTerminal(name);
+        if (terminal.state === "unavailable") {
+          killLocalSession(name);
+          throw new Error(
+            `could not attach a persistent terminal to ${slug}: ${terminal.reason}`,
+          );
+        }
+        const respawned = spawnSync(
+          TMUX,
+          [
+            "respawn-pane",
+            "-k",
+            "-t",
+            agentPane!,
+            "-c",
+            effectiveCwd,
+            ...(isAgy ? ["-e", `PWD=${effectiveCwd}`] : []),
+            ...tmuxEnvironmentArgs(sessionClass),
+            ...agentCommand,
+          ],
+          { stdio: ["ignore", "ignore", "ignore"], env: clientEnv },
+        );
+        if (respawned.status !== 0) {
+          killLocalSession(name);
+          throw new Error(`tmux could not start the agent pane for ${slug} after terminal attachment`);
+        }
+      }
+      // Record the profile as a session option so `remote ls` can show it.
+      spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
+        stdio: "ignore",
+        env: clientEnv,
+      });
+      persistLaunchContext(name, buildLaunchContext({ profile, cwd: effectiveCwd, label, ...launchMetadata, ...(sessionClass ? { sessionClass } : {}) }));
+      installH2aStatusSurface(name);
+      const workerPid = agentPane ? localSessionPanePid(agentPane) : undefined;
+      if (terminateOnAgentExit && prepared.kind === "verified" && workerPid !== undefined) {
+        publishLauncherSessionFiche(prepared, {
+          leaderPid: workerPid,
+          expectScope: isAgy,
+        });
+      }
+      return {
+        result: {
+          name,
+          slug,
+          ...(agentPane ? { agentPane } : {}),
+          ...(prepared.kind === "verified"
+            ? {
+                sessionKey: prepared.sessionKey,
+                actorId: prepared.actorId,
+                agentUuid: prepared.agentUuid,
+              }
+            : {}),
+        },
+        ...(workerPid !== undefined ? { workerPid } : {}),
+      };
+    } catch (error) {
+      cleanupFailedSessionIdentityLaunch(prepared);
+      throw error;
     }
-    // Record the profile as a session option so `remote ls` can show it.
-    spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
-      stdio: "ignore",
-    });
-    persistLaunchContext(name, buildLaunchContext({ profile, cwd: effectiveCwd, label, ...launchMetadata }));
-    installH2aStatusSurface(name);
-    const workerPid = agentPane ? localSessionPanePid(agentPane) : undefined;
-    return {
-      result: { name, slug, ...(agentPane ? { agentPane } : {}) },
-      ...(workerPid !== undefined ? { workerPid } : {}),
-    };
   };
   return isAgy
     ? withAgyStartQueueSync(startFn, {
@@ -1272,6 +1471,7 @@ export function startHeadlessSession(
   resultJson: string,
   outputLog: string,
   label: string,
+  identity: LaunchSessionIdentity,
   tmuxProfile = getTmuxProfileConfig().profile,
   promptInput?: string,
   refuseExisting = false,
@@ -1279,6 +1479,11 @@ export function startHeadlessSession(
   onCreateAttempt?: () => void,
   outputFile?: string,
   launchBudgetMs?: number,
+  extra?: {
+    readonly jobId?: string | undefined;
+    readonly sessionRuntimeDir?: string | undefined;
+    readonly storeRoot?: string | undefined;
+  },
 ): StartLocalResult {
   const isAgy = profile === "agy" || classifyCliCommand([command, ...args]) === "agy";
   const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
@@ -1298,71 +1503,114 @@ export function startHeadlessSession(
     return { name: existing.session.name, slug: existing.session.slug };
   }
 
+  scrubTmuxGlobalEnv();
+  const prepared = prepareSessionIdentityLaunch(identity, {
+    ...(extra?.jobId !== undefined ? { jobId: extra.jobId } : {}),
+    ...(extra?.sessionRuntimeDir !== undefined ? { sessionRuntimeDir: extra.sessionRuntimeDir } : {}),
+    ...(extra?.storeRoot !== undefined ? { storeRoot: extra.storeRoot } : {}),
+  });
+  const effectiveSessionClass =
+    prepared.kind === "verified" ? prepared.sessionClass : sessionClass;
   const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
   const innerCmd = headlessCommand(profile, command, args, resultJson, outputLog, promptFile, outputFile);
-  const wrappedCmd = isAgy ? assertAgyTmuxSliceAndWrapArgs(innerCmd, sessionClass) : innerCmd;
+  const wrappedCmd = isAgy ? assertAgyTmuxSliceAndWrapArgs(innerCmd, effectiveSessionClass) : innerCmd;
+  const paneEnv = tmuxPaneEnvPrefix(
+    prepared.kind === "verified"
+      ? {
+          setVars: {
+            [IDENTITY_SESSION_CLASS_ENV]: prepared.sessionClass,
+            [SESSION_REF_ENV]: prepared.sessionKey,
+            [SESSION_PROOF_PATH_ENV]: prepared.secretPath,
+            ...(prepared.jobId ? { REMOTE_JOB_ID: prepared.jobId } : {}),
+          },
+        }
+      : effectiveSessionClass
+        ? { setVars: { [IDENTITY_SESSION_CLASS_ENV]: effectiveSessionClass } }
+        : {},
+  );
+  const clientEnv = tmuxClientEnv();
 
   const startFn = () => {
-    if (promptInput !== undefined) {
-      writeFileSync(promptFile, promptInput, {
-        encoding: "utf8",
-        mode: 0o600,
-        flag: "wx",
-      });
-    }
+    try {
+      if (promptInput !== undefined) {
+        writeFileSync(promptFile, promptInput, {
+          encoding: "utf8",
+          mode: 0o600,
+          flag: "wx",
+        });
+      }
 
-    onCreateAttempt?.();
-    const r = spawnSync(
-      TMUX,
-      [
-        "new-session",
-        "-d",
-        "-P",
-        "-F",
-        "#{pane_id}",
-        ...(isAgy ? ["-e", `PWD=${effectiveCwd}`] : []),
-        ...tmuxEnvironmentArgs(sessionClass),
-        "-s",
-        name,
-        "-n",
-        profile,
-        "-c",
-        effectiveCwd,
-        ...anthopicEnvUnsetCommandPrefix(),
-        ...wrappedCmd,
-      ],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "inherit"],
-      },
-    );
-    if (r.status !== 0) {
-      cleanupHeadlessPromptFile(promptFile);
-      throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
+      onCreateAttempt?.();
+      const r = spawnSync(
+        TMUX,
+        [
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          "#{pane_id}",
+          ...(isAgy ? ["-e", `PWD=${effectiveCwd}`] : []),
+          ...tmuxEnvironmentArgs(effectiveSessionClass),
+          "-s",
+          name,
+          "-n",
+          profile,
+          "-c",
+          effectiveCwd,
+          ...paneEnv,
+          ...wrappedCmd,
+        ],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "inherit"],
+          env: clientEnv,
+        },
+      );
+      if (r.status !== 0) {
+        cleanupHeadlessPromptFile(promptFile);
+        throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
+      }
+      const printedPane = r.stdout?.trim();
+      const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
+      const agentPane = persistAgentPaneMetadata(name, profile, effectiveCwd, capturedPane);
+      if (refuseExisting && !agentPane) {
+        cleanupHeadlessPromptFile(promptFile);
+        killLocalSession(name);
+        throw new Error(`tmux did not return a live agent pane for ${slug}`);
+      }
+      spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
+        stdio: "ignore",
+        env: clientEnv,
+      });
+      persistLaunchContext(name, buildLaunchContext({ profile, cwd: effectiveCwd, label }));
+      installH2aStatusSurface(name);
+      const workerPid = agentPane ? localSessionPanePid(agentPane) : undefined;
+      if (prepared.kind === "verified" && workerPid !== undefined) {
+        publishLauncherSessionFiche(prepared, {
+          leaderPid: workerPid,
+          expectScope: isAgy,
+        });
+      }
+      return {
+        result: {
+          name,
+          slug,
+          ...(agentPane ? { agentPane } : {}),
+          ...(promptFile ? { promptFile } : {}),
+          ...(prepared.kind === "verified"
+            ? {
+                sessionKey: prepared.sessionKey,
+                actorId: prepared.actorId,
+                agentUuid: prepared.agentUuid,
+              }
+            : {}),
+        },
+        ...(workerPid !== undefined ? { workerPid } : {}),
+      };
+    } catch (error) {
+      cleanupFailedSessionIdentityLaunch(prepared);
+      throw error;
     }
-    const printedPane = r.stdout?.trim();
-    const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
-    const agentPane = persistAgentPaneMetadata(name, profile, effectiveCwd, capturedPane);
-    if (refuseExisting && !agentPane) {
-      cleanupHeadlessPromptFile(promptFile);
-      killLocalSession(name);
-      throw new Error(`tmux did not return a live agent pane for ${slug}`);
-    }
-    spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
-      stdio: "ignore",
-    });
-    persistLaunchContext(name, buildLaunchContext({ profile, cwd: effectiveCwd, label }));
-    installH2aStatusSurface(name);
-    const workerPid = agentPane ? localSessionPanePid(agentPane) : undefined;
-    return {
-      result: {
-        name,
-        slug,
-        ...(agentPane ? { agentPane } : {}),
-        ...(promptFile ? { promptFile } : {}),
-      },
-      ...(workerPid !== undefined ? { workerPid } : {}),
-    };
   };
   return isAgy
     ? withAgyStartQueueSync(startFn, {
@@ -1421,16 +1669,38 @@ export function buildSessionWindowArgs(
   cwd: string,
   commandLine: string,
   agentPane?: string,
+  envOptions?: {
+    readonly capturePane?: boolean | undefined;
+    readonly scrubPane?: boolean | undefined;
+    readonly sessionKey?: string | undefined;
+    readonly sessionClass?: SessionClass | undefined;
+  },
 ): string[] {
+  const paneEnv = envOptions
+    ? tmuxPaneEnvPrefix(
+        envOptions.sessionKey
+          ? {
+              setVars: {
+                [SESSION_REF_ENV]: envOptions.sessionKey,
+                ...(envOptions.sessionClass
+                  ? { [IDENTITY_SESSION_CLASS_ENV]: envOptions.sessionClass }
+                  : {}),
+              },
+            }
+          : {},
+      )
+    : [];
   return [
     "new-window",
     "-d",
+    ...(envOptions?.capturePane ? ["-P", "-F", "#{pane_id}"] : []),
     "-t",
     session,
     "-n",
     windowName,
     "-c",
     cwd,
+    ...paneEnv,
     "/bin/bash",
     "-lc",
     WINDOW_WRAPPER,
@@ -1451,7 +1721,24 @@ export function buildStructuredSessionWindowArgs(
   commandLine: string,
   agentPane: string,
   readiness: { readonly file: string; readonly nonce: string },
+  envOptions?: {
+    readonly sessionKey?: string | undefined;
+    readonly sessionClass?: SessionClass | undefined;
+  },
 ): string[] {
+  const paneEnv = tmuxPaneEnvPrefix({
+    excludeUnset: new Set([H2A_MCP_READY_FILE_ENV, H2A_MCP_READY_NONCE_ENV]),
+    ...(envOptions?.sessionKey
+      ? {
+          setVars: {
+            [SESSION_REF_ENV]: envOptions.sessionKey,
+            ...(envOptions.sessionClass
+              ? { [IDENTITY_SESSION_CLASS_ENV]: envOptions.sessionClass }
+              : {}),
+          },
+        }
+      : {}),
+  });
   return [
     "new-window",
     "-d",
@@ -1468,6 +1755,7 @@ export function buildStructuredSessionWindowArgs(
     windowName,
     "-c",
     cwd,
+    ...paneEnv,
     "/bin/bash",
     "-lc",
     STRUCTURED_WINDOW_WRAPPER,
@@ -1495,13 +1783,50 @@ export function addSessionWindow(
   cwd: string,
   commandLine: string,
   agentPane?: string,
+  envOptions?: {
+    readonly scrubPane?: boolean | undefined;
+    readonly sessionKey?: string | undefined;
+    readonly sessionClass?: SessionClass | undefined;
+    readonly sessionRuntimeDir?: string | undefined;
+  },
 ): boolean {
   const r = spawnSync(
     TMUX,
-    buildSessionWindowArgs(session, windowName, cwd, commandLine, agentPane),
-    { stdio: "ignore" },
+    buildSessionWindowArgs(
+      session,
+      windowName,
+      cwd,
+      commandLine,
+      agentPane,
+      envOptions?.sessionKey || envOptions?.scrubPane
+        ? {
+            capturePane: Boolean(envOptions.sessionKey),
+            scrubPane: envOptions.scrubPane,
+            sessionKey: envOptions.sessionKey,
+            sessionClass: envOptions.sessionClass,
+          }
+        : undefined,
+    ),
+    {
+      ...(envOptions?.sessionKey
+        ? { encoding: "utf8" as const, stdio: ["ignore", "pipe", "ignore"] as const }
+        : { stdio: "ignore" as const }),
+      env: tmuxClientEnv(),
+    },
   );
-  return r.status === 0;
+  if (r.status !== 0) return false;
+  if (envOptions?.sessionKey) {
+    const pane = typeof r.stdout === "string" ? r.stdout.trim() : "";
+    const sidecarPid = validTmuxPaneId(pane) ? localSessionPanePid(pane) : undefined;
+    if (sidecarPid !== undefined) {
+      publishLauncherSidecar(envOptions.sessionKey, sidecarPid, {
+        ...(envOptions.sessionRuntimeDir !== undefined
+          ? { sessionRuntimeDir: envOptions.sessionRuntimeDir }
+          : {}),
+      });
+    }
+  }
+  return true;
 }
 
 /** Is `cmd` resolvable in PATH (login shell, same as the tmux windows use)? */
@@ -1808,7 +2133,7 @@ export function ensureStatusBarWriter(root?: string): void {
     const child = spawn(
       "h2a",
       ["status", "--write-bars", "--root", resolvedRoot],
-      { detached: true, stdio: "ignore" },
+      { detached: true, stdio: "ignore", env: scrubSessionIdentityEnv(process.env) },
     );
     child.on("error", () => {});
     child.unref();
@@ -1908,11 +2233,14 @@ export function openH2aStatusWindow(
   // The same exact session option used by the bar is carried into the human
   // companion; without it J/I must deliberately remain UNKNOWN.
   const owner = readSessionOption(session, "@h2a_owner_instance");
+  scrubTmuxGlobalEnv();
   return addSessionWindow(
     session,
     H2A_STATUS_WINDOW_NAME,
     cwd,
     h2aStatusWindowCommand(session, owner),
+    undefined,
+    { scrubPane: true },
   );
 }
 
@@ -2034,6 +2362,11 @@ export function startH2aWindow(
   cwd: string,
   commandLine: string,
   stderr: { write(chunk: string): unknown } = process.stderr,
+  sessionOptions?: {
+    readonly sessionKey?: string | undefined;
+    readonly sessionClass?: SessionClass | undefined;
+    readonly sessionRuntimeDir?: string | undefined;
+  },
 ): boolean {
   const bin = commandLine.trim().split(/\s+/)[0] ?? "";
   if (!bin || !commandAvailable(bin)) {
@@ -2058,8 +2391,9 @@ export function startH2aWindow(
     );
     return false;
   }
+  scrubTmuxGlobalEnv();
   if (
-    !addSessionWindow(session, H2A_WINDOW_NAME, cwd, commandLine, agentPane)
+    !addSessionWindow(session, H2A_WINDOW_NAME, cwd, commandLine, agentPane, sessionOptions)
   ) {
     stderr.write(
       `[h2a] h2a window failed to start (tmux new-window error on ${session})\n`,
@@ -2078,6 +2412,9 @@ export type StructuredSidecarVerificationOptions = {
   intervalMs?: number;
   /** Test seam; production defaults to a real timer. */
   delay?: (ms: number) => Promise<void>;
+  readonly sessionKey?: string | undefined;
+  readonly sessionClass?: SessionClass | undefined;
+  readonly sessionRuntimeDir?: string | undefined;
 };
 
 export type StructuredH2aWindow = {
@@ -2188,7 +2525,21 @@ export async function startH2aWindowVerified(
     return undefined;
   }
   const challenge = createStructuredReadinessChallenge();
+  scrubTmuxGlobalEnv();
   let sidecarPane: string | undefined;
+  const cleanupPublishedSidecar = () => {
+    if (!options.sessionKey) return;
+    try {
+      const allowD16 = hasSandboxOrQualificationRuntime();
+      const rt = resolveSessionRuntimeDir({
+        sessionRuntimeDir: options.sessionRuntimeDir,
+        createIfMissing: Boolean(options.sessionRuntimeDir || allowD16),
+      }).dir;
+      rmSync(sessionSidecarPath(rt, options.sessionKey), { force: true });
+    } catch {
+      /* ignore */
+    }
+  };
   try {
     const r = spawnSync(
       TMUX,
@@ -2199,10 +2550,14 @@ export async function startH2aWindowVerified(
         commandLine,
         agentPane,
         challenge,
+        options.sessionKey
+          ? { sessionKey: options.sessionKey, sessionClass: options.sessionClass }
+          : undefined,
       ),
       {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
+        env: tmuxClientEnv(),
       },
     );
     sidecarPane = r.stdout?.trim();
@@ -2220,6 +2575,17 @@ export async function startH2aWindowVerified(
       ((ms: number) =>
         new Promise<void>((resolve) => setTimeout(resolve, ms)));
     let stablePid: number | undefined;
+    if (options.sessionKey) {
+      const initialSidecarPid = localSessionPanePid(sidecarPane);
+      if (initialSidecarPid !== undefined) {
+        stablePid = initialSidecarPid;
+        publishLauncherSidecar(options.sessionKey, initialSidecarPid, {
+          ...(options.sessionRuntimeDir !== undefined
+            ? { sessionRuntimeDir: options.sessionRuntimeDir }
+            : {}),
+        });
+      }
+    }
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       await delay(intervalMs);
       const agentPid = localSessionPanePid(agentPane);
@@ -2230,15 +2596,26 @@ export async function startH2aWindowVerified(
         (stablePid !== undefined && sidecarPid !== stablePid)
       ) {
         stopStructuredSidecar(sidecarPane);
+        cleanupPublishedSidecar();
         stderr.write(
           `[h2a] required h2a sidecar failed pane/PID guard in ${session}.\n`,
         );
         return undefined;
       }
-      stablePid = sidecarPid;
+      if (stablePid === undefined) {
+        stablePid = sidecarPid;
+        if (options.sessionKey) {
+          publishLauncherSidecar(options.sessionKey, sidecarPid, {
+            ...(options.sessionRuntimeDir !== undefined
+              ? { sessionRuntimeDir: options.sessionRuntimeDir }
+              : {}),
+          });
+        }
+      }
       const readiness = probeStructuredReadiness(challenge, sidecarPid);
       if (readiness.state === "invalid") {
         stopStructuredSidecar(sidecarPane);
+        cleanupPublishedSidecar();
         stderr.write(
           `[h2a] required h2a sidecar returned an invalid readiness ACK in ${session}.\n`,
         );
@@ -2254,6 +2631,7 @@ export async function startH2aWindowVerified(
       }
     }
     stopStructuredSidecar(sidecarPane);
+    cleanupPublishedSidecar();
     stderr.write(
       `[h2a] required h2a sidecar timed out waiting for correlated readiness ACK in ${session}.\n`,
     );
@@ -2287,9 +2665,17 @@ export function currentTmuxSessionIs(name: string): boolean {
   return r.status === 0 && r.stdout.trim() === name;
 }
 
-export function runLocalCliForeground(command: string, args: string[]): number {
+export function runLocalCliForeground(
+  command: string,
+  args: string[],
+  options?: { readonly env?: NodeJS.ProcessEnv | undefined },
+): number {
   return withClientTerminalReset(() => {
-    const r = spawnSync(command, args, { stdio: "inherit" });
+    scrubTmuxGlobalEnv();
+    const r = spawnSync(command, args, {
+      stdio: "inherit",
+      ...(options?.env !== undefined ? { env: options.env } : {}),
+    });
     return statusFromSpawnResult(r);
   });
 }
@@ -2578,8 +2964,10 @@ export function relaunchInSession(
   if (sessionName) {
     recordInjectionBestEffort(`tmux:${sessionName}`, command);
   }
+  scrubTmuxGlobalEnv();
   const r = spawnSync(TMUX, ["send-keys", "-t", name, command, "Enter"], {
     stdio: "ignore",
+    env: tmuxClientEnv(),
   });
   return r.status === 0;
 }

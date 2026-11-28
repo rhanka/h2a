@@ -16,8 +16,9 @@
  * released in the resolver's `finally`.
  */
 
+import { resolveMcpTransportAnchorAsync } from "./caller-guard.js";
 import { resolveLiveIdentityAsync } from "./live.js";
-import type { ResolveLiveIdentityInput } from "./live.js";
+import type { ResolveLiveIdentityInput, SessionIdentityAnchor } from "./live.js";
 import { LockCancelledError, LockTimeoutError, observeLocks } from "../local-files/locks.js";
 import type { IdentityPhase } from "../mcp/identity-state.js";
 import { createMcpTrace, setActiveMcpTrace } from "../mcp/phase-trace.js";
@@ -38,6 +39,17 @@ interface ResolveRequest {
     readonly name?: string;
     readonly scopes?: readonly string[];
     readonly declaredCapabilities?: readonly string[];
+    readonly providerEnv?: Readonly<Record<string, string>>;
+    readonly sessionAnchor?: SessionIdentityAnchor;
+    readonly mcpAnchorInput?: {
+      readonly pid: number;
+      readonly processPid: number;
+      readonly root: string;
+      readonly explicitInstance?: string;
+      readonly host?: string;
+      readonly expectedInstance?: string;
+      readonly centralAttachment: true;
+    };
   };
   readonly budgetMs: number;
   /** Parent trace's attemptId so the child's L0 spans correlate (role=identity-child). */
@@ -58,6 +70,13 @@ function classify(err: unknown): { cause: IdentityFailureCode; message: string }
   const message = err instanceof Error ? err.message : String(err);
   if (err instanceof LockCancelledError) {
     return { cause: "identity_timeout", message };
+  }
+  if (
+    message.includes("mcp-identity-mismatch") ||
+    message.includes("identity proof failed") ||
+    (err instanceof Error && err.cause === "identity_proof_failed")
+  ) {
+    return { cause: "identity_proof_failed", message };
   }
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
   if (code === "EROFS") return { cause: "storage_readonly", message };
@@ -121,6 +140,9 @@ process.on("message", (raw: unknown) => {
     ...(req.request.scopes !== undefined ? { scopes: req.request.scopes } : {}),
     ...(req.request.declaredCapabilities !== undefined
       ? { declaredCapabilities: req.request.declaredCapabilities }
+      : {}),
+    ...(req.request.sessionAnchor !== undefined
+      ? { sessionAnchor: req.request.sessionAnchor }
       : {})
   };
   const budgetMs = Number.isFinite(req.budgetMs) && req.budgetMs >= 0 ? req.budgetMs : 20_000;
@@ -151,6 +173,8 @@ process.on("message", (raw: unknown) => {
   // the ~17 MB registry per retry under contention).
   const mintMemo: { value?: { instance: string; agentUuid: string } } = {};
   const prepCache: { prepared?: unknown } = {};
+  let resolvedAnchor = req.request.sessionAnchor;
+  let anchorAttempted = resolvedAnchor !== undefined;
   let attempt = 0;
   let sequence = 0;
   const resolveWithRetry = async () => {
@@ -158,7 +182,26 @@ process.on("message", (raw: unknown) => {
       const budget = remainingMs();
       if (budget <= 0) throw new LockTimeoutError("identity", undefined, budgetMs);
       try {
-        const identity=await resolveLiveIdentityAsync(input, {
+        if (req.request.mcpAnchorInput && !anchorAttempted) {
+          const anchorRes = await resolveMcpTransportAnchorAsync({
+            ...req.request.mcpAnchorInput,
+            env: req.request.providerEnv ?? process.env,
+            stderr: (chunk) => {
+              process.stderr.write(chunk);
+            },
+          });
+          anchorAttempted = true;
+          if (!anchorRes.ok) {
+            throw new Error(`${anchorRes.reasonCode}: ${anchorRes.message}`, {
+              cause: "identity_proof_failed",
+            });
+          }
+          resolvedAnchor = anchorRes.anchor;
+        }
+        const effectiveInput: ResolveLiveIdentityInput = resolvedAnchor
+          ? { ...input, sessionAnchor: resolvedAnchor }
+          : input;
+        const identity=await resolveLiveIdentityAsync(effectiveInput, {
           signal: abort.signal,
           deadlineMs: budget,
           // Fail a contended registration fast so the identity lock is not held

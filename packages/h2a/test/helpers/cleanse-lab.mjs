@@ -46,7 +46,7 @@ export async function lab(t, artifact) {
     process.stdin.on('data',b=>process.stdout.write('ack:'+b));
     setInterval(()=>{},1000);
   `);
-  writeFileSync(join(root, 'bin/codex'), `#!/bin/sh\nexec '${process.execPath}' '${join(root, 'agent.mjs')}' "$@"\n`, { mode: 0o700 });
+  writeFileSync(join(root, 'bin/codex'), `#!/bin/sh\nfor a in "$@"; do if [ "$a" = "--help" ] || [ "$a" = "-h" ]; then exit 0; fi; done\nexec '${process.execPath}' '${join(root, 'agent.mjs')}' "$@"\n`, { mode: 0o700 });
   writeFileSync(join(env.HOME, '.bash_profile'), `export PATH='${env.PATH}'\n`);
   const children = [];
   function start(args, entry = artifact.cli, extra = {}) {

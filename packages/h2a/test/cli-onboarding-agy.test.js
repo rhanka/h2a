@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -501,7 +502,7 @@ test("B-1 & B-4 real captures: 0 keystrokes on agy 1.5.17 B-child (.txt/.raw) ac
   }
 
   // 2. Real subprocess fake-tmux test for relaunchInSession & sendKeysLiteral (profile="agy" AND missing @profile).
-  const tmpBase = join(REPO_ROOT, ".tmp");
+  const tmpBase = join(tmpdir(), "h2a-cli-onboarding-agy");
   mkdirSync(tmpBase, { recursive: true, mode: 0o700 });
   const root = mkdtempSync(join(tmpBase, "h2a-b1-tmux-"));
   try {

@@ -40,13 +40,26 @@ export function fixture(t, opts = {}) {
     H2A_ROOT: join(root, 'store'), H2A_MCP_CENTRAL: 'off', H2A_NATIVE_SOCKET: join(root, 'h'), H2A_TEST_PROC_ROOT: join(root, 'proc'),
     DBUS_SESSION_BUS_ADDRESS: 'unix:path=' + join(root, 'no-bus'), LAB_PIDS: ledger, LAB_CPU: cpuLedger, TERM: 'xterm-256color',
     LAB_BASELINE_GUARD: process.env.H2A_LAB_BASELINE_GUARD ?? '',
+    ...(process.env.H2A_HOST_QUALIFICATION_RESERVATION
+      ? { H2A_HOST_QUALIFICATION_RESERVATION: process.env.H2A_HOST_QUALIFICATION_RESERVATION }
+      : {}),
+    ...(process.env.H2A_TEST_STATE_ROOT ? { H2A_TEST_STATE_ROOT: process.env.H2A_TEST_STATE_ROOT } : {}),
+    ...(process.env.H2A_TEST_STATE_QUALIFICATION_ROOT
+      ? { H2A_TEST_STATE_QUALIFICATION_ROOT: process.env.H2A_TEST_STATE_QUALIFICATION_ROOT }
+      : {}),
+    ...(process.env.H2A_TEST_STATE_BARRIER ? { H2A_TEST_STATE_BARRIER: process.env.H2A_TEST_STATE_BARRIER } : {}),
+    ...(process.env.H2A_TEST_SANDBOX_NONCE ? { H2A_TEST_SANDBOX_NONCE: process.env.H2A_TEST_SANDBOX_NONCE } : {}),
+    ...(process.env.H2A_TEST_STATE_RECEIPT ? { H2A_TEST_STATE_RECEIPT: process.env.H2A_TEST_STATE_RECEIPT } : {}),
+    ...(process.env.H2A_IDENTITY_GUARD_ENFORCE
+      ? { H2A_IDENTITY_GUARD_ENFORCE: process.env.H2A_IDENTITY_GUARD_ENFORCE }
+      : {}),
     NODE_OPTIONS: '--import=' + pathToFileURL(hook).href };
   for (const key of ['HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'H2A_TEST_PROC_ROOT'])
     mkdirSync(env[key], { recursive: true, mode: 0o700 });
   mkdirSync(join(root, 'bin'));
   writeFileSync(hook, tracker);
   writeFileSync(join(root, 'agent.mjs'), "process.stdout.write('agent-ready\\n');process.stdin.on('data',b=>process.stdout.write('ack:'+b));setInterval(()=>{},1000);\n");
-  writeFileSync(join(root, 'bin/codex'), `#!/bin/sh\nexec '${process.execPath}' '${join(root, 'agent.mjs')}' "$@"\n`, { mode: 0o700 });
+  writeFileSync(join(root, 'bin/codex'), `#!/bin/sh\nfor a in "$@"; do if [ "$a" = "--help" ] || [ "$a" = "-h" ]; then exit 0; fi; done\nexec '${process.execPath}' '${join(root, 'agent.mjs')}' "$@"\n`, { mode: 0o700 });
   const registry = join(env.REMOTE_CLI_CONFIG_HOME, '.config/sentropic/h2a/registry.json');
   mkdirSync(resolve(registry, '..'), { recursive: true });
   const children = [];

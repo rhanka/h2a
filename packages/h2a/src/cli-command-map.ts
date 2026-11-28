@@ -178,6 +178,7 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   // Observe — study rows "See work sessions", "See the big picture".
   discover: "OBSERVE",
   sessions: "OBSERVE",
+  "presence-reap": "OBSERVE",
   status: "OBSERVE",
   canevas: "OBSERVE",
 
@@ -212,6 +213,7 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   register: "SET_UP",
   connect: "SET_UP",
   doctor: "SET_UP",
+  authorize: "SET_UP",
   central: "SET_UP",
   hosts: "SET_UP",
   "install-skills": "SET_UP",
@@ -311,6 +313,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "sentropic", summary: "Sign in to sentropic (preprod) and bind this workspace for publishing." },
   { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
   { group: "SET_UP", verb: "trust", summary: "Manage owner-only workspace trust baselines, approvals, and audit alerts." },
+  { group: "SET_UP", verb: "authorize", summary: "Issue, list, or revoke one-shot owner authorizations for central stop/compact." },
 
   { group: "SPECIALIST", verb: "identity", summary: "Inspect identity bindings or unlock identity/.lock by expected token." },
   { group: "SPECIALIST", verb: "lock", summary: "Recover a succession lock by expected token; never kill a PID." },
@@ -339,10 +342,11 @@ const RUNTIME_VERBS: readonly {
 /**
  * `conductor-launch` is BOTH a frozen core verb and a runtime command name. The
  * core wins routing (it is in `H2A_NATIVE_VERBS`), so the map lists it once,
- * from the core contract. Same for `connect` and `status`. Listing the runtime
- * twin would tell a human about a command they cannot reach.
+ * from the core contract. Same for `connect`, `status`, and `authorize`. Listing
+ * the runtime twin would tell a human about a command they cannot reach.
  */
 const RUNTIME_VERBS_SHADOWED_BY_CORE: readonly string[] = [
+  "authorize",
   "conductor-launch",
   "connect",
   "status"

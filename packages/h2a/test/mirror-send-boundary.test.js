@@ -186,6 +186,7 @@ function baitedSession(overrides = {}) {
     instance: INSTANCE,
     host: "claude",
     pid: BAIT_PID,
+    pidNamespace: "pid:[4026531836]",
     startedAt: new Date(NOW - 3_600_000).toISOString(),
     heartbeatAt: new Date(NOW - 2_000).toISOString(),
     state: "live",
@@ -436,6 +437,7 @@ test("every withheld field records WHY, from the closed vocabulary", () => {
   // The presence fields this whole exercise is about.
   assert.equal(MIRROR_PRESENCE_PLAN.launchContext.kind, "withhold");
   assert.equal(MIRROR_PRESENCE_PLAN.pid.kind, "withhold");
+  assert.equal(MIRROR_PRESENCE_PLAN.pidNamespace.kind, "withhold");
   assert.equal(MIRROR_PRESENCE_PLAN.mirroredAt.kind, "withhold");
 });
 

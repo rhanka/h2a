@@ -20,6 +20,30 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  applyVerifiedSessionEnv,
+  carryForwardNativeSidecarIfAny,
+  cleanupFailedSessionIdentityLaunch,
+  prepareSessionIdentityLaunch,
+  publishLauncherSessionFiche,
+  publishLauncherSidecar,
+  type LaunchSessionIdentity,
+  type PreparedSessionIdentity,
+} from "./launch-identity.js";
+import {
+  hasSandboxOrQualificationRuntime,
+  purgeSessionArtifacts,
+  readProcCgroup,
+  resolveSessionRuntimeDir,
+  scrubSessionIdentityEnv,
+  SESSION_REF_ENV,
+  sessionSidecarPath,
+} from "./session-auth.js";
+
+function leaderHasNativeScope(leaderPid: number): boolean {
+  return (readProcCgroup(leaderPid) ?? "").includes("/h2a-native-");
+}
+
 import { nativePtyRequirements } from "./pty.js";
 import {
   HEADLESS_TERMINAL_SIZE,
@@ -274,6 +298,9 @@ export type NativeStartResult = {
   readonly name: string;
   readonly slug: string;
   readonly pid: number;
+  readonly sessionKey?: string | undefined;
+  readonly actorId?: string | undefined;
+  readonly agentUuid?: string | undefined;
 };
 
 function opEntryPath(): string {
@@ -602,10 +629,47 @@ export type NativeLaunchMetadata = {
   readonly refuseExisting?: boolean;
   readonly seat?: MaterializedSeat;
   readonly launchBudgetMs?: number;
+  readonly identity: LaunchSessionIdentity;
+  readonly jobId?: string | undefined;
+  readonly sessionRuntimeDir?: string | undefined;
+  readonly storeRoot?: string | undefined;
+  readonly oldSessionKey?: string | undefined;
 };
 
 function isAgyNativeLaunch(profile: string, command: string, args: ReadonlyArray<string>): boolean {
   return profile === "agy" || classifyCliCommand([command, ...args]) === "agy";
+}
+
+function buildNativeChildEnv(
+  baseEnv: Readonly<Record<string, string | undefined>>,
+  options: {
+    readonly hasSeat: boolean;
+    readonly isAgy: boolean;
+    readonly effectiveCwd: string;
+    readonly nativeTerminalSessionName?: string | undefined;
+    readonly prepared: PreparedSessionIdentity;
+    readonly fallbackSessionClass?: SessionClass | undefined;
+  },
+): Record<string, string> {
+  const env = scrubSessionIdentityEnv(baseEnv);
+  if (!options.hasSeat) ensureH2aBinOnPath(env);
+  if (options.isAgy) env["PWD"] = options.effectiveCwd;
+  env["TERM"] = "xterm-256color";
+  if (options.nativeTerminalSessionName) {
+    // The launch runtime may still be connected to an older protocol-v1 host.
+    env["H2A_NATIVE_TERMINAL"] = "1";
+    env["H2A_NATIVE_PTY_SESSION"] = options.nativeTerminalSessionName;
+  }
+  // Direct launches carry the wrapper scrub sentinel so a login/init script
+  // cannot reintroduce routing vars before the CLI exec (tmux twin:
+  // tmuxEnvironmentArgs stamps the same sentinel via -e).
+  stampDirectRoutingScrub(env);
+  if (options.prepared.kind === "verified") {
+    applyVerifiedSessionEnv(env, options.prepared);
+  } else if (options.fallbackSessionClass !== undefined) {
+    env[SESSION_CLASS_ENV] = options.fallbackSessionClass;
+  }
+  return env;
 }
 
 /**
@@ -617,9 +681,9 @@ export function startNativeSession(
   profile: string,
   command: string,
   cwd: string,
-  args: ReadonlyArray<string> = [],
-  label?: string,
-  metadata: NativeLaunchMetadata = {},
+  args: ReadonlyArray<string>,
+  label: string | undefined,
+  metadata: NativeLaunchMetadata,
 ): NativeStartResult {
   const slug = slugify(label ?? cwd);
   const name = localSessionName(slug);
@@ -640,6 +704,11 @@ export function startNativeSession(
     }
     return { name, slug, pid: existing.session.pid };
   }
+  const prepared = prepareSessionIdentityLaunch(metadata.identity, {
+    ...(metadata.jobId !== undefined ? { jobId: metadata.jobId } : {}),
+    ...(metadata.sessionRuntimeDir !== undefined ? { sessionRuntimeDir: metadata.sessionRuntimeDir } : {}),
+    ...(metadata.storeRoot !== undefined ? { storeRoot: metadata.storeRoot } : {}),
+  });
   const agentCommand = metadata.terminateOnAgentExit
     ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
     : [
@@ -657,24 +726,16 @@ export function startNativeSession(
       ];
   const isAgy = isAgyNativeLaunch(profile, command, args);
   const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
-  const effectiveSessionClass = metadata.sessionClass ?? "background";
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
-    if (value !== undefined) env[key] = value;
-  }
-  if (!metadata.seat) ensureH2aBinOnPath(env);
-  if (isAgy) env["PWD"] = effectiveCwd;
-  env["TERM"] = "xterm-256color";
-  // The launch runtime may still be connected to an older protocol-v1 host.
-  env["H2A_NATIVE_TERMINAL"] = "1";
-  env["H2A_NATIVE_PTY_SESSION"] = name;
-  // Direct launches carry the wrapper scrub sentinel so a login/init script
-  // cannot reintroduce routing vars before the CLI exec (tmux twin:
-  // tmuxEnvironmentArgs stamps the same sentinel via -e).
-  stampDirectRoutingScrub(env);
-  if (metadata.sessionClass !== undefined) {
-    env[SESSION_CLASS_ENV] = metadata.sessionClass;
-  }
+  const effectiveSessionClass =
+    prepared.kind === "verified" ? prepared.sessionClass : (metadata.sessionClass ?? "background");
+  const env = buildNativeChildEnv(metadata.seat?.childEnv ?? process.env, {
+    hasSeat: Boolean(metadata.seat),
+    isAgy,
+    effectiveCwd,
+    nativeTerminalSessionName: name,
+    prepared,
+    fallbackSessionClass: metadata.sessionClass,
+  });
   const runCreate = () => {
     const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
     const envFile = join(envDir, "env.json");
@@ -707,7 +768,30 @@ export function startNativeSession(
       if (!state || typeof state.pid !== "number") {
         throw new Error(`native host did not return a session state for ${slug}`);
       }
-      return { result: { name, slug, pid: state.pid }, workerPid: state.pid };
+      if (prepared.kind === "verified") {
+        publishLauncherSessionFiche(prepared, {
+          leaderPid: state.pid,
+          expectScope: leaderHasNativeScope(state.pid),
+        });
+      }
+      return {
+        result: {
+          name,
+          slug,
+          pid: state.pid,
+          ...(prepared.kind === "verified"
+            ? {
+                sessionKey: prepared.sessionKey,
+                actorId: prepared.actorId,
+                agentUuid: prepared.agentUuid,
+              }
+            : {}),
+        },
+        workerPid: state.pid,
+      };
+    } catch (error) {
+      cleanupFailedSessionIdentityLaunch(prepared);
+      throw error;
     } finally {
       rmSync(envDir, { recursive: true, force: true });
     }
@@ -741,12 +825,17 @@ export async function startNativeSessionSingleShot(
   profile: string,
   command: string,
   cwd: string,
-  args: ReadonlyArray<string> = [],
-  label?: string,
-  metadata: NativeLaunchMetadata = {},
+  args: ReadonlyArray<string>,
+  label: string | undefined,
+  metadata: NativeLaunchMetadata,
 ): Promise<NativeSingleShotResult> {
   const slug = slugify(label ?? cwd);
   const name = localSessionName(slug);
+  const prepared = prepareSessionIdentityLaunch(metadata.identity, {
+    ...(metadata.jobId !== undefined ? { jobId: metadata.jobId } : {}),
+    ...(metadata.sessionRuntimeDir !== undefined ? { sessionRuntimeDir: metadata.sessionRuntimeDir } : {}),
+    ...(metadata.storeRoot !== undefined ? { storeRoot: metadata.storeRoot } : {}),
+  });
   const agentCommand = metadata.terminateOnAgentExit
     ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
     : [
@@ -764,21 +853,16 @@ export async function startNativeSessionSingleShot(
       ];
   const isAgy = isAgyNativeLaunch(profile, command, args);
   const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
-  const effectiveSessionClass = metadata.sessionClass ?? "background";
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
-    if (value !== undefined) env[key] = value;
-  }
-  if (!metadata.seat) ensureH2aBinOnPath(env);
-  if (isAgy) env["PWD"] = effectiveCwd;
-  env["TERM"] = "xterm-256color";
-  env["H2A_NATIVE_TERMINAL"] = "1";
-  env["H2A_NATIVE_PTY_SESSION"] = name;
-  // Same last-point scrub sentinel as the interactive native path.
-  stampDirectRoutingScrub(env);
-  if (metadata.sessionClass !== undefined) {
-    env[SESSION_CLASS_ENV] = metadata.sessionClass;
-  }
+  const effectiveSessionClass =
+    prepared.kind === "verified" ? prepared.sessionClass : (metadata.sessionClass ?? "background");
+  const env = buildNativeChildEnv(metadata.seat?.childEnv ?? process.env, {
+    hasSeat: Boolean(metadata.seat),
+    isAgy,
+    effectiveCwd,
+    nativeTerminalSessionName: name,
+    prepared,
+    fallbackSessionClass: metadata.sessionClass,
+  });
   const runSingleShot = async () => {
     const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
     const envFile = join(envDir, "env.json");
@@ -855,10 +939,34 @@ export async function startNativeSessionSingleShot(
         ? (record as { generation: string }).generation : "";
       let workerPid: number | undefined;
       try { workerPid = readWorkerPid(record.pid, procReaderDeps(record.pid)); } catch { workerPid = undefined; }
+      if (prepared.kind === "verified") {
+        publishLauncherSessionFiche(prepared, {
+          leaderPid: record.pid,
+          cliPid: workerPid ?? null,
+          expectScope: leaderHasNativeScope(record.pid),
+        });
+      }
       return {
-        result: { name, slug, pid: record.pid, socketPath, generation, ...(workerPid !== undefined ? { workerPid } : {}) },
+        result: {
+          name,
+          slug,
+          pid: record.pid,
+          socketPath,
+          generation,
+          ...(workerPid !== undefined ? { workerPid } : {}),
+          ...(prepared.kind === "verified"
+            ? {
+                sessionKey: prepared.sessionKey,
+                actorId: prepared.actorId,
+                agentUuid: prepared.agentUuid,
+              }
+            : {}),
+        },
         workerPid: workerPid ?? record.pid,
       };
+    } catch (error) {
+      cleanupFailedSessionIdentityLaunch(prepared);
+      throw error;
     } finally {
       rmSync(envDir, { recursive: true, force: true });
     }
@@ -987,6 +1095,9 @@ export type NativeSoftRespawnResult = Readonly<{
   incarnation: string;
   latestSeq: number;
   socketPath?: string;
+  sessionKey?: string | undefined;
+  actorId?: string | undefined;
+  agentUuid?: string | undefined;
 }>;
 
 /**
@@ -1009,10 +1120,15 @@ export function softRespawnNativeSessionIfIncarnation(
     incarnation: string;
     socketPath?: string;
   }>,
-  metadata: NativeLaunchMetadata = {},
+  metadata: NativeLaunchMetadata,
 ): NativeSoftRespawnResult {
   const slug = slugify(label);
   const name = fence.name;
+  const prepared = prepareSessionIdentityLaunch(metadata.identity, {
+    ...(metadata.jobId !== undefined ? { jobId: metadata.jobId } : {}),
+    ...(metadata.sessionRuntimeDir !== undefined ? { sessionRuntimeDir: metadata.sessionRuntimeDir } : {}),
+    ...(metadata.storeRoot !== undefined ? { storeRoot: metadata.storeRoot } : {}),
+  });
   const agentCommand = metadata.terminateOnAgentExit
     ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
     : [
@@ -1028,18 +1144,14 @@ export function softRespawnNativeSessionIfIncarnation(
         command,
         ...args,
       ];
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
-    if (value !== undefined) env[key] = value;
-  }
-  if (!metadata.seat) ensureH2aBinOnPath(env);
-  env["TERM"] = "xterm-256color";
-  env["H2A_NATIVE_TERMINAL"] = "1";
-  env["H2A_NATIVE_PTY_SESSION"] = name;
-  stampDirectRoutingScrub(env);
-  if (metadata.sessionClass !== undefined) {
-    env[SESSION_CLASS_ENV] = metadata.sessionClass;
-  }
+  const env = buildNativeChildEnv(metadata.seat?.childEnv ?? process.env, {
+    hasSeat: Boolean(metadata.seat),
+    isAgy: isAgyNativeLaunch(profile, command, args),
+    effectiveCwd: cwd,
+    nativeTerminalSessionName: name,
+    prepared,
+    fallbackSessionClass: metadata.sessionClass,
+  });
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   try {
@@ -1078,6 +1190,20 @@ export function softRespawnNativeSessionIfIncarnation(
     if (status !== 0 || !record || typeof record.pid !== "number") {
       throw new Error(`fenced soft respawn failed for ${slug}`);
     }
+    if (prepared.kind === "verified") {
+      publishLauncherSessionFiche(prepared, {
+        leaderPid: record.pid,
+        expectScope: leaderHasNativeScope(record.pid),
+      });
+      if (metadata.oldSessionKey) {
+        carryForwardNativeSidecarIfAny(metadata.oldSessionKey, prepared.sessionKey, {
+          ...(metadata.sessionRuntimeDir !== undefined
+            ? { sessionRuntimeDir: metadata.sessionRuntimeDir }
+            : {}),
+        });
+        purgeSessionArtifacts(prepared.runtimeDir, metadata.oldSessionKey);
+      }
+    }
     return {
       name,
       slug,
@@ -1090,7 +1216,17 @@ export function softRespawnNativeSessionIfIncarnation(
         : fence.socketPath !== undefined
           ? { socketPath: fence.socketPath }
           : {}),
+      ...(prepared.kind === "verified"
+        ? {
+            sessionKey: prepared.sessionKey,
+            actorId: prepared.actorId,
+            agentUuid: prepared.agentUuid,
+          }
+        : {}),
     };
+  } catch (error) {
+    cleanupFailedSessionIdentityLaunch(prepared);
+    throw error;
   } finally {
     rmSync(envDir, { recursive: true, force: true });
   }
@@ -1319,6 +1455,12 @@ export function startNativeHeadlessSession(
   outputFile?: string,
   seat?: MaterializedSeat,
   launchBudgetMs?: number,
+  extra?: {
+    readonly identity?: LaunchSessionIdentity | undefined;
+    readonly jobId?: string | undefined;
+    readonly sessionRuntimeDir?: string | undefined;
+    readonly storeRoot?: string | undefined;
+  },
 ): NativeStartResult & { promptFile?: string } {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -1338,20 +1480,23 @@ export function startNativeHeadlessSession(
     }
     return { name, slug, pid: existing.session.pid };
   }
+  const prepared = prepareSessionIdentityLaunch(extra?.identity, {
+    ...(extra?.jobId !== undefined ? { jobId: extra.jobId } : {}),
+    ...(extra?.sessionRuntimeDir !== undefined ? { sessionRuntimeDir: extra.sessionRuntimeDir } : {}),
+    ...(extra?.storeRoot !== undefined ? { storeRoot: extra.storeRoot } : {}),
+  });
   const isAgy = isAgyNativeLaunch(profile, command, args);
   const effectiveCwd = isAgy ? (safeRealpath(cwd) ?? cwd) : cwd;
-  const effectiveSessionClass = sessionClass ?? "background";
+  const effectiveSessionClass =
+    prepared.kind === "verified" ? prepared.sessionClass : (sessionClass ?? "background");
   const agentCommand = headlessCommand(profile, command, args, resultJson, outputLog, promptInput === undefined ? "" : `${resultJson}.prompt`, outputFile);
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(seat?.childEnv ?? process.env)) {
-    if (value !== undefined) env[key] = value;
-  }
-  if (!seat) ensureH2aBinOnPath(env);
-  if (isAgy) env["PWD"] = effectiveCwd;
-  env["TERM"] = "xterm-256color";
-  // Same last-point scrub sentinel as the interactive native path.
-  stampDirectRoutingScrub(env);
-  if (sessionClass !== undefined) env[SESSION_CLASS_ENV] = sessionClass;
+  const env = buildNativeChildEnv(seat?.childEnv ?? process.env, {
+    hasSeat: Boolean(seat),
+    isAgy,
+    effectiveCwd,
+    prepared,
+    fallbackSessionClass: sessionClass,
+  });
   const runHeadlessCreate = () => {
     const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
     if (promptInput !== undefined) {
@@ -1389,9 +1534,31 @@ export function startNativeHeadlessSession(
       if (!state || typeof state.pid !== "number") {
         throw new Error(`native host did not return a session state for ${slug}`);
       }
-      return { result: { name, slug, pid: state.pid, ...(promptFile ? { promptFile } : {}) }, workerPid: state.pid };
+      if (prepared.kind === "verified") {
+        publishLauncherSessionFiche(prepared, {
+          leaderPid: state.pid,
+          expectScope: leaderHasNativeScope(state.pid),
+        });
+      }
+      return {
+        result: {
+          name,
+          slug,
+          pid: state.pid,
+          ...(promptFile ? { promptFile } : {}),
+          ...(prepared.kind === "verified"
+            ? {
+                sessionKey: prepared.sessionKey,
+                actorId: prepared.actorId,
+                agentUuid: prepared.agentUuid,
+              }
+            : {}),
+        },
+        workerPid: state.pid,
+      };
     } catch (error) {
       if (promptFile) rmSync(promptFile, { force: true });
+      cleanupFailedSessionIdentityLaunch(prepared);
       throw error;
     } finally {
       rmSync(envDir, { recursive: true, force: true });
@@ -1413,7 +1580,14 @@ export function startNativeH2aSidecar(
   name: string,
   cwd: string,
   h2aCommand: string,
-  options: { verified?: boolean; beforeCreate?: (value: NativeLaunchOwnership) => void; onCreateAttempt?: () => void; seat?: MaterializedSeat } = {},
+  options: {
+    verified?: boolean;
+    beforeCreate?: (value: NativeLaunchOwnership) => void;
+    onCreateAttempt?: () => void;
+    seat?: MaterializedSeat;
+    sessionKey?: string | undefined;
+    sessionRuntimeDir?: string | undefined;
+  } = {},
 ): boolean {
   const sidecar = nativeSidecarName(name);
   const parent = nativeSessionState(name);
@@ -1428,10 +1602,7 @@ export function startNativeH2aSidecar(
     if (options.beforeCreate) return false; // Never claim an existing sidecar.
     return true;
   }
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(options.seat?.mcpEnv ?? process.env)) {
-    if (value !== undefined) env[key] = value;
-  }
+  const env = scrubSessionIdentityEnv(options.seat?.mcpEnv ?? process.env);
   if (!options.seat) ensureH2aBinOnPath(env);
   env["TERM"] = "xterm-256color";
   // Native twin of the tmux wrapper's TMUX_PANE override: the sidecar owns a
@@ -1442,6 +1613,9 @@ export function startNativeH2aSidecar(
   // The MCP sidecar is a separate native session, so it cannot infer which
   // interactive terminal owns it. Publish the stable owner for presence/ticks.
   env["H2A_NATIVE_PTY_SESSION"] = name;
+  if (options.sessionKey) {
+    env[SESSION_REF_ENV] = options.sessionKey;
+  }
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
   const challenge = options.verified ? createStructuredReadinessChallenge() : undefined;
@@ -1449,10 +1623,23 @@ export function startNativeH2aSidecar(
     env["H2A_MCP_READY_FILE"] = challenge.file;
     env["H2A_MCP_READY_NONCE"] = challenge.nonce;
   }
+  const cleanupPublishedSidecar = () => {
+    if (!options.sessionKey) return;
+    try {
+      const allowD16 = hasSandboxOrQualificationRuntime();
+      const rt = resolveSessionRuntimeDir({
+        sessionRuntimeDir: options.sessionRuntimeDir,
+        createIfMissing: Boolean(options.sessionRuntimeDir || allowD16),
+      }).dir;
+      rmSync(sessionSidecarPath(rt, options.sessionKey), { force: true });
+    } catch {
+      /* ignore */
+    }
+  };
   try {
     const child = sanitizeEnvJson(env, []).env;
     writeFileSync(envFile, JSON.stringify(child), { mode: 0o600, flag: "wx" });
-    runOp([
+    const createRes = runOp([
       "create",
       ...(options.beforeCreate ? prepareNativeOwnership(sidecar, options.beforeCreate, undefined, ownerSocket)
         : ownerSocket ? ["--socket", ownerSocket] : []),
@@ -1473,12 +1660,26 @@ export function startNativeH2aSidecar(
       // shell so its readiness ACK names the PID owned by this incarnation.
       challenge ? `exec ${h2aCommand}` : h2aCommand,
     ], { onCreateAttempt: options.onCreateAttempt });
+    const initial = nativeSessionState(sidecar, ownerSocket);
+    const createdPid =
+      initial.state === "found" && initial.session.status === "running"
+        ? initial.session.pid
+        : (createRes.payload as { pid?: unknown } | undefined)?.pid;
+    if (options.sessionKey && typeof createdPid === "number" && createdPid > 0) {
+      publishLauncherSidecar(options.sessionKey, createdPid, {
+        ...(options.sessionRuntimeDir !== undefined
+          ? { sessionRuntimeDir: options.sessionRuntimeDir }
+          : {}),
+      });
+    }
     if (challenge) {
       // Readiness is the correlated post-identity ACK, not an arbitrary crash
       // observation window. Pin the component owner throughout the wait.
       const deadline = Date.now() + 20_000;
-      const initial = nativeSessionState(sidecar, ownerSocket);
-      if (initial.state !== "found" || initial.session.status !== "running") return false;
+      if (initial.state !== "found" || initial.session.status !== "running") {
+        cleanupPublishedSidecar();
+        return false;
+      }
       const owned = initial.session;
       let nextOwnerCheck = Date.now() + 1_000;
       while (Date.now() < deadline) {
@@ -1487,11 +1688,14 @@ export function startNativeH2aSidecar(
         // in that same process group, without walking the global /proc inventory.
         const ready = probeStructuredReadiness(challenge, owned.pid,
           (pid) => nativeReadinessPidMatches(pid, owned.pid));
-        if (ready.state === "invalid") return false;
+        if (ready.state === "invalid") {
+          cleanupPublishedSidecar();
+          return false;
+        }
         if (ready.state === "ready") {
           const currentParent = nativeSessionState(name, ownerSocket);
           const currentSidecar = nativeSessionState(sidecar, ownerSocket);
-          return parent.state === "found" && currentParent.state === "found" &&
+          const ok = parent.state === "found" && currentParent.state === "found" &&
             currentParent.session.status === "running" &&
             currentParent.session.generation === parent.session.generation &&
             currentParent.session.incarnation === parent.session.incarnation &&
@@ -1499,6 +1703,8 @@ export function startNativeH2aSidecar(
             currentSidecar.session.generation === owned.generation &&
             currentSidecar.session.incarnation === owned.incarnation &&
             currentSidecar.session.pid === owned.pid;
+          if (!ok) cleanupPublishedSidecar();
+          return ok;
         }
         // Poll the correlated file cheaply; spawning a fresh op.js process on
         // every 50 ms tick amplified CPU/I/O contention during a launch burst.
@@ -1507,16 +1713,23 @@ export function startNativeH2aSidecar(
           const state = nativeSessionState(sidecar, ownerSocket);
           if (state.state !== "found" || state.session.status !== "running" ||
             state.session.generation !== owned.generation || state.session.incarnation !== owned.incarnation ||
-            state.session.pid !== owned.pid) return false;
+            state.session.pid !== owned.pid) {
+            cleanupPublishedSidecar();
+            return false;
+          }
           nextOwnerCheck = Date.now() + 1_000;
         }
         sleepSync(50);
       }
+      cleanupPublishedSidecar();
       return false;
     }
     const state = nativeSessionState(sidecar, ownerSocket);
-    return state.state === "found" && state.session.status === "running";
+    const ok = state.state === "found" && state.session.status === "running";
+    if (!ok) cleanupPublishedSidecar();
+    return ok;
   } catch {
+    cleanupPublishedSidecar();
     return false;
   } finally {
     rmSync(envDir, { recursive: true, force: true });

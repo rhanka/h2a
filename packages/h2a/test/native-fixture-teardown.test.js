@@ -24,7 +24,7 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
     const env = nativeTestEnvironment(root);
     const marker = join(root, "owned.json"), script = join(root, "fixture.mjs");
     const fixtureSource = `import test from 'node:test';
-      import {writeFileSync,existsSync,readFileSync} from 'node:fs';
+      import {writeFileSync,renameSync,existsSync,readFileSync} from 'node:fs';
       import {join} from 'node:path';
       import {setupNativeTestEnvironment,assertNativeTestSpawnRefused,spawnIsolatedNative as spawn} from ${JSON.stringify(helper)};
       import {NativeTerminalClient} from ${JSON.stringify(clientModule)};
@@ -66,9 +66,10 @@ for (const mode of ["pass", "failure", "timeout", "timeout-delayed", "pass-delay
         const tree=[{pid:ping.hostPid,startTime:readStartTime(ping.hostPid),cmd:readCmd(ping.hostPid)}];
         for(const kid of readChildren(ping.hostPid))tree.push({pid:kid,startTime:readStartTime(kid),cmd:readCmd(kid)});
         if(stubbornPid)tree.push({pid:stubbornPid,startTime:readStartTime(stubbornPid),cmd:readCmd(stubbornPid)});
-        writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:ping.hostPid,pidStartTime:tree[0].startTime,tree,stubbornPid,env:Object.fromEntries(
+        writeFileSync(${JSON.stringify(marker + ".tmp")},JSON.stringify({pid:ping.hostPid,pidStartTime:tree[0].startTime,tree,stubbornPid,env:Object.fromEntries(
           ['HOME','XDG_RUNTIME_DIR','XDG_CONFIG_HOME','XDG_STATE_HOME','H2A_NATIVE_SOCKET',
           'H2A_TEST_PROC_ROOT','H2A_TEST_OWNED_PROC_ROOT'].map(key=>[key,process.env[key]]))}));
+        renameSync(${JSON.stringify(marker + ".tmp")},${JSON.stringify(marker)});
         // Barrier: let the surviving outer parent pin the host and its journal
         // before this test exits and the inner teardown deletes the owned root.
         const ackDeadline=Date.now()+3000;

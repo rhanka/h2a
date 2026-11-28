@@ -97,6 +97,8 @@ export interface H2ASession {
   readonly host?: string;
   /** Optional PID of the process holding the session (for same-machine staleness checks). */
   readonly pid?: number;
+  /** Optional Linux PID namespace identifier of the owning session process. */
+  readonly pidNamespace?: string;
   /** ISO timestamp when the session was opened. */
   readonly startedAt: string;
   /** ISO timestamp of the last heartbeat. Drives expiry. */
@@ -208,6 +210,9 @@ export function isH2ASession(value: unknown): value is H2ASession {
   }
   if (v.host !== undefined && typeof v.host !== "string") return false;
   if (v.pid !== undefined && (typeof v.pid !== "number" || !Number.isInteger(v.pid))) {
+    return false;
+  }
+  if (v.pidNamespace !== undefined && typeof v.pidNamespace !== "string") {
     return false;
   }
   if (

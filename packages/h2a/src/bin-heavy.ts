@@ -89,7 +89,7 @@ function runAsync(label: string, promise: Promise<number>): void {
 // conditional: runtime verbs and --version never start these imports).
 const __needsNativeHandlers =
   !shouldDispatchRuntime(argv) && argv[0] !== "--version" && argv[0] !== "-v" && argv[0] !== "version" &&
-  argv[0] !== "__operator-break";
+  argv[0] !== "__operator-break" && argv[0] !== "authorize";
 const [__cliMod, __focusMod, __ptMod] = __needsNativeHandlers
   ? await Promise.all([cli(), focusServe(), phaseTrace()])
   : [undefined, undefined, undefined] as const;
@@ -390,7 +390,7 @@ if (argv[0] === "__operator-break") {
     }
     return rc;
   })());
-} else if (shouldDispatchRuntime(argv)) {
+} else if (argv[0] === "authorize" || shouldDispatchRuntime(argv)) {
   runAsync(`runtime:${argv[0]}`, dispatchRuntime());
 } else {
   const result = runCli(argv);

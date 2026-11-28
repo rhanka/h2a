@@ -18,6 +18,16 @@ import type { H2ALaunchContext } from "../../../session.js";
 import type { H2ADriveRequest, H2ADriver } from "../../drive/index.js";
 import { listDrumbeat, type H2ADrumbeatEntry } from "../../drumbeat/registry.js";
 import {
+  deleteDaemonLaunchReceipt,
+  hasSandboxOrQualificationRuntime,
+  issueDaemonLaunchReceipt,
+  resolveSessionRuntimeDir,
+  RUN_LAUNCH_ID_ENV,
+  RUN_LAUNCH_TOKEN_ENV,
+  scrubSessionIdentityEnv,
+} from "../../identity/session-auth.js";
+import { getGlobalVerifiedCallerContext } from "../../identity/caller-guard.js";
+import {
   defaultRelauncherRuntime,
   paneHasRecentHumanActivity,
   tmuxSendSubmit,
@@ -633,6 +643,69 @@ function interpretLoopLaunchOutput(
   return { ok: true, detail: `started ${spec.profile} session ${spec.name}` };
 }
 
+export function prepareLoopLaunchAuth(
+  spec: H2ALoopLaunchSpec,
+  invocation: ReturnType<typeof buildLoopLaunchInvocation>,
+  isDefaultSpawn: boolean,
+  options: { readonly sessionRuntimeDir?: string } = {},
+): { readonly args: readonly string[]; readonly env: NodeJS.ProcessEnv; readonly cleanup: () => void } {
+  // Insert `--as` immediately before the `"run"` subcommand so `bin.js` stays at `args[0]`
+  // when `invocation.command === process.execPath` (`[binPath, "run", ...]`).
+  const runIdx = invocation.args.indexOf("run");
+  const insertAt = runIdx >= 0 ? runIdx : 0;
+  const caller = getGlobalVerifiedCallerContext();
+  if (caller?.isAgent && caller.actorId) {
+    // Preserve H2A_SESSION_REF only when child inside foreign pidns needs it; otherwise scrub cleanly.
+    const env = scrubSessionIdentityEnv(
+      process.env,
+      caller.isForeignPidNamespace ? { exclude: new Set(["H2A_SESSION_REF"]) } : {},
+    );
+    const args = [
+      ...invocation.args.slice(0, insertAt),
+      "--as",
+      caller.actorId,
+      ...invocation.args.slice(insertAt),
+    ];
+    return {
+      args,
+      env,
+      cleanup: () => {},
+    };
+  }
+  const env: NodeJS.ProcessEnv = scrubSessionIdentityEnv(process.env);
+  let runtimeDir: string | undefined = options.sessionRuntimeDir;
+  let launchId: string | undefined;
+  if (!runtimeDir) {
+    try {
+      const allowD16 = hasSandboxOrQualificationRuntime();
+      runtimeDir = resolveSessionRuntimeDir({ createIfMissing: allowD16 }).dir;
+    } catch (err) {
+      if (isDefaultSpawn) throw err;
+    }
+  }
+  if (runtimeDir) {
+    const issued = issueDaemonLaunchReceipt(runtimeDir, {
+      daemonKind: "loop-engine",
+      allowedVerb: invocation.args[insertAt] ?? "run",
+      delegatorInstance: "loop-engine",
+      delegationOrigin: "loop-engine",
+      sessionClass: "background",
+      targetProfile: spec.profile,
+      targetWorkspace: invocation.cwd,
+    });
+    launchId = issued.launchId;
+    env[RUN_LAUNCH_ID_ENV] = issued.launchId;
+    env[RUN_LAUNCH_TOKEN_ENV] = issued.launchToken;
+  }
+  return {
+    args: invocation.args,
+    env,
+    cleanup: () => {
+      if (runtimeDir && launchId) deleteDaemonLaunchReceipt(runtimeDir, launchId);
+    },
+  };
+}
+
 export async function executeLoopLaunchAsyncWithSpawn(
   value: H2ALoopLaunchSpec,
   spawnRuntime: typeof spawn = spawn,
@@ -640,9 +713,11 @@ export async function executeLoopLaunchAsyncWithSpawn(
 ): Promise<LoopLaunchResult> {
   const spec = validateLoopLaunchSpec(value);
   const invocation = buildLoopLaunchInvocation(spec);
+  const auth = prepareLoopLaunchAuth(spec, invocation, spawnRuntime === spawn);
   return new Promise((resolve) => {
-    const child = spawnRuntime(invocation.command, [...invocation.args], {
+    const child = spawnRuntime(invocation.command, [...auth.args], {
       cwd: invocation.cwd,
+      env: auth.env,
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -656,6 +731,7 @@ export async function executeLoopLaunchAsyncWithSpawn(
       settled = true;
       clearTimeout(timer);
       clearTimeout(killEscalation);
+      auth.cleanup();
       resolve(res);
     };
     const timer = setTimeout(() => {
@@ -688,16 +764,22 @@ export function executeLoopLaunchWithSpawn(
 ): LoopLaunchResult {
   const spec = validateLoopLaunchSpec(value);
   const invocation = buildLoopLaunchInvocation(spec);
-  const result = spawnSyncFn(invocation.command, [...invocation.args], {
-    cwd: invocation.cwd,
-    input: invocation.input,
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-    shell: false,
-    timeout: (spec.profile as string) === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 30_000,
-    maxBuffer: 1_048_576
-  });
-  return interpretLoopLaunchOutput(spec, result);
+  const auth = prepareLoopLaunchAuth(spec, invocation, spawnSyncFn === spawnSync);
+  try {
+    const result = spawnSyncFn(invocation.command, [...auth.args], {
+      cwd: invocation.cwd,
+      env: auth.env,
+      input: invocation.input,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
+      timeout: (spec.profile as string) === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 30_000,
+      maxBuffer: 1_048_576
+    });
+    return interpretLoopLaunchOutput(spec, result);
+  } finally {
+    auth.cleanup();
+  }
 }
 
 const defaultLoopLauncher: LoopLauncher = {

@@ -223,15 +223,73 @@ function hostFromRequest(request: {
   return command?.trim().split(/\s+/, 1)[0];
 }
 
+const CODEX_DRIVE_VALUE_FLAGS = new Set([
+  "-c",
+  "--config",
+  "-i",
+  "--image",
+  "-m",
+  "--model",
+  "-p",
+  "--profile",
+  "-s",
+  "--sandbox",
+  "-a",
+  "--ask-for-approval",
+  "-C",
+  "--cd",
+  "--add-dir",
+  "--enable",
+  "--disable",
+  "--local-provider",
+  "--color",
+  "-o",
+  "--output-last-message",
+  "--output-schema"
+]);
+
+function launchContextUsesNoDaemon(launchContext: H2ALaunchContext | undefined): boolean {
+  for (const command of [launchContext?.command, launchContext?.resumeCommand]) {
+    if (command && /(?:^|\s)--no-daemon(?:\s|$)/.test(command)) return true;
+  }
+  return false;
+}
+
 function codexThreadId(launchContext: H2ALaunchContext | undefined): string | undefined {
   for (const command of [launchContext?.resumeCommand, launchContext?.command]) {
     if (!command) continue;
-    const resume = /\bcodex\s+resume\s+([^\s]+)/.exec(command);
-    if (resume) return resume[1];
-    const short = /\bcodex\b[\s\S]*\s-r\s+([^\s]+)/.exec(command);
-    if (short) return short[1];
-    const long = /\bcodex\b[\s\S]*\s--resume\s+([^\s]+)/.exec(command);
-    if (long) return long[1];
+    const tokens = command.trim().split(/\s+/).filter(Boolean);
+    const codexIdx = tokens.findIndex((tok) => /(?:^|\/)codex$/.test(tok));
+    if (codexIdx === -1) continue;
+    for (let i = codexIdx + 1; i < tokens.length; i++) {
+      const tok = tokens[i]!;
+      if (tok === "resume") {
+        for (let j = i + 1; j < tokens.length; j++) {
+          const arg = tokens[j]!;
+          if (arg === "--") {
+            const candidate = tokens[j + 1];
+            if (candidate && !candidate.startsWith("-")) return candidate;
+            break;
+          }
+          if (CODEX_DRIVE_VALUE_FLAGS.has(arg)) {
+            j++;
+            continue;
+          }
+          if (arg.startsWith("-")) continue;
+          return arg;
+        }
+        continue;
+      }
+      if (tok === "-r" || tok === "--resume") {
+        const candidate = tokens[i + 1];
+        if (candidate && !candidate.startsWith("-")) return candidate;
+        continue;
+      }
+      if (tok.startsWith("--resume=")) {
+        const val = tok.slice("--resume=".length);
+        if (val && !val.startsWith("-")) return val;
+      }
+    }
   }
   return undefined;
 }
@@ -471,6 +529,7 @@ export function nativeDriveCommand(
 ): readonly string[] | undefined {
   const host = hostFromRequest(input);
   if (host === "codex") {
+    if (launchContextUsesNoDaemon(input.launchContext)) return undefined;
     const threadId = codexThreadId(input.launchContext);
     if (!threadId) return undefined;
     const request = JSON.stringify({

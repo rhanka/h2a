@@ -9,6 +9,7 @@ import { readPrivateSeatFile, resolveSeatEnrollmentProvider } from "./cli-seat-c
 import { SeatMaterializationError, validateSeatBundleForMaterialization } from "./cli-seat-materialization.js";
 import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID, type SeatCli5, type SyntheticSeatBundleV1 } from "./cli-seat-fixtures.js";
 import { llmMeshOwnerScopeRef } from "./gateway-host/config-file.js";
+import { scrubSessionIdentityEnv } from "./session-auth.js";
 export { llmMeshOwnerScopeRef };
 
 import {
@@ -197,7 +198,11 @@ function openEnrollmentBrowser(url: string): void {
       : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
-    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      env: scrubSessionIdentityEnv(process.env),
+    });
     // A missing opener reports asynchronously: without this listener Node
     // crashes printing spawnargs, which carry the full authorization URL.
     child.on("error", () => {});

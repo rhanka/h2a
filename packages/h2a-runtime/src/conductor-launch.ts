@@ -38,6 +38,7 @@ import { join } from "node:path";
 
 import type { DelegateType } from "./delegate.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
+import { resolveCurrentCallerSessionContext } from "./launch-identity.js";
 
 /** The contract topic the maintainer emits under. */
 export const CONDUCTOR_LAUNCH_TOPIC = "conductor-launch-request";
@@ -336,7 +337,12 @@ export function defaultH2aRunner(
       stdio: "ignore",
     });
     if (probe.status !== 0) return undefined; // h2a not installed → degrade
-    const r = spawnSync("h2a", [...args], {
+    const caller = resolveCurrentCallerSessionContext();
+    const effectiveArgs =
+      caller.actorId && !args.includes("--as")
+        ? ["--as", caller.actorId, ...args]
+        : [...args];
+    const r = spawnSync("h2a", effectiveArgs, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });

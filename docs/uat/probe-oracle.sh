@@ -123,11 +123,31 @@ oracle_codex observe mcp list | sed 's/^/    /' | head -8
 echo "  codex plugin marketplace list :"
 oracle_codex observe plugin marketplace list | sed 's/^/    /' | head -8
 
+run_doctor_tty() { # $1=home $2=out $3=err $4..=args
+  local uat_home="$1" uat_out="$2" uat_err="$3"
+  shift 3
+  if [ -t 0 ] || ! command -v script >/dev/null 2>&1; then
+    HOME="$uat_home" node "$DOCTOR_BIN" "$@" >"$uat_out" 2>"$uat_err"
+    return $?
+  fi
+  local qargs="" a
+  for a in "$@"; do
+    printf -v a '%q' "$a"
+    qargs="$qargs $a"
+  done
+  local qbin qhome qout qerr
+  printf -v qbin '%q' "$DOCTOR_BIN"
+  printf -v qhome '%q' "$uat_home"
+  printf -v qout '%q' "$uat_out"
+  printf -v qerr '%q' "$uat_err"
+  script -q -e -c "HOME=$qhome node $qbin$qargs >$qout 2>$qerr" /dev/null </dev/null >/dev/null 2>&1
+}
+
 # ---- la reparation ------------------------------------------------------------------------------
 echo
 echo "=== la reparation ========================================================"
-HOME="$HOME_DIR" node "$DOCTOR_BIN" init --root "$BUS" >/dev/null 2>&1
-HOME="$HOME_DIR" node "$DOCTOR_BIN" doctor --root "$BUS" --repair --format json > "$PROBE/r.json" 2>"$PROBE/err.txt"
+run_doctor_tty "$HOME_DIR" /dev/null /dev/null init --root "$BUS"
+run_doctor_tty "$HOME_DIR" "$PROBE/r.json" "$PROBE/err.txt" doctor --root "$BUS" --repair --format json
 DOCTOR_CODE=$?
 echo "  code de sortie de doctor ... $DOCTOR_CODE"
 node -e '

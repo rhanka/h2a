@@ -32,6 +32,7 @@ import { occupiesSlot } from "./registry.js";
 import { humanAge } from "./migrate-candidates.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
 import { isAgentLaunchEffort } from "./agent-launch-args.js";
+import { applyCodexNoDaemon, codexSupportsNoDaemon } from "./session-auth.js";
 
 export type DelegateType = RegistryTool; // claude | codex | agy | muse | vibe
 
@@ -135,6 +136,7 @@ export function buildDelegateArgs(
   headless: boolean,
   model?: string,
   effort?: string,
+  options?: { readonly noDaemon?: boolean | undefined },
 ): { command: string; args: string[] } {
   const command = DELEGATE_BIN[type];
   // Global flags stay before the prompt/subcommand. Codex has no dedicated
@@ -144,7 +146,14 @@ export function buildDelegateArgs(
 
   if (!headless) {
     // Interactive + initial prompt — task is the last argv token.
-    return { command, args: [...modelFlags, task] };
+    const rawArgs = [...modelFlags, task];
+    const args =
+      type === "codex"
+        ? applyCodexNoDaemon(rawArgs, {
+            enabled: options?.noDaemon ?? codexSupportsNoDaemon(command),
+          })
+        : rawArgs;
+    return { command, args };
   }
   switch (type) {
     case "claude":
@@ -436,7 +445,7 @@ export function buildRemoteDelegate(
   model?: string,
   effort?: string,
 ): { profile: DelegateType; startupArgs: string[] } {
-  const { args } = buildDelegateArgs(type, task, headless, model, effort);
+  const { args } = buildDelegateArgs(type, task, headless, model, effort, { noDaemon: false });
   return { profile: type, startupArgs: args };
 }
 

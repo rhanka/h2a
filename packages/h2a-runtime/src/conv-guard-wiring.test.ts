@@ -11,6 +11,13 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { codexSupportsNoDaemon } from "./session-auth.js";
+
+const CODEX_NO_DAEMON = codexSupportsNoDaemon("codex");
+const codexResumeArgs = (...tail: string[]): string[] =>
+  CODEX_NO_DAEMON ? ["resume", "--no-daemon", ...tail] : ["resume", ...tail];
+const codexResumeCmd = (id: string): string =>
+  CODEX_NO_DAEMON ? `codex resume --no-daemon ${id}` : `codex resume ${id}`;
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH = join(
@@ -515,7 +522,7 @@ describe("h2a relaunch", () => {
     expect(stderrText()).toContain("WARNING");
     expect(stderrText()).toContain("codex-lane");
     expect(stderrText()).toContain("claude-lane");
-    expect(stderrText()).toContain("codex resume conv-codex");
+    expect(stderrText()).toContain(codexResumeCmd("conv-codex"));
     expect(stderrText()).toContain("claude --resume conv-claude");
     expect(stderrText()).toContain("unresumable");
     expect(stderrText()).toContain("no resumable conversation");
@@ -581,14 +588,15 @@ describe("h2a relaunch", () => {
       "codex",
       "codex",
       "/repo/shared",
-      ["resume", "conv-codex"],
+      codexResumeArgs("conv-codex"),
       "codex-lane",
       undefined,
-      {
+      expect.objectContaining({
         sessionClass: "human",
         resumeId: "conv-codex",
         attachedTerminal: true,
-      },
+        identity: expect.any(Object),
+      }),
     );
     expect(startLocalSession).toHaveBeenNthCalledWith(
       2,
@@ -598,11 +606,12 @@ describe("h2a relaunch", () => {
       ["--resume", "conv-claude"],
       "claude-lane",
       undefined,
-      {
+      expect.objectContaining({
         sessionClass: "human",
         resumeId: "conv-claude",
         attachedTerminal: true,
-      },
+        identity: expect.any(Object),
+      }),
     );
     expect(deliverInitialPrompt).toHaveBeenCalledTimes(2);
     expect(stderrText()).toContain("objective re-injected; agent WORKING");
@@ -653,14 +662,10 @@ describe("h2a relaunch", () => {
       "codex",
       "codex",
       "/repo/shared",
-      ["resume", "conv-codex"],
+      expect.any(Array),
       "codex-lane",
       undefined,
-      {
-        sessionClass: "human",
-        resumeId: "conv-codex",
-        attachedTerminal: true,
-      },
+      expect.any(Object),
     );
     expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane", {
       pane: "%test-dead",
@@ -862,14 +867,15 @@ describe("h2a relaunch", () => {
       "codex",
       "codex",
       "/repo/shared",
-      ["resume", "conv-codex"],
+      codexResumeArgs("conv-codex"),
       "codex-lane",
       undefined,
-      {
+      expect.objectContaining({
         sessionClass: "human",
         resumeId: "conv-codex",
         attachedTerminal: true,
-      },
+        identity: expect.any(Object),
+      }),
     );
     expect(stderrText()).toContain("confirmed");
   });
@@ -962,14 +968,15 @@ describe("h2a relaunch", () => {
       "codex",
       "codex",
       "/repo/background",
-      ["resume", "conv-background"],
+      codexResumeArgs("conv-background"),
       "background-lane",
       undefined,
-      {
+      expect.objectContaining({
         sessionClass: "background",
         resumeId: "conv-background",
         attachedTerminal: true,
-      },
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1033,7 +1040,11 @@ describe("h2a resume <slug>", () => {
       ["--resume"],
       expectedSlug,
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1049,10 +1060,14 @@ describe("h2a resume <slug>", () => {
       "codex",
       "codex",
       cwd,
-      ["resume"],
+      codexResumeArgs(),
       expectedSlug,
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1089,7 +1104,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "claude-last"],
       expectedSlug,
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1154,10 +1173,11 @@ describe("h2a resume <slug>", () => {
     expect(exitCode).toBe(0);
     expect(startLocalSession).not.toHaveBeenCalled();
     expect(attachLocalSession).not.toHaveBeenCalled();
-    expect(runLocalCliForeground).toHaveBeenCalledWith("claude", [
-      "--resume",
-      "claude-last",
-    ]);
+    expect(runLocalCliForeground).toHaveBeenCalledWith(
+      process.execPath,
+      expect.arrayContaining(["claude", "--resume", "claude-last"]),
+      expect.objectContaining({ env: expect.any(Object) }),
+    );
     expect(stderrText()).toContain("already inside remote-cli");
   });
 
@@ -1228,10 +1248,14 @@ describe("h2a resume <slug>", () => {
       "codex",
       "codex",
       cwd,
-      ["resume", "--last"],
+      codexResumeArgs("--last"),
       expectedSlug,
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1270,7 +1294,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "claude-existing"],
       expectedSlug,
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(stderrText()).toContain(`resumed local session ${expectedSlug}`);
     expect(stderrText()).toContain(`h2a attach ${expectedSlug}`);
@@ -1296,7 +1324,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "claude-existing"],
       "geo",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
   });
 
@@ -1313,7 +1345,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(stderrText()).toContain("resumed local session projA");
     expect(stderrText()).toContain("h2a attach projA");
@@ -1336,7 +1372,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-test");
@@ -1391,7 +1431,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-current");
@@ -1456,7 +1500,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-started");
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
@@ -1484,7 +1532,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1517,7 +1569,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(process.env.ANTHROPIC_API_KEY).toBe("user-owned-api-key");
@@ -1558,7 +1614,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     // The inherited parent gateway env is scrubbed; a user-owned API key survives.
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
@@ -1613,7 +1673,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(stderrText()).toContain("replaced local session projA");
   });
@@ -1690,7 +1754,11 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { attachedTerminal: true, sessionClass: "background" },
+      expect.objectContaining({
+        attachedTerminal: true,
+        sessionClass: "background",
+        identity: expect.any(Object),
+      }),
     );
     expect(stderrText()).toContain(
       "--replace will kill local-tmux session remote-projA",

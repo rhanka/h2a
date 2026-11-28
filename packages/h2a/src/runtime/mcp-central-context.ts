@@ -8,7 +8,7 @@ import { isSupportedCentralHost, type SupportedCentralHost } from "./mcp-central
 export const CENTRAL_ATTACHMENT_ENV = [
   "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE", "H2A_NATIVE_TARGET_SESSION",
   "H2A_NATIVE_PTY_SESSION", "H2A_NATIVE_SOCKET", "H2A_MCP_READY_FILE",
-  "H2A_MCP_READY_NONCE", "H2A_IDENTITY_RETRY_MIN_MS", "H2A_HEARTBEAT_INTERVAL_MS",
+  "H2A_MCP_READY_NONCE", "H2A_SESSION_REF", "H2A_IDENTITY_RETRY_MIN_MS", "H2A_HEARTBEAT_INTERVAL_MS",
   "H2A_NOTIFY_INTERVAL_MS", "H2A_SESSION_EXPIRY_MS"
 ] as const;
 const FLAGS = new Set(["host", "auto-open", "wake", "name", "scope", "auto-upgrade", "upgrade-check", "registry-lock-digest"]);

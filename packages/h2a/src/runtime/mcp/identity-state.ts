@@ -27,7 +27,7 @@ import { identityBlockerSnapshot } from './identity-blocker-snapshot.js';
 import { diagnosticMessage, type IdentityBlockerInfo, type IdentityLockDiagnostic } from '../local-files/identity-fence.js';
 
 import type { H2ASendSigner } from "../send.js";
-import { identityKeyPaths } from "../identity/live.js";
+import { identityKeyPaths, type SessionIdentityAnchor } from "../identity/live.js";
 import { getActiveMcpTrace } from "./phase-trace.js";
 
 /** The single identity deadline (ms), measured from entering identity_pending. */
@@ -181,6 +181,21 @@ export interface McpIdentityRequest {
   /** A live shim reconnect must prove its existing binding, never mint another. */
   readonly reclaimOnly?: boolean;
   readonly expectedInstance?: string;
+  /** Cryptographically verified session anchor resolved from `/proc` or sidecar. */
+  readonly sessionAnchor?: SessionIdentityAnchor;
+  /**
+   * Deferred anchor lookup params for central attachments so `openCentralAttachment`
+   * calls `onServer` synchronously before running async `/proc`/sidecar verification.
+   */
+  readonly mcpAnchorInput?: {
+    readonly pid: number;
+    readonly processPid: number;
+    readonly root: string;
+    readonly explicitInstance?: string;
+    readonly host?: string;
+    readonly expectedInstance?: string;
+    readonly centralAttachment: true;
+  };
 }
 
 /** Result of a caller-supplied activation attempt (session + ACK + signer). */

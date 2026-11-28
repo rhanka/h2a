@@ -1,5 +1,5 @@
 {
-  "commandCount": 55,
+  "commandCount": 56,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -200,6 +200,11 @@
       "group": "Set up — connect this host, its credentials, and diagnostics:",
       "term": "trust",
       "description": "Owner-only CLI workspace trust approvals, baseline import, and audit log (restricted to interactive owner terminals)."
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "authorize",
+      "description": "Owner-only one-shot authorizations for central stop and central compact (interactive TTY only)."
     },
     {
       "group": "Recover & supervise sessions (advanced):",

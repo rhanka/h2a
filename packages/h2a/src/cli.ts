@@ -39,7 +39,7 @@
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { readAgyClaudeQuotaStatus } from "./runtime/agy-claude.js";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { once } from "node:events";
 import {
   chmodSync,
@@ -64,7 +64,7 @@ import { fileURLToPath } from "node:url";
 // `@sentropic/h2a-runtime`/node-pty/aws-sdk, which track is NOT. Importing its
 // public `runCli` lets ④ run read-only track verbs IN-PROCESS (no spawn), on the
 // same `.track` under the same lock as the surviving spawn facade.
-import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
+import { runCli as runTrackCli, type ActorId, type CliActorOverride, type CliIO } from "@sentropic/track";
 
 // Static import — `h2a` is a LIGHT, zero-runtime-dep method
 // library (host-agnostic code-work / PR-workflow layer, BR-42h). Like track it
@@ -85,6 +85,7 @@ import { centralStateDirectory } from "./runtime/mcp-central-discovery.js";
 import { readState as readHandoverState } from "./runtime/handover/state.js";
 import { readInstallReceipt } from "./registry/host-bootstrap.js";
 import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
+import { scrubSessionIdentityEnv } from "./runtime/identity/session-auth.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
 import { ensureCentralForShim } from "./runtime/mcp-central-start.js";
 import { centralCompact, centralOperator, centralOperatorExitCode, centralFailureExitCode, centralResidueReport, parseCentralCompactArgs } from "./runtime/mcp-central-operator.js";
@@ -114,6 +115,7 @@ import {
   auditNhiPosture,
   buildComprehensionAttestation,
   canAttestComprehension,
+  canonicalize,
   checkEnvelopeFreshness,
   computeHash,
   createEnvelope,
@@ -303,10 +305,21 @@ import { assessAdoptionNeed } from "./runtime/upgrade/adoption-need.js";
 import { readState } from "./runtime/handover/state.js";
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
+  SESSION_IDENTITY_SCRUB_KEYS,
   createHostSessionNameRefresher,
   defaultHostNameReaders,
+  getGlobalVerifiedCallerContext,
   identityKeyPaths,
-  resolveLiveIdentity
+  listSessionFiches,
+  ownerGrantsDir,
+  purgeStaleOwnerGrants,
+  readBootId,
+  readPidNamespaceId,
+  readProcCgroup,
+  resolveLiveIdentity,
+  resolveMcpTransportAnchorAsync,
+  resolveSessionRuntimeDir,
+  type McpSessionAnchor
 } from "./runtime/identity/index.js";
 import {
   buildEnrollmentProof,
@@ -705,7 +718,14 @@ function cmdSend(argv: readonly string[], streams: H2ACliStreams): number | Prom
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const store = createLocalStore({ root });
-  let sender = flags.from ?? process.env.H2A_INSTANCE?.trim();
+  const callerCtx = getGlobalVerifiedCallerContext();
+  const isVerifiedAgent =
+    callerCtx &&
+    (callerCtx.mode === "agent" || callerCtx.mode === "daemon-receipt") &&
+    callerCtx.actorId !== null;
+  let sender = isVerifiedAgent
+    ? (flags.from ?? callerCtx.actorId!)
+    : (flags.from ?? process.env.H2A_INSTANCE?.trim());
   if (!sender) {
     const sessions = listPresence(root);
     const nativeSession = process.env.H2A_NATIVE_PTY_SESSION;
@@ -2368,6 +2388,18 @@ export function cmdPresenceReap(
   flags: Record<string, string>,
   streams: H2ACliStreams
 ): number {
+  const callerCtx = getGlobalVerifiedCallerContext();
+  if (
+    callerCtx &&
+    callerCtx.mode !== "d16-bypass" &&
+    callerCtx.mode !== "isolated-tmp" &&
+    callerCtx.isForeignPidNamespace
+  ) {
+    streams.stderr.write(
+      "h2a presence-reap: presence-reap-pidns-forbidden: refusing presence mutation inside isolated PID namespace\n"
+    );
+    return 2;
+  }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const instance = flags.instance;
@@ -2410,6 +2442,7 @@ export async function runMcpServe(
     onServer?: RunMcpStdioOptions["onServer"];
     reclaimOnly?: boolean;
     expectedInstance?: string;
+    shimPid?: number;
     centralAttachment?: boolean;
     runExecutor?: H2aRunExecutor;
     focusBuildManager?: import("./runtime/mcp/focus-jobs.js").FocusBuildManager;
@@ -2433,11 +2466,45 @@ export async function runMcpServe(
   // "move-don't-shrink" trap is avoided by not resolving synchronously at all).
   // `--auto-open` absent → no identity (the explicit mode, unchanged).
   const readinessEnv = io.env ?? process.env;
+  let sessionAnchor: McpSessionAnchor | undefined;
+  let mcpAnchorInput: NonNullable<Parameters<typeof runMcpStdio>[0]["identityRequest"]>["mcpAnchorInput"] | undefined;
+  const needsAnchor = flags["auto-open"] !== undefined || flags.instance !== undefined || io.shimPid !== undefined;
+  if (needsAnchor && io.centralAttachment && flags["auto-open"] !== undefined) {
+    // Keep `openCentralAttachment`'s synchronous `onServer` invariant intact by
+    // running async anchor verification inside the background identity worker.
+    mcpAnchorInput = {
+      pid: io.shimPid ?? process.pid,
+      processPid: process.pid,
+      root,
+      ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
+      ...(flags.host !== undefined ? { host: flags.host } : {}),
+      ...(io.expectedInstance !== undefined ? { expectedInstance: io.expectedInstance } : {}),
+      centralAttachment: true,
+    };
+  } else if (needsAnchor && !io.centralAttachment) {
+    const anchorRes = await resolveMcpTransportAnchorAsync({
+      pid: io.shimPid ?? process.pid,
+      processPid: process.pid,
+      root,
+      env: readinessEnv,
+      ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
+      ...(flags.host !== undefined ? { host: flags.host } : {}),
+      ...(io.expectedInstance !== undefined ? { expectedInstance: io.expectedInstance } : {}),
+      stderr: (chunk) => io.stderr.write(chunk)
+    });
+    if (!anchorRes.ok) {
+      io.stderr.write(`h2a mcp-serve: ${anchorRes.reasonCode}: ${anchorRes.message}\n`);
+      return anchorRes.exitCode;
+    }
+    sessionAnchor = anchorRes.anchor;
+  }
   const identityRequest = flags["auto-open"] !== undefined ? {
     ...buildMcpIdentityRequest(flags, cwd),
     providerEnv: Object.fromEntries(Object.entries(readinessEnv).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     ...(io.reclaimOnly ? { reclaimOnly: true } : {}),
-    ...(io.expectedInstance ? { expectedInstance: io.expectedInstance } : {})
+    ...(io.expectedInstance ? { expectedInstance: io.expectedInstance } : {}),
+    ...(sessionAnchor ? { sessionAnchor } : {}),
+    ...(mcpAnchorInput ? { mcpAnchorInput } : {})
   } : undefined;
   const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
   const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
@@ -2505,7 +2572,8 @@ export async function runMcpServe(
           ],
           {
             detached: true,
-            stdio: ["ignore", "ignore", "inherit"]
+            stdio: ["ignore", "ignore", "inherit"],
+            env: scrubSessionIdentityEnv(process.env),
           }
         );
         worker.once("error", () => {});
@@ -3796,7 +3864,33 @@ function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
   const root = resolveRoot(flags, cwd);
 
   if (sub === "record") {
-    if (!flags.instance || !flags.status) {
+    const callerCtx = getGlobalVerifiedCallerContext();
+    if (callerCtx?.parentFicheRejected) {
+      streams.stdout.write(
+        `${JSON.stringify({ ok: true, skipped: true, reason: "fiche-parent-rejected" }, null, 2)}\n`
+      );
+      return 0;
+    }
+    const verifiedActor =
+      callerCtx &&
+      (callerCtx.mode === "internal" ||
+        callerCtx.mode === "agent" ||
+        callerCtx.mode === "daemon-receipt")
+        ? callerCtx.actorId
+        : null;
+    const effectiveInstance =
+      callerCtx?.mode === "internal" && verifiedActor
+        ? verifiedActor
+        : (verifiedActor && !flags.instance ? verifiedActor : flags.instance);
+    if (!effectiveInstance) {
+      if (!flags.instance && process.stdin.isTTY !== true) {
+        streams.stdout.write(
+          `${JSON.stringify({ ok: true, skipped: true, reason: "no-verified-instance" }, null, 2)}\n`
+        );
+        return 0;
+      }
+    }
+    if (!effectiveInstance || !flags.status) {
       streams.stderr.write("h2a drumbeat record: --instance <id> and --status <work-status> are required\n");
       return 1;
     }
@@ -3818,7 +3912,7 @@ function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
         }
       : undefined;
     const entry = recordStop(root, {
-      instance: flags.instance,
+      instance: effectiveInstance,
       workStatus: flags.status as (typeof H2A_WORK_STATUSES)[number],
       ...(launchContext ? { launchContext } : {})
     });
@@ -4628,16 +4722,16 @@ function driveLineFromStdin(raw: string): string {
 function cmdDriveReceive(flags: Record<string, string>, streams: H2ACliStreams): number {
   const cwd = streams.cwd ?? (() => process.cwd());
   const line = flags.line ?? (flags.stdin ? driveLineFromStdin(stdinText(streams) ?? "") : undefined);
-  if (!flags.to) {
-    streams.stderr.write("h2a drive receive: --to is required\n");
-    return 1;
-  }
   if (!line) {
     if (flags["ignore-non-drive"]) {
       streams.stdout.write(
         `${JSON.stringify({ ok: true, ignored: true, reason: "non-drive" }, null, 2)}\n`
       );
       return 0;
+    }
+    if (!flags.to) {
+      streams.stderr.write("h2a drive receive: --to is required\n");
+      return 1;
     }
     streams.stderr.write("h2a drive receive: --line or --stdin is required\n");
     return 1;
@@ -4647,6 +4741,22 @@ function cmdDriveReceive(flags: Record<string, string>, streams: H2ACliStreams):
       `${JSON.stringify({ ok: true, ignored: true, reason: "non-drive" }, null, 2)}\n`
     );
     return 0;
+  }
+  const callerCtx = getGlobalVerifiedCallerContext();
+  const effectiveTo = callerCtx?.parentFicheRejected
+    ? undefined
+    : callerCtx?.mode === "internal" && callerCtx.actorId
+      ? callerCtx.actorId
+      : callerCtx && (callerCtx.mode === "agent" || callerCtx.mode === "daemon-receipt") && callerCtx.actorId
+        ? (flags.to ?? callerCtx.actorId)
+        : flags.to;
+  if (!effectiveTo) {
+    if (line.trim().startsWith("[h2a ")) {
+      streams.stderr.write("h2a drive receive: verifiable recipient --to is required for [h2a ...] instructions\n");
+      return 2;
+    }
+    streams.stderr.write("h2a drive receive: --to is required\n");
+    return 1;
   }
   const root = resolveRoot(flags, cwd);
   const store = createLocalStore({ root });
@@ -4660,7 +4770,7 @@ function cmdDriveReceive(flags: Record<string, string>, streams: H2ACliStreams):
   let result: ReturnType<typeof verifyDriveOnReceive>;
   try {
     result = verifyDriveOnReceive(store, line, {
-      to: flags.to,
+      to: effectiveTo,
       guard: driveReplayGuard(root),
       ...(now !== undefined ? { now } : {})
     });
@@ -6169,17 +6279,25 @@ export function cmdWakeRequest(
     streams.stderr.write("h2a wake-request: --to <instance> is required (the agent to wake)\n");
     return 1;
   }
+  const targetHasLiveFiche = (() => {
+    try {
+      const runtimeDir = resolveSessionRuntimeDir({ createIfMissing: false }).dir;
+      const bootId = readBootId() ?? "nonlinux-boot";
+      return listSessionFiches(runtimeDir).some(
+        (f) => f.bootId === bootId && f.actorId === target
+      );
+    } catch {
+      return false;
+    }
+  })();
+  const instructionLine = targetHasLiveFiche
+    ? `h2a --as ${target} inbox read --instance ${target} --root ${root}`
+    : `Call MCP tool h2a_inbox_read for instance ${target} (root ${root})`;
   const request = {
     kind: "wake-request" as const,
     target,
     reason: flags.reason ?? "peer not live on the bus; wake its pane out-of-band",
-    // Self-describing wake: the EXACT line the launcher should type into the
-    // target's pane. The target's MCP is likely dead (that's why it's being
-    // woken), so it must read its inbox via the CLI, not the MCP — and the bare
-    // `h2a inbox read` errors without --instance. h2a composes the precise
-    // command since it knows the target + root. Launchers SHOULD type this
-    // verbatim (literal send-keys) rather than hard-coding their own line.
-    instructionLine: `h2a inbox read --instance ${target} --root ${root}`
+    instructionLine
   };
 
   // --dry-run → preview only; never emit.
@@ -6876,6 +6994,234 @@ function cmdDoctor(
   if (flags.prune !== undefined) {
     report.pruned = pruned;
   }
+
+  // (e) CLI Identity Architecture (Lot 1.1+1.2) checks & optional owner-only repair.
+  const doctorCaller = getGlobalVerifiedCallerContext();
+  const inAgentDoctorContext = doctorCaller?.mode === "agent" || doctorCaller?.mode === "daemon-receipt";
+  const allowDoctorRepair = !inAgentDoctorContext && flags.repair === "true" && flags["dry-run"] !== "true";
+  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+
+  // Inspect tmux global environment against the closed 51-key scrub list (`SESSION_IDENTITY_SCRUB_KEYS`).
+  const leakedTmuxGlobalKeys: string[] = [];
+  let purgedTmuxGlobalKeys: string[] = [];
+  const tmuxShow = spawnSync("tmux", ["show-environment", "-g"], { encoding: "utf8", timeout: 2000 });
+  if (tmuxShow.status === 0 && tmuxShow.stdout) {
+    const scrubSet = new Set<string>(SESSION_IDENTITY_SCRUB_KEYS);
+    for (const line of tmuxShow.stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("-")) continue;
+      const eq = trimmed.indexOf("=");
+      const keyName = eq === -1 ? trimmed : trimmed.slice(0, eq);
+      if (scrubSet.has(keyName)) leakedTmuxGlobalKeys.push(keyName);
+    }
+  }
+  if (leakedTmuxGlobalKeys.length > 0 && allowDoctorRepair) {
+    for (const keyName of leakedTmuxGlobalKeys) {
+      const rmRes = spawnSync("tmux", ["set-environment", "-gu", keyName], { encoding: "utf8", timeout: 2000 });
+      if (rmRes.status === 0) purgedTmuxGlobalKeys.push(keyName);
+    }
+    if (purgedTmuxGlobalKeys.length > 0) {
+      streams.stderr.write(
+        `h2a doctor --repair: purged tmux global identity key(s): ${purgedTmuxGlobalKeys.join(", ")}\n`
+      );
+    }
+  }
+  const remainingTmuxKeys = leakedTmuxGlobalKeys.filter((k) => !purgedTmuxGlobalKeys.includes(k));
+  checks.tmuxGlobalIdentityEnv = {
+    ok: true,
+    leakedKeys: remainingTmuxKeys,
+    ...(purgedTmuxGlobalKeys.length > 0 ? { purgedKeys: purgedTmuxGlobalKeys } : {}),
+  };
+  if (remainingTmuxKeys.length > 0) {
+    warnings.push({
+      check: "tmuxGlobalIdentityEnv",
+      keys: remainingTmuxKeys,
+      message: `tmux global environment retains ${remainingTmuxKeys.length} session-identity key(s): ${remainingTmuxKeys.join(", ")} (pass --repair in owner terminal to purge)`
+    });
+  }
+
+  // Inspect tmux h2a-* panes for missing h2a-session-*.scope cgroups.
+  const unpackagedTmuxPanes: Array<{ session: string; pane: string; pid: number }> = [];
+  const paneList = spawnSync("tmux", ["list-panes", "-a", "-F", "#{pane_pid}\t#{session_name}\t#{pane_id}"], { encoding: "utf8", timeout: 2000 });
+  if (paneList.status === 0 && paneList.stdout) {
+    for (const line of paneList.stdout.split("\n")) {
+      const [pidRaw, sessionName, paneId] = line.split("\t");
+      const panePid = pidRaw ? Number.parseInt(pidRaw, 10) : Number.NaN;
+      if (!Number.isInteger(panePid) || !sessionName || !paneId) continue;
+      if (!sessionName.startsWith("h2a-")) continue;
+      try {
+        const cg = readFileSync(`/proc/${panePid}/cgroup`, "utf8");
+        if (!/h2a-session-[^/\s]+\.scope/.test(cg)) {
+          unpackagedTmuxPanes.push({ session: sessionName, pane: paneId, pid: panePid });
+        }
+      } catch {
+        /* process exited or unreadable */
+      }
+    }
+  }
+  if (unpackagedTmuxPanes.length > 0) {
+    warnings.push({
+      check: "tmuxPaneScopes",
+      panes: unpackagedTmuxPanes,
+      message: `${unpackagedTmuxPanes.length} h2a tmux pane(s) run outside h2a-session-*.scope`
+    });
+  }
+
+  // Detect active codex app-server / /tmp/codex-daemon-<uid>/ sockets and unflagged --resume-command hooks.
+  const codexDaemonDirs: string[] = [];
+  try {
+    for (const entry of readdirSync("/tmp")) {
+      if (entry.startsWith(`codex-daemon-${uid}`)) codexDaemonDirs.push(join("/tmp", entry));
+    }
+  } catch {
+    /* ignore */
+  }
+  const codexAppServerPids: number[] = [];
+  if (process.platform === "linux") {
+    try {
+      let procChecked = 0;
+      for (const entry of readdirSync("/proc")) {
+        if (!/^[0-9]+$/.test(entry)) continue;
+        if (++procChecked > 1024) break;
+        try {
+          const cmd = readFileSync(`/proc/${entry}/cmdline`, "utf8");
+          if (cmd.includes("codex") && cmd.includes("app-server")) {
+            codexAppServerPids.push(Number.parseInt(entry, 10));
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (codexDaemonDirs.length > 0 || codexAppServerPids.length > 0) {
+    warnings.push({
+      check: "codexAppServer",
+      daemonDirs: codexDaemonDirs,
+      pids: codexAppServerPids,
+      message: "active codex app-server daemon state detected; prefer `h2a run codex` (--no-daemon)"
+    });
+  }
+
+  // Codex hooks missing --no-daemon on --resume-command / resume entries.
+  const codexHooksMissingNoDaemon: string[] = [];
+  try {
+    const codexHooksFile = join(homedir(), ".codex", "hooks.json");
+    if (existsSync(codexHooksFile)) {
+      const content = readFileSync(codexHooksFile, "utf8");
+      if (content.includes("codex") && content.includes("--resume-command") && !content.includes("--no-daemon")) {
+        codexHooksMissingNoDaemon.push(codexHooksFile);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (codexHooksMissingNoDaemon.length > 0) {
+    warnings.push({
+      check: "codexHooksNoDaemon",
+      files: codexHooksMissingNoDaemon,
+      message: "Codex hook resume-command omits --no-daemon; regenerate hooks or run `h2a host setup codex --write`"
+    });
+  }
+
+  // Detect legacy `remote` binary shadowing or lingering on PATH.
+  const legacyRemotePaths: string[] = [];
+  for (const dir of (process.env.PATH ?? "").split(":")) {
+    if (!dir) continue;
+    const cand = join(dir, "remote");
+    try {
+      const st = statSync(cand);
+      if (st.isFile() && (st.mode & 0o111) !== 0) legacyRemotePaths.push(cand);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (legacyRemotePaths.length > 0) {
+    warnings.push({
+      check: "legacyRemoteBinary",
+      paths: legacyRemotePaths,
+      message: `legacy \`remote\` binary still present on PATH (${legacyRemotePaths.join(", ")}); use \`h2a\``
+    });
+  }
+
+  // Check h2a-agents.slice presence on systemd hosts.
+  let h2aAgentsSlice: Record<string, unknown> = { ok: true, available: false };
+  if (process.platform === "linux" && existsSync("/run/systemd/system")) {
+    const sliceRes = spawnSync("systemctl", ["--user", "show", "h2a-agents.slice", "--property=LoadState"], {
+      encoding: "utf8",
+      timeout: 1500
+    });
+    h2aAgentsSlice = {
+      ok: true,
+      available: sliceRes.status === 0,
+      loadState: (sliceRes.stdout ?? "").trim()
+    };
+  }
+  checks.h2aAgentsSlice = h2aAgentsSlice;
+
+  // Check selected-build.json version parity when present.
+  try {
+    const selectedBuildPath = join(h4ManagedRoot(), "state", "selected-build.json");
+    if (existsSync(selectedBuildPath)) {
+      const parsedSel = JSON.parse(readFileSync(selectedBuildPath, "utf8")) as { version?: string; buildId?: string };
+      const runningVer = currentCliVersion();
+      checks.selectedBuild = { ok: true, path: selectedBuildPath, selected: parsedSel, runningVersion: runningVer };
+      if (parsedSel.version && runningVer && parsedSel.version !== runningVer) {
+        warnings.push({
+          check: "selectedBuildVersion",
+          selectedVersion: parsedSel.version,
+          runningVersion: runningVer,
+          message: `selected-build.json version (${parsedSel.version}) differs from running CLI (${runningVer})`
+        });
+      }
+    }
+  } catch {
+    /* ignore corrupt/unreadable selection in doctor */
+  }
+
+  // Owner-grants maintenance: inspect read-only, purge ONLY in owner --repair without agent/EROFS (NB-6, NB-7).
+  let grantMaintenance: Record<string, unknown> = { ok: true, available: false };
+  try {
+    const rtDir = resolveSessionRuntimeDir({ createIfMissing: false }).dir;
+    const grantsDirectory = ownerGrantsDir(rtDir);
+    if (allowDoctorRepair) {
+      try {
+        const purgedGrants = purgeStaleOwnerGrants(rtDir, { expectedUid: uid });
+        grantMaintenance = { ok: true, dir: grantsDirectory, repaired: true, purged: purgedGrants };
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException | undefined)?.code;
+        if (code === "EROFS" || code === "EACCES" || code === "EPERM") {
+          grantMaintenance = { ok: true, dir: grantsDirectory, skippedReadOnly: true, reason: code };
+        } else {
+          grantMaintenance = { ok: true, dir: grantsDirectory, skipped: true, reason: (err as Error).message };
+        }
+      }
+    } else {
+      let fileCount = 0;
+      let tempCount = 0;
+      try {
+        for (const name of readdirSync(grantsDirectory)) {
+          if (name.endsWith(".tmp") || name.includes(".json.claiming.")) tempCount += 1;
+          else if (name.endsWith(".json")) fileCount += 1;
+        }
+      } catch {
+        /* dir absent or unreadable */
+      }
+      grantMaintenance = {
+        ok: true,
+        dir: grantsDirectory,
+        repaired: false,
+        files: fileCount,
+        staleTemps: tempCount,
+        ...(inAgentDoctorContext ? { skippedAgentContext: true } : {})
+      };
+    }
+  } catch {
+    grantMaintenance = { ok: true, available: false };
+  }
+  checks.ownerGrantsMaintenance = grantMaintenance;
 
   streams.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   return report.ok ? 0 : 2;
@@ -8334,6 +8680,75 @@ function delegateToTrackNative(
   streams: H2ACliStreams,
   readOnly: boolean
 ): number {
+  const callerCtx = getGlobalVerifiedCallerContext();
+  const isVerifiedAgent = Boolean(
+    callerCtx &&
+    (callerCtx.mode === "agent" || callerCtx.mode === "daemon-receipt") &&
+    callerCtx.actorId
+  );
+  let actorOverride: CliActorOverride | undefined;
+  if (isVerifiedAgent && callerCtx?.actorId) {
+    const actorId = callerCtx.actorId;
+    const { flags: trackFlags } = parseFlags(["", ...argv]);
+    const storeRoot = resolveRoot(trackFlags, () => process.cwd());
+    const keyPath = identityKeyPaths(storeRoot, actorId).privateKeyPath;
+    let cachedPem: string | undefined;
+    const loadPrivateKeyPem = (): string => {
+      if (cachedPem !== undefined) return cachedPem;
+      cachedPem = readFileSync(keyPath, "utf8");
+      return cachedPem;
+    };
+    if (!readOnly) {
+      try {
+        loadPrivateKeyPem();
+      } catch (err) {
+        streams.stderr.write(
+          `h2a ${argv[0]}: cannot read verified agent signing key ${keyPath} (${(err as Error).message})\n`
+        );
+        return 3;
+      }
+    }
+    const sessionKey = callerCtx.sessionFiche?.sessionKey ?? null;
+    actorOverride = {
+      by: `agent:${actorId}` as ActorId,
+      prov: {
+        transport: "cli",
+        proposed: true,
+        auth: "signed",
+        principal: actorId
+      },
+      signProvenance: (core) => {
+        const eventCoreHash = createHash("sha256")
+          .update(canonicalize(core), "utf8")
+          .digest("hex");
+        const nonce = randomBytes(16).toString("hex");
+        const issuedAt = new Date().toISOString();
+        const attestation = {
+          schema: "h2a.track-cli-attestation.v1",
+          eventCoreHash,
+          actorId,
+          sessionKey,
+          nonce,
+          issuedAt
+        };
+        const sig = signCanonical(attestation, {
+          by: actorId,
+          privateKeyPem: loadPrivateKeyPem()
+        });
+        return {
+          transport: "cli",
+          proposed: true,
+          auth: "signed",
+          principal: actorId,
+          sig: {
+            alg: "Ed25519",
+            value: sig.value,
+            by: actorId
+          }
+        };
+      }
+    };
+  }
   const outBuf: string[] = [];
   const errBuf: string[] = [];
   const io: CliIO = {
@@ -8345,26 +8760,31 @@ function delegateToTrackNative(
     },
     err: (s) => {
       errBuf.push(s);
-    }
+    },
+    ...(actorOverride ? { actorOverride } : {})
   };
   try {
     const rc = runTrackCli([...argv], io);
     // Async verb (Promise) — nothing written synchronously yet, so a spawn
     // fallback cannot double-write. Not representable for the shipped sync set.
     if (rc !== null && typeof rc === "object" && typeof (rc as { then?: unknown }).then === "function") {
+      if (isVerifiedAgent) {
+        streams.stderr.write(
+          `h2a ${argv[0]}: refusing unattributed track subprocess fallback inside verified agent session\n`
+        );
+        return 2;
+      }
       return delegateToTrack(argv, streams);
     }
     for (const s of outBuf) streams.stdout.write(s);
     for (const s of errBuf) streams.stderr.write(s);
     return rc as number;
   } catch (err) {
-    // READ-ONLY throw: nothing persisted → the spawn facade may safely re-run.
-    if (readOnly) {
+    // READ-ONLY throw: nothing persisted → the spawn facade may safely re-run (outside verified agent).
+    if (readOnly && !isVerifiedAgent) {
       return delegateToTrack(argv, streams);
     }
-    // WRITE throw (anti-double-write): DO NOT re-run. `appendCommand` is atomic,
-    // so either nothing landed or the write already landed — a spawn retry could
-    // append a second event. Flush what the native path emitted and fail loud.
+    // WRITE throw (anti-double-write) or verified agent: DO NOT fall back to spawn.
     for (const s of outBuf) streams.stdout.write(s);
     for (const s of errBuf) streams.stderr.write(s);
     streams.stderr.write(

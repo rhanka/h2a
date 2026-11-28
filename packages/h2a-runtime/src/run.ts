@@ -95,6 +95,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     import("@hono/node-server"), import("hono"), import("hono/streaming"),
   ]);
   const profile = withResume(resolveProfile(options.profile), options.resume);
+  const { applyCodexNoDaemon, codexSupportsNoDaemon } = await import("./session-auth.js");
   const randomId = options.randomId ?? defaultRandomId;
   const clock = options.clock ?? (() => new Date());
   const spawner = options.spawner ?? nodePtySpawner;
@@ -104,6 +105,11 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const initialCols = options.initialSize?.cols ?? stdout.columns ?? 80;
   const initialRows = options.initialSize?.rows ?? stdout.rows ?? 24;
   const startupArgs = options.startupArgs ?? [];
+  const rawArgs = [...profile.args, ...startupArgs];
+  const finalArgs =
+    profile.profile === "codex"
+      ? applyCodexNoDaemon(rawArgs, { enabled: codexSupportsNoDaemon(profile.command) })
+      : rawArgs;
   const childEnv = { ...(options.env ?? (process.env as Record<string, string>)) };
   if (options.gatewayMode !== "gateway") {
     delete childEnv.ANTHROPIC_BASE_URL;
@@ -112,7 +118,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   const handle = spawner({
     command: profile.command,
-    args: [...profile.args, ...startupArgs],
+    args: finalArgs,
     cwd,
     env: childEnv,
     cols: initialCols,

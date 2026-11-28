@@ -32,6 +32,26 @@ const ORIGINAL_ENV = {
 };
 const ORIGINAL_EXIT_CODE = process.exitCode;
 
+const D16_SANDBOX_ENV_KEYS = [
+  "H2A_TEST_STATE_ROOT",
+  "H2A_TEST_STATE_RECEIPT",
+  "H2A_TEST_STATE_ATTESTATION",
+  "H2A_TEST_STATE_BARRIER",
+  "H2A_TEST_SANDBOX_NONCE",
+  "H2A_TEST_OWNER_HOME",
+  "H2A_TEST_QUALIFICATION_ROOT",
+  "H2A_HOST_QUALIFICATION_RESERVATION",
+] as const;
+
+function forwardedSandboxEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of D16_SANDBOX_ENV_KEYS) {
+    const val = process.env[key];
+    if (val !== undefined && val !== "") out[key] = val;
+  }
+  return out;
+}
+
 const acquireLlmMeshSessionEnv = vi.fn();
 const readLlmMeshConfig = vi.fn((): { port?: number; modelRewrites?: unknown } => ({}));
 const startGateway = vi.fn();
@@ -864,19 +884,24 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
     expect(code).toBe(0);
     expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
     expect(relaunchInSession).toHaveBeenCalledTimes(1);
-    expect(relaunchInSession.mock.calls[0]?.[1]).toBe(
-      `env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN claude --resume ${CONV}`,
-    );
+    const cmd = String(relaunchInSession.mock.calls[0]?.[1]);
+    expect(cmd).toContain("session-exec-wrapper.js");
+    expect(cmd).toContain(`env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN claude --resume ${CONV}`);
     // Execute the command retyped into the existing polluted shell, with a
     // stand-in provider. Assert the environment the real child receives.
     const { spawnSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
     const bin = join(SCRATCH, "fake-bin");
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "claude"), "#!/bin/bash\nexec printenv\n", { mode: 0o700 });
-    const cmd = String(relaunchInSession.mock.calls[0]?.[1]);
     const child = spawnSync("/bin/bash", ["-c", cmd], {
       encoding: "utf8",
-      env: { PATH: `${bin}:/usr/bin:/bin`, ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "stale-token", ANTHROPIC_API_KEY: "native-key-fixture" },
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`,
+        ANTHROPIC_BASE_URL: "http://localhost:3002",
+        ANTHROPIC_AUTH_TOKEN: "stale-token",
+        ANTHROPIC_API_KEY: "native-key-fixture",
+        ...forwardedSandboxEnv(),
+      },
     });
     expect(child.status).toBe(0);
     expect(child.stdout).not.toMatch(/^ANTHROPIC_BASE_URL=/m);
@@ -906,6 +931,7 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
       env: {
         PATH: `${bin}:/usr/bin:/bin`, ANTHROPIC_API_KEY: "shell-native-key",
         ...(polluted ? { ANTHROPIC_BASE_URL: "http://old-fixture.invalid:3002", ANTHROPIC_AUTH_TOKEN: "expired-fixture-token" } : {}),
+        ...forwardedSandboxEnv(),
       },
     });
     expect(child.status).toBe(0);
@@ -949,6 +975,7 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
           H2A_TEST_ENV_OUTPUT: output, ANTHROPIC_API_KEY: "native-shell-fixture",
           H2A_TEST_HANDOFF_PATHS: JSON.stringify(privatePaths),
           ANTHROPIC_BASE_URL: "http://stale.invalid", ANTHROPIC_AUTH_TOKEN: "expired-fixture",
+          ...forwardedSandboxEnv(),
         },
       });
       expect(child.status).toBe(0);

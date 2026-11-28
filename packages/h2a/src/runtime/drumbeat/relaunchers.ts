@@ -44,6 +44,7 @@ import {
 import type { H2ADrumbeatFinding } from "./scan.js";
 import type { H2ARelauncher } from "./watch.js";
 import { recordInjectionBestEffort } from "./injection-ledger.js";
+import { scrubSessionIdentityEnv } from "../identity/session-auth.js";
 
 /** Process I/O the adapters need — injected so tests supply a fake. */
 export interface RelauncherRuntime {
@@ -61,9 +62,11 @@ export interface RelauncherRuntime {
 }
 
 /** Bind process I/O to an attachment without changing the daemon environment. */
-export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRuntime => ({
+export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRuntime => {
+  const childEnv = (): NodeJS.ProcessEnv => scrubSessionIdentityEnv(env ?? process.env);
+  return {
   run(file, args) {
-    const res = spawnSync(file, [...args], { stdio: "ignore", env });
+    const res = spawnSync(file, [...args], { stdio: "ignore", env: childEnv() });
     return res.status === 0;
   },
   capture(file, args) {
@@ -71,7 +74,7 @@ export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRunt
       const res = spawnSync(file, [...args], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
-        env
+        env: childEnv()
       });
       return res.status === 0 ? res.stdout : undefined;
     } catch {
@@ -88,13 +91,13 @@ export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRunt
               shell: true,
               detached: true,
               stdio: "ignore",
-              env
+              env: childEnv()
             })
           : spawn(command.file, [...command.args], {
               cwd: command.cwd ?? options.cwd,
               detached: true,
               stdio: [hasInput ? "pipe" : "ignore", "ignore", "ignore"],
-              env
+              env: childEnv()
             });
       if (hasInput && child.stdin) {
         child.stdin.on("error", () => {});
@@ -106,7 +109,8 @@ export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRunt
       return false;
     }
   }
-});
+  };
+};
 
 export const defaultRelauncherRuntime: RelauncherRuntime = createRelauncherRuntime();
 

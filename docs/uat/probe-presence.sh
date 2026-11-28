@@ -84,14 +84,42 @@ ok_de() { node -e 'try{const r=JSON.parse(require("fs").readFileSync(process.arg
 # Chaque cas exige desormais TROIS choses, pas une : un rapport JSON LISIBLE, l-etat `ok` ATTENDU,
 # et un finding POSITIF attendu. Nommer ce qui doit etre la vaut mieux que constater ce qui manque.
 #
+run_doctor_tty() { # $1=home $2=path $3=codex_home $4=out $5=err $6..=args
+  local uat_home="$1" uat_path="$2" uat_codex="$3" uat_out="$4" uat_err="$5"
+  shift 5
+  if [ -t 0 ] || ! command -v script >/dev/null 2>&1; then
+    if [ -n "$uat_codex" ]; then
+      HOME="$uat_home" PATH="$uat_path" CODEX_HOME="$uat_codex" node "$DOCTOR_BIN" "$@" >"$uat_out" 2>"$uat_err"
+    else
+      HOME="$uat_home" PATH="$uat_path" node "$DOCTOR_BIN" "$@" >"$uat_out" 2>"$uat_err"
+    fi
+    return $?
+  fi
+  local qargs="" a
+  for a in "$@"; do
+    printf -v a '%q' "$a"
+    qargs="$qargs $a"
+  done
+  local qbin qhome qpath qout qerr qcodex=""
+  printf -v qbin '%q' "$DOCTOR_BIN"
+  printf -v qhome '%q' "$uat_home"
+  printf -v qpath '%q' "$uat_path"
+  printf -v qout '%q' "$uat_out"
+  printf -v qerr '%q' "$uat_err"
+  if [ -n "$uat_codex" ]; then
+    printf -v qcodex 'CODEX_HOME=%q ' "$uat_codex"
+  fi
+  script -q -e -c "HOME=$qhome PATH=$qpath ${qcodex}node $qbin$qargs >$qout 2>$qerr" /dev/null </dev/null >/dev/null 2>&1
+}
+
 # $1=numero $2=libelle $3=HOME $4=ok attendu (true|false) $5=finding EXIGE $6=finding INTERDIT
 # $7=justification $8=PATH
 cas() {
   local num="$1" libelle="$2" home="$3" ok_attendu="$4" exige="$5" interdit="$6" pourquoi="$7"
   local chemin="${8:-$PATH}"
   local bus="$home/bus" out="$home/rapport.json"
-  HOME="$home" PATH="$chemin" node "$DOCTOR_BIN" init --root "$bus" >/dev/null 2>&1
-  HOME="$home" PATH="$chemin" node "$DOCTOR_BIN" doctor --root "$bus" --repair --dry-run --format json > "$out" 2>/dev/null
+  run_doctor_tty "$home" "$chemin" "" /dev/null /dev/null init --root "$bus"
+  run_doctor_tty "$home" "$chemin" "" "$out" /dev/null doctor --root "$bus" --repair --dry-run --format json
   local sortie=$?
   local f ok
   f=$(findings_de "$out" codex); ok=$(ok_de "$out")
@@ -153,8 +181,8 @@ printf '[plugins."h2a-local-codex-99999@sentropic-local-codex-99999"]\nenabled =
 chmod 000 "$H3/verrou"
 CODEX_HOME_CAS3="$H3/verrou/.codex"
 H3BUS="$H3/bus"
-HOME="$H3" node "$DOCTOR_BIN" init --root "$H3BUS" >/dev/null 2>&1
-HOME="$H3" CODEX_HOME="$CODEX_HOME_CAS3" PATH="$PATH_SANS_CLI" node "$DOCTOR_BIN" doctor --root "$H3BUS" --repair --dry-run --format json > "$H3/rapport.json" 2>/dev/null
+run_doctor_tty "$H3" "$PATH" "" /dev/null /dev/null init --root "$H3BUS"
+run_doctor_tty "$H3" "$PATH_SANS_CLI" "$CODEX_HOME_CAS3" "$H3/rapport.json" /dev/null doctor --root "$H3BUS" --repair --dry-run --format json
 SORTIE3=$?
 F3=$(findings_de "$H3/rapport.json" codex); OK3=$(ok_de "$H3/rapport.json")
 printf '  3. %-46s sortie=%-2s ok=%-9s findings=%s\n' "CODEX_HOME declare, parent chmod 000 (EACCES)" "$SORTIE3" "$OK3" "${F3:-aucun}"

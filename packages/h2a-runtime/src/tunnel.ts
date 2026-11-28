@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 import { authHeaders, getTunnel, resolveConfigPath, type TunnelConfig } from "./config.js";
+import { scrubSessionIdentityEnv } from "./session-auth.js";
 
 function runtimeDir(): string {
   return join(dirname(resolveConfigPath()), "run");
@@ -73,7 +74,7 @@ export function tunnelAlive(): boolean {
 /** Spawn a detached `kubectl port-forward` and record its pid. */
 export function startTunnelProcess(tunnel: TunnelConfig): void {
   mkdirSync(runtimeDir(), { recursive: true });
-  const env = { ...process.env };
+  const env: NodeJS.ProcessEnv = scrubSessionIdentityEnv(process.env);
   if (tunnel.kubeconfig) env.KUBECONFIG = expandHome(tunnel.kubeconfig);
   const out = openSync(logFile(), "a");
   const child = spawn(

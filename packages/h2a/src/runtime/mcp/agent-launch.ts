@@ -17,6 +17,15 @@ import { fileURLToPath } from "node:url";
 import { isOsTemporaryPath } from "../path-safety.js";
 import { assertAgyClaudeBuildAllowed, isAgyClaudeModel, normalizeAgyEffort, resolveAgyModel, resolveLaunchModelAlias } from "../agy-claude.js";
 import { MCP_AGY_LAUNCH_BUDGET_MS } from "../onboarding-core.js";
+import {
+  deleteDaemonLaunchReceipt,
+  hasSandboxOrQualificationRuntime,
+  issueDaemonLaunchReceipt,
+  resolveSessionRuntimeDir,
+  RUN_LAUNCH_ID_ENV,
+  RUN_LAUNCH_TOKEN_ENV,
+  scrubSessionIdentityEnv,
+} from "../identity/session-auth.js";
 
 const PRECREATE_ONBOARDING_CODES = new Set([
   "cli-workspace-not-trusted",
@@ -555,25 +564,59 @@ export function ensureH2aRunEnvPath(
   return { ...baseEnv, PATH: nextPath };
 }
 
-export function executeH2aRunWithSpawn(
+export function prepareH2aRunAuth(
   request: H2aRunRequest,
-  spawn: (command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) =>
-    Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
-): unknown {
-  const invocation = buildH2aRunInvocation(request);
+  baseEnv: NodeJS.ProcessEnv,
+  invocation: ReturnType<typeof buildH2aRunInvocation>,
+  isDefaultSpawn: boolean,
+  sessionRuntimeDir?: string,
+): { readonly env: NodeJS.ProcessEnv; readonly launchToken: string; readonly cleanup: () => void } {
+  const cleanedBase = scrubSessionIdentityEnv(baseEnv);
+  const spawnEnv = ensureH2aRunEnvPath(cleanedBase, invocation.args[0] ?? "");
   const launchToken = request.launchAuthority?.token ?? randomUUID();
-  const spawnEnv = ensureH2aRunEnvPath(process.env, invocation.args[0] ?? "");
-  const result = spawn(invocation.command, invocation.args, {
-    cwd: invocation.cwd,
-    input: invocation.input,
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-    shell: false,
-    env: { ...spawnEnv, H2A_RUN_LAUNCH_TOKEN: launchToken },
-    // Readiness + paste + activity + native RPCs + cleanup (agy includes start serialization queue).
-    timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : request.profile === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 180_000,
-    maxBuffer: 1_048_576,
-  });
+  const env: NodeJS.ProcessEnv = {
+    ...spawnEnv,
+    [RUN_LAUNCH_TOKEN_ENV]: launchToken,
+  };
+  let runtimeDir: string | undefined;
+  let launchId: string | undefined;
+  try {
+    const allowD16 = hasSandboxOrQualificationRuntime(baseEnv);
+    runtimeDir = resolveSessionRuntimeDir({ env: baseEnv, sessionRuntimeDir, createIfMissing: allowD16 }).dir;
+  } catch (err) {
+    if (isDefaultSpawn) throw err;
+  }
+  if (runtimeDir) {
+    const daemonKind = request.launchAuthority ? "mcp-central" : "mcp-stdio";
+    const runVerbIndex = invocation.args.indexOf("run");
+    const allowedVerb = runVerbIndex >= 0 ? invocation.args[runVerbIndex]! : "run";
+    const issued = issueDaemonLaunchReceipt(runtimeDir, {
+      daemonKind,
+      allowedVerb,
+      delegatorInstance: daemonKind,
+      delegationOrigin: daemonKind,
+      sessionClass: "background",
+      targetProfile: request.profile,
+      targetWorkspace: request.workspace,
+      launchToken,
+    });
+    launchId = issued.launchId;
+    env[RUN_LAUNCH_ID_ENV] = issued.launchId;
+  }
+  return {
+    env,
+    launchToken,
+    cleanup: () => {
+      if (runtimeDir && launchId) deleteDaemonLaunchReceipt(runtimeDir, launchId);
+    },
+  };
+}
+
+function interpretH2aRunResult(
+  request: H2aRunRequest,
+  launchToken: string,
+  result: Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
+): Record<string, unknown> {
   if (result.error) {
     const timedOut = (result.error as NodeJS.ErrnoException).code === "ETIMEDOUT";
     if (timedOut) {
@@ -639,7 +682,32 @@ export function executeH2aRunWithSpawn(
   } catch {
     throw new Error("incompatible h2a runtime: h2a run did not return JSON");
   }
-  return contractResult(parsed, request);
+  return contractResult(parsed, request) as Record<string, unknown>;
+}
+
+export function executeH2aRunWithSpawn(
+  request: H2aRunRequest,
+  spawn: (command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) =>
+    Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
+): unknown {
+  const invocation = buildH2aRunInvocation(request);
+  const auth = prepareH2aRunAuth(request, process.env, invocation, false);
+  try {
+    const result = spawn(invocation.command, invocation.args, {
+      cwd: invocation.cwd,
+      input: invocation.input,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
+      env: auth.env,
+      // Readiness + paste + activity + native RPCs + cleanup (agy includes start serialization queue).
+      timeout: request.profile === "codex" || request.profile === "muse" ? 270_000 : request.profile === "agy" ? MCP_AGY_LAUNCH_BUDGET_MS : 180_000,
+      maxBuffer: 1_048_576,
+    });
+    return interpretH2aRunResult(request, auth.launchToken, result);
+  } finally {
+    auth.cleanup();
+  }
 }
 
 export async function executeH2aRunWithAsyncSpawn(
@@ -649,51 +717,55 @@ export async function executeH2aRunWithAsyncSpawn(
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);
-  const launchToken = request.launchAuthority?.token ?? randomUUID();
-  const spawnEnv = ensureH2aRunEnvPath(environment, invocation.args[0] ?? "");
-  const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
-    const child = spawnRuntime(invocation.command, invocation.args, {
-      cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
-      env: { ...spawnEnv, H2A_RUN_LAUNCH_TOKEN: launchToken },
-    });
-    let stdout = "", stderr = "", timedOut = false, overflow = false;
-    let escalation: ReturnType<typeof setTimeout> | undefined;
-    const terminate = () => {
-      child.kill("SIGTERM");
-      escalation ??= setTimeout(() => child.kill("SIGKILL"), 5_000);
-    };
-    const timer = setTimeout(() => { timedOut = true; terminate(); }, runtimeBudgetMs);
-    const collect = (stream: "stdout" | "stderr", chunk: string) => {
-      if (stream === "stdout") stdout += chunk; else stderr += chunk;
-      if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 1_048_576) {
-        overflow = true;
-        terminate();
-        stdout = stdout.slice(-524_288); stderr = stderr.slice(-524_288);
+  const auth = prepareH2aRunAuth(request, environment, invocation, spawnRuntime === spawn);
+  let result: { status: number | null; stdout: string; stderr: string; timedOut: boolean };
+  try {
+    result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
+      const child = spawnRuntime(invocation.command, invocation.args, {
+        cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
+        env: auth.env,
+      });
+      let stdout = "", stderr = "", timedOut = false, overflow = false;
+      let escalation: ReturnType<typeof setTimeout> | undefined;
+      const terminate = () => {
+        child.kill("SIGTERM");
+        escalation ??= setTimeout(() => child.kill("SIGKILL"), 5_000);
+      };
+      const timer = setTimeout(() => { timedOut = true; terminate(); }, runtimeBudgetMs);
+      const collect = (stream: "stdout" | "stderr", chunk: string) => {
+        if (stream === "stdout") stdout += chunk; else stderr += chunk;
+        if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > 1_048_576) {
+          overflow = true;
+          terminate();
+          stdout = stdout.slice(-524_288); stderr = stderr.slice(-524_288);
+        }
+      };
+      child.stdout!.setEncoding("utf8").on("data", (data: string) => collect("stdout", data));
+      child.stderr!.setEncoding("utf8").on("data", (data: string) => collect("stderr", data));
+      child.stdin!.on("error", () => {}); // A refused runtime may close stdin first.
+      child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); reject(error); });
+      child.on("close", status => {
+        clearTimeout(timer);
+        clearTimeout(escalation);
+        if (overflow) reject(new Error("h2a_run: runtime output exceeded its buffer budget"));
+        else resolve({ status, stdout, stderr, timedOut: timedOut || status === null });
+      });
+      child.stdin!.end(invocation.input);
+      if (request.launchAuthority && child.pid) {
+        try {
+          const startTime = observeProcess(child.pid).startTime;
+          if (Number.isSafeInteger(startTime)) request.launchAuthority.onSpawn({ ...currentIdentity(), pid: child.pid, startTime });
+        } catch { /* A lost identity stays conservatively unresolved in the memo. */ }
       }
-    };
-    child.stdout!.setEncoding("utf8").on("data", (data: string) => collect("stdout", data));
-    child.stderr!.setEncoding("utf8").on("data", (data: string) => collect("stderr", data));
-    child.stdin!.on("error", () => {}); // A refused runtime may close stdin first.
-    child.on("error", error => { clearTimeout(timer); clearTimeout(escalation); reject(error); });
-    child.on("close", status => {
-      clearTimeout(timer);
-      clearTimeout(escalation);
-      if (overflow) reject(new Error("h2a_run: runtime output exceeded its buffer budget"));
-      else resolve({ status, stdout, stderr, timedOut: timedOut || status === null });
     });
-    child.stdin!.end(invocation.input);
-    if (request.launchAuthority && child.pid) {
-      try {
-        const startTime = observeProcess(child.pid).startTime;
-        if (Number.isSafeInteger(startTime)) request.launchAuthority.onSpawn({ ...currentIdentity(), pid: child.pid, startTime });
-      } catch { /* A lost identity stays conservatively unresolved in the memo. */ }
-    }
-
-  });
-  if (!result.timedOut) {
-    // Share contract validation with the synchronous compatibility/test seam.
-    return executeH2aRunWithSpawn(request, () => result) as Record<string, unknown>;
+  } finally {
+    auth.cleanup();
   }
+  if (!result.timedOut) {
+    // Share contract validation without spawning or minting a second receipt.
+    return interpretH2aRunResult(request, auth.launchToken, result);
+  }
+  const launchToken = auth.launchToken;
   const retrySafe = retrySafeAfterTimeout(result.stderr, request.name);
   if (!retrySafe) {
     const deadline = Date.now() + 30_000;
@@ -819,19 +891,28 @@ export function createH2aRunLauncher(
  * CLI has no argument or environment channel through which a direct caller
  * can assert this origin.
  */
+function parseMcpDelegationSession(
+  result: Record<string, unknown>,
+  delegation: H2aRunDelegation | undefined,
+): { readonly tmuxSession: string; readonly workerPid: number } | undefined {
+  if (!delegation || result.ok !== true || result.state !== "started") return undefined;
+  const session = result.session;
+  if (!session || typeof session !== "object") return undefined;
+  const tmuxSession = (session as { tmuxSession?: unknown }).tmuxSession;
+  const workerPid = (session as { pid?: unknown }).pid;
+  if (typeof tmuxSession !== "string" || tmuxSession.length === 0) return undefined;
+  if (typeof workerPid !== "number" || !Number.isInteger(workerPid) || workerPid <= 0) return undefined;
+  return { tmuxSession, workerPid };
+}
+
 function recordMcpRunDelegationUnfenced(
   root: string,
   result: Record<string, unknown>,
   delegation: H2aRunDelegation | undefined,
   eventId?: string,
 ): void {
-  if (!delegation || result.ok !== true || result.state !== "started") return;
-  const session = result.session;
-  if (!session || typeof session !== "object") return;
-  const tmuxSession = (session as { tmuxSession?: unknown }).tmuxSession;
-  const workerPid = (session as { pid?: unknown }).pid;
-  if (typeof tmuxSession !== "string" || tmuxSession.length === 0) return;
-  if (typeof workerPid !== "number" || !Number.isInteger(workerPid) || workerPid <= 0) return;
+  const target = parseMcpDelegationSession(result, delegation);
+  if (!target || !delegation) return;
   try {
     const registry = join(root, "registry");
     mkdirSync(registry, { recursive: true, mode: 0o700 });
@@ -846,8 +927,8 @@ function recordMcpRunDelegationUnfenced(
       `${JSON.stringify({
         version: 1,
         ...(eventId ? { eventId } : {}),
-        workerTmuxSession: tmuxSession,
-        workerPid,
+        workerTmuxSession: target.tmuxSession,
+        workerPid: target.workerPid,
         origin: delegation.origin,
         delegatorInstance: delegation.delegatorInstance,
         delegatorTmuxSession: delegation.delegatorTmuxSession,
@@ -898,7 +979,7 @@ export async function recordMcpRunDelegationAsync(
   eventId?: string,
   timeoutMs = 5000,
 ): Promise<void> {
-  if (!delegation || result.ok !== true || result.state !== "started") return;
+  if (!parseMcpDelegationSession(result, delegation)) return;
   try {
     const registryDir = join(root, "registry");
     mkdirSync(registryDir, { recursive: true, mode: 0o700 });
@@ -928,6 +1009,9 @@ export async function recordMcpRunDelegationAsync(
       if (existsSync(wdir)) {
         await mutationLockAsync(wdir, () => {}, { timeoutMs: Math.max(50, Math.ceil(waitRemaining)) });
       }
+      const postWait = deadline - performance.now();
+      if (postWait <= 0) return;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, Math.min(15, postWait)));
     }
   } catch (error) {
     // A missing attestation is fail-closed as J?, but lock contention or I/O

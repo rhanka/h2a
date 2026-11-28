@@ -18,6 +18,7 @@ import {
   tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
 } from "./relaunch.js";
+import { codexSupportsNoDaemon } from "./session-auth.js";
 
 const CLAIM_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -110,7 +111,11 @@ describe("resumeCommandFor", () => {
   it("uses --resume for claude/agy and the resume subcommand for codex", () => {
     expect(resumeCommandFor("claude", "c1")).toBe("claude --resume c1");
     expect(resumeCommandFor("agy", "c1")).toBe("agy --resume c1");
-    expect(resumeCommandFor("codex", "r1")).toBe("codex resume r1");
+    expect(resumeCommandFor("codex", "r1")).toBe(
+      codexSupportsNoDaemon("codex") ? "codex resume --no-daemon r1" : "codex resume r1",
+    );
+    expect(resumeCommandFor("codex", "r1", { noDaemon: true })).toBe("codex resume --no-daemon r1");
+    expect(resumeCommandFor("codex", "r1", { noDaemon: false })).toBe("codex resume r1");
   });
   it("returns undefined for a profile with no resume form", () => {
     expect(resumeCommandFor("shell", "x")).toBeUndefined();
@@ -301,7 +306,7 @@ describe("planRelaunch", () => {
     expect(plan.actions.map((a) => a.cmd)).toEqual([
       "claude --resume c-a",
       "claude --resume c-b",
-      "codex resume r-1",
+      codexSupportsNoDaemon("codex") ? "codex resume --no-daemon r-1" : "codex resume r-1",
     ]);
     expect(plan.skipped).toEqual([]);
   });

@@ -9,7 +9,7 @@ export * from './adopt/plan.js'
 export * from './adopt/apply.js'
 export * from './branch/index.js'
 export { Track, type ImportResult, type OpenBlockerInput, type TrackOptions } from './track.js'
-export { runCli, type CliIO } from './cli/index.js'
+export { runCli, type CliActorOverride, type CliIO } from './cli/index.js'
 // WP4 — durable, multi-worktree workspace id (pure core + git-I/O resolver), shipped byte-for-byte with h2a.
 export { computeDurableWorkspaceId, durableWorkspaceId } from './workspace-id.js'
 // Lot 4a — project/folder identities, local journal index, and inscription journal helper.
