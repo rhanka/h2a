@@ -55,6 +55,37 @@ export const RIGHT_PANEL_STRIP_COLS = 1;
 export const RIGHT_PANEL_MIN_CHILD_COLS = 40;
 export const RIGHT_PANEL_MIN_ROWS = 10;
 export const RIGHT_PANEL_WHEEL_STEP = 3;
+/** Station default width: a share of the terminal, bounded on both sides. */
+export const RIGHT_PANEL_AUTO_WIDTH_RATIO = 0.3;
+export const RIGHT_PANEL_AUTO_MIN_WIDTH = 32;
+export const RIGHT_PANEL_AUTO_MAX_WIDTH = 64;
+/** Upper bound of a width chosen by hand (keys, footer buttons, state file). */
+export const RIGHT_PANEL_ADJUST_MAX_WIDTH = 120;
+export const RIGHT_PANEL_WIDTH_STEP = 4;
+
+/**
+ * Proportional panel width for a terminal of `totalCols` columns: 30 % of the
+ * terminal, never under 32 nor over 64 columns, and never so wide that the
+ * session falls under its minimum width when the terminal can hold both.
+ */
+export function autoRightPanelWidth(totalCols: number): number {
+  if (!(totalCols > 0)) return RIGHT_PANEL_DEFAULT_WIDTH;
+  const share = Math.round(totalCols * RIGHT_PANEL_AUTO_WIDTH_RATIO);
+  const bounded = Math.min(
+    RIGHT_PANEL_AUTO_MAX_WIDTH,
+    Math.max(RIGHT_PANEL_AUTO_MIN_WIDTH, share),
+  );
+  const room = totalCols - RIGHT_PANEL_MIN_CHILD_COLS;
+  return room >= RIGHT_PANEL_MIN_WIDTH ? Math.min(bounded, room) : bounded;
+}
+
+/** A width chosen by hand, kept inside the adjustable range. */
+export function clampRightPanelUserWidth(width: number): number {
+  return Math.min(
+    RIGHT_PANEL_ADJUST_MAX_WIDTH,
+    Math.max(RIGHT_PANEL_MIN_WIDTH, Math.trunc(width)),
+  );
+}
 
 export type RightPanelSessionStatus =
   | "running"
@@ -262,6 +293,8 @@ export type RightPanelAction =
   | { type: "toggle-delegated-expander"; sessionId: string; expanded: boolean }
   | { type: "activate-extra-row"; sessionId: string; rowId: string }
   | { type: "toggle-restorable-expander"; tab: string; expanded: boolean }
+  | { type: "toggle-restorable-archive"; tab: string; expanded: boolean }
+  | { type: "resize-panel"; width: number }
   | { type: "activate-restorable-row"; key: string }
   | { type: "select-decision"; index: number; decisionId?: string }
   | { type: "activate-decision"; index: number; decisionId?: string }
@@ -357,21 +390,32 @@ export function resolveRightPanelEnabled(
   return config?.rightPanel?.enabled === true;
 }
 
-export function resolveRightPanelWidth(
+/**
+ * Width set explicitly by the environment or the configuration, clamped; or
+ * undefined when neither names one (the station then sizes the panel itself).
+ */
+export function explicitRightPanelWidth(
   env: NodeJS.ProcessEnv = process.env,
   config?: RightPanelConfigLike,
-): number {
+): number | undefined {
   const fromEnv = Number.parseInt(env.H2A_RIGHT_PANEL_WIDTH ?? "", 10);
   const raw = Number.isFinite(fromEnv) && fromEnv > 0
     ? fromEnv
     : config?.rightPanel?.width;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-    return RIGHT_PANEL_DEFAULT_WIDTH;
+    return undefined;
   }
   return Math.min(
     RIGHT_PANEL_MAX_WIDTH,
     Math.max(RIGHT_PANEL_MIN_WIDTH, Math.trunc(raw)),
   );
+}
+
+export function resolveRightPanelWidth(
+  env: NodeJS.ProcessEnv = process.env,
+  config?: RightPanelConfigLike,
+): number {
+  return explicitRightPanelWidth(env, config) ?? RIGHT_PANEL_DEFAULT_WIDTH;
 }
 
 /**
@@ -926,7 +970,105 @@ function formatSessionBadges(session: RightPanelSession): string {
   return tags.length > 0 ? ` [${tags.join(",")}]` : "";
 }
 
+/** Canonical reason ids of the station plan; any other reason is a raw plan code. */
+const RESTORABLE_CANONICAL_REASONS: ReadonlySet<string> = new Set([
+  "launch",
+  "launch-cap",
+  "resume-argv-unverified",
+  "unresolved-conversation",
+  "dual-host",
+  "unknown-view",
+]);
+
+/**
+ * A restorable row worth a line of its own: it offers a relaunch gesture, a
+ * relaunch is queued, running or failed on it, or it names a known session
+ * with a catalogued motif. Everything else is a transcript scan the plan
+ * could not classify: no gesture, ever.
+ */
+export function isUsefulRestorableRow(row: RightPanelRestorableRow): boolean {
+  if (row.relaunch !== undefined) return true;
+  if (row.state === "queued" || row.state === "launching" || row.state === "failed") return true;
+  return RESTORABLE_CANONICAL_REASONS.has(row.reason);
+}
+
+/** Motif and state of a restorable row, as painted between its parentheses. */
+function restorableRowDetail(row: RightPanelRestorableRow): string {
+  // A launch row carries no motif: its state is the detail. Every other row
+  // shows its motif with its file state.
+  const motif = row.reason === "launch" ? undefined : (row.reasonText ?? row.reason);
+  const state = row.stateText ?? row.state;
+  // NB-14: an empty state text paints the motif alone (a capped row outside
+  // --lazy never claims to be deferred while it waits; B-10: the file states
+  // still paint once it runs).
+  // B-11: once the file owns the row (row.state beyond deferred: queued,
+  // launching, settled), the state paints BEFORE the motif so truncation at
+  // narrow widths keeps the state visible. A failure must never read as a
+  // neutral motif. Deferred keeps the motif-first rendering (NB-14, --lazy).
+  return motif === undefined || state === ""
+    ? (motif ?? state)
+    : row.state !== "deferred"
+      ? `${state} · ${motif}`
+      : `${motif} · ${state}`;
+}
+
+export type RestorableGrouping = Readonly<{
+  /** Rows shown one by one: those with a relaunch gesture first, in plan order. */
+  useful: readonly RightPanelRestorableRow[];
+  /** Gesture-less scans, one row per (label, detail), with a `×N` count. */
+  archivedGroups: readonly RightPanelRestorableRow[];
+  /** Number of rows folded into `archivedGroups`. */
+  archivedCount: number;
+}>;
+
+/**
+ * Sort the restorable rows of a tab for a human: what can be relaunched,
+ * then what is known but blocked — and, apart, the gesture-less scans folded
+ * by identical label and detail, the largest group first.
+ */
+export function groupRestorableRows(
+  rows: readonly RightPanelRestorableRow[],
+): RestorableGrouping {
+  // The order never follows a transient state: a row keeps its place while
+  // its relaunch is queued, runs and settles, so the cursor never slides
+  // onto another session between two keystrokes.
+  const rank = (row: RightPanelRestorableRow): number => (row.relaunch !== undefined ? 0 : 1);
+  const useful = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => isUsefulRestorableRow(row))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map(({ row }) => row);
+  const groups = new Map<string, { first: RightPanelRestorableRow; count: number }>();
+  let archivedCount = 0;
+  for (const row of rows) {
+    if (isUsefulRestorableRow(row)) continue;
+    archivedCount += 1;
+    const groupKey = `${row.label}\u0000${restorableRowDetail(row)}`;
+    const group = groups.get(groupKey);
+    if (group) group.count += 1;
+    else groups.set(groupKey, { first: row, count: 1 });
+  }
+  const archivedGroups = [...groups.entries()]
+    .map(([groupKey, group], index) => ({ groupKey, group, index }))
+    .sort((a, b) => b.group.count - a.group.count || a.index - b.index)
+    .map(({ groupKey, group }) => ({
+      ...group.first,
+      key: `group:${groupKey}`,
+      label: group.count > 1 ? `${group.first.label} ×${group.count}` : group.first.label,
+    }));
+  return { useful, archivedGroups, archivedCount };
+}
+
+/** Station texts painted by the controller (the renderer falls back to English). */
+export type RightPanelLabels = Readonly<{
+  /** Help segments shown above the footer, most useful first. */
+  hints?: readonly string[];
+  /** Line that unfolds the gesture-less scans of a tab. */
+  archivedHeader?: (count: number, groups: number) => string;
+}>;
+
 type TabHitSpan = Readonly<{ index: number; startCol: number; endCol: number }>;
+type ResizeHitSpan = Readonly<{ delta: number; startCol: number; endCol: number }>;
 type ViewHitSpan = Readonly<{ view: RightPanelView; startCol: number; endCol: number }>;
 type RenderedListRow = Readonly<{
   text: string;
@@ -936,7 +1078,18 @@ type RenderedListRow = Readonly<{
 
 export class RightPanelController {
   readonly #stdout: PanelStdout;
-  readonly #width: number;
+  readonly #fixedWidth: number;
+  /** Station: proportional width while nobody chose one by hand. */
+  readonly #autoWidth: boolean;
+  /** Station: `+`/`-` and the footer buttons resize the panel. */
+  readonly #resizable: boolean;
+  /** Width chosen by hand (keys, footer buttons, or the station state). */
+  #userWidth: number | undefined;
+  /** Station: one click on a line activates it (attach keeps two clicks). */
+  readonly #clickActivates: boolean;
+  /** Station: fold the gesture-less scans of the restorable section. */
+  readonly #groupRestorable: boolean;
+  readonly #labels: RightPanelLabels;
   readonly #parser = new PanelInputParser();
   readonly #onOpen: (() => void) | undefined;
   readonly #onSelectionChange: (() => void) | undefined;
@@ -958,6 +1111,9 @@ export class RightPanelController {
   #expandedDelegatedSessions = new Set<string>();
   /** S2: expanded restorable sections, by tab title. */
   #expandedRestorable = new Set<string>();
+  /** Tabs whose gesture-less scans are unfolded (folded by default). */
+  #expandedArchive = new Set<string>();
+  #resizeHitSpans: ResizeHitSpan[] = [];
   /**
    * S2: cursor in the restorable section of the tab (`undefined` = among the
    * live sessions; `-1` = on the expander; `>= 0` = on a restorable row).
@@ -977,6 +1133,14 @@ export class RightPanelController {
     stdout: PanelStdout;
     snapshot: RightPanelSnapshot;
     width?: number;
+    /** Size the panel from the terminal width when `width` is absent. */
+    autoWidth?: boolean;
+    /** Width chosen by hand in an earlier run (wins over the automatic one). */
+    userWidth?: number;
+    resizable?: boolean;
+    clickActivates?: boolean;
+    groupRestorable?: boolean;
+    labels?: RightPanelLabels;
     onOpen?: () => void;
     onSelectionChange?: () => void;
     restoreChildState?: () => string;
@@ -985,12 +1149,56 @@ export class RightPanelController {
   }) {
     this.#stdout = opts.stdout;
     this.#snapshot = opts.snapshot;
-    this.#width = opts.width ?? RIGHT_PANEL_DEFAULT_WIDTH;
+    this.#fixedWidth = opts.width ?? RIGHT_PANEL_DEFAULT_WIDTH;
+    this.#autoWidth = opts.width === undefined && opts.autoWidth === true;
+    this.#resizable = opts.resizable === true;
+    this.#userWidth =
+      opts.userWidth !== undefined ? clampRightPanelUserWidth(opts.userWidth) : undefined;
+    this.#clickActivates = opts.clickActivates === true;
+    this.#groupRestorable = opts.groupRestorable === true;
+    this.#labels = opts.labels ?? {};
     this.#onOpen = opts.onOpen;
     this.#onSelectionChange = opts.onSelectionChange;
     this.#restoreChildState = opts.restoreChildState;
     this.#isStatusBarActive = opts.isStatusBarActive;
     this.#glyphWidthOracle = opts.glyphWidthOracle;
+  }
+
+  /**
+   * Current panel width. A width chosen by hand wins, then the proportional
+   * one (station), then the fixed one. A hand-chosen width shrinks with the
+   * terminal so the session keeps its minimum width.
+   */
+  get #width(): number {
+    const totalCols = this.#stdout.columns ?? 0;
+    if (this.#userWidth !== undefined) {
+      const room = totalCols - RIGHT_PANEL_MIN_CHILD_COLS;
+      return totalCols > 0 && room >= RIGHT_PANEL_MIN_WIDTH
+        ? Math.min(this.#userWidth, room)
+        : this.#userWidth;
+    }
+    return this.#autoWidth ? autoRightPanelWidth(totalCols) : this.#fixedWidth;
+  }
+
+  /** Width the panel takes when open, in columns. */
+  width(): number {
+    return this.#width;
+  }
+
+  /**
+   * Widen (`delta > 0`) or narrow the panel by hand. Returns the new width,
+   * or undefined when the bound was already reached. The caller repaints the
+   * session at its new width.
+   */
+  adjustWidth(delta: number): number | undefined {
+    const totalCols = this.#stdout.columns ?? 0;
+    const room = totalCols > 0 ? totalCols - RIGHT_PANEL_MIN_CHILD_COLS : RIGHT_PANEL_ADJUST_MAX_WIDTH;
+    const max = Math.max(RIGHT_PANEL_MIN_WIDTH, Math.min(RIGHT_PANEL_ADJUST_MAX_WIDTH, room));
+    const current = this.#width;
+    const next = Math.min(max, Math.max(RIGHT_PANEL_MIN_WIDTH, current + delta));
+    if (next === current) return undefined;
+    this.#userWidth = next;
+    return next;
   }
 
   isPaintActive(): boolean {
@@ -1164,7 +1372,21 @@ export class RightPanelController {
   /** S2: restorable rows of the active tab, whether or not they are shown. */
   #restorableRows(): readonly RightPanelRestorableRow[] {
     if (this.view !== "sessions") return [];
-    return this.#snapshot.workspaces[this.activeTabIndex]?.restorable ?? [];
+    return this.#walkableRestorable(this.#snapshot.workspaces[this.activeTabIndex]);
+  }
+
+  /**
+   * Restorable rows of a tab in painted order. Without grouping (attach):
+   * the plan rows as they come. With grouping (station): the useful rows,
+   * then the folded scans once their line is unfolded.
+   */
+  #walkableRestorable(ws: RightPanelWorkspace | undefined): readonly RightPanelRestorableRow[] {
+    const rows = ws?.restorable ?? [];
+    if (!ws || !this.#groupRestorable) return rows;
+    const grouped = groupRestorableRows(rows);
+    return this.#expandedArchive.has(ws.title)
+      ? [...grouped.useful, ...grouped.archivedGroups]
+      : grouped.useful;
   }
 
   /**
@@ -1175,7 +1397,7 @@ export class RightPanelController {
   #activeRestorable(): readonly RightPanelRestorableRow[] {
     const ws = this.#snapshot.workspaces[this.activeTabIndex];
     if (this.view !== "sessions" || !ws || !this.#expandedRestorable.has(ws.title)) return [];
-    return ws.restorable ?? [];
+    return this.#walkableRestorable(ws);
   }
 
   #clampSelection(): void {
@@ -1366,7 +1588,43 @@ export class RightPanelController {
       colOffset += labelCols;
       parts.push(label);
     }
-    return { footerLine: truncate(parts.join(" "), width), spans };
+    const views = parts.join(" ");
+    this.#resizeHitSpans = [];
+    const buttons = "[-] [+]";
+    if (this.#resizable && width >= panelDisplayColumns(views) + 2 + buttons.length) {
+      // Right-aligned width buttons: `[-]` narrows, `[+]` widens.
+      const pad = width - panelDisplayColumns(views) - buttons.length;
+      const firstCol = childCols + 1 + panelDisplayColumns(views) + pad;
+      this.#resizeHitSpans = [
+        { delta: -RIGHT_PANEL_WIDTH_STEP, startCol: firstCol, endCol: firstCol + 2 },
+        { delta: RIGHT_PANEL_WIDTH_STEP, startCol: firstCol + 4, endCol: firstCol + 6 },
+      ];
+      return { footerLine: `${views}${" ".repeat(pad)}${buttons}`, spans };
+    }
+    return { footerLine: truncate(views, width), spans };
+  }
+
+  /**
+   * Help lines above the footer: the hint segments, most useful first, on at
+   * most two lines. A panel too short to spare them shows none.
+   */
+  #hintLines(width: number, panelRows: number): string[] {
+    const hints = this.#labels.hints ?? [];
+    if (hints.length === 0 || panelRows < 8 || width <= 0) return [];
+    const lines: string[] = [];
+    let current = "";
+    for (const hint of hints) {
+      const candidate = current === "" ? hint : `${current} · ${hint}`;
+      if (panelDisplayColumns(candidate) <= width) {
+        current = candidate;
+        continue;
+      }
+      if (current !== "") lines.push(current);
+      if (lines.length === 2) return lines;
+      current = hint;
+    }
+    if (current !== "" && lines.length < 2) lines.push(current);
+    return lines;
   }
 
   #buildListRows(width: number): RenderedListRow[] {
@@ -1471,27 +1729,10 @@ export class RightPanelController {
           isSelected: expanderSelected,
         });
         if (expanded) {
-          restorable.forEach((row, rowIndex) => {
+          const grouped = this.#groupRestorable ? groupRestorableRows(restorable) : undefined;
+          const pushRow = (row: RightPanelRestorableRow, rowIndex: number, indent: string): void => {
             const rowSelected = this.#selectedRestorable === rowIndex;
-            // A launch row carries no motif: its state is the detail. Every
-            // other row shows its motif with its file state.
-            const motif = row.reason === "launch" ? undefined : (row.reasonText ?? row.reason);
-            const state = row.stateText ?? row.state;
-            // NB-14: an empty state text paints the motif alone (a capped
-            // row outside --lazy never claims to be deferred while it
-            // waits; B-10: the file states still paint once it runs).
-            // B-11: once the file owns the row (row.state beyond deferred:
-            // queued, launching, settled), the state paints BEFORE the motif
-            // so truncation at narrow widths keeps the state visible. A
-            // failure must never read as a neutral motif. Deferred keeps the
-            // motif-first rendering (NB-14, --lazy).
-            const detail =
-              motif === undefined || state === ""
-                ? (motif ?? state)
-                : row.state !== "deferred"
-                  ? `${state} · ${motif}`
-                  : `${motif} · ${state}`;
-            const body = truncate(`    · ${row.label} (${detail})`, width);
+            const body = truncate(`${indent}· ${row.label} (${restorableRowDetail(row)})`, width);
             rows.push({
               text: rowSelected ? `\x1b[7m${body}\x1b[0m` : body,
               ...(row.relaunch !== undefined
@@ -1499,7 +1740,29 @@ export class RightPanelController {
                 : {}),
               isSelected: rowSelected,
             });
-          });
+          };
+          if (grouped === undefined) {
+            restorable.forEach((row, rowIndex) => pushRow(row, rowIndex, "    "));
+          } else {
+            grouped.useful.forEach((row, rowIndex) => pushRow(row, rowIndex, "    "));
+            if (grouped.archivedCount > 0) {
+              // The gesture-less scans stay folded behind one line.
+              const archiveOpen = this.#expandedArchive.has(title);
+              const archiveArrow = archiveOpen ? "▾" : "▸";
+              const archiveText =
+                this.#labels.archivedHeader?.(grouped.archivedCount, grouped.archivedGroups.length) ??
+                `${grouped.archivedCount} without a relaunch gesture`;
+              rows.push({
+                text: truncate(`    ${archiveArrow} ${archiveText}`, width),
+                hit: { type: "toggle-restorable-archive", tab: title, expanded: !archiveOpen },
+              });
+              if (archiveOpen) {
+                grouped.archivedGroups.forEach((row, groupIndex) =>
+                  pushRow(row, grouped.useful.length + groupIndex, "      "),
+                );
+              }
+            }
+          }
         }
       }
 
@@ -1617,7 +1880,10 @@ export class RightPanelController {
     lines.push(headerLine);
 
     const hasFooter = panelRows >= 3;
-    const viewportRows = hasFooter ? panelRows - 2 : Math.max(1, panelRows - 1);
+    const hintLines = hasFooter && !this.#overlay ? this.#hintLines(width, panelRows) : [];
+    const viewportRows = hasFooter
+      ? panelRows - 2 - hintLines.length
+      : Math.max(1, panelRows - 1);
     if (this.#overlay) {
       const overlayLines = this.#overlay.render(width, viewportRows);
       for (let i = 0; i < viewportRows; i += 1) {
@@ -1652,8 +1918,11 @@ export class RightPanelController {
 
     if (hasFooter) {
       const blank = " ".repeat(width);
-      while (lines.length < panelRows - 1) {
+      while (lines.length < panelRows - 1 - hintLines.length) {
         lines.push(blank);
+      }
+      for (const hint of hintLines) {
+        lines.push(`\x1b[2m${truncate(hint, width)}\x1b[0m`);
       }
       const { footerLine, spans: viewSpans } = this.#buildViewFooterAndSpans(childCols, width);
       this.#viewHitSpans = viewSpans;
@@ -1908,6 +2177,12 @@ export class RightPanelController {
       if (event.char === "j") {
         return this.#moveSelection(1);
       }
+      if (this.#resizable && (event.char === "+" || event.char === "-")) {
+        return this.#resizeBy(event.char === "+" ? RIGHT_PANEL_WIDTH_STEP : -RIGHT_PANEL_WIDTH_STEP);
+      }
+      if (event.char === "a" && this.#groupRestorable && this.view === "sessions") {
+        return this.#toggleRestorableArchive();
+      }
       if (event.char === " ") {
         if (this.#selectedRestorable !== undefined) return this.#toggleRestorableExpander("toggle");
         return this.#toggleSelectedDelegatedExpander("toggle");
@@ -2010,6 +2285,46 @@ export class RightPanelController {
     return {
       dirty: true,
       actions: [{ type: "toggle-restorable-expander", tab: ws.title, expanded: next }],
+    };
+  }
+
+  /** Resize by hand; the action lets the owner of the terminal follow. */
+  #resizeBy(delta: number): { dirty: boolean; actions: RightPanelAction[] } {
+    const totalCols = this.#stdout.columns ?? 0;
+    const before = this.childCols(totalCols);
+    const next = this.adjustWidth(delta);
+    if (next === undefined) return { dirty: false, actions: [] };
+    const after = this.childCols(totalCols);
+    if (after > before && this.isPaintActive()) {
+      // Narrowed: blank the columns handed back to the session, so no panel
+      // text lingers there until the session repaints at its new width.
+      const blank = " ".repeat(after - before);
+      const panelRows = this.#panelRows(this.#stdout.rows ?? 0);
+      let out = "\x1b[?6l\x1b[4l\x1b[0m";
+      for (let row = 1; row <= panelRows; row += 1) out += `\x1b[${row};${before + 1}H${blank}`;
+      this.#stdout.write(out);
+    }
+    return { dirty: true, actions: [{ type: "resize-panel", width: next }] };
+  }
+
+  /** Fold or unfold the gesture-less scans of the active tab. */
+  #toggleRestorableArchive(): { dirty: boolean; actions: RightPanelAction[] } {
+    const ws = this.#snapshot.workspaces[this.activeTabIndex];
+    if (!ws || groupRestorableRows(ws.restorable ?? []).archivedCount === 0) {
+      return { dirty: false, actions: [] };
+    }
+    const expanded = !this.#expandedArchive.has(ws.title);
+    if (expanded) {
+      this.#expandedArchive.add(ws.title);
+      // Unfolding the scans also opens the section that holds them.
+      this.#expandedRestorable.add(ws.title);
+    } else {
+      this.#expandedArchive.delete(ws.title);
+    }
+    this.#clampSelection();
+    return {
+      dirty: true,
+      actions: [{ type: "toggle-restorable-archive", tab: ws.title, expanded }],
     };
   }
 
@@ -2265,6 +2580,10 @@ export class RightPanelController {
         };
       }
       if (this.#viewFooterRow !== undefined && event.y === this.#viewFooterRow) {
+        const matchedResize = this.#resizeHitSpans.find(
+          (span) => event.x >= span.startCol && event.x <= span.endCol,
+        );
+        if (matchedResize) return this.#resizeBy(matchedResize.delta);
         const matchedView = this.#viewHitSpans.find(
           (span) => event.x >= span.startCol && event.x <= span.endCol,
         );
@@ -2299,7 +2618,7 @@ export class RightPanelController {
             dirty: true,
             selectionChanged: true,
             actions: [
-              alreadySelected
+              alreadySelected || this.#clickActivates
                 ? {
                     type: "activate-session",
                     index: hit.index,
@@ -2322,18 +2641,27 @@ export class RightPanelController {
           this.#selectedExtra = undefined;
           return { dirty: true, selectionChanged: true, actions: [hit] };
         }
+        if (hit.type === "toggle-restorable-archive") {
+          if (hit.expanded) this.#expandedArchive.add(hit.tab);
+          else this.#expandedArchive.delete(hit.tab);
+          this.#clampSelection();
+          return { dirty: true, selectionChanged: true, actions: [hit] };
+        }
         if (hit.type === "activate-restorable-row") {
           // r2 §2.3: selection and activation stay separate, as for live
           // sessions — a first click only selects; the gesture (confirmed in
           // the station) fires on the second click or Enter.
           const ws = this.#snapshot.workspaces[this.activeTabIndex];
-          const index = (ws?.restorable ?? []).findIndex((row) => row.key === hit.key);
+          const index = this.#walkableRestorable(ws).findIndex((row) => row.key === hit.key);
           if (index < 0) return { dirty: false, actions: [] };
           const alreadySelected =
             this.#selectedRestorable === index && this.#selectedExtra === undefined;
           this.#selectedRestorable = index;
           this.#selectedExtra = undefined;
-          if (!alreadySelected) return { dirty: true, selectionChanged: true, actions: [] };
+          // Station: one click offers the gesture (it still asks to confirm).
+          if (!alreadySelected && !this.#clickActivates) {
+            return { dirty: true, selectionChanged: true, actions: [] };
+          }
           return { dirty: true, selectionChanged: true, actions: [hit] };
         }
         if (hit.type === "select-decision") {

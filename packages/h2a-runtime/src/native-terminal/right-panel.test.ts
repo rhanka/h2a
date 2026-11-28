@@ -854,3 +854,368 @@ describe("S2 restorable expander (plan 09-S2)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Station panel ergonomics: width, one-click activation, help, restorable list
+// ---------------------------------------------------------------------------
+
+import {
+  RIGHT_PANEL_ADJUST_MAX_WIDTH,
+  RIGHT_PANEL_AUTO_MAX_WIDTH,
+  RIGHT_PANEL_AUTO_MIN_WIDTH,
+  RIGHT_PANEL_MIN_CHILD_COLS,
+  RIGHT_PANEL_MIN_WIDTH,
+  RIGHT_PANEL_WIDTH_STEP,
+  autoRightPanelWidth,
+  explicitRightPanelWidth,
+  groupRestorableRows,
+  isUsefulRestorableRow,
+  type RightPanelRestorableRow,
+} from "./right-panel.js";
+
+const stripAnsi = (text: string): string => text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+
+/** Rows of the panel as last painted, by 1-based screen row. */
+function paintedRows(out: FakeOut, fromChunk = 0): Map<number, string> {
+  const rows = new Map<number, string>();
+  const text = out.chunks.slice(fromChunk).join("");
+  const re = /\x1b\[(\d+);(\d+)H([\s\S]*?)(?=\x1b\[\d+;\d+H|$)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) rows.set(Number(match[1]), stripAnsi(match[3]!));
+  return rows;
+}
+
+function rowOf(out: FakeOut, needle: string, fromChunk = 0): number {
+  for (const [row, text] of paintedRows(out, fromChunk)) if (text.includes(needle)) return row;
+  throw new Error(`no painted row contains ${JSON.stringify(needle)}`);
+}
+
+const INPUT = { cliMouseEnabled: false } as const;
+const click = (x: number, y: number): string => `\x1b[<0;${x};${y}M`;
+
+describe("station panel width: a bounded share of the terminal, adjustable by hand", () => {
+  it("should take 30 % of the terminal between 32 and 64 columns", () => {
+    expect(autoRightPanelWidth(250)).toBe(RIGHT_PANEL_AUTO_MAX_WIDTH);
+    expect(autoRightPanelWidth(160)).toBe(48);
+    expect(autoRightPanelWidth(120)).toBe(36);
+    expect(autoRightPanelWidth(100)).toBe(RIGHT_PANEL_AUTO_MIN_WIDTH);
+    expect(autoRightPanelWidth(0)).toBe(RIGHT_PANEL_DEFAULT_WIDTH);
+  });
+
+  it("should leave the session its minimum width on a narrow terminal", () => {
+    // 66 columns: 32 for the panel would leave 34 to the session; it gets 26.
+    expect(autoRightPanelWidth(66)).toBe(66 - RIGHT_PANEL_MIN_CHILD_COLS);
+    expect(autoRightPanelWidth(60)).toBe(RIGHT_PANEL_MIN_WIDTH);
+    for (let cols = 60; cols <= 400; cols += 1) {
+      const width = autoRightPanelWidth(cols);
+      expect(cols - width, `cols ${cols}`).toBeGreaterThanOrEqual(RIGHT_PANEL_MIN_CHILD_COLS);
+      expect(width, `cols ${cols}`).toBeGreaterThanOrEqual(RIGHT_PANEL_MIN_WIDTH);
+    }
+  });
+
+  it("should report an explicit width only when the environment or the configuration names one", () => {
+    expect(explicitRightPanelWidth({}, {})).toBeUndefined();
+    expect(explicitRightPanelWidth({ H2A_RIGHT_PANEL_WIDTH: "44" }, {})).toBe(44);
+    expect(explicitRightPanelWidth({}, { rightPanel: { width: 50 } })).toBe(50);
+    expect(explicitRightPanelWidth({ H2A_RIGHT_PANEL_WIDTH: "5" }, {})).toBe(RIGHT_PANEL_MIN_WIDTH);
+    // The attach panel keeps its fixed default.
+    expect(resolveRightPanelWidth({}, {})).toBe(RIGHT_PANEL_DEFAULT_WIDTH);
+  });
+
+  it("should follow the terminal in automatic mode and keep a fixed width otherwise", () => {
+    const out = new FakeOut();
+    out.columns = 200;
+    const auto = new RightPanelController({ stdout: out, snapshot: fixtureSnapshot(), autoWidth: true });
+    auto.setOpen(true);
+    expect(auto.width()).toBe(60);
+    expect(auto.childCols(200)).toBe(140);
+    out.columns = 120;
+    expect(auto.width()).toBe(36);
+    const fixed = new RightPanelController({ stdout: out, snapshot: fixtureSnapshot(), width: 40, autoWidth: true });
+    out.columns = 200;
+    expect(fixed.width()).toBe(40);
+  });
+
+  it("should resize with + and - when the panel has the keyboard, inside the bounds", () => {
+    const out = new FakeOut();
+    out.columns = 200;
+    const panel = new RightPanelController({ stdout: out, snapshot: fixtureSnapshot(), autoWidth: true, resizable: true });
+    panel.setOpen(true, { focus: true });
+    const wider = panel.handleInput("+", INPUT);
+    expect(wider.actions).toEqual([{ type: "resize-panel", width: 60 + RIGHT_PANEL_WIDTH_STEP }]);
+    expect(panel.width()).toBe(64);
+    const narrower = panel.handleInput("--", INPUT);
+    expect(narrower.actions.map((a) => a.type)).toEqual(["resize-panel", "resize-panel"]);
+    expect(panel.width()).toBe(56);
+    // Lower bound, then upper bound (the session keeps 40 columns).
+    for (let i = 0; i < 40; i += 1) panel.handleInput("-", INPUT);
+    expect(panel.width()).toBe(RIGHT_PANEL_MIN_WIDTH);
+    expect(panel.handleInput("-", INPUT).actions).toEqual([]);
+    for (let i = 0; i < 80; i += 1) panel.handleInput("+", INPUT);
+    expect(panel.width()).toBe(RIGHT_PANEL_ADJUST_MAX_WIDTH);
+    out.columns = 150;
+    expect(panel.width()).toBe(150 - RIGHT_PANEL_MIN_CHILD_COLS);
+  });
+
+  it("should ignore + and - on a panel that is not resizable (attach)", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({ stdout: out, snapshot: fixtureSnapshot() });
+    panel.setOpen(true, { focus: true });
+    expect(panel.handleInput("+", INPUT).actions).toEqual([]);
+    expect(panel.width()).toBe(RIGHT_PANEL_DEFAULT_WIDTH);
+  });
+
+  it("should resize from the footer buttons with the mouse", () => {
+    const out = new FakeOut();
+    out.columns = 200;
+    const panel = new RightPanelController({
+      stdout: out, snapshot: fixtureSnapshot(), autoWidth: true, resizable: true, isStatusBarActive: () => false,
+    });
+    panel.setOpen(true);
+    panel.paint();
+    const footer = paintedRows(out).get(out.rows)!;
+    expect(footer.trimEnd().endsWith("[-] [+]")).toBe(true);
+    // `[+]` is the last three columns of the terminal, `[-]` the three before the gap.
+    const plus = panel.handleInput(click(199, out.rows), INPUT);
+    expect(plus.actions).toEqual([{ type: "resize-panel", width: 64 }]);
+    const minus = panel.handleInput(click(200 - 6, out.rows), INPUT);
+    expect(minus.actions).toEqual([{ type: "resize-panel", width: 60 }]);
+    // The view tokens of the footer still answer.
+    const mark = out.chunks.length;
+    panel.paint();
+    const footerNow = paintedRows(out, mark).get(out.rows)!;
+    const dCol = 200 - 60 + 1 + footerNow.indexOf("/d");
+    expect(panel.handleInput(click(dCol, out.rows), INPUT).actions).toEqual([
+      { type: "select-view", view: "decisions" },
+    ]);
+  });
+});
+
+describe("station panel click: one click switches, the help says so", () => {
+  it("should activate a session on its first click when the station asks for it", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out, snapshot: fixtureSnapshot(), clickActivates: true, isStatusBarActive: () => false,
+    });
+    panel.setOpen(true);
+    panel.paint();
+    const row = rowOf(out, "beta");
+    const result = panel.handleInput(click(out.columns - 5, row), INPUT);
+    expect(result.actions).toEqual([{ type: "activate-session", index: 1, sessionId: "s-blocked" }]);
+    expect(panel.selectedSessionIndex()).toBe(1);
+  });
+
+  it("should keep the two-click rule without the option (attach panel unchanged)", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({ stdout: out, snapshot: fixtureSnapshot(), isStatusBarActive: () => false });
+    panel.setOpen(true);
+    panel.paint();
+    const row = rowOf(out, "beta");
+    expect(panel.handleInput(click(out.columns - 5, row), INPUT).actions).toEqual([
+      { type: "select-session", index: 1, sessionId: "s-blocked" },
+    ]);
+    expect(panel.handleInput(click(out.columns - 5, row), INPUT).actions).toEqual([
+      { type: "activate-session", index: 1, sessionId: "s-blocked" },
+    ]);
+  });
+
+  it("should paint the help above the footer, on at most two lines, and none on a short panel", () => {
+    const out = new FakeOut();
+    out.columns = 200;
+    const hints = ["click: open the session", "▸: unfold", "[-] [+]: width", "F12: keyboard ↑↓ Enter", "Ctrl-\\: quit"];
+    const panel = new RightPanelController({
+      stdout: out, snapshot: fixtureSnapshot(), autoWidth: true, labels: { hints }, isStatusBarActive: () => false,
+    });
+    panel.setOpen(true);
+    panel.paint();
+    const rows = paintedRows(out);
+    expect(rows.get(out.rows - 2)!.trimEnd()).toBe("click: open the session · ▸: unfold · [-] [+]: width");
+    expect(rows.get(out.rows - 1)!.trimEnd()).toBe("F12: keyboard ↑↓ Enter · Ctrl-\\: quit");
+    expect(rows.get(out.rows)!).toContain("[/s]");
+    // Every painted line holds exactly the panel width.
+    for (const [, text] of rows) expect(panelDisplayColumns(text)).toBe(60);
+
+    // A narrow panel keeps the most useful hints, still on two lines at most.
+    out.columns = 100;
+    const mark = out.chunks.length;
+    panel.paint();
+    const narrow = paintedRows(out, mark);
+    expect(narrow.get(out.rows - 2)!.trimEnd()).toBe("click: open the session");
+    expect(narrow.get(out.rows - 1)!.trimEnd()).toBe("▸: unfold · [-] [+]: width");
+
+    // Under 8 rows the list keeps every line.
+    out.rows = 7;
+    const shortMark = out.chunks.length;
+    panel.paint();
+    expect([...paintedRows(out, shortMark).values()].join("\n")).not.toContain("click:");
+  });
+
+  it("should keep a clicked row on its painted line when help lines are shown", () => {
+    const out = new FakeOut();
+    const panel = new RightPanelController({
+      stdout: out, snapshot: fixtureSnapshot(), clickActivates: true,
+      labels: { hints: ["click: open"] }, isStatusBarActive: () => false,
+    });
+    panel.setOpen(true);
+    panel.paint();
+    // The help line itself is inert.
+    const helpRow = rowOf(out, "click: open");
+    expect(panel.handleInput(click(out.columns - 5, helpRow), INPUT).actions).toEqual([]);
+    expect(panel.handleInput(click(out.columns - 5, rowOf(out, "alpha")), INPUT).actions).toEqual([
+      { type: "activate-session", index: 0, sessionId: "s-current" },
+    ]);
+  });
+});
+
+describe("station restorable list: useful rows first, scans folded and counted", () => {
+  const relaunch = { args: ["run"], env: [], cwd: "/src/x" } as const;
+  function noisyRows(): RightPanelRestorableRow[] {
+    const rows: RightPanelRestorableRow[] = [
+      { key: "registry:blocked", label: "blocked", reason: "unresolved-conversation", state: "ended" },
+    ];
+    for (let i = 0; i < 300; i += 1) {
+      rows.push({ key: `scan:graphify:${i}`, label: "graphify", reason: "unclassified-scan", state: "ended" });
+    }
+    rows.push({ key: "registry:muse", label: "muse", reason: "launch", state: "queued", relaunch });
+    for (let i = 0; i < 40; i += 1) {
+      rows.push({ key: `scan:h2a:${i}`, label: "h2a/tmp/wt", reason: "unclassified-scan", state: "ended" });
+    }
+    rows.push({ key: "registry:capped", label: "capped", reason: "launch-cap", state: "deferred", relaunch });
+    rows.push({ key: "scan:solo", label: "solo", reason: "per-project-scan-cap", state: "ended" });
+    return rows;
+  }
+  function noisySnapshot(): RightPanelSnapshot {
+    return buildRightPanelSnapshot({
+      currentSessionId: "s-current",
+      groups: [
+        {
+          title: "core",
+          sessions: [{ id: "s-current", label: "alpha", status: "running" }],
+          restorable: noisyRows(),
+          restorableHeader: "3 restorable + 341 scans",
+        },
+      ],
+      decisions: [],
+    });
+  }
+  function noisyPanel(out: FakeOut): RightPanelController {
+    out.columns = 200;
+    out.rows = 40;
+    const panel = new RightPanelController({
+      stdout: out, snapshot: noisySnapshot(), autoWidth: true, clickActivates: true, groupRestorable: true,
+      labels: { archivedHeader: (count, groups) => `${count} scans (${groups} labels) [a]` },
+      isStatusBarActive: () => false,
+    });
+    panel.setOpen(true, { focus: true });
+    panel.paint();
+    return panel;
+  }
+
+  it("should tell a row worth a line from a scan without any gesture", () => {
+    const rows = noisyRows();
+    expect(isUsefulRestorableRow(rows.find((r) => r.key === "registry:muse")!)).toBe(true);
+    expect(isUsefulRestorableRow(rows.find((r) => r.key === "registry:blocked")!)).toBe(true);
+    expect(isUsefulRestorableRow(rows.find((r) => r.key === "scan:solo")!)).toBe(false);
+    expect(isUsefulRestorableRow({ key: "scan:f", label: "f", reason: "unclassified-scan", state: "failed" })).toBe(true);
+  });
+
+  it("should put the relaunchable rows first and fold 341 scans into 3 counted groups", () => {
+    const grouped = groupRestorableRows(noisyRows());
+    expect(grouped.useful.map((row) => row.key)).toEqual(["registry:muse", "registry:capped", "registry:blocked"]);
+    expect(grouped.archivedCount).toBe(341);
+    expect(grouped.archivedGroups.map((row) => row.label)).toEqual(["graphify ×300", "h2a/tmp/wt ×40", "solo"]);
+    expect(grouped.archivedGroups.every((row) => row.relaunch === undefined)).toBe(true);
+    // The place of a row never depends on the state of its relaunch.
+    const moved = noisyRows().map((row) =>
+      row.key === "registry:capped" ? { ...row, state: "launching" as const } : row,
+    );
+    expect(groupRestorableRows(moved).useful.map((row) => row.key)).toEqual(grouped.useful.map((row) => row.key));
+  });
+
+  it("should stay collapsed by default, then show 3 rows and one folded line instead of 344", () => {
+    const out = new FakeOut();
+    const panel = noisyPanel(out);
+    const collapsed = [...paintedRows(out).values()].join("\n");
+    expect(collapsed).toContain("▸ 3 restorable + 341 scans");
+    expect(collapsed).not.toContain("graphify");
+    expect(collapsed).not.toContain("muse");
+
+    const mark = out.chunks.length;
+    panel.handleInput(click(150, rowOf(out, "3 restorable")), INPUT);
+    const open = [...paintedRows(out, mark).values()].map((line) => line.trimEnd()).filter((line) => line !== "");
+    expect(open).toEqual([
+      "[core]",
+      "●  alpha",
+      "  ▾ 3 restorable + 341 scans",
+      "    · muse (queued)",
+      "    · capped (launch-cap · deferred)",
+      "    · blocked (ended · unresolved-conversation)",
+      "    ▸ 341 scans (3 labels) [a]",
+      "[/s] /d /t",
+    ]);
+  });
+
+  it("should unfold the scans with a click or the a key, one line per label with its count", () => {
+    const out = new FakeOut();
+    const panel = noisyPanel(out);
+    panel.handleInput(click(150, rowOf(out, "3 restorable")), INPUT);
+    let mark = out.chunks.length;
+    const unfolded = panel.handleInput(click(150, rowOf(out, "341 scans (")), INPUT);
+    expect(unfolded.actions).toEqual([{ type: "toggle-restorable-archive", tab: "core", expanded: true }]);
+    const lines = [...paintedRows(out, mark).values()].map((line) => line.trimEnd());
+    expect(lines).toContain("    ▾ 341 scans (3 labels) [a]");
+    expect(lines).toContain("      · graphify ×300 (ended · unclassified-scan)");
+    expect(lines).toContain("      · h2a/tmp/wt ×40 (ended · unclassified-scan)");
+    expect(lines).toContain("      · solo (ended · per-project-scan-cap)");
+    expect(lines.filter((line) => line.includes("graphify"))).toHaveLength(1);
+
+    mark = out.chunks.length;
+    expect(panel.handleInput("a", INPUT).actions).toEqual([
+      { type: "toggle-restorable-archive", tab: "core", expanded: false },
+    ]);
+    expect([...paintedRows(out, mark).values()].join("\n")).not.toContain("graphify");
+  });
+
+  it("should offer the gesture of a relaunchable row on one click, and none on a folded scan", () => {
+    const out = new FakeOut();
+    const panel = noisyPanel(out);
+    panel.handleInput(click(150, rowOf(out, "3 restorable")), INPUT);
+    let mark = out.chunks.length;
+    panel.paint();
+    expect(panel.handleInput(click(150, rowOf(out, "capped", mark)), INPUT).actions).toEqual([
+      { type: "activate-restorable-row", key: "registry:capped" },
+    ]);
+    panel.handleInput(click(150, rowOf(out, "341 scans (", mark)), INPUT);
+    mark = out.chunks.length;
+    panel.paint();
+    expect(panel.handleInput(click(150, rowOf(out, "graphify ×300", mark)), INPUT).actions).toEqual([]);
+  });
+
+  it("should walk the useful rows with the keyboard and activate the one under the cursor", () => {
+    const out = new FakeOut();
+    const panel = noisyPanel(out);
+    // alpha → expander → open it → muse → capped → Enter.
+    panel.handleInput("j", INPUT);
+    panel.handleInput("\r", INPUT);
+    panel.handleInput("jj", INPUT);
+    expect(panel.handleInput("\r", INPUT).actions).toEqual([
+      { type: "activate-restorable-row", key: "registry:capped" },
+    ]);
+    // Past the last useful row the cursor stops while the scans are folded.
+    panel.handleInput("jjjj", INPUT);
+    expect(panel.handleInput("\r", INPUT).actions).toEqual([]);
+  });
+
+  it("should keep the plain uncapped list without the option (attach panel unchanged)", () => {
+    const out = new FakeOut();
+    out.columns = 200;
+    out.rows = 400;
+    const panel = new RightPanelController({ stdout: out, snapshot: noisySnapshot(), width: 60, isStatusBarActive: () => false });
+    panel.setOpen(true, { focus: true });
+    panel.paint();
+    const mark = out.chunks.length;
+    panel.handleInput(click(150, rowOf(out, "3 restorable")), INPUT);
+    const lines = [...paintedRows(out, mark).values()];
+    expect(lines.filter((line) => line.includes("graphify"))).toHaveLength(300);
+  });
+});

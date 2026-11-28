@@ -20,6 +20,7 @@ import {
   readStationState,
   withCompatGuard,
   withDisplayedSession,
+  withPanelWidth,
   withoutCompatGuard,
   writeStationState,
   type StationState,
@@ -165,5 +166,28 @@ describe("S1 station state (r4 §2, r2 §2.4 NB5)", () => {
     // Inputs are never mutated.
     expect(EMPTY_STATION_STATE).toEqual({ lastSessionByTab: {}, compatGuards: {} });
     expect(displayed.compatGuards).toEqual({});
+  });
+
+  it("should remember the panel width chosen by hand and drop a width out of range", () => {
+    const state = withPanelWidth(EMPTY_STATION_STATE, 56);
+    expect(state.panelWidth).toBe(56);
+    expect(writeStationState(file, state)).toBe(true);
+    expect(readStationState(file)).toEqual({ state, status: "ok" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ version: 1, panelWidth: 56 });
+    // Out of range or not an integer: the state is left as it was.
+    expect(withPanelWidth(state, 5)).toBe(state);
+    expect(withPanelWidth(state, 500)).toBe(state);
+    expect(withPanelWidth(state, 40.5)).toBe(state);
+    // A hand-edited file with a wrong width keeps the rest and drops the width.
+    for (const bad of [5, 500, 40.5, "56", null]) {
+      writeFileSync(file, JSON.stringify({ version: 1, activeTab: "core", panelWidth: bad, lastSessionByTab: {}, compatGuards: {} }));
+      const read = readStationState(file);
+      expect(read.status).toBe("ok");
+      expect(read.state.activeTab).toBe("core");
+      expect(read.state.panelWidth).toBeUndefined();
+    }
+    // A state without a width writes no width key.
+    writeStationState(file, EMPTY_STATION_STATE);
+    expect("panelWidth" in JSON.parse(readFileSync(file, "utf8"))).toBe(false);
   });
 });

@@ -693,6 +693,8 @@ type HarnessOptions = {
   layoutConfig?: RemoteCliConfig;
   statusBar?: (stdout: FakeOutput, sessionId: string) => StationStatusBar;
   station?: Partial<StationOptions>;
+  /** Panel width option; `"auto"` passes none (the station sizes the panel). */
+  panelWidth?: number | "auto";
 };
 
 type Step = (h: Harness) => void;
@@ -856,7 +858,9 @@ class Harness {
       tty: "/dev/pts/9",
       pid: 9001,
       panel: {
-        width: 32,
+        ...(this.#options.panelWidth === "auto"
+          ? {}
+          : { width: this.#options.panelWidth ?? 32 }),
         refreshIntervalMs: 1_000,
         snapshotOptions: {
           home: this.home,
@@ -3533,7 +3537,7 @@ describe("S2 launch file: detached, one at a time, in plan order, never ahead of
         expect(cappedRow()).toMatchObject({
           reason: "launch-cap",
           state: "launching",
-          stateText: "relaunching",
+          stateText: expect.stringMatching(/^relaunching( for \d+ s)?$/),
         });
         // B-11: the state paints before the motif, so it survives the
         // 32-column truncation (motif-first would cut it off).
@@ -3606,7 +3610,7 @@ describe("S2 launch file: detached, one at a time, in plan order, never ahead of
         expect(cappedRow()).toMatchObject({
           reason: "launch-cap",
           state: "launching",
-          stateText: "relance en cours",
+          stateText: expect.stringMatching(/^relance en cours( depuis \d+ s)?$/),
         });
         markBeforeSettle = x.stdout.mark();
         releaseK2();
@@ -5117,5 +5121,214 @@ describe("Rule 2 & 3 — Station terminalResponder promotion/demotion and catch-
       if (prevTerm === undefined) delete process.env["TERM"];
       else process.env["TERM"] = prevTerm;
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Panel ergonomics (Track request #20): width, one click, restorable list,
+// relaunch progress
+// ---------------------------------------------------------------------------
+
+/** Last painted screen row of the panel (starting at `panelCol`) that holds `needle`. */
+function panelRowOf(h: Harness, panelCol: number, needle: string, since = 0): number {
+  const rows = new Map<number, string>();
+  const re = /\x1b\[(\d+);(\d+)H([\s\S]*?)(?=\x1b\[\d+;\d+H|$)/g;
+  let match: RegExpExecArray | null;
+  const text = h.stdout.since(since);
+  while ((match = re.exec(text)) !== null) {
+    if (Number(match[2]) === panelCol) rows.set(Number(match[1]), plain(match[3]!));
+  }
+  for (const [row, line] of rows) if (line.includes(needle)) return row;
+  throw new Error(`no panel row holds ${JSON.stringify(needle)}: ${JSON.stringify([...rows.values()])}`);
+}
+
+const pressAt = (x: number, y: number): string => `\x1b[<0;${x};${y}M\x1b[<0;${x};${y}m`;
+
+describe("panel width: a share of the terminal, adjustable, remembered", () => {
+  it("should size the panel from the terminal when no width is configured", async () => {
+    const h = new Harness({ columns: 200, panelWidth: "auto" });
+    expect(await h.run()).toBe(0);
+    // 30 % of 200 columns: 60 for the panel, 140 for the session.
+    expect(h.fleet.session("h2a-api").resizes).toEqual([{ cols: 140, rows: 40 }]);
+    expect(h.persisted().state.panelWidth).toBeUndefined();
+  });
+
+  it("should widen by hand, resize the displayed session at once and reopen at that width", async () => {
+    const h = new Harness({ columns: 200, panelWidth: "auto" });
+    const api = h.fleet.session("h2a-api");
+    h.step(
+      (x) => {
+        x.focusPanel();
+        x.stdin.type("+");
+      },
+      (x) => {
+        expect(api.resizes).toEqual([{ cols: 140, rows: 40 }, { cols: 136, rows: 40 }]);
+        expect(x.persisted().state.panelWidth).toBe(64);
+        // The footer button narrows it back by one step.
+        x.stdin.type(pressAt(200 - 6, panelRowOf(x, 137, "/d /t")));
+      },
+      (x) => {
+        expect(api.resizes[api.resizes.length - 1]).toEqual({ cols: 140, rows: 40 });
+        expect(x.persisted().state.panelWidth).toBe(60);
+        x.stdin.type("++");
+      },
+      (x) => {
+        expect(x.persisted().state.panelWidth).toBe(68);
+      },
+    );
+    expect(await h.run()).toBe(0);
+    // The other sessions were never resized by the panel.
+    for (const other of h.fleet.all().filter((s) => s.id !== "h2a-api")) {
+      expect(other.resizes, other.id).toEqual([]);
+    }
+
+    const again = new Harness({
+      columns: 200,
+      panelWidth: "auto",
+      state: readFileSync(h.statePath, "utf8"),
+    });
+    expect(await again.run()).toBe(0);
+    expect(again.fleet.session("h2a-api").resizes).toEqual([{ cols: 132, rows: 40 }]);
+  });
+
+  it("should let an explicit width win over the remembered one", async () => {
+    const h = new Harness({
+      columns: 200,
+      panelWidth: 40,
+      state: JSON.stringify({ version: 1, panelWidth: 80, lastSessionByTab: {}, compatGuards: {} }),
+    });
+    expect(await h.run()).toBe(0);
+    expect(h.fleet.session("h2a-api").resizes).toEqual([{ cols: 160, rows: 40 }]);
+  });
+});
+
+describe("panel click: one click on a line switches to that session", () => {
+  it("should display the clicked session at once: no delay, no relaunch", async () => {
+    const h = new Harness();
+    let clickedAt = -1;
+    let delaysAtClick = 0;
+    let displayedAt = -1;
+    let delaysAtDisplay = 0;
+    h.listeners.push((event) => {
+      if (event.type === "displayed" && event.sessionId === "h2a-tracker") {
+        displayedAt = h.now;
+        delaysAtDisplay = h.delays.length;
+      }
+    });
+    h.step(
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api"]);
+        // The help is on screen before anything is clicked.
+        expect(squashed(x.stdout.text())).toContain("click: open the session");
+        clickedAt = x.now;
+        delaysAtClick = x.delays.length;
+        x.stdin.type(pressAt(x.stdout.columns - 2, panelRowOf(x, 129, "tracker")));
+      },
+      (x) => {
+        expect(x.displayed()).toEqual(["h2a-api", "h2a-tracker"]);
+        expect(x.heldByStation()).toContain("h2a-tracker");
+      },
+    );
+    expect(await h.run()).toBe(0);
+    // A live session is shown without a single timer and without any `h2a` call.
+    expect(displayedAt - clickedAt).toBe(0);
+    expect(delaysAtDisplay - delaysAtClick).toBe(0);
+    expect(h.execCalls).toEqual([]);
+    expect(h.of("switch-refused")).toEqual([]);
+  });
+});
+
+describe("restorable section: scans folded, relaunch progress readable", () => {
+  const scans = (home: string, count: number): DiscoveredSession[] =>
+    Array.from({ length: count }, (_, i) => ({
+      project: "h2a",
+      mtimeMs: 1_700_000_000_000 + i,
+      tool: "claude" as const,
+      sid: `scan-sid-${i}`,
+      cwd: join(home, "src", "h2a"),
+      origin: "scan" as const,
+      restoreClass: "unclassified" as const,
+    }));
+
+  it("should count the transcript scans apart and fold them behind one line", async () => {
+    const h = new Harness({
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+      ],
+      scanReader: (_maxAgeMs, home) => scans(home, 25),
+      station: { lazy: true },
+    });
+    const core = () => h.lastSnapshot().workspaces.find((w) => w.title === "core")!;
+    let mark = 0;
+    h.step(
+      (x) => {
+        expect(core().restorable).toHaveLength(26);
+        expect(core().restorableHeader).toBe("1 restorable + 25 scans");
+        mark = x.stdout.mark();
+        x.stdin.type(pressAt(x.stdout.columns - 2, panelRowOf(x, 129, "1 restorable")));
+      },
+      (x) => {
+        const painted = squashed(x.stdout.since(mark));
+        expect(painted).toContain("· k1 (deferred (--lazy))");
+        expect(painted).toContain("▸ 25 scans with no possibl");
+        expect(painted).not.toContain("unclassified-scan");
+      },
+    );
+    expect(await h.run()).toBe(0);
+    // Listing never relaunches: --lazy leaves every row to its gesture.
+    expect(h.execCalls).toEqual([]);
+  });
+
+  it("should say for how long a relaunch has been running, section collapsed", async () => {
+    const h = new Harness({
+      sessions: [
+        { id: "h2a-live", project: "h2a", label: "live", host: "/fake/host-1.sock", mtime: 1_700_000_100_000 },
+      ],
+      deadSessions: [
+        { id: "h2a-k1", project: "h2a", label: "k1", host: "", mtime: 1_700_000_050_000, convId: S2C1 },
+        { id: "h2a-k2", project: "h2a", label: "k2", host: "", mtime: 1_700_000_040_000, convId: S2C2 },
+      ],
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    h.execGate = async () => {
+      calls += 1;
+      if (calls === 1) await held;
+    };
+    const core = () => h.lastSnapshot().workspaces.find((w) => w.title === "core")!;
+    const row = (key: string) => core().restorable!.find((r) => r.key === key)!;
+    const startedAt = h.now;
+    const waitSeconds: Step[] = Array.from({ length: 30 }, () => tick);
+    h.step(
+      ...waitSeconds,
+      (x) => {
+        const elapsed = Math.floor((x.now - startedAt) / 1_000);
+        expect(elapsed).toBeGreaterThanOrEqual(2);
+        expect(row("registry:h2a-k1").state).toBe("launching");
+        const text = row("registry:h2a-k1").stateText ?? "";
+        expect(text).toMatch(/^relaunching for \d+ s$/);
+        // At most one second behind the clock: the row is repainted at 1 Hz.
+        expect(elapsed - Number(/\d+/.exec(text)![0])).toBeLessThanOrEqual(1);
+        expect(row("registry:h2a-k2").stateText).toBe("queued");
+        // The collapsed section still tells what the relaunch file is doing.
+        expect(core().restorableHeader).toBe("2 restorable · relaunch: 1 running, 1 queued");
+        expect(squashed(x.stdout.text())).toContain("2 restorable · relaunch: 1");
+        release();
+      },
+      tick, tick, tick, tick, tick, tick,
+      (x) => {
+        expect(row("registry:h2a-k1").stateText).toBe("ended");
+        expect(core().restorableHeader).not.toContain("relaunch:");
+        expect(x.execCalls).toHaveLength(2);
+      },
+    );
+    h.afterStation = waitForExecCalls(h, 2);
+    expect(await h.run()).toBe(0);
   });
 });
