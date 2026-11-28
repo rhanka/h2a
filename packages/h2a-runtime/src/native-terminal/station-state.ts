@@ -2,8 +2,9 @@
  * Persistent state of the station (S1, r4 §2).
  *
  * The file keeps only what the station cannot read back from a host: the
- * active tab, the last displayed session of each tab, and the local
- * compatibility guards held on hosts that predate the composer broker. The
+ * active tab, the last displayed session of each tab, the panel width chosen
+ * by hand, and the local compatibility guards held on hosts that predate the
+ * composer broker. The
  * manual pin, the drafts and every lease live in the host, never here.
  *
  * Reads are tolerant (absent or unreadable ⇒ empty state, never a launch
@@ -23,6 +24,9 @@ import { dirname } from "node:path";
 export const STATION_STATE_VERSION = 1 as const;
 export const STATION_STATE_FILE_NAME = "station-state.json";
 const STATION_STATE_MAX_BYTES = 1024 * 1024;
+/** Accepted range of a remembered panel width, in columns. */
+const STATION_PANEL_WIDTH_MIN = 20;
+const STATION_PANEL_WIDTH_MAX = 120;
 
 /** Identity of the lease a local compatibility guard was taken under. */
 export type StationCompatGuard = Readonly<{
@@ -32,6 +36,8 @@ export type StationCompatGuard = Readonly<{
 
 export type StationState = Readonly<{
   activeTab?: string;
+  /** Panel width chosen by hand; absent ⇒ the station sizes the panel itself. */
+  panelWidth?: number;
   lastSessionByTab: Readonly<Record<string, string>>;
   compatGuards: Readonly<Record<string, StationCompatGuard>>;
 }>;
@@ -78,8 +84,16 @@ function normalize(raw: unknown): StationState | undefined {
       }
     }
   }
+  const panelWidth =
+    typeof raw.panelWidth === "number" &&
+    Number.isInteger(raw.panelWidth) &&
+    raw.panelWidth >= STATION_PANEL_WIDTH_MIN &&
+    raw.panelWidth <= STATION_PANEL_WIDTH_MAX
+      ? raw.panelWidth
+      : undefined;
   return {
     ...(nonEmptyString(raw.activeTab) ? { activeTab: raw.activeTab } : {}),
+    ...(panelWidth !== undefined ? { panelWidth } : {}),
     lastSessionByTab,
     compatGuards,
   };
@@ -119,6 +133,7 @@ export function writeStationState(path: string, state: StationState): boolean {
     {
       version: STATION_STATE_VERSION,
       ...(state.activeTab !== undefined ? { activeTab: state.activeTab } : {}),
+      ...(state.panelWidth !== undefined ? { panelWidth: state.panelWidth } : {}),
       lastSessionByTab: state.lastSessionByTab,
       compatGuards: Object.fromEntries(
         Object.entries(state.compatGuards).map(([session, guard]) => [
@@ -164,6 +179,18 @@ export function withDisplayedSession(
 
 export function withActiveTab(state: StationState, tab: string): StationState {
   return { ...state, activeTab: tab };
+}
+
+/** Remember the panel width chosen by hand (out-of-range values are ignored). */
+export function withPanelWidth(state: StationState, width: number): StationState {
+  if (
+    !Number.isInteger(width) ||
+    width < STATION_PANEL_WIDTH_MIN ||
+    width > STATION_PANEL_WIDTH_MAX
+  ) {
+    return state;
+  }
+  return { ...state, panelWidth: width };
 }
 
 export function withCompatGuard(

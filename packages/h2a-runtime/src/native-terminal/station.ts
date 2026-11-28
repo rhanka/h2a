@@ -46,8 +46,9 @@ import type { PanelInputEvent } from "./panel-input.js";
 import {
   RightPanelController,
   buildRightPanelSnapshot,
+  explicitRightPanelWidth,
+  groupRestorableRows,
   panelDisplayColumns,
-  resolveRightPanelWidth,
   type RightPanelBarMarkerState,
   type RightPanelDraftCapabilityState,
   type RightPanelDraftRecoveryState,
@@ -84,6 +85,7 @@ import {
   withActiveTab,
   withCompatGuard,
   withDisplayedSession,
+  withPanelWidth,
   withoutCompatGuard,
   writeStationState,
   type StationState,
@@ -640,7 +642,12 @@ class Station {
   #scanCache = new TranscriptScanCache();
   /** S2 relaunch file: one call in flight for the whole station. */
   #relaunchQueue: RelaunchEntry[] = [];
-  #relaunchStates = new Map<string, { state: RightPanelRestorableRow["state"]; code?: string }>();
+  #relaunchStates = new Map<
+    string,
+    { state: RightPanelRestorableRow["state"]; code?: string; startedAt?: number }
+  >();
+  /** Last repaint of a relaunch in flight (elapsed seconds, at most 1 Hz). */
+  #relaunchProgressPaintedAt = 0;
   #relaunchInFlight: string | undefined;
   #pumpRunning = false;
   /** S2: D1 effects wait behind the file like every other relaunch. */
@@ -1188,8 +1195,55 @@ class Station {
       ...(reasonText !== undefined ? { reasonText } : {}),
       stateText: cappedOutsideLazy
         ? ""
-        : this.#t(`station.restorable.state.${state}`, { code: code ?? "unknown" }),
+        : this.#restorableStateText(state, code, progress?.startedAt),
     };
+  }
+
+  /**
+   * State line of a restorable row. A relaunch in flight for a second or
+   * more says for how long, so a slow resume never looks frozen.
+   */
+  #restorableStateText(
+    state: RightPanelRestorableRow["state"],
+    code: string | undefined,
+    startedAt: number | undefined,
+  ): string {
+    if (state === "launching" && startedAt !== undefined) {
+      const seconds = Math.floor((this.#runtime.now() - startedAt) / 1_000);
+      if (seconds >= 1) {
+        return this.#t("station.restorable.state.launchingFor", { seconds });
+      }
+    }
+    return this.#t(`station.restorable.state.${state}`, { code: code ?? "unknown" });
+  }
+
+  /**
+   * Header of the restorable section: the rows worth a line, the folded
+   * scans apart, and the relaunch file progress — readable while collapsed.
+   */
+  #restorableHeader(rows: readonly RightPanelRestorableRow[]): string {
+    const grouped = groupRestorableRows(rows);
+    let header = this.#t("station.restorable.header", {
+      count: grouped.archivedCount > 0 ? grouped.useful.length : rows.length,
+    });
+    if (grouped.archivedCount > 0) {
+      header += ` ${this.#t("station.restorable.archivedSuffix", { archived: grouped.archivedCount })}`;
+    }
+    const running = rows.filter((row) => row.state === "launching").length;
+    const queued = rows.filter((row) => row.state === "queued").length;
+    if (running > 0) {
+      header += ` · ${this.#t("station.restorable.progress", { running, queued })}`;
+    }
+    return header;
+  }
+
+  /** Repaint the elapsed time of a relaunch in flight, at most once a second. */
+  #tickRelaunchProgress(): void {
+    if (this.#relaunchInFlight === undefined || this.#ended) return;
+    const now = this.#runtime.now();
+    if (now - this.#relaunchProgressPaintedAt < 1_000) return;
+    this.#relaunchProgressPaintedAt = now;
+    this.#redecorate();
   }
 
   #decorate(snapshot: RightPanelSnapshot): RightPanelSnapshot {
@@ -1202,12 +1256,12 @@ class Station {
         title: workspace.title,
         sessions: workspace.sessions.map((row) => this.#decorateRow(row)),
         ...(workspace.restorable !== undefined
-          ? {
-              restorable: workspace.restorable.map((row) => this.#decorateRestorableRow(row)),
-              restorableHeader: this.#t("station.restorable.header", {
-                count: workspace.restorable.length,
-              }),
-            }
+          ? ((): Pick<RightPanelSnapshot["workspaces"][number], "restorable" | "restorableHeader"> => {
+              const restorable = workspace.restorable.map((row) =>
+                this.#decorateRestorableRow(row),
+              );
+              return { restorable, restorableHeader: this.#restorableHeader(restorable) };
+            })()
           : {}),
       })),
       // S2: a refused restore plan says its reason once, in the foot.
@@ -1421,7 +1475,11 @@ class Station {
             }
           }
           this.#relaunchInFlight = next.key;
-          this.#relaunchStates.set(next.key, { state: "launching" });
+          this.#relaunchStates.set(next.key, {
+            state: "launching",
+            startedAt: this.#runtime.now(),
+          });
+          this.#relaunchProgressPaintedAt = this.#runtime.now();
           this.#emit({ type: "relaunch", key: next.key, phase: "started" });
           if (!this.#ended) this.#redecorate();
           const result = await this.#execRelaunch(next);
@@ -1668,7 +1726,16 @@ class Station {
       } else if (action.type === "activate-extra-row") {
         this.#humanActivatedLine = true;
         this.#activateExtraRow(action.sessionId, action.rowId);
-      } else if (action.type === "toggle-restorable-expander") {
+      } else if (action.type === "resize-panel") {
+        // The width chosen by hand is remembered; the session follows it.
+        this.#persist(withPanelWidth(this.#state, action.width));
+        this.#bar?.onRightPanelGeometryChange();
+        this.#liveView()?.sendChildResize();
+        this.#panel.paint();
+      } else if (
+        action.type === "toggle-restorable-expander" ||
+        action.type === "toggle-restorable-archive"
+      ) {
         // Panel-internal: the controller already toggled its section.
       } else if (action.type === "activate-restorable-row") {
         this.#humanActivatedLine = true;
@@ -3344,6 +3411,7 @@ class Station {
       config = undefined;
     }
     const initial = buildRightPanelSnapshot({ groups: [], decisions: [], degraded: true });
+    const explicitWidth = options?.width ?? explicitRightPanelWidth(env, config);
     const stdout = this.#stdout;
     const started = (): boolean => this.#started;
     this.#panel = new RightPanelController({
@@ -3357,7 +3425,27 @@ class Station {
         write: (chunk: string) => (started() ? stdout.write(chunk) : true),
       },
       snapshot: initial,
-      width: options?.width ?? resolveRightPanelWidth(env, config),
+      // An explicit width (option, environment, configuration) is fixed.
+      // Otherwise the panel takes a bounded share of the terminal, unless a
+      // width was chosen by hand in an earlier run.
+      ...(explicitWidth !== undefined ? { width: explicitWidth } : { autoWidth: true }),
+      ...(explicitWidth === undefined && this.#state.panelWidth !== undefined
+        ? { userWidth: this.#state.panelWidth }
+        : {}),
+      resizable: true,
+      clickActivates: true,
+      groupRestorable: true,
+      labels: {
+        hints: [
+          this.#t("station.hint.click"),
+          this.#t("station.hint.expand"),
+          this.#t("station.hint.width"),
+          this.#t("station.hint.keyboard"),
+          this.#t("station.hint.quit"),
+        ],
+        archivedHeader: (count, groups) =>
+          this.#t("station.restorable.archivedHeader", { count, groups }),
+      },
       onOpen: () => {
         const updated = this.#refresher?.markCurrentDecisionsSeen();
         if (updated) this.#applySnapshot(updated);
@@ -3609,6 +3697,7 @@ class Station {
           pauseMs = IDLE_POLL_MAX_MS;
         }
         if (this.#ended || this.#request !== undefined) continue;
+        this.#tickRelaunchProgress();
         this.#emit({ type: "idle" });
         await this.#pause(pauseMs);
       }

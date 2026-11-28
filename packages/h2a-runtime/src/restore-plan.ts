@@ -451,7 +451,7 @@ export function reconcileRunConvIdsPure(
 ): ConvIdResolution {
   type HookConv = {
     convId: string;
-    title: string | undefined;
+    readonly title: string | undefined;
     lastSeenAt: string;
   };
   const hooksByCwd = new Map<string, HookConv[]>();
@@ -460,9 +460,21 @@ export function reconcileRunConvIdsPure(
       continue;
     if (!looksLikeConversationUuid(e.convId)) continue;
     const list = hooksByCwd.get(e.cwd) ?? [];
+    // The title is read on demand, at most once: only a run entry that
+    // still needs a label match pays for the transcripts of its cwd.
+    const convId = e.convId!;
+    const cwd = e.cwd;
+    let titleRead = false;
+    let titleValue: string | undefined;
     list.push({
-      convId: e.convId!,
-      title: customTitleFor(e.cwd, e.convId!),
+      convId,
+      get title(): string | undefined {
+        if (!titleRead) {
+          titleRead = true;
+          titleValue = customTitleFor(cwd, convId);
+        }
+        return titleValue;
+      },
       lastSeenAt: e.lastSeenAt,
     });
     hooksByCwd.set(e.cwd, list);

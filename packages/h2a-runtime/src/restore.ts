@@ -21,6 +21,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { guardTestStateMove, guardTestStateWrite } from "./test-state-guard.js";
+import { readFirstLine, readLastCustomTitle } from "./transcript-read.js";
 
 import {
   launchLayout,
@@ -259,26 +260,9 @@ export function readConversationCustomTitle(
     encodeCwd(cwd),
     `${convId}.jsonl`,
   );
-  let raw: string;
-  try {
-    raw = readFileSync(file, "utf8");
-  } catch {
-    return undefined; // no transcript / unreadable
-  }
-  let title: string | undefined;
-  for (const line of raw.split("\n")) {
-    // Cheap pre-filter: only parse the (rare) custom-title lines.
-    if (!line.includes('"custom-title"')) continue;
-    try {
-      const obj = JSON.parse(line) as { type?: string; customTitle?: unknown };
-      if (obj.type === "custom-title" && typeof obj.customTitle === "string") {
-        title = obj.customTitle;
-      }
-    } catch {
-      // ignore a malformed transcript line — keep the last good title
-    }
-  }
-  return title;
+  // Searched from the end on raw bytes and cached per file state: the
+  // transcript is never loaded whole (see transcript-read.ts).
+  return readLastCustomTitle(file);
 }
 
 export function reconcileRunConvIds(
@@ -351,10 +335,11 @@ function safeStat(p: string): { mtimeMs: number } | undefined {
 }
 
 function firstLineJson(file: string): any {
+  // Bounded: only the first line is read, never the whole transcript.
+  const line = readFirstLine(file);
+  if (line === undefined) return undefined;
   try {
-    const buf = readFileSync(file, "utf8");
-    const nl = buf.indexOf("\n");
-    return JSON.parse(nl === -1 ? buf : buf.slice(0, nl));
+    return JSON.parse(line);
   } catch {
     return undefined;
   }
